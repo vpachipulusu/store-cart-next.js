@@ -45,7 +45,7 @@ export default function Error({
           </div>
           <CardTitle className="text-2xl font-semibold">Something went wrong!</CardTitle>
           <CardDescription>
-            We encountered an unexpected error. Don't worry, we're on it!
+            We encountered an unexpected error. Don&apos;t worry, we&apos;re on it!
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

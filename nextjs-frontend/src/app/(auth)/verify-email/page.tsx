@@ -110,7 +110,7 @@ export default function VerifyEmailPage() {
           Verify your email
         </CardTitle>
         <CardDescription className="text-center">
-          We've sent a verification link to{" "}
+          We&apos;ve sent a verification link to{" "}
           <span className="font-medium text-foreground">{userEmail}</span>
         </CardDescription>
       </CardHeader>
@@ -130,7 +130,7 @@ export default function VerifyEmailPage() {
         <div className="text-center text-sm text-muted-foreground space-y-2">
           <p>Click the link in the email to verify your account.</p>
           <p>
-            If you don't see the email, check your spam folder or request a new
+            If you don&apos;t see the email, check your spam folder or request a new
             one.
           </p>
         </div>
@@ -153,7 +153,7 @@ export default function VerifyEmailPage() {
           </Button>
 
           <Button onClick={handleRefresh} className="w-full">
-            I've verified my email
+            I&apos;ve verified my email
           </Button>
         </div>
       </CardContent>

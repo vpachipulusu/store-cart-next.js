@@ -108,6 +108,44 @@ npm run test:e2e         # Run E2E tests
 npm run prisma:studio    # Open Prisma Studio
 ```
 
+## 🪝 Pre-commit hooks
+
+The repo root has a [`.pre-commit-config.yaml`](.pre-commit-config.yaml) (adapted from the
+vintasoftware/nextjs-fastapi-template). On every commit it checks only the staged files:
+
+| Area | Hooks |
+| --- | --- |
+| `fastapi_backend/` | ruff lint (`--fix`), ruff format, mypy, `requirements.txt` kept in sync with `uv.lock`, `openapi.json` freshness check |
+| `nextjs-frontend/` | eslint, prettier (`--write`), `tsc --noEmit` |
+| Whole repo | large files, merge conflicts, private keys, byte-order marks |
+
+**Prerequisites:** Node 22+, [uv](https://docs.astral.sh/uv/), and `sh` on your `PATH`
+(on Windows, run from Git Bash). Install the dependencies first, because the hooks use them:
+
+```bash
+(cd nextjs-frontend && npm ci)
+(cd fastapi_backend && uv sync)
+```
+
+**Install the hooks** (once per clone, from the repo root):
+
+```bash
+uvx pre-commit install                # or: cd fastapi_backend && uv run pre-commit install
+uvx pre-commit run --all-files        # optional: run every hook against the whole repo
+```
+
+Notes:
+
+- Hooks that rewrite files (ruff `--fix`/format, prettier, the `requirements.txt` sync) fail the
+  commit when they change something. Review the changes, `git add` them and commit again.
+- If you change `fastapi_backend/pyproject.toml`, run `uv lock` first; the hook regenerates
+  `requirements.txt` with `uv export --frozen --no-dev --no-hashes`.
+- The OpenAPI check is a placeholder until KAN-33 adds `nextjs-frontend/openapi.json` and the
+  generated client. Until then it passes with a notice.
+- `--all-files` also reports existing lint/type issues in code nobody has touched yet. Commits
+  are only checked against the files they change.
+- To skip the hooks in an emergency: `git commit --no-verify`.
+
 ## 🏢 Project Structure
 
 ```
