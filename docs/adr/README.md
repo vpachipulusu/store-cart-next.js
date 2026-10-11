@@ -21,6 +21,7 @@ Jira: [KAN-29](https://storecart.atlassian.net/browse/KAN-29). These records mus
 | [008](0008-api-client-generation.md) | Typed API client generated from OpenAPI | D16, D17 | Proposed |
 | [009](0009-email-with-resend.md) | Email through Resend from the backend | D22 | Proposed |
 | [010](0010-accounts-and-payments-model.md) | Account structure, seller of record and platform revenue | D3, D4, D9 | Proposed |
+| [011](0011-single-vercel-project-with-services.md) | One Vercel project with services (supersedes ADR-002's two projects) | D10, D13, D14 | Proposed |
 
 ### Coverage of the plan's decision table
 

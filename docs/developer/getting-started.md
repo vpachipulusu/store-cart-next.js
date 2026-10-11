@@ -102,4 +102,6 @@ It writes to the path in `OPENAPI_OUTPUT_FILE`.
 
 Run the frontend on port 3000 and the backend on port 8000. On `main`, the frontend does not call FastAPI yet. Wiring happens in KAN-33, after which the Next.js server reads `BACKEND_API_URL`. The browser never calls port 8000 directly ([ADR-003](../adr/0003-nextjs-to-fastapi-authentication.md)).
 
+**Running both together like Vercel does:** from the repository root, `vercel dev -L` starts both services from the root `vercel.json` and injects `BACKEND_API_URL` (the service binding) automatically ([ADR-011](../adr/0011-single-vercel-project-with-services.md)). When you run the apps separately instead, set `BACKEND_API_URL=http://127.0.0.1:8000` in `nextjs-frontend/.env.local`. On Vercel the binding sets it; never set it by hand there. The binding is not available in `src/proxy.ts` or during `next build`.
+
 Next steps: [testing.md](testing.md) for the test commands, [architecture.md](architecture.md) for the request flow.
