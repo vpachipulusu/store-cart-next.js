@@ -29,6 +29,21 @@ if (missing.length > 0) {
   process.exit(1);
 }
 
+/** Only accounts this script generated may be touched, so a real user's email in the file can never be reset. */
+const E2E_EMAIL = /^e2e-(user|admin)-[0-9a-f]{12}@example\.com$/;
+/** Marks the accounts for cleanup (KAN-131). */
+const E2E_CLAIMS = { e2e: true };
+const LOCAL_DB_HOSTS = new Set(['localhost', '127.0.0.1', '::1', 'db']);
+
+function assertLocalDatabase() {
+  const url = process.env.DATABASE_URL;
+  const host = url ? new URL(url).hostname : '';
+  if (!LOCAL_DB_HOSTS.has(host)) {
+    console.error(`Refusing to run: DATABASE_URL must point at a local database, not "${host || 'unset'}".`);
+    process.exit(1);
+  }
+}
+
 const randomSuffix = () => randomBytes(6).toString('hex');
 const randomPassword = () => randomBytes(24).toString('base64url');
 
@@ -43,20 +58,32 @@ function loadOrCreateCredentials() {
   const body = Object.entries(credentials)
     .map(([key, value]) => `${key}=${value}`)
     .join('\n');
+  // mode only applies on POSIX, when the file is first created; the file is gitignored either way.
   writeFileSync(E2E_ENV_FILE, `# e2e test accounts (KAN-113). Generated; do not commit.\n${body}\n`, {
     mode: 0o600,
   });
   return credentials;
 }
 
-async function ensureFirebaseUser(auth, email, password, displayName) {
+async function findUserByEmail(auth, email) {
   try {
-    const existing = await auth.getUserByEmail(email);
-    return auth.updateUser(existing.uid, { password, emailVerified: true, disabled: false });
+    return await auth.getUserByEmail(email);
   } catch (error) {
-    if (error?.code !== 'auth/user-not-found') throw error;
-    return auth.createUser({ email, password, emailVerified: true, displayName });
+    if (error?.code === 'auth/user-not-found') return null;
+    throw error;
   }
+}
+
+async function ensureFirebaseUser(auth, email, password, displayName) {
+  if (!E2E_EMAIL.test(email)) {
+    throw new Error(`Refusing to touch "${email}": e2e accounts must match ${E2E_EMAIL}`);
+  }
+  const existing = await findUserByEmail(auth, email);
+  const user = existing
+    ? await auth.updateUser(existing.uid, { password, emailVerified: true })
+    : await auth.createUser({ email, password, emailVerified: true, displayName });
+  await auth.setCustomUserClaims(user.uid, { ...(user.customClaims ?? {}), ...E2E_CLAIMS });
+  return user;
 }
 
 async function ensureDbUser(prisma, firebaseUser, displayName) {
@@ -77,6 +104,7 @@ async function ensureDbUser(prisma, firebaseUser, displayName) {
 }
 
 async function main() {
+  assertLocalDatabase();
   const credentials = loadOrCreateCredentials();
   const auth = getAuth(
     initializeApp({

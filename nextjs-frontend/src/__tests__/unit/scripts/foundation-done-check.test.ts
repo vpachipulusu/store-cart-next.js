@@ -128,6 +128,7 @@ describe('scanForServerSecrets', () => {
           'process.env.NEXT_PUBLIC_MAPS_API_KEY',
           'process.env.SENTRY_AUTH_TOKEN',
           'process.env.TEST_USER_PASSWORD',
+          'process.env.BACKEND_INTERNAL_KEY',
         ].join('\n')
       ),
       file('.env.example', 'OPENAI_API_KEY=\nNEXT_PUBLIC_APP_URL=http://localhost:3000'),

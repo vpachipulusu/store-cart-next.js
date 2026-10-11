@@ -75,9 +75,9 @@ updateUserSubscriptionAction is counted under KAN-48, but that mapping is uncert
 | signUpAction | none | `email, password, displayName?`. Zod `signUpSchema` (passwordSchema, displayName min 2) | `{message}` | first Zod msg; msg | none. A no-op. Unused | KAN-41: delete |
 | logoutAction | cookie (unverified ok) | — | `{message}` | msg | Firebase `verifySessionCookie(…, false)` + `revokeRefreshTokens` (errors swallowed); deletes cookies `session`, `email-verified`. **UI** (admin and dashboard headers) | KAN-37 `DELETE /v1/auth/session` + KAN-41 |
 | verifyTokenAction | Firebase ID token | `idToken: string, metadata?: {selectedPlan?: string}` | `{user:{id, firebaseUid, email, emailVerified, displayName, avatarUrl, subscriptionTier, subscriptionStatus, isAdmin}}` | `'Email not found in token'`; msg (bad token) | Firebase `verifyIdToken`, `getUser`, `createSessionCookie` (5 days). Creates or updates `users` (tier = `selectedPlan` ⚠). Creates `user_settings`. Creates a `login_history` row with geo-IP lookup (`getLocationFromIP`). Notifications: `notifyEmailVerified`, `notifyNewDeviceLogin`. Sets cookies `session` (httpOnly) and `email-verified` (not httpOnly). **UI** (login, signup, OAuth, verify-email, use-session-refresh) | KAN-37 `POST /v1/auth/session` + KAN-41. Notification side effects: switch off (KAN-40) |
-| syncUserAction | **none** ⚠ | `firebaseUid: string` | `{user}` (full row) | msg | Firebase `getUser`; upserts `users`. Unused | KAN-37 (fold into the session sync); delete |
+| ~~syncUserAction~~ (removed, KAN-122) | **none** ⚠ | `firebaseUid: string` | `{user}` (full row) | msg | Firebase `getUser`; upserts `users`. Unused | KAN-37 (fold into the session sync); delete |
 | getCurrentSessionAction | user (cookie) | — | `{user:{…, isAdmin, settings}}` | `'No session found'`, `'User not found'`, msg | On failure, deletes cookies `session` and `email-verified`. Unused | KAN-37/KAN-38 `GET /v1/me` + KAN-41 |
-| requestPasswordResetAction | **none** ⚠ | `email` (emailSchema) | `{message, resetLink}` ⚠ | `'Invalid email format'`; msg (reveals unknown email) | Firebase `generatePasswordResetLink`. **No email is sent. The link is returned to the caller.** Unused | KAN-41: replace with client `sendPasswordResetEmail`; delete |
+| ~~requestPasswordResetAction~~ (removed, KAN-122) | **none** ⚠ | `email` (emailSchema) | `{message, resetLink}` ⚠ | `'Invalid email format'`; msg (reveals unknown email) | Firebase `generatePasswordResetLink`. **No email is sent. The link is returned to the caller.** Unused | KAN-41: replace with client `sendPasswordResetEmail`; delete |
 | verifyEmailAction | none | `oobCode: string` | `{message}` | msg | Firebase **client** SDK `applyActionCode` called on the server. Unused | KAN-41: client-side only; delete |
 
 ## src/app/actions/font-actions.ts (1) and theme-actions.ts (1)
@@ -292,9 +292,9 @@ There are 12 page and layout files. The plan says "10 pages" because it counts t
 14. Page count: the plan says 10 Prisma pages; the code has 12 files. The two layouts are the difference.
 
 **Security, seen in passing (fix or make sure the port does not carry it over)**
-15. **Critical:** `requestPasswordResetAction` needs no auth and **returns the Firebase password-reset link to the caller**. Anyone who calls the server action with a victim's email can take over that account. It is unused, but exported server actions can be called directly. Remove it now or in KAN-41.
-16. **High:** `verifyTokenAction` sets `subscriptionTier` on new users from the client-supplied `metadata.selectedPlan`, so a user can self-assign `enterprise` without paying.
-17. **High:** `syncUserAction` (no auth) upserts a `users` row for any `firebaseUid`.
+15. ✅ **Fixed in KAN-122 (PR #4): action removed.** **Critical:** `requestPasswordResetAction` needs no auth and **returns the Firebase password-reset link to the caller**. Anyone who calls the server action with a victim's email can take over that account. It is unused, but exported server actions can be called directly. Remove it now or in KAN-41.
+16. ✅ **Fixed in KAN-122 (PR #4): new users always start on free.** **High:** `verifyTokenAction` sets `subscriptionTier` on new users from the client-supplied `metadata.selectedPlan`, so a user can self-assign `enterprise` without paying.
+17. ✅ **Fixed in KAN-122 (PR #4): action removed.** **High:** `syncUserAction` (no auth) upserts a `users` row for any `firebaseUid`.
 18. **High:** `updateUserProfileAction` returns the full `users` row to the browser (`twoFactorSecret`, Stripe ids, `firebaseUid`). `getUserByIdAction` does the same for admins.
 19. **High:** 2FA is never enforced at login. `verifyTokenAction` ignores `twoFactorEnabled`, so TOTP is cosmetic. The secret is stored in plaintext and returned at setup. KAN-39 must enforce it and encrypt the secret.
 20. **High:** the email-verification gate in `proxy.ts` trusts the non-httpOnly, client-writable `email-verified` cookie.
