@@ -25,8 +25,8 @@ export default async function ContactPage({
         <div className="mb-12 text-center">
           <h1 className="mb-4 text-4xl tracking-tight">Contact Us</h1>
           <p className="mx-auto max-w-2xl text-xl text-muted-foreground">
-            Have questions? We'd love to hear from you. Send us a message and we'll respond as soon
-            as possible.
+            Have questions? We&apos;d love to hear from you. Send us a message and we&apos;ll
+            respond as soon as possible.
           </p>
           {selectedPlan && (
             <p className="mt-4 text-sm text-primary">
@@ -42,7 +42,7 @@ export default async function ContactPage({
               <CardHeader>
                 <CardTitle>Send us a message</CardTitle>
                 <CardDescription>
-                  Fill out the form below and we'll get back to you within 24 hours.
+                  Fill out the form below and we&apos;ll get back to you within 24 hours.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -101,7 +101,11 @@ export default async function ContactPage({
                     />
                   </div>
 
-                  <Button type="submit" size="lg" className="w-full bg-theme-accent text-white hover:bg-theme-accent-dark">
+                  <Button
+                    type="submit"
+                    size="lg"
+                    className="w-full bg-theme-accent text-white hover:bg-theme-accent-dark"
+                  >
                     <Send className="mr-2 h-4 w-4" />
                     Send Message
                   </Button>

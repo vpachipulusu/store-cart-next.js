@@ -116,7 +116,8 @@ export function AddMetaDialog() {
                 required
               />
               <p className="text-xs text-muted-foreground">
-                Use "/" for homepage, or paths like "/about", "/pricing"
+                Use &quot;/&quot; for homepage, or paths like &quot;/about&quot;,
+                &quot;/pricing&quot;
               </p>
             </div>
 

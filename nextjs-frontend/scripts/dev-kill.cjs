@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable @typescript-eslint/no-require-imports -- CommonJS script (.cjs) */
 
 const { exec } = require('child_process');
 const fs = require('fs');
@@ -35,7 +36,7 @@ if (process.platform === 'win32') {
 
       if (pids.size > 0) {
         console.log(`Found ${pids.size} process(es) on port 3000`);
-        pids.forEach(pid => {
+        pids.forEach((pid) => {
           exec(`taskkill /F /PID ${pid}`, (err) => {
             if (!err) {
               console.log(`✓ Killed process ${pid}`);
@@ -62,7 +63,10 @@ if (process.platform === 'win32') {
 
   exec('lsof -ti:3000', (error, stdout) => {
     if (stdout && stdout.trim()) {
-      const pids = stdout.trim().split('\n').filter(pid => pid !== String(process.pid));
+      const pids = stdout
+        .trim()
+        .split('\n')
+        .filter((pid) => pid !== String(process.pid));
 
       if (pids.length > 0) {
         exec(`kill -9 ${pids.join(' ')}`, (err) => {

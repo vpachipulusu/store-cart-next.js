@@ -1,5 +1,5 @@
-import Link from "next/link";
-import { PasswordResetForm } from "@/components/auth/password-reset-form";
+import Link from 'next/link';
+import { PasswordResetForm } from '@/components/auth/password-reset-form';
 import {
   Card,
   CardContent,
@@ -7,18 +7,18 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card";
+} from '@/components/ui/card';
 
 export const metadata = {
-  title: "Reset Password",
-  description: "Reset your password",
+  title: 'Reset Password',
+  description: 'Reset your password',
 };
 
 export default function ResetPasswordPage() {
   return (
     <Card>
       <CardHeader className="space-y-1">
-        <div className="flex justify-center mb-4">
+        <div className="mb-4 flex justify-center">
           <div className="rounded-full bg-theme-accent/10 p-3">
             <svg
               className="h-6 w-6 text-theme-accent"
@@ -35,24 +35,18 @@ export default function ResetPasswordPage() {
             </svg>
           </div>
         </div>
-        <CardTitle className="text-2xl text-center">
-          Reset your password
-        </CardTitle>
+        <CardTitle className="text-center text-2xl">Reset your password</CardTitle>
         <CardDescription className="text-center">
-          Enter your email address and we'll send you a link to reset your
-          password
+          Enter your email address and we&apos;ll send you a link to reset your password
         </CardDescription>
       </CardHeader>
       <CardContent>
         <PasswordResetForm />
       </CardContent>
       <CardFooter>
-        <p className="text-center text-sm text-muted-foreground w-full">
-          Remember your password?{" "}
-          <Link
-            href="/login"
-            className="font-medium text-primary hover:underline"
-          >
+        <p className="w-full text-center text-sm text-muted-foreground">
+          Remember your password?{' '}
+          <Link href="/login" className="font-medium text-primary hover:underline">
             Sign in
           </Link>
         </p>

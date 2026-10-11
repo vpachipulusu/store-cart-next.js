@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable @typescript-eslint/no-require-imports -- CommonJS script (.cjs) */
 
 /**
  * Clean development script
@@ -30,7 +31,7 @@ try {
     // Windows: Check for Node processes running Next.js
     const processes = execSync('tasklist /FI "IMAGENAME eq node.exe" /FO CSV /NH', {
       encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'ignore']
+      stdio: ['pipe', 'pipe', 'ignore'],
     });
 
     if (processes.includes('node.exe')) {
