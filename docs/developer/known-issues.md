@@ -48,6 +48,6 @@ Open bug tickets from the KAN-113 parity inventory (council triage, 2026-10-11).
 - KAN-130: unauthenticated `/api/test-logging` route (confirmed; delete).
 - KAN-131: move the e2e test accounts to a separate Firebase project and delete them before launch.
 - KAN-136: `firebase-admin` initialises at import, so `npm run build` needs `FIREBASE_ADMIN_*`.
-- KAN-137: raised in the KAN-133 verification; see Jira for the summary.
+- KAN-137: the `src/proxy.ts` API gate only checks that some Bearer header or `session` cookie is present (any value passes), so every `/api/*` handler must verify the session itself; also a logout CSRF via `GET /api/auth/clear-session` and a spoofable `x-forwarded-for` IP stored in login history (needs triage; fix in the E3 port).
 - KAN-138: `npm audit` reports 71 vulnerabilities, 10 critical.
 - KAN-139: PO decision on the 80% coverage rule (frontend coverage is about 2%).
