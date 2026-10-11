@@ -1,0 +1,5318 @@
+# SaaS Boilerplate Application - Complete Specification (Next.js 16)
+
+Create a production-ready SaaS boilerplate application with the following modern tech stack and comprehensive testing coverage:
+
+## Core Technology Stack
+
+### Frontend
+- **Next.js 16** (App Router with TypeScript)
+- **React 19** with Server/Client Components and Server Actions
+- **shadcn/ui** with Tailwind CSS (replacing Material-UI)
+- **Radix UI** primitives for accessible components
+- **TanStack Query v5** for server state management and caching
+- **Zustand v5** for client state management
+- **Tailwind CSS v4** for styling
+- **Responsive design** with mobile-first approach
+- **next/font** for optimized font loading
+
+### Backend
+- **Next.js 16 API Routes** and Server Actions
+- **Prisma ORM v6** with PostgreSQL database
+- **Lucia Auth v4** (modern alternative to Firebase Auth)
+- **Server Actions** for mutations and form handling
+- **Middleware-based** authentication and rate limiting
+- **Parallel Routes** for advanced layouts
+- **Intercepting Routes** for modals
+
+### Payment & Subscriptions
+- **Stripe integration** with webhook handling using Server Actions
+- **Stripe Elements v2** with modern UI components
+- **Subscription tiers** (Free, Pro, Enterprise)
+- **Customer portal** for subscription management
+- **Usage tracking** and billing
+- **React Server Actions** for payment processing
+
+### Testing & Quality Assurance
+- **Vitest** for unit and integration testing (faster than Jest)
+- **React Testing Library v16** for component testing
+- **Playwright v1.50+** for E2E testing
+- **BDD approach** with Behavior-Driven Development patterns
+- **Test coverage** minimum 80% for business logic
+- **MSW v2** (Mock Service Worker) for API mocking
+- **Testing Library User Event v14** for user interactions
+
+### Deployment
+- **Vercel-optimized** configuration with Next.js 16
+- **Edge Runtime** support with middleware
+- **Partial Prerendering (PPR)** enabled
+- **Turbopack** for faster development
+- **Environment variable** management
+- **CI/CD pipeline** with automated testing
+- **Server Actions** for zero-client JavaScript mutations
+- **Capacitor v6** for native mobile deployment (iOS App Store & Google Play Store)
+- **Progressive Web App (PWA)** ready with next-pwa
+- **Mobile-first responsive design** for seamless native experience
+
+---
+
+## Authentication & Authorization
+
+### User Authentication
+- Firebase Authentication with email/password and OAuth (Google, GitHub)
+- Firebase Admin SDK for server-side verification
+- Server Actions for auth mutations
+- Protected routes with Next.js 16 middleware
+- Session management with Firebase ID tokens
+- Login history tracking with IP and device info
+- Email verification flow
+- Password reset functionality
+- Two-factor authentication (2FA) ready
+
+### User Profile System
+- Complete profile management (display name, bio, avatar, location, website, phone)
+- Settings management (preferences, notifications, API keys)
+- Account security features (password change, 2FA)
+- Last login tracking
+- Account deletion with data export
+- Server Actions for all mutations
+
+---
+
+## Database Schema (Prisma v6)
+
+### Core User Models
+```prisma
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User Model with Firebase Auth
+model User {
+  id            String    @id @default(cuid())
+  firebaseUid   String    @unique
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLoginAt   DateTime?
+  
+  // Profile
+  displayName   String?
+  bio           String?   @db.Text
+  avatarUrl     String?
+  location      String?
+  website       String?
+  phoneNumber   String?
+  
+  // Subscription
+  stripeCustomerId       String?   @unique
+  stripeSubscriptionId   String?   @unique
+  stripePriceId          String?
+  stripeCurrentPeriodEnd DateTime?
+  subscriptionTier       String    @default("free")
+  subscriptionStatus     String    @default("inactive")
+  
+  // Relations
+  settings      UserSettings?
+  loginHistory  LoginHistory[]
+  notifications Notification[]
+  adminUser     AdminUser?
+  
+  @@index([email])
+  @@index([firebaseUid])
+  @@map("users")
+}
+
+model UserSettings {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Preferences
+  theme              String   @default("system") // "light", "dark", "system"
+  emailNotifications Boolean  @default(true)
+  language           String   @default("en")
+  timezone           String   @default("UTC")
+  
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  
+  @@map("user_settings")
+}
+
+model LoginHistory {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  ipAddress   String?
+  userAgent   String?
+  location    String?
+  loginAt     DateTime @default(now())
+  successful  Boolean  @default(true)
+  
+  @@index([userId, loginAt])
+  @@map("login_history")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  type      String
+  title     String
+  message   String   @db.Text
+  read      Boolean  @default(false)
+  link      String?
+  
+  createdAt DateTime @default(now())
+  
+  @@index([userId, read])
+  @@map("notifications")
+}
+
+model AdminUser {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  role        String   @default("admin") // "admin", "super_admin"
+  permissions Json     // Array of permission strings
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([userId, role])
+  @@map("admin_users")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  
+  action      String   // e.g., "user.created", "subscription.updated"
+  resource    String   // e.g., "User", "Subscription"
+  resourceId  String?
+  metadata    Json?    // Additional context data
+  ipAddress   String?
+  userAgent   String?
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@index([resource, resourceId])
+  @@map("audit_logs")
+}
+
+model SEOMeta {
+  id            String   @id @default(cuid())
+  page          String   @unique // e.g., "/", "/pricing", "/about"
+  
+  title         String
+  description   String
+  keywords      String?
+  ogTitle       String?
+  ogDescription String?
+  ogImage       String?
+  twitterCard   String?  @default("summary_large_image")
+  canonical     String?
+  noindex       Boolean  @default(false)
+  nofollow      Boolean  @default(false)
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  @@index([page])
+  @@map("seo_meta")
+}
+
+model URLRedirect {
+  id         String   @id @default(cuid())
+  fromPath   String   @unique
+  toPath     String
+  statusCode Int      @default(301) // 301 or 302
+  enabled    Boolean  @default(true)
+  
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  
+  @@index([fromPath, enabled])
+  @@map("url_redirects")
+}
+
+model AppSettings {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       Json
+  category    String   // e.g., "general", "features", "pricing", "email"
+  description String?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([category])
+  @@map("app_settings")
+}
+
+model FeatureFlag {
+  id                String   @id @default(cuid())
+  name              String   @unique
+  enabled           Boolean  @default(false)
+  description       String?
+  rolloutPercentage Int      @default(0) // 0-100
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@index([name, enabled])
+  @@map("feature_flags")
+}
+
+model EmailTemplate {
+  id        String   @id @default(cuid())
+  name      String   @unique // e.g., "welcome", "password-reset"
+  subject   String
+  htmlBody  String   @db.Text
+  textBody  String?  @db.Text
+  variables Json?    // Array of variable names used in template
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([name])
+  @@map("email_templates")
+}
+```
+
+---
+
+## Project Structure (Next.js 16 App Router)
+
+```
+src/
+  __tests__/                      # Test files (Vitest)
+    unit/                         # Unit tests
+      services/
+        auth.service.test.ts
+        user.service.test.ts
+        subscription.service.test.ts
+      utils/
+        validation.test.ts
+        encryption.test.ts
+    integration/                  # Integration tests
+      api/
+        auth.test.ts
+        user.test.ts
+      actions/                    # Server Actions tests
+        auth-actions.test.ts
+        user-actions.test.ts
+    e2e/                         # E2E tests (Playwright)
+      auth.spec.ts
+      dashboard.spec.ts
+      admin.spec.ts
+    fixtures/                     # Test data
+      users.ts
+      subscriptions.ts
+    helpers/                      # Test utilities
+      setup.ts
+      test-utils.tsx
+  
+  app/                           # Next.js 16 App Router
+    # Public routes
+    (marketing)/                 # Route group for marketing pages
+      page.tsx                   # Landing page
+      pricing/
+        page.tsx
+      about/
+        page.tsx
+      contact/
+        page.tsx
+      layout.tsx                 # Marketing layout
+    
+    # Auth routes
+    (auth)/                      # Route group for authentication
+      login/
+        page.tsx
+      signup/
+        page.tsx
+      verify-email/
+        page.tsx
+      reset-password/
+        page.tsx
+      layout.tsx                 # Auth layout (centered, minimal)
+    
+    # Customer dashboard (protected)
+    (dashboard)/                 # Route group for customer dashboard
+      dashboard/
+        page.tsx                 # Customer dashboard home
+        @analytics/              # Parallel route for analytics
+          page.tsx
+        @stats/                  # Parallel route for stats
+          page.tsx
+        layout.tsx               # Dashboard layout with slots
+      profile/
+        page.tsx
+        edit/
+          page.tsx
+      settings/
+        page.tsx
+        billing/
+          page.tsx
+        security/
+          page.tsx
+        notifications/
+          page.tsx
+      subscription/
+        page.tsx
+      layout.tsx                 # Customer layout with sidebar
+    
+    # Admin dashboard (protected, separate)
+    (admin)/                     # Route group for admin
+      admin/
+        page.tsx                 # Admin dashboard overview
+        @sidebar/                # Parallel route for sidebar
+          default.tsx
+        users/
+          page.tsx               # User management list
+          [id]/
+            page.tsx             # User details
+            @modal/              # Intercepting route for modal
+              page.tsx
+          loading.tsx
+        subscriptions/
+          page.tsx
+          analytics/
+            page.tsx
+        analytics/
+          page.tsx
+          revenue/
+            page.tsx
+          users/
+            page.tsx
+        seo/
+          page.tsx
+          meta-tags/
+            page.tsx
+          sitemap/
+            page.tsx
+          redirects/
+            page.tsx
+        settings/
+          page.tsx
+          general/
+            page.tsx
+          features/
+            page.tsx
+          pricing/
+            page.tsx
+          email-templates/
+            page.tsx
+        audit-logs/
+          page.tsx
+        layout.tsx               # Admin layout (separate from customer)
+    
+    # API Routes
+    api/
+      auth/
+        login/
+          route.ts
+        logout/
+          route.ts
+        signup/
+          route.ts
+      webhooks/
+        stripe/
+          route.ts
+      # Admin API routes
+      admin/
+        users/
+          route.ts
+          [id]/
+            route.ts
+        subscriptions/
+          route.ts
+        analytics/
+          route.ts
+    
+    # Server Actions (new in Next.js 16)
+    actions/
+      auth-actions.ts            # Login, signup, logout actions
+      user-actions.ts            # Profile, settings actions
+      subscription-actions.ts    # Subscription management
+      admin/
+        user-actions.ts          # Admin user management
+        subscription-actions.ts  # Admin subscription management
+        seo-actions.ts           # SEO management
+        settings-actions.ts      # App settings management
+    
+    layout.tsx                   # Root layout
+    error.tsx                    # Error boundary
+    loading.tsx                  # Root loading state
+    not-found.tsx                # 404 page
+  
+  components/                    # React components (shadcn/ui based)
+    ui/                          # shadcn/ui components
+      button.tsx
+      card.tsx
+      input.tsx
+      label.tsx
+      table.tsx
+      dialog.tsx
+      dropdown-menu.tsx
+      select.tsx
+      toast.tsx
+      avatar.tsx
+      badge.tsx
+      form.tsx
+      loading-spinner.tsx
+      data-table.tsx             # Reusable data table
+      date-range-picker.tsx
+      search-input.tsx
+    
+    # Customer-facing components
+    customer/
+      dashboard/
+        stats-card.tsx
+        activity-feed.tsx
+        quick-actions.tsx
+      profile/
+        profile-form.tsx
+        avatar-upload.tsx
+      subscription/
+        pricing-card.tsx
+        subscription-manager.tsx
+        billing-history.tsx
+      settings/
+        theme-toggle.tsx
+        notification-settings.tsx
+    
+    # Admin components (completely separated)
+    admin/
+      layout/
+        admin-sidebar.tsx
+        admin-header.tsx
+        admin-nav.tsx
+      dashboard/
+        metrics-grid.tsx
+        revenue-chart.tsx
+        user-growth-chart.tsx
+      users/
+        user-table.tsx
+        user-details-panel.tsx
+        user-actions-menu.tsx
+        suspend-user-dialog.tsx
+      subscriptions/
+        subscription-table.tsx
+        subscription-stats.tsx
+      analytics/
+        analytics-chart.tsx
+        metrics-card.tsx
+        export-button.tsx
+      seo/
+        seo-meta-form.tsx
+        sitemap-generator.tsx
+        redirect-manager.tsx
+      settings/
+        feature-flag-toggle.tsx
+        pricing-tier-editor.tsx
+        email-template-editor.tsx
+      audit-logs/
+        audit-log-viewer.tsx
+        log-filters.tsx
+    
+    # Shared/common components
+    layout/
+      site-header.tsx
+      site-footer.tsx
+      mobile-nav.tsx
+    auth/
+      login-form.tsx
+      signup-form.tsx
+      password-reset-form.tsx
+      oauth-buttons.tsx
+    providers/
+      theme-provider.tsx
+      query-provider.tsx
+      toast-provider.tsx
+  
+  lib/
+    # Zustand stores
+    stores/
+      auth-store.ts              # Client auth state
+      theme-store.ts             # Theme preferences
+      admin-store.ts             # Admin data cache
+    
+    # Database
+    db/
+      client.ts                  # Prisma client singleton
+      users.ts
+      sessions.ts
+      admin/
+        users.ts
+        subscriptions.ts
+        analytics.ts
+        seo.ts
+    
+    # Services
+    services/
+      auth.service.ts
+      user.service.ts
+      subscription.service.ts
+      email.service.ts
+      admin/
+        user-management.service.ts
+        analytics.service.ts
+        seo.service.ts
+    
+    # Utilities
+    utils/
+      cn.ts                      # Tailwind class name merger
+      validation.ts
+      encryption.ts
+      date.ts
+      permissions.ts
+      server-utils.ts            # Server-only utilities
+    
+    # Firebase Auth setup
+    firebase/
+      client.ts                  # Firebase client app
+      admin.ts                   # Firebase Admin SDK
+      auth-helpers.ts            # Auth helper functions
+    
+    # Stripe
+    stripe/
+      client.ts
+      webhooks.ts
+      subscriptions.ts
+    
+    # Middleware
+    middleware/
+      rate-limit.ts
+      admin-auth.ts
+  
+  styles/
+    globals.css                  # Tailwind base styles
+  
+  config/
+    site.ts                      # Site configuration
+    subscriptions.ts             # Subscription tiers config
+  
+prisma/
+  schema.prisma
+  migrations/
+  
+public/
+  fonts/
+  images/
+  icons/                         # PWA and mobile app icons
+    icon-72x72.png
+    icon-96x96.png
+    icon-128x128.png
+    icon-144x144.png
+    icon-152x152.png
+    icon-192x192.png
+    icon-384x384.png
+    icon-512x512.png
+  manifest.json                  # PWA manifest
+  
+# Capacitor mobile configuration
+ios/                             # iOS native project (generated)
+android/                         # Android native project (generated)
+capacitor.config.ts              # Capacitor configuration
+
+.github/
+  workflows/
+    ci.yml                       # CI/CD pipeline
+    mobile-build.yml             # Mobile app build pipeline
+
+
+---
+
+## Testing Strategy & BDD Implementation
+
+### Test Structure (BDD Pattern with Vitest)
+
+Each business logic module should have comprehensive test coverage following BDD:
+
+```typescript
+// Example: src/__tests__/unit/utils/validation.test.ts
+import { describe, it, expect } from 'vitest';
+import {
+  validateEmail,
+  validatePassword,
+} from '@/lib/utils/validation';
+
+describe('Validation Utils', () => {
+  describe('Email Validation', () => {
+    describe('Given a valid email address', () => {
+      it('should return true for standard email format', () => {
+        expect(validateEmail('user@example.com')).toBe(true);
+      });
+
+      it('should return true for email with subdomains', () => {
+        expect(validateEmail('user@mail.example.com')).toBe(true);
+      });
+
+      it('should return true for email with plus addressing', () => {
+        expect(validateEmail('user+tag@example.com')).toBe(true);
+      });
+    });
+
+    describe('Given an invalid email address', () => {
+      it('should return false for missing @ symbol', () => {
+        expect(validateEmail('userexample.com')).toBe(false);
+      });
+
+      it('should return false for missing domain', () => {
+        expect(validateEmail('user@')).toBe(false);
+      });
+
+      it('should return false for spaces in email', () => {
+        expect(validateEmail('user @example.com')).toBe(false);
+      });
+
+      it('should return false for empty string', () => {
+        expect(validateEmail('')).toBe(false);
+      });
+    });
+  });
+
+  describe('Password Validation', () => {
+    describe('Given a valid password', () => {
+      it('should accept password with 8 characters', () => {
+        const result = validatePassword('pass1234');
+        expect(result.valid).toBe(true);
+        expect(result.message).toBeUndefined();
+      });
+
+      it('should accept password with 20 characters', () => {
+        const result = validatePassword('a'.repeat(20));
+        expect(result.valid).toBe(true);
+      });
+    });
+
+    describe('Given an invalid password', () => {
+      it('should reject password with less than 8 characters', () => {
+        const result = validatePassword('pass12');
+        expect(result.valid).toBe(false);
+        expect(result.message).toBe('Password must be at least 8 characters long');
+      });
+
+      it('should reject empty password', () => {
+        const result = validatePassword('');
+        expect(result.valid).toBe(false);
+      });
+    });
+  });
+});
+```
+
+### Server Actions Tests (Next.js 16 with Firebase)
+
+```typescript
+// Example: src/__tests__/unit/actions/auth-actions.test.ts
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { verifyAndSyncUser } from '@/app/actions/auth-actions';
+import { adminAuth } from '@/lib/firebase/admin';
+import { db } from '@/lib/db/client';
+
+vi.mock('@/lib/firebase/admin');
+vi.mock('@/lib/db/client');
+
+describe('Auth Actions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('verifyAndSyncUser', () => {
+    describe('Given a valid Firebase ID token', () => {
+      it('should create new user and return success', async () => {
+        const mockToken = 'valid-token';
+        const mockUid = 'firebase-uid-123';
+        const mockEmail = 'test@example.com';
+
+        vi.mocked(adminAuth.verifyIdToken).mockResolvedValue({
+          uid: mockUid,
+          email: mockEmail,
+          email_verified: true,
+        } as any);
+
+        vi.mocked(db.user.findUnique).mockResolvedValue(null);
+        vi.mocked(db.user.create).mockResolvedValue({
+          id: 'user-123',
+          firebaseUid: mockUid,
+          email: mockEmail,
+        } as any);
+
+        vi.mocked(adminAuth.createSessionCookie).mockResolvedValue('session-cookie');
+
+        const result = await verifyAndSyncUser(mockToken);
+
+        expect(result.success).toBe(true);
+        expect(adminAuth.verifyIdToken).toHaveBeenCalledWith(mockToken);
+        expect(db.user.create).toHaveBeenCalled();
+      });
+
+      it('should update existing user and return success', async () => {
+        const mockToken = 'valid-token';
+        const mockUid = 'firebase-uid-123';
+        const mockEmail = 'test@example.com';
+
+        vi.mocked(adminAuth.verifyIdToken).mockResolvedValue({
+          uid: mockUid,
+          email: mockEmail,
+          email_verified: true,
+        } as any);
+
+        vi.mocked(db.user.findUnique).mockResolvedValue({
+          id: 'user-123',
+          firebaseUid: mockUid,
+          email: mockEmail,
+        } as any);
+
+        vi.mocked(db.user.update).mockResolvedValue({} as any);
+        vi.mocked(adminAuth.createSessionCookie).mockResolvedValue('session-cookie');
+
+        const result = await verifyAndSyncUser(mockToken);
+
+        expect(result.success).toBe(true);
+        expect(db.user.update).toHaveBeenCalled();
+      });
+    });
+
+    describe('Given an invalid Firebase ID token', () => {
+      it('should return error when token verification fails', async () => {
+        const mockToken = 'invalid-token';
+
+        vi.mocked(adminAuth.verifyIdToken).mockRejectedValue(
+          new Error('Token verification failed')
+        );
+
+        const result = await verifyAndSyncUser(mockToken);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toBeTruthy();
+      });
+    });
+  });
+});
+```
+
+### React Component Tests (shadcn/ui)
+
+```typescript
+// Example: src/__tests__/components/LoginForm.test.tsx
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import LoginForm from '@/components/auth/login-form';
+
+describe('LoginForm Component', () => {
+  describe('Form Rendering', () => {
+    it('should render email and password inputs', () => {
+      render(<LoginForm />);
+
+      expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
+    });
+
+    it('should render login button', () => {
+      render(<LoginForm />);
+
+      expect(screen.getByRole('button', { name: /log in/i })).toBeInTheDocument();
+    });
+  });
+
+  describe('Form Validation', () => {
+    it('should show error for invalid email', async () => {
+      const user = userEvent.setup();
+      render(<LoginForm />);
+
+      const emailInput = screen.getByLabelText(/email/i);
+      await user.type(emailInput, 'invalid-email');
+      await user.tab();
+
+      await waitFor(() => {
+        expect(screen.getByText(/invalid email format/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should show error for short password', async () => {
+      const user = userEvent.setup();
+      render(<LoginForm />);
+
+      const passwordInput = screen.getByLabelText(/password/i);
+      await user.type(passwordInput, '12345');
+      await user.tab();
+
+      await waitFor(() => {
+        expect(screen.getByText(/password must be at least 8 characters/i)).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Form Submission', () => {
+    it('should submit with correct credentials', async () => {
+      const user = userEvent.setup();
+      const mockLogin = vi.fn();
+      
+      render(<LoginForm onSubmit={mockLogin} />);
+
+      await user.type(screen.getByLabelText(/email/i), 'test@example.com');
+      await user.type(screen.getByLabelText(/password/i), 'password123');
+      await user.click(screen.getByRole('button', { name: /log in/i }));
+
+      await waitFor(() => {
+        expect(mockLogin).toHaveBeenCalledWith({
+          email: 'test@example.com',
+          password: 'password123',
+        });
+      });
+    });
+
+    it('should disable submit button during submission', async () => {
+      const user = userEvent.setup();
+      render(<LoginForm />);
+
+      const submitButton = screen.getByRole('button', { name: /log in/i });
+      await user.click(submitButton);
+
+      expect(submitButton).toBeDisabled();
+    });
+  });
+});
+```
+
+---
+
+## Test Configuration Files
+
+### vitest.config.ts
+```typescript
+import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
+import path from 'path';
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./vitest.setup.ts'],
+    globals: true,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+      include: [
+        'src/lib/**/*.{ts,tsx}',
+        'src/components/**/*.{ts,tsx}',
+        'src/app/actions/**/*.{ts,tsx}',
+      ],
+      exclude: [
+        'src/**/*.d.ts',
+        'src/**/*.test.{ts,tsx}',
+        'src/**/*.spec.{ts,tsx}',
+      ],
+      thresholds: {
+        branches: 80,
+        functions: 80,
+        lines: 80,
+        statements: 80,
+      },
+    },
+  },
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+});
+```
+
+### vitest.setup.ts
+```typescript
+import '@testing-library/jest-dom/vitest';
+import { cleanup } from '@testing-library/react';
+import { afterEach, vi } from 'vitest';
+
+// Cleanup after each test
+afterEach(() => {
+  cleanup();
+});
+
+// Mock Next.js navigation
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+    back: vi.fn(),
+  }),
+  usePathname: () => '/',
+  useSearchParams: () => new URLSearchParams(),
+  redirect: vi.fn(),
+}));
+
+// Mock Firebase
+vi.mock('firebase/app', () => ({
+  initializeApp: vi.fn(),
+  getApps: vi.fn(() => []),
+  getApp: vi.fn(),
+}));
+
+vi.mock('firebase/auth', () => ({
+  getAuth: vi.fn(),
+  signInWithEmailAndPassword: vi.fn(),
+  createUserWithEmailAndPassword: vi.fn(),
+  signOut: vi.fn(),
+  onAuthStateChanged: vi.fn(),
+  GoogleAuthProvider: vi.fn(),
+  GithubAuthProvider: vi.fn(),
+  signInWithPopup: vi.fn(),
+}));
+
+vi.mock('firebase-admin/app', () => ({
+  initializeApp: vi.fn(),
+  getApps: vi.fn(() => []),
+  cert: vi.fn(),
+}));
+
+vi.mock('firebase-admin/auth', () => ({
+  getAuth: vi.fn(() => ({
+    verifyIdToken: vi.fn(),
+    createSessionCookie: vi.fn(),
+    verifySessionCookie: vi.fn(),
+    revokeRefreshTokens: vi.fn(),
+  })),
+}));
+```
+
+---
+
+## Package.json (Next.js 16 & Latest Packages)
+
+```json
+{
+  "name": "saas-boilerplate",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --turbo",
+    "build": "next build",
+    "build:mobile": "next build && npx cap sync",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "vitest",
+    "test:watch": "vitest watch",
+    "test:coverage": "vitest run --coverage",
+    "test:unit": "vitest run --dir src/__tests__/unit",
+    "test:integration": "vitest run --dir src/__tests__/integration",
+    "test:e2e": "playwright test",
+    "test:all": "vitest run && playwright test",
+    "test:ci": "vitest run --coverage && playwright test",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "tsx prisma/seed.ts",
+    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "typecheck": "tsc --noEmit",
+    "cap:init": "npx cap init",
+    "cap:sync": "npx cap sync",
+    "cap:add:ios": "npx cap add ios",
+    "cap:add:android": "npx cap add android",
+    "cap:open:ios": "npx cap open ios",
+    "cap:open:android": "npx cap open android",
+    "cap:run:ios": "npx cap run ios",
+    "cap:run:android": "npx cap run android",
+    "cap:update": "npx cap update",
+    "ios:build": "npm run build:mobile && npx cap copy ios && npx cap open ios",
+    "android:build": "npm run build:mobile && npx cap copy android && npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/app": "^6.0.2",
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/haptics": "^6.0.2",
+    "@capacitor/ios": "^6.2.0",
+    "@capacitor/keyboard": "^6.0.3",
+    "@capacitor/preferences": "^6.0.3",
+    "@capacitor/splash-screen": "^6.0.3",
+    "@capacitor/status-bar": "^6.0.2",
+    "@prisma/client": "^6.0.1",
+    "firebase": "^11.0.2",
+    "firebase-admin": "^13.0.1",
+    "@radix-ui/react-avatar": "^1.1.2",
+    "@radix-ui/react-checkbox": "^1.1.3",
+    "@radix-ui/react-dialog": "^1.1.3",
+    "@radix-ui/react-dropdown-menu": "^2.1.3",
+    "@radix-ui/react-label": "^2.1.1",
+    "@radix-ui/react-popover": "^1.1.3",
+    "@radix-ui/react-select": "^2.1.3",
+    "@radix-ui/react-separator": "^1.1.1",
+    "@radix-ui/react-slot": "^1.1.1",
+    "@radix-ui/react-switch": "^1.1.2",
+    "@radix-ui/react-tabs": "^1.1.2",
+    "@radix-ui/react-toast": "^1.2.3",
+    "@stripe/stripe-js": "^5.0.0",
+    "@t3-oss/env-nextjs": "^0.12.0",
+    "@tanstack/react-query": "^5.62.0",
+    "@tanstack/react-table": "^8.22.0",
+    "bcryptjs": "^2.4.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "next": "^16.0.0",
+    "next-pwa": "^5.6.0",
+    "next-themes": "^0.4.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-hook-form": "^7.54.2",
+    "recharts": "^2.15.0",
+    "resend": "^4.0.1",
+    "stripe": "^18.0.0",
+    "tailwind-merge": "^2.7.0",
+    "tailwindcss-animate": "^1.0.7",
+    "zod": "^3.24.1",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0",
+    "@hookform/resolvers": "^3.10.0",
+    "@playwright/test": "^1.50.1",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/coverage-v8": "^2.1.8",
+    "autoprefixer": "^10.4.20",
+    "dotenv-cli": "^8.0.0",
+    "eslint": "^9.17.0",
+    "eslint-config-next": "^16.0.0",
+    "jsdom": "^25.0.1",
+    "msw": "^2.7.0",
+    "postcss": "^8.4.49",
+    "prettier": "^3.4.2",
+    "prettier-plugin-tailwindcss": "^0.6.9",
+    "prisma": "^6.0.1",
+    "tailwindcss": "^4.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.15.0"
+}
+```
+      });
+
+      it('should return true for email with subdomains', () => {
+        expect(validateEmail('user@mail.example.com')).toBe(true);
+      });
+
+      it('should return true for email with plus addressing', () => {
+        expect(validateEmail('user+tag@example.com')).toBe(true);
+      });
+    });
+
+    describe('Given an invalid email address', () => {
+      it('should return false for missing @ symbol', () => {
+        expect(validateEmail('userexample.com')).toBe(false);
+      });
+
+      it('should return false for missing domain', () => {
+        expect(validateEmail('user@')).toBe(false);
+      });
+
+      it('should return false for spaces in email', () => {
+        expect(validateEmail('user @example.com')).toBe(false);
+      });
+
+      it('should return false for empty string', () => {
+        expect(validateEmail('')).toBe(false);
+      });
+    });
+  });
+
+  describe('Password Validation', () => {
+    describe('Given a valid password', () => {
+      it('should accept password with 6 characters', () => {
+        const result = validatePassword('pass12');
+        expect(result.valid).toBe(true);
+        expect(result.message).toBeUndefined();
+      });
+
+      it('should accept password with 20 characters', () => {
+        const result = validatePassword('a'.repeat(20));
+        expect(result.valid).toBe(true);
+      });
+    });
+
+    describe('Given an invalid password', () => {
+      it('should reject password with less than 6 characters', () => {
+        const result = validatePassword('pass1');
+        expect(result.valid).toBe(false);
+        expect(result.message).toBe('Password must be at least 6 characters long');
+      });
+
+      it('should reject empty password', () => {
+        const result = validatePassword('');
+        expect(result.valid).toBe(false);
+      });
+    });
+  });
+
+  describe('Symbol Validation', () => {
+    describe('Given valid trading symbols', () => {
+      it('should accept uppercase symbol', () => {
+        expect(validateSymbol('AAPL')).toBe(true);
+      });
+
+      it('should accept symbol with exchange prefix', () => {
+        expect(validateSymbol('NASDAQ:AAPL')).toBe(true);
+      });
+
+      it('should accept symbol with underscore', () => {
+        expect(validateSymbol('BTC_USD')).toBe(true);
+      });
+    });
+
+    describe('Given invalid trading symbols', () => {
+      it('should reject empty string', () => {
+        expect(validateSymbol('')).toBe(false);
+      });
+
+      it('should reject symbol with special characters', () => {
+        expect(validateSymbol('AAPL@#')).toBe(false);
+      });
+
+      it('should reject symbol with spaces', () => {
+        expect(validateSymbol('AAPL STOCK')).toBe(false);
+      });
+    });
+  });
+});
+```
+
+### Service Layer Tests (BDD)
+
+```typescript
+// Example: src/__tests__/unit/services/auth.service.test.ts
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
+import { authenticateRequest } from '@/lib/middleware/auth';
+import { NextRequest } from 'next/server';
+import * as firebaseAdmin from '@/lib/firebase/adminApp';
+import { prisma } from '@/lib/prisma';
+
+// Mock dependencies
+jest.mock('@/lib/firebase/adminApp');
+jest.mock('@/lib/prisma', () => ({
+  prisma: {
+    user: {
+      findUnique: jest.fn(),
+      create: jest.fn(),
+    },
+  },
+}));
+
+describe('Authentication Service', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  describe('authenticateRequest', () => {
+    describe('Given a valid authentication token', () => {
+      it('should return authenticated user when user exists', async () => {
+        // Arrange
+        const mockToken = 'valid-token';
+        const mockUid = 'user-123';
+        const mockEmail = 'user@example.com';
+        const mockUserId = 'db-user-123';
+
+        const mockRequest = new NextRequest('http://localhost:3000/api/test', {
+          headers: { authorization: `Bearer ${mockToken}` },
+        });
+
+        (firebaseAdmin.verifyIdToken as jest.Mock).mockResolvedValue({
+          uid: mockUid,
+          email: mockEmail,
+        });
+
+        (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+          id: mockUserId,
+          firebaseUid: mockUid,
+          email: mockEmail,
+        });
+
+        // Act
+        const result = await authenticateRequest(mockRequest);
+
+        // Assert
+        expect(result).toEqual({
+          uid: mockUid,
+          email: mockEmail,
+          userId: mockUserId,
+        });
+        expect(firebaseAdmin.verifyIdToken).toHaveBeenCalledWith(mockToken);
+        expect(prisma.user.findUnique).toHaveBeenCalledWith({
+          where: { firebaseUid: mockUid },
+        });
+      });
+
+      it('should create new user when user does not exist', async () => {
+        // Arrange
+        const mockToken = 'valid-token';
+        const mockUid = 'new-user-123';
+        const mockEmail = 'newuser@example.com';
+        const mockUserId = 'new-db-user-123';
+
+        const mockRequest = new NextRequest('http://localhost:3000/api/test', {
+          headers: { authorization: `Bearer ${mockToken}` },
+        });
+
+        (firebaseAdmin.verifyIdToken as jest.Mock).mockResolvedValue({
+          uid: mockUid,
+          email: mockEmail,
+        });
+
+        (prisma.user.findUnique as jest.Mock).mockResolvedValue(null);
+        (prisma.user.create as jest.Mock).mockResolvedValue({
+          id: mockUserId,
+          firebaseUid: mockUid,
+          email: mockEmail,
+        });
+
+        // Act
+        const result = await authenticateRequest(mockRequest);
+
+        // Assert
+        expect(result.userId).toBe(mockUserId);
+        expect(prisma.user.create).toHaveBeenCalledWith({
+          data: {
+            firebaseUid: mockUid,
+            email: mockEmail,
+          },
+        });
+      });
+    });
+
+    describe('Given an invalid authentication token', () => {
+      it('should throw error when authorization header is missing', async () => {
+        // Arrange
+        const mockRequest = new NextRequest('http://localhost:3000/api/test');
+
+        // Act & Assert
+        await expect(authenticateRequest(mockRequest)).rejects.toThrow(
+          'Missing or invalid authorization header'
+        );
+      });
+
+      it('should throw error when token format is invalid', async () => {
+        // Arrange
+        const mockRequest = new NextRequest('http://localhost:3000/api/test', {
+          headers: { authorization: 'InvalidFormat token' },
+        });
+
+        // Act & Assert
+        await expect(authenticateRequest(mockRequest)).rejects.toThrow(
+          'Missing or invalid authorization header'
+        );
+      });
+
+      it('should throw error when token verification fails', async () => {
+        // Arrange
+        const mockRequest = new NextRequest('http://localhost:3000/api/test', {
+          headers: { authorization: 'Bearer invalid-token' },
+        });
+
+        (firebaseAdmin.verifyIdToken as jest.Mock).mockRejectedValue(
+          new Error('Token verification failed')
+        );
+
+        // Act & Assert
+        await expect(authenticateRequest(mockRequest)).rejects.toThrow(
+          'Token verification failed'
+        );
+      });
+
+      it('should throw error when token payload is incomplete', async () => {
+        // Arrange
+        const mockRequest = new NextRequest('http://localhost:3000/api/test', {
+          headers: { authorization: 'Bearer valid-token' },
+        });
+
+        (firebaseAdmin.verifyIdToken as jest.Mock).mockResolvedValue({
+          uid: 'user-123',
+          // Missing email
+        });
+
+        // Act & Assert
+        await expect(authenticateRequest(mockRequest)).rejects.toThrow(
+          'Invalid token payload'
+        );
+      });
+    });
+  });
+});
+```
+
+### API Route Tests (Integration)
+
+```typescript
+// Example: src/__tests__/integration/api/user.test.ts
+import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { NextRequest } from 'next/server';
+import { GET, PUT } from '@/app/api/user/profile/route';
+import { prisma } from '@/lib/prisma';
+import * as auth from '@/lib/middleware/auth';
+
+// Mock authentication
+jest.mock('@/lib/middleware/auth');
+
+describe('User Profile API', () => {
+  const mockUserId = 'test-user-123';
+  const mockAuthUser = {
+    uid: 'firebase-uid-123',
+    email: 'test@example.com',
+    userId: mockUserId,
+  };
+
+  beforeAll(async () => {
+    // Setup test database
+    await prisma.user.create({
+      data: {
+        id: mockUserId,
+        firebaseUid: 'firebase-uid-123',
+        email: 'test@example.com',
+      },
+    });
+  });
+
+  afterAll(async () => {
+    // Cleanup
+    await prisma.user.delete({ where: { id: mockUserId } });
+  });
+
+  describe('GET /api/user/profile', () => {
+    describe('When user is authenticated', () => {
+      it('should return user profile data', async () => {
+        // Arrange
+        (auth.authenticateRequest as jest.Mock).mockResolvedValue(mockAuthUser);
+        const request = new NextRequest('http://localhost:3000/api/user/profile');
+
+        // Act
+        const response = await GET(request);
+        const data = await response.json();
+
+        // Assert
+        expect(response.status).toBe(200);
+        expect(data.user).toMatchObject({
+          id: mockUserId,
+          email: 'test@example.com',
+        });
+      });
+    });
+
+    describe('When user is not authenticated', () => {
+      it('should return 401 unauthorized', async () => {
+        // Arrange
+        (auth.authenticateRequest as jest.Mock).mockRejectedValue(
+          new Error('Unauthorized')
+        );
+        const request = new NextRequest('http://localhost:3000/api/user/profile');
+
+        // Act
+        const response = await GET(request);
+
+        // Assert
+        expect(response.status).toBe(401);
+      });
+    });
+  });
+
+  describe('PUT /api/user/profile', () => {
+    describe('When updating valid profile data', () => {
+      it('should update and return updated profile', async () => {
+        // Arrange
+        (auth.authenticateRequest as jest.Mock).mockResolvedValue(mockAuthUser);
+        const updateData = {
+          displayName: 'Updated Name',
+          bio: 'Updated bio',
+        };
+        const request = new NextRequest('http://localhost:3000/api/user/profile', {
+          method: 'PUT',
+          body: JSON.stringify(updateData),
+        });
+
+        // Act
+        const response = await PUT(request);
+        const data = await response.json();
+
+        // Assert
+        expect(response.status).toBe(200);
+        expect(data.user.displayName).toBe('Updated Name');
+        expect(data.user.bio).toBe('Updated bio');
+      });
+    });
+
+    describe('When updating with invalid data', () => {
+      it('should return 400 for invalid email format', async () => {
+        // Arrange
+        (auth.authenticateRequest as jest.Mock).mockResolvedValue(mockAuthUser);
+        const invalidData = {
+          email: 'invalid-email',
+        };
+        const request = new NextRequest('http://localhost:3000/api/user/profile', {
+          method: 'PUT',
+          body: JSON.stringify(invalidData),
+        });
+
+        // Act
+        const response = await PUT(request);
+
+        // Assert
+        expect(response.status).toBe(400);
+      });
+    });
+  });
+});
+```
+
+### React Component Tests
+
+```typescript
+// Example: src/__tests__/unit/components/LoginForm.test.tsx
+import { describe, it, expect, jest } from '@jest/globals';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import '@testing-library/jest-dom';
+import LoginForm from '@/components/auth/LoginForm';
+import { AuthProvider } from '@/contexts/AuthContext';
+
+describe('LoginForm Component', () => {
+  describe('Form Rendering', () => {
+    it('should render email and password inputs', () => {
+      render(
+        <AuthProvider>
+          <LoginForm />
+        </AuthProvider>
+      );
+
+      expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
+    });
+
+    it('should render login button', () => {
+      render(
+        <AuthProvider>
+          <LoginForm />
+        </AuthProvider>
+      );
+
+      expect(screen.getByRole('button', { name: /login/i })).toBeInTheDocument();
+    });
+  });
+
+  describe('Form Validation', () => {
+    it('should show error for invalid email', async () => {
+      render(
+        <AuthProvider>
+          <LoginForm />
+        </AuthProvider>
+      );
+
+      const emailInput = screen.getByLabelText(/email/i);
+      fireEvent.change(emailInput, { target: { value: 'invalid-email' } });
+      fireEvent.blur(emailInput);
+
+      await waitFor(() => {
+        expect(screen.getByText(/invalid email format/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should show error for short password', async () => {
+      render(
+        <AuthProvider>
+          <LoginForm />
+        </AuthProvider>
+      );
+
+      const passwordInput = screen.getByLabelText(/password/i);
+      fireEvent.change(passwordInput, { target: { value: '12345' } });
+      fireEvent.blur(passwordInput);
+
+      await waitFor(() => {
+        expect(screen.getByText(/password must be at least 6 characters/i)).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Form Submission', () => {
+    it('should call login function with correct credentials', async () => {
+      const mockLogin = jest.fn();
+      
+      render(
+        <AuthProvider value={{ login: mockLogin }}>
+          <LoginForm />
+        </AuthProvider>
+      );
+
+      fireEvent.change(screen.getByLabelText(/email/i), {
+        target: { value: 'test@example.com' },
+      });
+      fireEvent.change(screen.getByLabelText(/password/i), {
+        target: { value: 'password123' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: /login/i }));
+
+      await waitFor(() => {
+        expect(mockLogin).toHaveBeenCalledWith('test@example.com', 'password123');
+      });
+    });
+
+    it('should disable submit button during submission', async () => {
+      render(
+        <AuthProvider>
+          <LoginForm />
+        </AuthProvider>
+      );
+
+      const submitButton = screen.getByRole('button', { name: /login/i });
+      fireEvent.click(submitButton);
+
+      expect(submitButton).toBeDisabled();
+    });
+  });
+});
+```
+
+---
+
+## Test Configuration Files
+
+### tailwind.config.ts
+```typescript
+import type { Config } from 'tailwindcss';
+
+const config: Config = {
+  darkMode: ['class'],
+  content: [
+    './src/pages/**/*.{ts,tsx}',
+    './src/components/**/*.{ts,tsx}',
+    './src/app/**/*.{ts,tsx}',
+  ],
+  theme: {
+    container: {
+      center: true,
+      padding: '2rem',
+      screens: {
+        '2xl': '1400px',
+      },
+    },
+    extend: {
+      colors: {
+        border: 'hsl(var(--border))',
+        input: 'hsl(var(--input))',
+        ring: 'hsl(var(--ring))',
+        background: 'hsl(var(--background))',
+        foreground: 'hsl(var(--foreground))',
+        primary: {
+          DEFAULT: 'hsl(var(--primary))',
+          foreground: 'hsl(var(--primary-foreground))',
+        },
+        secondary: {
+          DEFAULT: 'hsl(var(--secondary))',
+          foreground: 'hsl(var(--secondary-foreground))',
+        },
+        destructive: {
+          DEFAULT: 'hsl(var(--destructive))',
+          foreground: 'hsl(var(--destructive-foreground))',
+        },
+        muted: {
+          DEFAULT: 'hsl(var(--muted))',
+          foreground: 'hsl(var(--muted-foreground))',
+        },
+        accent: {
+          DEFAULT: 'hsl(var(--accent))',
+          foreground: 'hsl(var(--accent-foreground))',
+        },
+        card: {
+          DEFAULT: 'hsl(var(--card))',
+          foreground: 'hsl(var(--card-foreground))',
+        },
+      },
+      borderRadius: {
+        lg: 'var(--radius)',
+        md: 'calc(var(--radius) - 2px)',
+        sm: 'calc(var(--radius) - 4px)',
+      },
+      keyframes: {
+        'accordion-down': {
+          from: { height: '0' },
+          to: { height: 'var(--radix-accordion-content-height)' },
+        },
+        'accordion-up': {
+          from: { height: 'var(--radix-accordion-content-height)' },
+          to: { height: '0' },
+        },
+      },
+      animation: {
+        'accordion-down': 'accordion-down 0.2s ease-out',
+        'accordion-up': 'accordion-up 0.2s ease-out',
+      },
+    },
+  },
+  plugins: [require('tailwindcss-animate')],
+};
+
+export default config;
+```
+
+### components.json (shadcn/ui)
+```json
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "new-york",
+  "rsc": true,
+  "tsx": true,
+  "tailwind": {
+    "config": "tailwind.config.ts",
+    "css": "src/app/globals.css",
+    "baseColor": "slate",
+    "cssVariables": true
+  },
+  "aliases": {
+    "components": "@/components",
+    "utils": "@/lib/utils",
+    "ui": "@/components/ui"
+  }
+}
+```
+
+---
+
+## Capacitor Configuration for Mobile Apps
+
+### capacitor.config.ts
+```typescript
+import { CapacitorConfig } from '@capacitor/cli';
+
+const config: CapacitorConfig = {
+  appId: process.env.APP_ID || 'com.yourcompany.app',
+  appName: process.env.APP_NAME || 'Your SaaS App',
+  webDir: 'out',
+  server: {
+    androidScheme: 'https',
+    iosScheme: 'https',
+    // For development - connect to local server
+    // url: 'http://192.168.1.100:3000',
+    // cleartext: true,
+  },
+  plugins: {
+    SplashScreen: {
+      launchShowDuration: 2000,
+      launchAutoHide: true,
+      backgroundColor: '#ffffff',
+      androidSplashResourceName: 'splash',
+      androidScaleType: 'CENTER_CROP',
+      showSpinner: false,
+    },
+    StatusBar: {
+      style: 'LIGHT',
+      backgroundColor: '#000000',
+    },
+    Keyboard: {
+      resize: 'body',
+      style: 'dark',
+      resizeOnFullScreen: true,
+    },
+  },
+  ios: {
+    contentInset: 'always',
+  },
+  android: {
+    buildOptions: {
+      keystorePath: process.env.ANDROID_KEYSTORE_PATH,
+      keystoreAlias: process.env.ANDROID_KEYSTORE_ALIAS,
+    },
+  },
+};
+
+export default config;
+```
+
+### PWA Manifest (public/manifest.json)
+```json
+{
+  "name": "Your SaaS App",
+  "short_name": "SaaS App",
+  "description": "Professional SaaS boilerplate with mobile support",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#000000",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icons/icon-72x72.png",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-96x96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-128x128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-144x144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-152x152.png",
+      "sizes": "152x152",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-384x384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
+```
+
+### Mobile Platform Detection Hook
+```typescript
+// hooks/use-mobile-platform.ts
+'use client';
+
+import { useEffect, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
+
+export function useMobilePlatform() {
+  const [platform, setPlatform] = useState<{
+    isNative: boolean;
+    isIOS: boolean;
+    isAndroid: boolean;
+    isWeb: boolean;
+  }>({
+    isNative: false,
+    isIOS: false,
+    isAndroid: false,
+    isWeb: true,
+  });
+
+  useEffect(() => {
+    const isNative = Capacitor.isNativePlatform();
+    const platformName = Capacitor.getPlatform();
+
+    setPlatform({
+      isNative,
+      isIOS: platformName === 'ios',
+      isAndroid: platformName === 'android',
+      isWeb: platformName === 'web',
+    });
+  }, []);
+
+  return platform;
+}
+```
+
+### Mobile-Optimized Root Layout
+```typescript
+// app/layout.tsx
+import './globals.css';
+import type { Metadata, Viewport } from 'next';
+import { Inter } from 'next/font/google';
+import { ThemeProvider } from '@/components/providers/theme-provider';
+import { QueryProvider } from '@/components/providers/query-provider';
+import { Toaster } from '@/components/ui/toaster';
+import { cn } from '@/lib/utils';
+
+const inter = Inter({ subsets: ['latin'] });
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: 'cover', // Important for iOS notch support
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
+    { media: '(prefers-color-scheme: dark)', color: '#000000' },
+  ],
+};
+
+export const metadata: Metadata = {
+  title: {
+    default: 'Your SaaS App',
+    template: '%s | Your SaaS App',
+  },
+  description: 'Professional SaaS boilerplate',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Your SaaS App',
+  },
+  formatDetection: {
+    telephone: false,
+  },
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* iOS Splash Screens */}
+        <link
+          rel="apple-touch-startup-image"
+          media="screen and (device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3)"
+          href="/splash/iphone-14-pro-max.png"
+        />
+        <link
+          rel="apple-touch-startup-image"
+          media="screen and (device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)"
+          href="/splash/iphone-14-pro.png"
+        />
+        {/* Add more splash screens for different devices */}
+      </head>
+      <body
+        className={cn(
+          inter.className,
+          'min-h-screen bg-background antialiased',
+          // Safe area insets for mobile devices with notches
+          'supports-[padding:env(safe-area-inset-top)]:pt-[env(safe-area-inset-top)]',
+          'supports-[padding:env(safe-area-inset-bottom)]:pb-[env(safe-area-inset-bottom)]'
+        )}
+      >
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <QueryProvider>
+            {children}
+            <Toaster />
+          </QueryProvider>
+        </ThemeProvider>
+      </body>
+    </html>
+  );
+}
+```
+
+### Capacitor Plugins Integration
+```typescript
+// lib/capacitor/index.ts
+'use client';
+
+import { Capacitor } from '@capacitor/core';
+import { App } from '@capacitor/app';
+import { StatusBar, Style } from '@capacitor/status-bar';
+import { SplashScreen } from '@capacitor/splash-screen';
+import { Keyboard } from '@capacitor/keyboard';
+import { Haptics, ImpactStyle } from '@capacitor/haptics';
+import { Preferences } from '@capacitor/preferences';
+
+export const isNativePlatform = () => Capacitor.isNativePlatform();
+
+// App state management
+export const setupAppListeners = () => {
+  if (!isNativePlatform()) return;
+
+  App.addListener('appStateChange', ({ isActive }) => {
+    console.log('App state changed. Is active:', isActive);
+  });
+
+  App.addListener('backButton', ({ canGoBack }) => {
+    if (!canGoBack) {
+      App.exitApp();
+    } else {
+      window.history.back();
+    }
+  });
+};
+
+// Status bar configuration
+export const configureStatusBar = async (isDark: boolean) => {
+  if (!isNativePlatform()) return;
+
+  try {
+    await StatusBar.setStyle({
+      style: isDark ? Style.Dark : Style.Light,
+    });
+  } catch (error) {
+    console.error('Error configuring status bar:', error);
+  }
+};
+
+// Splash screen
+export const hideSplashScreen = async () => {
+  if (!isNativePlatform()) return;
+
+  try {
+    await SplashScreen.hide();
+  } catch (error) {
+    console.error('Error hiding splash screen:', error);
+  }
+};
+
+// Keyboard management
+export const setupKeyboard = () => {
+  if (!isNativePlatform()) return;
+
+  Keyboard.addListener('keyboardWillShow', info => {
+    console.log('Keyboard will show with height:', info.keyboardHeight);
+  });
+
+  Keyboard.addListener('keyboardWillHide', () => {
+    console.log('Keyboard will hide');
+  });
+};
+
+// Haptic feedback
+export const triggerHaptic = async (style: ImpactStyle = ImpactStyle.Medium) => {
+  if (!isNativePlatform()) return;
+
+  try {
+    await Haptics.impact({ style });
+  } catch (error) {
+    console.error('Error triggering haptic:', error);
+  }
+};
+
+// Preferences (local storage for mobile)
+export const setPreference = async (key: string, value: string) => {
+  if (!isNativePlatform()) {
+    localStorage.setItem(key, value);
+    return;
+  }
+
+  try {
+    await Preferences.set({ key, value });
+  } catch (error) {
+    console.error('Error setting preference:', error);
+  }
+};
+
+export const getPreference = async (key: string): Promise<string | null> => {
+  if (!isNativePlatform()) {
+    return localStorage.getItem(key);
+  }
+
+  try {
+    const { value } = await Preferences.get({ key });
+    return value;
+  } catch (error) {
+    console.error('Error getting preference:', error);
+    return null;
+  }
+};
+
+export const removePreference = async (key: string) => {
+  if (!isNativePlatform()) {
+    localStorage.removeItem(key);
+    return;
+  }
+
+  try {
+    await Preferences.remove({ key });
+  } catch (error) {
+    console.error('Error removing preference:', error);
+  }
+};
+```
+
+### Mobile App Initialization Component
+```typescript
+// components/providers/mobile-provider.tsx
+'use client';
+
+import { useEffect } from 'react';
+import { useTheme } from 'next-themes';
+import {
+  setupAppListeners,
+  configureStatusBar,
+  hideSplashScreen,
+  setupKeyboard,
+  isNativePlatform,
+} from '@/lib/capacitor';
+
+export function MobileProvider({ children }: { children: React.ReactNode }) {
+  const { theme } = useTheme();
+
+  useEffect(() => {
+    if (!isNativePlatform()) return;
+
+    // Initialize mobile app
+    const initMobile = async () => {
+      setupAppListeners();
+      setupKeyboard();
+      await configureStatusBar(theme === 'dark');
+      await hideSplashScreen();
+    };
+
+    initMobile();
+  }, []);
+
+  useEffect(() => {
+    if (!isNativePlatform()) return;
+    configureStatusBar(theme === 'dark');
+  }, [theme]);
+
+  return <>{children}</>;
+}
+```
+
+---
+
+## Mobile App Setup Instructions
+
+### Initial Setup
+```bash
+# Install dependencies
+pnpm install
+
+# Initialize Capacitor
+pnpm cap:init
+
+# Add iOS platform (requires macOS with Xcode)
+pnpm cap:add:ios
+
+# Add Android platform (requires Android Studio)
+pnpm cap:add:android
+
+# Generate app icons (use a tool like pwa-asset-generator)
+npx pwa-asset-generator public/logo.png public/icons --icon-only
+```
+
+### iOS Development Setup
+
+**Prerequisites:**
+- macOS with Xcode 14+
+- CocoaPods installed
+- Apple Developer account
+
+**Steps:**
+```bash
+# Build Next.js app for mobile
+BUILD_TARGET=mobile pnpm build
+
+# Sync web assets to iOS
+pnpm cap:sync
+
+# Open Xcode
+pnpm cap:open:ios
+
+# In Xcode:
+# 1. Select your development team
+# 2. Configure signing & capabilities
+# 3. Add required permissions in Info.plist:
+#    - NSCameraUsageDescription
+#    - NSPhotoLibraryUsageDescription
+#    - NSLocationWhenInUseUsageDescription (if needed)
+# 4. Build and run on simulator or device
+```
+
+### Android Development Setup
+
+**Prerequisites:**
+- Android Studio Electric Eel or later
+- JDK 17+
+- Android SDK
+
+**Steps:**
+```bash
+# Build Next.js app for mobile
+BUILD_TARGET=mobile pnpm build
+
+# Sync web assets to Android
+pnpm cap:sync
+
+# Open Android Studio
+pnpm cap:open:android
+
+# In Android Studio:
+# 1. Let Gradle sync complete
+# 2. Update AndroidManifest.xml with required permissions:
+#    - INTERNET
+#    - CAMERA (if needed)
+#    - ACCESS_FINE_LOCATION (if needed)
+# 3. Build and run on emulator or device
+```
+
+### Production Build Configuration
+
+**iOS (App Store):**
+```bash
+# 1. Update version in capacitor.config.ts and ios/App/App.xcodeproj
+# 2. Build for production
+BUILD_TARGET=mobile pnpm build
+
+# 3. Sync to iOS
+pnpm cap:sync
+
+# 4. Open Xcode
+pnpm cap:open:ios
+
+# 5. In Xcode:
+#    - Select "Any iOS Device (arm64)" as target
+#    - Product > Archive
+#    - Upload to App Store Connect
+```
+
+**Android (Play Store):**
+```bash
+# 1. Generate keystore (first time only)
+keytool -genkey -v -keystore android/app/release.keystore -alias your-app-alias -keyalg RSA -keysize 2048 -validity 10000
+
+# 2. Update android/app/build.gradle with signing config
+
+# 3. Build for production
+BUILD_TARGET=mobile pnpm build
+
+# 4. Sync to Android
+pnpm cap:sync
+
+# 5. Open Android Studio
+pnpm cap:open:android
+
+# 6. Build signed APK/AAB:
+#    - Build > Generate Signed Bundle / APK
+#    - Select Android App Bundle (AAB)
+#    - Upload to Google Play Console
+```
+
+---
+
+## Mobile-Specific Considerations
+
+### 1. API Endpoint Configuration
+```typescript
+// config/api.ts
+export const API_BASE_URL = 
+  process.env.NEXT_PUBLIC_IS_MOBILE === 'true'
+    ? 'https://your-production-api.com' // Always use production API for mobile
+    : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+```
+
+### 2. Deep Linking Support
+```typescript
+// lib/capacitor/deep-linking.ts
+import { App } from '@capacitor/app';
+
+export const setupDeepLinking = () => {
+  App.addListener('appUrlOpen', data => {
+    const url = new URL(data.url);
+    const path = url.pathname;
+    
+    // Navigate to the appropriate route
+    window.location.href = path;
+  });
+};
+
+// Add to Android: android/app/src/main/AndroidManifest.xml
+// <intent-filter>
+//   <action android:name="android.intent.action.VIEW" />
+//   <category android:name="android.intent.category.DEFAULT" />
+//   <category android:name="android.intent.category.BROWSABLE" />
+//   <data android:scheme="yourapp" />
+// </intent-filter>
+
+// Add to iOS: ios/App/App/Info.plist
+// <key>CFBundleURLTypes</key>
+// <array>
+//   <dict>
+//     <key>CFBundleURLSchemes</key>
+//     <array>
+//       <string>yourapp</string>
+//     </array>
+//   </dict>
+// </array>
+```
+
+### 3. Offline Support with Service Worker
+```typescript
+// lib/offline-support.ts
+export const registerServiceWorker = async () => {
+  if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
+    try {
+      const registration = await navigator.serviceWorker.register('/sw.js');
+      console.log('Service Worker registered:', registration);
+    } catch (error) {
+      console.error('Service Worker registration failed:', error);
+    }
+  }
+};
+```
+
+### 4. Performance Optimizations for Mobile
+```typescript
+// components/ui/optimized-image.tsx
+'use client';
+
+import Image from 'next/image';
+import { useMobilePlatform } from '@/hooks/use-mobile-platform';
+
+export function OptimizedImage({ src, alt, ...props }: any) {
+  const { isNative } = useMobilePlatform();
+
+  // Use regular img tag for native apps (already optimized during build)
+  if (isNative) {
+    return <img src={src} alt={alt} {...props} />;
+  }
+
+  return <Image src={src} alt={alt} {...props} />;
+}
+```
+
+### 5. Mobile Layout Wrapper
+```typescript
+// components/layout/mobile-safe-area.tsx
+'use client';
+
+import { cn } from '@/lib/utils';
+import { useMobilePlatform } from '@/hooks/use-mobile-platform';
+
+export function MobileSafeArea({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const { isNative } = useMobilePlatform();
+
+  return (
+    <div
+      className={cn(
+        className,
+        isNative && [
+          'pt-[env(safe-area-inset-top)]',
+          'pb-[env(safe-area-inset-bottom)]',
+          'pl-[env(safe-area-inset-left)]',
+          'pr-[env(safe-area-inset-right)]',
+        ]
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+```
+
+---
+
+## Mobile App Testing
+
+### Testing on Real Devices
+```bash
+# iOS (requires Apple Developer account)
+pnpm cap:run:ios --target="iPhone 14 Pro"
+
+# Android
+pnpm cap:run:android --target="Pixel_6_API_33"
+```
+
+### E2E Testing for Mobile
+```typescript
+// playwright-mobile.config.ts
+import { defineConfig, devices } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './src/__tests__/e2e-mobile',
+  projects: [
+    {
+      name: 'Mobile Chrome',
+      use: { ...devices['Pixel 5'] },
+    },
+    {
+      name: 'Mobile Safari',
+      use: { ...devices['iPhone 13'] },
+    },
+  ],
+});
+```
+
+---
+
+## GitHub Actions Mobile Build Pipeline
+
+### .github/workflows/mobile-build.yml
+```yaml
+name: Mobile App Build
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*'
+
+jobs:
+  ios-build:
+    runs-on: macos-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      
+      - name: Build Next.js app for mobile
+        run: BUILD_TARGET=mobile pnpm build
+        env:
+          NEXT_PUBLIC_APP_URL: ${{ secrets.PRODUCTION_URL }}
+          NEXT_PUBLIC_IS_MOBILE: true
+      
+      - name: Sync Capacitor
+        run: pnpm cap:sync
+      
+      - name: Build iOS app
+        run: |
+          cd ios/App
+          pod install
+          xcodebuild -workspace App.xcworkspace \
+                     -scheme App \
+                     -configuration Release \
+                     -archivePath App.xcarchive \
+                     archive
+      
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-app
+          path: ios/App/App.xcarchive
+
+  android-build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+      
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      
+      - name: Build Next.js app for mobile
+        run: BUILD_TARGET=mobile pnpm build
+        env:
+          NEXT_PUBLIC_APP_URL: ${{ secrets.PRODUCTION_URL }}
+          NEXT_PUBLIC_IS_MOBILE: true
+      
+      - name: Sync Capacitor
+        run: pnpm cap:sync
+      
+      - name: Build Android app
+        run: |
+          cd android
+          ./gradlew assembleRelease
+      
+      - name: Sign APK
+        uses: r0adkll/sign-android-release@v1
+        with:
+          releaseDirectory: android/app/build/outputs/apk/release
+          signingKeyBase64: ${{ secrets.ANDROID_SIGNING_KEY }}
+          alias: ${{ secrets.ANDROID_KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-app
+          path: android/app/build/outputs/apk/release/*.apk
+```
+
+---
+
+## Next.js 16 Configuration
+
+### next.config.ts
+```typescript
+import type { NextConfig } from 'next';
+import withPWA from 'next-pwa';
+
+const nextConfig: NextConfig = {
+  // Static export for mobile deployment with Capacitor
+  output: process.env.BUILD_TARGET === 'mobile' ? 'export' : undefined,
+  
+  // Disable image optimization for static export (mobile)
+  images: {
+    unoptimized: process.env.BUILD_TARGET === 'mobile',
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'lh3.googleusercontent.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'avatars.githubusercontent.com',
+      },
+    ],
+  },
+  
+  experimental: {
+    ppr: process.env.BUILD_TARGET !== 'mobile', // Disable PPR for mobile
+    reactCompiler: true,
+    serverActions: process.env.BUILD_TARGET !== 'mobile' ? {
+      bodySizeLimit: '2mb',
+    } : undefined,
+  },
+  
+  // Base path for mobile apps
+  basePath: process.env.BUILD_TARGET === 'mobile' ? '' : undefined,
+  trailingSlash: process.env.BUILD_TARGET === 'mobile',
+};
+
+// PWA configuration
+const pwaConfig = withPWA({
+  dest: 'public',
+  register: true,
+  skipWaiting: true,
+  disable: process.env.NODE_ENV === 'development',
+  buildExcludes: [/middleware-manifest\.json$/],
+});
+
+export default process.env.BUILD_TARGET === 'mobile' 
+  ? nextConfig 
+  : pwaConfig(nextConfig);
+```
+
+### TypeScript Configuration
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
+}
+```
+
+---
+
+## Testing Best Practices
+
+### BDD Pattern Structure
+```
+describe('Feature/Component/Service Name', () => {
+  describe('Scenario Group', () => {
+    describe('Given [context/precondition]', () => {
+      it('should [expected behavior] when [action]', () => {
+        // Arrange - Set up test data and mocks
+        // Act - Execute the function/action
+        // Assert - Verify the results
+      });
+    });
+  });
+});
+```
+
+### Coverage Requirements
+- **Business Logic (lib/services, lib/utils)**: 90%+ coverage
+- **API Routes**: 85%+ coverage
+- **React Components**: 75%+ coverage
+- **Hooks**: 80%+ coverage
+- **Database Functions**: 85%+ coverage
+
+### Test Categories
+
+1. **Unit Tests**
+   - Pure functions (validation, encryption, formatting)
+   - Utility functions
+   - Service layer logic
+   - Custom hooks
+
+2. **Integration Tests**
+   - API route handlers
+   - Database operations
+   - Service integrations (Stripe, Firebase)
+   - Authentication flows
+
+3. **Component Tests**
+   - User interactions
+   - Form submissions
+   - Conditional rendering
+   - Event handlers
+
+4. **E2E Tests** (Optional but recommended)
+   - Critical user flows
+   - Authentication journey
+   - Subscription purchase flow
+   - Settings management
+
+---
+
+## Required Test Files (Minimum)
+
+### Unit Tests
+```
+src/__tests__/unit/
+  utils/
+    ✓ validation.test.ts
+    ✓ encryption.test.ts
+    ✓ currency.test.ts
+    ✓ date.test.ts
+    ✓ errorHandler.test.ts
+    ✓ permissions.test.ts
+    ✓ seo-helpers.test.ts
+  services/
+    ✓ auth.service.test.ts
+    ✓ user.service.test.ts
+    ✓ subscription.service.test.ts
+    ✓ email.service.test.ts
+    ✓ notification.service.test.ts
+    admin/
+      ✓ user-management.service.test.ts
+      ✓ subscription-management.service.test.ts
+      ✓ analytics.service.test.ts
+      ✓ seo.service.test.ts
+      ✓ settings.service.test.ts
+      ✓ audit-log.service.test.ts
+  middleware/
+    ✓ auth.test.ts
+    ✓ rateLimit.test.ts
+    ✓ adminAuth.test.ts
+```
+
+### Integration Tests
+```
+src/__tests__/integration/
+  api/
+    ✓ auth.test.ts (login, signup, logout, verify, reset)
+    ✓ user.test.ts (profile CRUD, settings)
+    ✓ subscription.test.ts (create, cancel, portal)
+    ✓ webhooks.test.ts (Stripe events)
+    admin/
+      ✓ users.test.ts (list, get, update, suspend, delete)
+      ✓ subscriptions.test.ts (list, update, cancel, refund)
+      ✓ analytics.test.ts (revenue, users, engagement)
+      ✓ seo.test.ts (meta tags, sitemap, redirects)
+      ✓ settings.test.ts (general, features, pricing, email)
+      ✓ audit-logs.test.ts (list, filter, export)
+  db/
+    ✓ users.test.ts
+    ✓ settings.test.ts
+    ✓ notifications.test.ts
+    admin/
+      ✓ users.test.ts
+      ✓ subscriptions.test.ts
+      ✓ analytics.test.ts
+      ✓ seo.test.ts
+      ✓ auditLogs.test.ts
+```
+
+### Component Tests
+```
+src/__tests__/components/
+  auth/
+    ✓ LoginForm.test.tsx
+    ✓ SignupForm.test.tsx
+    ✓ PasswordReset.test.tsx
+  profile/
+    ✓ ProfileForm.test.tsx
+    ✓ AvatarUpload.test.tsx
+  subscription/
+    ✓ PricingCard.test.tsx
+    ✓ SubscriptionManager.test.tsx
+  admin/
+    ✓ AdminSidebar.test.tsx
+    ✓ UserTable.test.tsx
+    ✓ UserDetailsPanel.test.tsx
+    ✓ SubscriptionTable.test.tsx
+    ✓ AnalyticsChart.test.tsx
+    ✓ RevenueChart.test.tsx
+    ✓ SEOMetaForm.test.tsx
+    ✓ SitemapGenerator.test.tsx
+    ✓ RedirectManager.test.tsx
+    ✓ FeatureFlagToggle.test.tsx
+    ✓ PricingTierEditor.test.tsx
+    ✓ EmailTemplateEditor.test.tsx
+    ✓ AuditLogViewer.test.tsx
+```
+
+---
+
+## UI/UX Features (shadcn/ui + Tailwind CSS)
+
+### Theme System
+- Dark/Light/System mode with next-themes
+- Persistent theme preference in localStorage
+- CSS variables for dynamic theming
+- Smooth transitions between themes
+- shadcn/ui theming with custom brand colors
+
+### Layout Components
+- Responsive navigation with mobile sidebar
+- Site header with user dropdown menu
+- Breadcrumb navigation component
+- Protected route middleware and guards
+- Loading states with skeleton components
+- Parallel routes for advanced layouts
+- Intercepting routes for modals
+
+### Page Headers (Modern & Clean)
+- Typography: Large headings with proper hierarchy
+- Icon size: 40×40px with lucide-react icons
+- Spacing: Consistent padding with Tailwind
+- Border radius: Rounded-lg for modern look
+- Subtle backgrounds with opacity
+- Shadow: Minimal shadows for depth
+- Accessible color contrast
+
+### Dialogs & Modals
+- shadcn/ui Dialog component for modals
+- Alert Dialog for confirmations
+- Form validation with react-hook-form + zod
+- Multi-step forms with state management
+- Toast notifications with sonner/react-hot-toast
+- Drawer component for mobile menus
+
+---
+
+## API Architecture
+
+### Route Organization
+```
+/api
+  /auth
+    /login/route.ts
+    /logout/route.ts
+    /signup/route.ts
+    /verify-email/route.ts
+    /reset-password/route.ts
+  /user
+    /profile/route.ts
+    /settings/route.ts
+  /subscription
+    /create/route.ts
+    /cancel/route.ts
+    /portal/route.ts
+  /webhooks
+    /stripe/route.ts
+```
+
+### API Utilities
+- Authentication middleware (`authenticateRequest`)
+- Rate limiting middleware (per user/IP)
+- Error handling with proper HTTP status codes
+- Request validation using Zod or similar
+- CORS configuration
+- Response formatting utilities
+
+---
+
+## Security Features
+
+### Data Protection
+- Environment variable encryption utilities
+- Secure API key storage in database (encrypted)
+- HTTPS enforcement in production
+- CSRF protection
+- Rate limiting (100 requests/15min per IP)
+- Input validation and sanitization
+- SQL injection prevention (Prisma ORM)
+- XSS protection
+
+### Error Handling
+- Centralized error handler utility
+- User-friendly error messages (no stack traces to client)
+- Error logging with Winston
+- Sentry integration for production monitoring
+- Different error handling for dev vs production
+
+---
+
+## Logging & Monitoring
+
+### Winston Logger Setup
+```typescript
+// Browser logger for client-side
+// Winston logger for server-side (Node.js runtime only)
+// Daily rotating file transport
+// Log levels: error, warn, info, debug
+// Structured logging with metadata
+// Edge runtime compatibility (conditional imports)
+```
+
+### Log Structure
+```json
+{
+  "timestamp": "2025-11-25T10:30:00.000Z",
+  "level": "info",
+  "message": "User login successful",
+  "userId": "user-123",
+  "ip": "192.168.1.1",
+  "userAgent": "Mozilla/5.0...",
+  "duration": 245
+}
+```
+
+---
+
+## Environment Variables
+
+### Required .env.local (Next.js 16)
+```env
+# Database
+DATABASE_URL="postgresql://user:password@localhost:5432/saas_db"
+DATABASE_URL_TEST="postgresql://user:password@localhost:5432/saas_test_db"
+
+# App URL
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
+NODE_ENV="development"
+
+# Firebase Authentication
+NEXT_PUBLIC_FIREBASE_API_KEY="your-firebase-api-key"
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="your-project.firebaseapp.com"
+NEXT_PUBLIC_FIREBASE_PROJECT_ID="your-project-id"
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET="your-project.appspot.com"
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID="your-sender-id"
+NEXT_PUBLIC_FIREBASE_APP_ID="your-app-id"
+
+# Firebase Admin SDK (for server-side)
+FIREBASE_PROJECT_ID="your-project-id"
+FIREBASE_CLIENT_EMAIL="firebase-adminsdk@your-project.iam.gserviceaccount.com"
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+
+# Stripe
+STRIPE_SECRET_KEY="sk_test_..."
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY="pk_test_..."
+STRIPE_WEBHOOK_SECRET="whsec_..."
+STRIPE_PRICE_ID_FREE="price_..."
+STRIPE_PRICE_ID_PRO="price_..."
+STRIPE_PRICE_ID_ENTERPRISE="price_..."
+
+# Email (Resend)
+RESEND_API_KEY="re_..."
+FROM_EMAIL="noreply@yourdomain.com"
+
+# Encryption
+ENCRYPTION_KEY="your-encryption-key-32-chars-min"
+
+# Rate Limiting (Upstash Redis - Optional)
+UPSTASH_REDIS_REST_URL="https://..."
+UPSTASH_REDIS_REST_TOKEN="..."
+
+# Monitoring (Sentry - Optional)
+NEXT_PUBLIC_SENTRY_DSN="https://..."
+
+# Analytics (PostHog - Optional)
+NEXT_PUBLIC_POSTHOG_KEY="phc_..."
+NEXT_PUBLIC_POSTHOG_HOST="https://app.posthog.com"
+
+# Mobile Build Configuration
+BUILD_TARGET="web"              # or "mobile" for Capacitor builds
+NEXT_PUBLIC_IS_MOBILE="false"   # Set to "true" for mobile app detection
+
+# Mobile App Configuration
+APP_NAME="Your SaaS App"
+APP_ID="com.yourcompany.app"    # Bundle ID for iOS/Android
+APP_VERSION="1.0.0"
+```
+
+---
+
+## Essential Pages & Features (Next.js 16 with Server Actions)
+
+### 1. Landing Page (RSC - React Server Component)
+- Hero section with value proposition
+- Feature showcase (3-6 key features)
+- Pricing comparison table (static or cached)
+- Testimonials/social proof section
+- FAQ accordion with shadcn/ui Accordion
+- CTA buttons (Sign Up, Get Started)
+- Footer with links (Privacy, Terms, Contact)
+- Optimized with PPR (Partial Prerendering)
+
+### 2. Authentication Pages (Server Actions)
+- **Login**: Email/password, OAuth (Google, GitHub), Server Actions for submission
+- **Signup**: Email/password, OAuth, Terms acceptance, Email verification
+- **Email Verification**: Token-based verification with Server Action
+- **Password Reset**: Email input, Token verification, New password form with Server Action
+- All forms use react-hook-form + zod + Server Actions
+
+### 3. Customer Dashboard (Protected, Parallel Routes)
+- Welcome message with user's name (from session)
+- Quick stats cards (usage, subscription tier, recent activity)
+- Parallel routes: `@analytics` and `@stats` for independent loading
+- Quick action buttons (grid layout with shadcn/ui)
+- Recent activity feed/timeline
+- Upgrade prompt for free tier users using Server Component
+
+### 4. Profile Page (Server Actions for mutations)
+- Avatar upload with next/image optimization
+- Profile form (name, bio, location, website, phone)
+- Form submission via Server Action
+- Optimistic updates with useOptimistic
+- Success/error notifications with toast
+
+### 5. Settings Page (Tabbed interface with shadcn/ui Tabs)
+- **General Tab**: Theme toggle, language, timezone
+- **Notifications Tab**: Email preferences, in-app notifications
+- **Security Tab**: Change password (Server Action), 2FA, Login history
+- **API Keys Tab**: Generate, view, revoke API keys (Server Actions)
+- **Danger Zone**: Export data, Delete account (with confirmation dialog)
+
+### 6. Subscription/Billing Page (Stripe integration)
+- Current plan details (Server Component)
+- Usage metrics with progress bars
+- Upgrade/downgrade options with Server Actions
+- Payment method management via Stripe Customer Portal
+- Billing history table
+- Invoice download links
+- Cancel subscription button with confirmation
+
+### 7. Pricing Page (Cached RSC)
+- Three-tier comparison table (Free, Pro, Enterprise)
+- Feature comparison list with shadcn/ui Table
+- Monthly/Yearly toggle with pricing calculation
+- FAQ section specific to pricing
+- CTA buttons for each tier (Server Actions for checkout)
+
+---
+
+## Admin Portal Features (Next.js 16 - Separated Architecture)
+
+### Admin Authentication & Authorization
+
+**Admin Role System:**
+- `super_admin`: Full access to all features
+- `admin`: Access to user/subscription management
+- Permission-based access control
+- Admin middleware for route protection (Next.js middleware)
+- Zustand store for admin state management
+- Server Actions for all admin mutations
+
+### 1. Admin Dashboard Overview
+- **Key Metrics Cards:**
+  - Total users (with growth %)
+  - Active subscriptions
+  - Monthly Recurring Revenue (MRR)
+  - Churn rate
+  - New signups (last 30 days)
+- **Charts & Visualizations:**
+  - Revenue trend (last 12 months)
+  - User growth graph
+  - Subscription distribution pie chart
+  - Daily active users
+- **Recent Activity Feed:**
+  - Latest user signups
+  - Subscription changes
+  - Failed payments
+  - Support tickets (if applicable)
+
+### 2. User Management
+- **User List Table:**
+  - Searchable and filterable (by status, tier, date)
+  - Sortable columns (name, email, created date, subscription)
+  - Pagination
+  - Bulk actions (export, suspend)
+- **User Details View:**
+  - Complete profile information
+  - Subscription history
+  - Login history
+  - Activity timeline
+  - Payment history
+  - Support tickets
+- **User Actions:**
+  - Suspend/Unsuspend account
+  - Reset password
+  - Change subscription tier manually
+  - Impersonate user (view as user)
+  - Add internal notes
+  - Send notification/email
+  - Delete account (with confirmation)
+
+### 3. Subscription Management
+- **Subscription List:**
+  - All active/cancelled subscriptions
+  - Filter by tier, status, payment method
+  - Search by user email/name
+  - Sort by MRR, start date, renewal date
+- **Subscription Actions:**
+  - Manually upgrade/downgrade
+  - Apply custom discounts
+  - Extend trial period
+  - Cancel/Reactivate subscription
+  - Refund payment
+  - View payment history
+- **Subscription Analytics:**
+  - MRR by tier
+  - Churn analysis
+  - Lifetime Value (LTV) metrics
+  - Upgrade/downgrade trends
+  - Failed payment recovery rate
+
+### 4. Analytics Dashboard
+- **Revenue Analytics:**
+  - MRR/ARR tracking
+  - Revenue by tier
+  - Revenue by payment method
+  - Refund tracking
+  - Revenue forecasting
+  - Cohort analysis
+- **User Analytics:**
+  - User acquisition sources
+  - Activation rate
+  - Retention curves
+  - Engagement metrics
+  - Geographic distribution
+  - Device/browser stats
+- **Conversion Metrics:**
+  - Signup → Paid conversion rate
+  - Trial → Paid conversion
+  - Free → Pro upgrade rate
+  - Feature usage statistics
+- **Exportable Reports:**
+  - CSV export
+  - PDF reports
+  - Scheduled email reports
+  - Custom date ranges
+
+### 5. SEO Management
+- **Meta Tag Editor:**
+  - Page-by-page meta management
+  - Title, description, keywords
+  - Open Graph tags (og:title, og:image, etc.)
+  - Twitter Card tags
+  - Canonical URLs
+  - Robots meta (noindex, nofollow)
+  - Preview of how page appears in search
+- **Sitemap Management:**
+  - Auto-generate sitemap.xml
+  - Manual sitemap editing
+  - Priority and change frequency settings
+  - Submit to Google Search Console
+  - Last updated timestamp
+- **URL Redirects:**
+  - Create 301/302 redirects
+  - Bulk redirect import (CSV)
+  - Redirect chain detection
+  - Enable/disable redirects
+  - Redirect analytics (usage count)
+- **SEO Performance:**
+  - Google Search Console integration
+  - Keyword ranking tracking
+  - Click-through rates
+  - Impressions vs clicks
+  - Core Web Vitals scores
+
+### 6. Settings Management
+- **General Settings:**
+  - Application name
+  - Logo upload
+  - Favicon
+  - Contact email
+  - Support URL
+  - Maintenance mode toggle
+  - Timezone settings
+- **Feature Flags:**
+  - Toggle features on/off globally
+  - Percentage-based rollouts
+  - User-specific feature access
+  - Feature usage analytics
+  - A/B testing configuration
+- **Pricing Management:**
+  - Edit pricing tier details
+  - Update Stripe price IDs
+  - Feature limits per tier
+  - Custom pricing for enterprise
+  - Discount code management
+  - Promotional offers
+- **Email Template Management:**
+  - Welcome email template
+  - Password reset template
+  - Subscription confirmation
+  - Payment failed notification
+  - Trial ending reminder
+  - Custom variables support
+  - Preview and test emails
+  - HTML and plain text versions
+- **Integration Settings:**
+  - API keys management
+  - Stripe configuration
+  - Email service (SendGrid/Resend)
+  - Analytics (Google Analytics, PostHog)
+  - Monitoring (Sentry)
+  - Third-party webhooks
+
+### 7. Audit Logs
+- **Activity Tracking:**
+  - All admin actions logged
+  - User account changes
+  - Subscription modifications
+  - Settings updates
+  - Login attempts
+  - Failed operations
+- **Log Viewer:**
+  - Searchable log entries
+  - Filter by action type, user, date
+  - Sort by timestamp
+  - Export logs (CSV, JSON)
+  - Retention policy settings
+- **Log Details:**
+  - Action performed
+  - User who performed action
+  - Target resource (user, subscription, etc.)
+  - Timestamp
+  - IP address
+  - User agent
+  - Before/after values (for updates)
+
+### Admin UI Components
+
+**Admin Sidebar Navigation:**
+```
+Admin Panel
+├─ Dashboard
+├─ User Management
+│  ├─ All Users
+│  └─ Suspended Users
+├─ Subscriptions
+│  ├─ Active
+│  ├─ Cancelled
+│  └─ Analytics
+├─ Analytics
+│  ├─ Revenue
+│  ├─ Users
+│  └─ Engagement
+├─ SEO
+│  ├─ Meta Tags
+│  ├─ Sitemap
+│  └─ Redirects
+├─ Settings
+│  ├─ General
+│  ├─ Features
+│  ├─ Pricing
+│  └─ Email Templates
+└─ Audit Logs
+```
+
+**Admin-Specific Components:**
+- AdminLayout with sidebar and header
+- AdminRoute protection (role-based)
+- DataTable with advanced filtering
+- Analytics charts (Line, Bar, Pie, Area)
+- Metrics dashboard cards
+- Search with autocomplete
+- Date range picker
+- Export button (CSV, PDF)
+- Bulk action toolbar
+- Status badges
+- Action menus (3-dot)
+- Confirmation modals for destructive actions
+
+### Admin API Endpoints
+
+**User Management:**
+```
+GET    /api/admin/users              # List users (paginated)
+GET    /api/admin/users/:id          # Get user details
+PUT    /api/admin/users/:id          # Update user
+DELETE /api/admin/users/:id          # Delete user
+POST   /api/admin/users/:id/suspend  # Suspend user
+POST   /api/admin/users/:id/unsuspend # Unsuspend user
+GET    /api/admin/users/:id/activity # User activity log
+POST   /api/admin/users/:id/note     # Add admin note
+```
+
+**Subscription Management:**
+```
+GET    /api/admin/subscriptions           # List subscriptions
+GET    /api/admin/subscriptions/:id       # Get subscription
+PUT    /api/admin/subscriptions/:id       # Update subscription
+POST   /api/admin/subscriptions/:id/cancel # Cancel subscription
+POST   /api/admin/subscriptions/:id/refund # Refund payment
+GET    /api/admin/subscriptions/stats     # Subscription stats
+```
+
+**Analytics:**
+```
+GET    /api/admin/analytics/revenue       # Revenue data
+GET    /api/admin/analytics/users         # User analytics
+GET    /api/admin/analytics/engagement    # Engagement metrics
+POST   /api/admin/analytics/export        # Export report
+```
+
+**SEO Management:**
+```
+GET    /api/admin/seo/meta-tags           # List meta tags
+POST   /api/admin/seo/meta-tags           # Create meta tag
+PUT    /api/admin/seo/meta-tags/:id       # Update meta tag
+DELETE /api/admin/seo/meta-tags/:id       # Delete meta tag
+GET    /api/admin/seo/sitemap             # Get sitemap
+POST   /api/admin/seo/sitemap/generate    # Generate sitemap
+GET    /api/admin/seo/redirects           # List redirects
+POST   /api/admin/seo/redirects           # Create redirect
+PUT    /api/admin/seo/redirects/:id       # Update redirect
+DELETE /api/admin/seo/redirects/:id       # Delete redirect
+```
+
+**Settings Management:**
+```
+GET    /api/admin/settings/general        # Get general settings
+PUT    /api/admin/settings/general        # Update general settings
+GET    /api/admin/settings/features       # Get feature flags
+PUT    /api/admin/settings/features/:id   # Toggle feature flag
+GET    /api/admin/settings/pricing        # Get pricing config
+PUT    /api/admin/settings/pricing        # Update pricing
+GET    /api/admin/settings/email-templates # List email templates
+PUT    /api/admin/settings/email-templates/:id # Update template
+POST   /api/admin/settings/email-templates/:id/test # Send test email
+```
+
+**Audit Logs:**
+```
+GET    /api/admin/audit-logs              # List audit logs
+GET    /api/admin/audit-logs/:id          # Get log details
+POST   /api/admin/audit-logs/export       # Export logs
+```
+
+### Admin Middleware & Security
+
+**adminAuth Middleware:**
+```typescript
+// lib/middleware/adminAuth.ts
+export async function requireAdmin(request: NextRequest) {
+  const user = await authenticateRequest(request);
+  
+  const adminUser = await prisma.adminUser.findUnique({
+    where: { userId: user.userId },
+  });
+  
+  if (!adminUser) {
+    throw new Error('Unauthorized: Admin access required');
+  }
+  
+  return { ...user, adminRole: adminUser.role, permissions: adminUser.permissions };
+}
+
+export function requirePermission(permission: string) {
+  return async (request: NextRequest) => {
+    const admin = await requireAdmin(request);
+    
+    if (!admin.permissions.includes(permission) && admin.adminRole !== 'super_admin') {
+      throw new Error(`Unauthorized: Missing permission '${permission}'`);
+    }
+    
+    return admin;
+  };
+}
+```
+
+**Audit Logging:**
+```typescript
+// lib/services/admin/audit-log.service.ts
+export async function logAdminAction(params: {
+  userId: string;
+  action: string;
+  resource: string;
+  resourceId?: string;
+  metadata?: any;
+  ipAddress?: string;
+  userAgent?: string;
+}) {
+  await prisma.auditLog.create({
+    data: params,
+  });
+}
+
+// Usage in admin API routes
+await logAdminAction({
+  userId: admin.userId,
+  action: 'user.suspended',
+  resource: 'User',
+  resourceId: targetUserId,
+  metadata: { reason: 'Violation of terms' },
+  ipAddress: request.headers.get('x-forwarded-for'),
+  userAgent: request.headers.get('user-agent'),
+});
+```
+
+### Admin Testing Requirements
+
+**Admin-Specific Tests:**
+```
+src/__tests__/
+  unit/
+    services/
+      admin/
+        ✓ user-management.service.test.ts
+        ✓ subscription-management.service.test.ts
+        ✓ analytics.service.test.ts
+        ✓ seo.service.test.ts
+        ✓ audit-log.service.test.ts
+  integration/
+    api/
+      admin/
+        ✓ users.test.ts
+        ✓ subscriptions.test.ts
+        ✓ analytics.test.ts
+        ✓ seo.test.ts
+        ✓ settings.test.ts
+        ✓ audit-logs.test.ts
+  components/
+    admin/
+      ✓ UserTable.test.tsx
+      ✓ AnalyticsChart.test.tsx
+      ✓ SEOMetaForm.test.tsx
+      ✓ AuditLogViewer.test.tsx
+```
+
+### Admin Features Summary
+
+✅ **Complete Admin Separation:**
+- Dedicated `/admin` route group
+- Separate admin API routes under `/api/admin`
+- Admin-specific components in `components/admin/`
+- Admin services in `lib/services/admin/`
+- Admin database queries in `lib/db/admin/`
+- Role-based access control
+- Admin context and hooks
+
+✅ **User Management:**
+- View, search, filter all users
+- Suspend/unsuspend accounts
+- Manual subscription changes
+- Activity tracking
+- User impersonation
+
+✅ **Subscription Dashboard:**
+- List all subscriptions
+- MRR/ARR analytics
+- Churn analysis
+- Manual upgrades/downgrades
+- Refund management
+
+✅ **Analytics & Reporting:**
+- Revenue tracking
+- User acquisition metrics
+- Retention analysis
+- Exportable reports
+- Custom date ranges
+
+✅ **SEO Management:**
+- Meta tag editor per page
+- Sitemap generation
+- URL redirects (301/302)
+- SEO performance metrics
+
+✅ **Settings Control:**
+- General app settings
+- Feature flags
+- Pricing management
+- Email template editor
+
+✅ **Audit Logging:**
+- All admin actions tracked
+- Searchable/filterable logs
+- Export capabilities
+- Security compliance
+
+---
+
+## Additional Requirements
+
+### Performance Optimization
+- Image optimization with next/image
+- Code splitting and lazy loading
+- React Query caching strategy
+- Database query optimization (indexes)
+- CDN for static assets
+- Lighthouse score: 90+ for all metrics
+
+### Accessibility
+- WCAG 2.1 Level AA compliance
+- Keyboard navigation support
+- ARIA labels and roles
+- Focus management
+- Screen reader compatibility
+- High contrast mode support
+
+### SEO
+- Meta tags for all pages
+- Open Graph tags
+- Twitter Card tags
+- Sitemap generation
+- Robots.txt
+- Structured data (JSON-LD)
+
+### Internationalization (i18n) - Optional
+- Multi-language support structure
+- RTL layout support
+- Date/number formatting per locale
+- Translation file structure
+
+---
+
+## CI/CD Pipeline
+
+### GitHub Actions Workflow
+```yaml
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npm run db:test:setup
+      - run: npm run test:ci
+      - run: npm run build
+      
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: vercel/actions/deploy@v1
+```
+
+---
+
+## Documentation Requirements
+
+### README.md
+- Project overview
+- Features list
+- Tech stack
+- Prerequisites
+- Installation steps
+- Environment setup
+- Running locally
+- Running tests
+- Deployment guide
+- Contributing guidelines
+- License
+
+### API Documentation
+- Endpoint list with methods
+- Request/response examples
+- Authentication requirements
+- Rate limits
+- Error codes and messages
+
+### Component Documentation
+- Storybook setup (optional)
+- Component props documentation
+- Usage examples
+- Accessibility notes
+
+---
+
+## Deliverables Checklist
+
+### Code
+- ✅ Complete Next.js 16+ app with TypeScript
+- ✅ Prisma schema with all models
+- ✅ Firebase authentication setup
+- ✅ Stripe integration with webhooks
+- ✅ All API routes with error handling
+- ✅ React components with MUI
+- ✅ Custom hooks for data fetching
+- ✅ Context providers for global state
+- ✅ Middleware for auth and rate limiting
+- ✅ Utility functions with validation
+
+### Tests
+- ✅ Unit tests for all business logic (90%+ coverage)
+- ✅ Integration tests for API routes (85%+ coverage)
+- ✅ Component tests for forms and interactions (75%+ coverage)
+- ✅ BDD pattern for all test files
+- ✅ Mock data and fixtures
+- ✅ Test helpers and utilities
+- ✅ Jest configuration
+- ✅ GitHub Actions CI pipeline
+
+### Documentation
+- ✅ README with setup instructions
+- ✅ API documentation
+- ✅ Environment variable template
+- ✅ Database schema diagram
+- ✅ Architecture overview
+- ✅ Testing guide
+- ✅ Deployment guide
+
+### Configuration
+- ✅ TypeScript config
+- ✅ ESLint config
+- ✅ Prettier config
+- ✅ Jest config
+- ✅ Next.js config
+- ✅ Vercel config
+- ✅ Git ignore file
+- ✅ Environment example file
+
+---
+
+## Quality Standards
+
+- **Code Quality**: ESLint with no warnings, Prettier formatting
+- **TypeScript**: Strict mode, no `any` types, proper interfaces
+- **Testing**: BDD pattern, 80%+ coverage, meaningful test names
+- **Performance**: Lighthouse score 90+, Core Web Vitals pass
+- **Security**: OWASP Top 10 compliance, dependency scanning
+- **Accessibility**: WCAG 2.1 AA compliance
+- **Documentation**: Clear, comprehensive, up-to-date
+
+---
+
+## Zustand State Management Examples
+
+### Auth Store (Client State)
+```typescript
+// lib/stores/auth-store.ts
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+
+interface AuthState {
+  user: {
+    id: string;
+    email: string;
+    displayName?: string;
+    avatarUrl?: string;
+  } | null;
+  isLoading: boolean;
+  setUser: (user: AuthState['user']) => void;
+  clearUser: () => void;
+}
+
+export const useAuthStore = create<AuthState>()(
+  persist(
+    (set) => ({
+      user: null,
+      isLoading: false,
+      setUser: (user) => set({ user }),
+      clearUser: () => set({ user: null }),
+    }),
+    {
+      name: 'auth-storage',
+      partialize: (state) => ({ user: state.user }),
+    }
+  )
+);
+```
+
+### Admin Store (Admin Dashboard State)
+```typescript
+// lib/stores/admin-store.ts
+import { create } from 'zustand';
+import { devtools } from 'zustand/middleware';
+
+interface AdminState {
+  selectedUsers: string[];
+  filters: {
+    tier?: string;
+    status?: string;
+    search?: string;
+  };
+  toggleUserSelection: (userId: string) => void;
+  clearSelection: () => void;
+  setFilters: (filters: Partial<AdminState['filters']>) => void;
+  clearFilters: () => void;
+}
+
+export const useAdminStore = create<AdminState>()(
+  devtools(
+    (set) => ({
+      selectedUsers: [],
+      filters: {},
+      toggleUserSelection: (userId) =>
+        set((state) => ({
+          selectedUsers: state.selectedUsers.includes(userId)
+            ? state.selectedUsers.filter((id) => id !== userId)
+            : [...state.selectedUsers, userId],
+        })),
+      clearSelection: () => set({ selectedUsers: [] }),
+      setFilters: (filters) =>
+        set((state) => ({ filters: { ...state.filters, ...filters } })),
+      clearFilters: () => set({ filters: {} }),
+    }),
+    { name: 'AdminStore' }
+  )
+);
+```
+
+### Theme Store
+```typescript
+// lib/stores/theme-store.ts
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+
+type Theme = 'light' | 'dark' | 'system';
+
+interface ThemeState {
+  theme: Theme;
+  setTheme: (theme: Theme) => void;
+}
+
+export const useThemeStore = create<ThemeState>()(
+  persist(
+    (set) => ({
+      theme: 'system',
+      setTheme: (theme) => set({ theme }),
+    }),
+    {
+      name: 'theme-storage',
+    }
+  )
+);
+```
+
+---
+
+## Server Actions Examples (Next.js 16)
+
+### Auth Server Actions (Firebase)
+```typescript
+// app/actions/auth-actions.ts
+'use server';
+
+import { adminAuth } from '@/lib/firebase/admin';
+import { db } from '@/lib/db/client';
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
+import { z } from 'zod';
+
+const loginSchema = z.object({
+  email: z.string().email('Invalid email address'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+});
+
+// Note: Client-side Firebase auth happens in the component
+// This server action verifies and creates/updates user in database
+export async function verifyAndSyncUser(
+  idToken: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Verify Firebase ID token
+    const decodedToken = await adminAuth.verifyIdToken(idToken);
+    const { uid, email, email_verified } = decodedToken;
+
+    // Find or create user in database
+    let user = await db.user.findUnique({
+      where: { firebaseUid: uid },
+    });
+
+    if (!user) {
+      user = await db.user.create({
+        data: {
+          firebaseUid: uid,
+          email: email!,
+          emailVerified: email_verified || false,
+        },
+      });
+    } else {
+      // Update last login
+      await db.user.update({
+        where: { id: user.id },
+        data: { lastLoginAt: new Date() },
+      });
+    }
+
+    // Set session cookie
+    const expiresIn = 60 * 60 * 24 * 5 * 1000; // 5 days
+    const sessionCookie = await adminAuth.createSessionCookie(idToken, {
+      expiresIn,
+    });
+
+    (await cookies()).set('session', sessionCookie, {
+      maxAge: expiresIn,
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+    });
+
+    return { success: true };
+  } catch (error: any) {
+    console.error('Auth error:', error);
+    return { success: false, error: error.message || 'Authentication failed' };
+  }
+}
+
+export async function logoutAction() {
+  const sessionCookie = (await cookies()).get('session');
+  
+  if (sessionCookie) {
+    try {
+      const decodedClaims = await adminAuth.verifySessionCookie(
+        sessionCookie.value
+      );
+      await adminAuth.revokeRefreshTokens(decodedClaims.uid);
+    } catch (error) {
+      // Session already invalid
+    }
+  }
+  
+  (await cookies()).delete('session');
+  redirect('/login');
+}
+```
+
+### Admin Server Actions
+```typescript
+// app/actions/admin/user-actions.ts
+'use server';
+
+import { db } from '@/lib/db/client';
+import { requireAdmin } from '@/lib/middleware/admin-auth';
+import { revalidatePath } from 'next/cache';
+import { logAdminAction } from '@/lib/services/admin/audit-log.service';
+
+export async function suspendUserAction(userId: string, reason: string) {
+  const admin = await requireAdmin();
+
+  const user = await db.user.update({
+    where: { id: userId },
+    data: { subscriptionStatus: 'suspended' },
+  });
+
+  await logAdminAction({
+    userId: admin.userId,
+    action: 'user.suspended',
+    resource: 'User',
+    resourceId: userId,
+    metadata: { reason },
+  });
+
+  revalidatePath('/admin/users');
+  return { success: true, user };
+}
+
+export async function deleteUserAction(userId: string) {
+  const admin = await requireAdmin();
+
+  await db.user.delete({
+    where: { id: userId },
+  });
+
+  await logAdminAction({
+    userId: admin.userId,
+    action: 'user.deleted',
+    resource: 'User',
+    resourceId: userId,
+  });
+
+  revalidatePath('/admin/users');
+  return { success: true };
+}
+
+export async function updateUserSubscriptionAction(
+  userId: string,
+  tier: string
+) {
+  const admin = await requireAdmin();
+
+  const user = await db.user.update({
+    where: { id: userId },
+    data: { subscriptionTier: tier },
+  });
+
+  await logAdminAction({
+    userId: admin.userId,
+    action: 'user.subscription_updated',
+    resource: 'User',
+    resourceId: userId,
+    metadata: { newTier: tier },
+  });
+
+  revalidatePath('/admin/users');
+  revalidatePath(`/admin/users/${userId}`);
+  return { success: true, user };
+}
+```
+
+---
+
+## shadcn/ui Component Examples
+
+### Login Form Component (with Server Actions)
+```typescript
+// components/auth/login-form.tsx
+'use client';
+
+import { useActionState } from 'react';
+import { loginAction } from '@/app/actions/auth-actions';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Loader2 } from 'lucide-react';
+
+export default function LoginForm() {
+  const [state, formAction, isPending] = useActionState(loginAction, null);
+
+  return (
+    <Card className=\"w-full max-w-md\">
+      <CardHeader>
+        <CardTitle>Log in to your account</CardTitle>
+        <CardDescription>
+          Enter your email and password to access your dashboard
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form action={formAction} className=\"space-y-4\">
+          {state?.error && (
+            <Alert variant=\"destructive\">
+              <AlertDescription>{state.error}</AlertDescription>
+            </Alert>
+          )}
+          
+          <div className=\"space-y-2\">
+            <Label htmlFor=\"email\">Email</Label>
+            <Input
+              id=\"email\"
+              name=\"email\"
+              type=\"email\"
+              placeholder=\"you@example.com\"
+              required
+              autoComplete=\"email\"
+            />
+          </div>
+
+          <div className=\"space-y-2\">
+            <Label htmlFor=\"password\">Password</Label>
+            <Input
+              id=\"password\"
+              name=\"password\"
+              type=\"password\"
+              required
+              autoComplete=\"current-password\"
+            />
+          </div>
+
+          <Button type=\"submit\" className=\"w-full\" disabled={isPending}>
+            {isPending ? (
+              <>
+                <Loader2 className=\"mr-2 h-4 w-4 animate-spin\" />
+                Logging in...
+              </>
+            ) : (
+              'Log in'
+            )}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+### Admin User Table (with shadcn/ui)
+```typescript
+// components/admin/users/user-table.tsx
+'use client';
+
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { MoreHorizontal, UserX, Edit, Trash2 } from 'lucide-react';
+import { suspendUserAction, deleteUserAction } from '@/app/actions/admin/user-actions';
+import { useTransition } from 'react';
+import { toast } from 'sonner';
+
+interface User {
+  id: string;
+  email: string;
+  displayName?: string;
+  avatarUrl?: string;
+  subscriptionTier: string;
+  subscriptionStatus: string;
+  createdAt: string;
+}
+
+export default function UserTable({ users }: { users: User[] }) {
+  const [isPending, startTransition] = useTransition();
+
+  const handleSuspend = (userId: string) => {
+    startTransition(async () => {
+      const result = await suspendUserAction(userId, 'Admin action');
+      if (result.success) {
+        toast.success('User suspended successfully');
+      }
+    });
+  };
+
+  const handleDelete = (userId: string) => {
+    if (!confirm('Are you sure you want to delete this user?')) return;
+    
+    startTransition(async () => {
+      const result = await deleteUserAction(userId);
+      if (result.success) {
+        toast.success('User deleted successfully');
+      }
+    });
+  };
+
+  const getTierBadgeVariant = (tier: string) => {
+    switch (tier) {
+      case 'pro':
+        return 'default';
+      case 'enterprise':
+        return 'secondary';
+      default:
+        return 'outline';
+    }
+  };
+
+  return (
+    <div className=\"rounded-md border\">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>User</TableHead>
+            <TableHead>Email</TableHead>
+            <TableHead>Tier</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Joined</TableHead>
+            <TableHead className=\"text-right\">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {users.map((user) => (
+            <TableRow key={user.id}>
+              <TableCell>
+                <div className=\"flex items-center gap-2\">
+                  <Avatar className=\"h-8 w-8\">
+                    <AvatarImage src={user.avatarUrl} alt={user.displayName} />
+                    <AvatarFallback>
+                      {user.displayName?.[0] || user.email[0].toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span>{user.displayName || 'No name'}</span>
+                </div>
+              </TableCell>
+              <TableCell>{user.email}</TableCell>
+              <TableCell>
+                <Badge variant={getTierBadgeVariant(user.subscriptionTier)}>
+                  {user.subscriptionTier}
+                </Badge>
+              </TableCell>
+              <TableCell>
+                <Badge
+                  variant={
+                    user.subscriptionStatus === 'active' ? 'default' : 'secondary'
+                  }
+                >
+                  {user.subscriptionStatus}
+                </Badge>
+              </TableCell>
+              <TableCell>
+                {new Date(user.createdAt).toLocaleDateString()}
+              </TableCell>
+              <TableCell className=\"text-right\">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant=\"ghost\" size=\"icon\" disabled={isPending}>
+                      <MoreHorizontal className=\"h-4 w-4\" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align=\"end\">
+                    <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem>
+                      <Edit className=\"mr-2 h-4 w-4\" />
+                      Edit User
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleSuspend(user.id)}>
+                      <UserX className=\"mr-2 h-4 w-4\" />
+                      Suspend Account
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => handleDelete(user.id)}
+                      className=\"text-destructive\"
+                    >
+                      <Trash2 className=\"mr-2 h-4 w-4\" />
+                      Delete User
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+```
+
+---
+
+## Admin Portal Code Examples
+
+### Admin Middleware (Next.js 16 with Firebase)
+```typescript
+// lib/middleware/admin-auth.ts
+import { adminAuth } from '@/lib/firebase/admin';
+import { cookies } from 'next/headers';
+import { db } from '@/lib/db/client';
+
+export async function requireAdmin() {
+  const sessionCookie = (await cookies()).get('session');
+  
+  if (!sessionCookie) {
+    throw new Error('Unauthorized: No session found');
+  }
+
+  try {
+    // Verify Firebase session cookie
+    const decodedClaims = await adminAuth.verifySessionCookie(
+      sessionCookie.value,
+      true
+    );
+
+    // Get user from database
+    const user = await db.user.findUnique({
+      where: { firebaseUid: decodedClaims.uid },
+      include: { adminUser: true },
+    });
+
+    if (!user || !user.adminUser) {
+      throw new Error('Unauthorized: Admin access required');
+    }
+
+    return {
+      userId: user.id,
+      firebaseUid: decodedClaims.uid,
+      adminRole: user.adminUser.role,
+      permissions: user.adminUser.permissions as string[],
+    };
+  } catch (error) {
+    throw new Error('Unauthorized: Invalid session');
+  }
+}
+
+export function hasPermission(
+  permissions: string[],
+  role: string,
+  requiredPermission: string
+): boolean {
+  if (role === 'super_admin') return true;
+  return permissions.includes(requiredPermission);
+}
+```
+
+### Firebase Client Configuration
+```typescript
+// lib/firebase/client.ts
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
+
+const firebaseConfig = {
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+};
+
+// Initialize Firebase
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+const auth = getAuth(app);
+
+export { app, auth };
+```
+
+### Firebase Admin SDK Configuration
+```typescript
+// lib/firebase/admin.ts
+import { initializeApp, getApps, cert, type ServiceAccount } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
+
+const serviceAccount: ServiceAccount = {
+  projectId: process.env.FIREBASE_PROJECT_ID!,
+  clientEmail: process.env.FIREBASE_CLIENT_EMAIL!,
+  privateKey: process.env.FIREBASE_PRIVATE_KEY!.replace(/\\n/g, '\n'),
+};
+
+if (getApps().length === 0) {
+  initializeApp({
+    credential: cert(serviceAccount),
+  });
+}
+
+export const adminAuth = getAuth();
+```
+
+### Next.js Middleware (Route Protection with Firebase)
+```typescript
+// middleware.ts
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+import { adminAuth } from '@/lib/firebase/admin';
+import { db } from '@/lib/db/client';
+
+export async function middleware(request: NextRequest) {
+  const sessionCookie = request.cookies.get('session');
+  
+  // Protected routes
+  const protectedPaths = ['/dashboard', '/profile', '/settings'];
+  const adminPaths = ['/admin'];
+  const authPaths = ['/login', '/signup'];
+  
+  const path = request.nextUrl.pathname;
+  
+  // Check if path requires authentication
+  const isProtectedPath = protectedPaths.some((p) => path.startsWith(p));
+  const isAdminPath = adminPaths.some((p) => path.startsWith(p));
+  const isAuthPath = authPaths.some((p) => path.startsWith(p));
+  
+  // No session cookie
+  if (!sessionCookie) {
+    if (isProtectedPath || isAdminPath) {
+      return NextResponse.redirect(new URL('/login', request.url));
+    }
+    return NextResponse.next();
+  }
+
+  // Validate session
+  try {
+    const decodedClaims = await adminAuth.verifySessionCookie(
+      sessionCookie.value,
+      true
+    );
+
+    // Authenticated user accessing auth pages
+    if (isAuthPath) {
+      return NextResponse.redirect(new URL('/dashboard', request.url));
+    }
+
+    // Check admin access
+    if (isAdminPath) {
+      const user = await db.user.findUnique({
+        where: { firebaseUid: decodedClaims.uid },
+        include: { adminUser: true },
+      });
+
+      if (!user?.adminUser) {
+        return NextResponse.redirect(new URL('/dashboard', request.url));
+      }
+    }
+
+    return NextResponse.next();
+  } catch (error) {
+    // Invalid session
+    if (isProtectedPath || isAdminPath) {
+      return NextResponse.redirect(new URL('/login', request.url));
+    }
+    return NextResponse.next();
+  }
+}
+
+export const config = {
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
+};
+```
+
+### Admin Service Example (Updated for Next.js 16)
+```typescript
+// lib/services/admin/user-management.service.ts
+import { db } from '@/lib/db/client';
+import { logAdminAction } from './audit-log.service';
+import { unstable_cache } from 'next/cache';
+
+export const listUsers = unstable_cache(
+  async (params: {
+    page: number;
+    limit: number;
+    search?: string;
+    tier?: string;
+    status?: string;
+  }) => {
+    const { page, limit, search, tier, status } = params;
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    
+    if (search) {
+      where.OR = [
+        { email: { contains: search, mode: 'insensitive' } },
+        { displayName: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+    
+    if (tier) {
+      where.subscriptionTier = tier;
+    }
+    
+    if (status) {
+      where.subscriptionStatus = status;
+    }
+
+    const [users, total] = await Promise.all([
+      db.user.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          settings: true,
+          _count: {
+            select: { loginHistory: true },
+          },
+        },
+      }),
+      db.user.count({ where }),
+    ]);
+
+    return {
+      users,
+      total,
+      pages: Math.ceil(total / limit),
+      currentPage: page,
+    };
+  },
+  ['admin-users'],
+  { revalidate: 60, tags: ['admin-users'] }
+);
+
+export async function suspendUser(
+  userId: string,
+  adminId: string,
+  reason: string
+) {
+  const user = await db.user.update({
+    where: { id: userId },
+    data: {
+      subscriptionStatus: 'suspended',
+    },
+  });
+
+  await logAdminAction({
+    userId: adminId,
+    action: 'user.suspended',
+    resource: 'User',
+    resourceId: userId,
+    metadata: { reason },
+  });
+
+  return user;
+}
+```
+
+---
+
+## CI/CD Pipeline (GitHub Actions with Next.js 16)
+
+### .github/workflows/ci.yml
+```yaml
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup database
+        run: |
+          pnpm prisma generate
+          pnpm prisma db push
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+
+      - name: Run linter
+        run: pnpm lint
+
+      - name: Run type check
+        run: pnpm typecheck
+
+      - name: Run unit tests
+        run: pnpm test:coverage
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/coverage-final.json
+          fail_ci_if_error: false
+
+      - name: Build application
+        run: pnpm build
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+
+      - name: Run E2E tests
+        run: pnpm test:e2e
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: '--prod'
+```
+
+---
+
+## Playwright E2E Configuration
+
+### playwright.config.ts
+```typescript
+import { defineConfig, devices } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './src/__tests__/e2e',
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 1 : undefined,
+  reporter: 'html',
+  use: {
+    baseURL: 'http://localhost:3000',
+    trace: 'on-first-retry',
+  },
+
+  projects: [
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'firefox',
+      use: { ...devices['Desktop Firefox'] },
+    },
+    {
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'] },
+    },
+  ],
+
+  webServer: {
+    command: 'pnpm dev',
+    url: 'http://localhost:3000',
+    reuseExistingServer: !process.env.CI,
+  },
+});
+```
+
+---
+
+## Final Requirements (Next.js 16)
+
+**Generate a complete, production-ready SaaS boilerplate with all the above features, following modern Next.js 16 and React 19 best practices, comprehensive Vitest/BDD testing coverage, proper error handling, robust security measures, and a polished user interface with shadcn/ui. Include all test files with BDD patterns, ensuring business logic has 90%+ test coverage.**
+
+### Key Highlights:
+1. **Modern tech stack**: Next.js 16, React 19, TypeScript, Prisma 6, Firebase Auth, Stripe
+2. **Comprehensive testing**: Vitest with BDD patterns (80%+ coverage)
+3. **Firebase Authentication**: Session cookies with Firebase Admin SDK, OAuth (Google, GitHub)
+4. **Stripe subscription management** with Server Actions
+5. **shadcn/ui components**: Accessible, customizable UI with Tailwind CSS v4
+6. **Production-ready**: CI/CD pipeline with GitHub Actions
+7. **Secure by design**: OWASP compliance, secure sessions, encrypted data
+8. **Performance-optimized**: Partial Prerendering (PPR), Turbopack, React Compiler
+9. **Zustand v5**: Client state management
+10. **TanStack Query v5**: Server state and caching
+11. **Server Actions**: Zero-client JavaScript mutations
+12. **Complete admin portal** with separate route groups and components
+13. **User management** with suspend/delete capabilities via Server Actions
+14. **Subscription management** dashboard with analytics
+15. **SEO management**: Meta tags, sitemap generation, URL redirects
+16. **Settings dashboard**: General, features, pricing, email templates
+17. **Audit logging**: Complete compliance and security tracking
+18. **Role-based access control**: Admin and super_admin roles with middleware
+19. **Parallel routes**: Advanced layouts for dashboard
+20. **Intercepting routes**: Modal workflows without page navigation
+
+---
+
+## Implementation Checklist
+
+### Core Application (Next.js 16)
+- ✅ Next.js 16 app with TypeScript and Turbopack
+- ✅ Prisma 6 schema with all user models
+- ✅ Firebase Authentication (email/password, Google, GitHub OAuth)
+- ✅ Firebase Admin SDK for server-side verification
+- ✅ Stripe integration with Server Actions and webhooks
+- ✅ Customer dashboard with parallel routes
+- ✅ Profile and settings management
+- ✅ Pricing page with Server Components
+- ✅ shadcn/ui components with Tailwind CSS v4
+
+### Admin Portal (Completely Separated)
+- ✅ Admin route group under `(admin)/admin`
+- ✅ Admin Server Actions under `app/actions/admin/`
+- ✅ Admin database models (AdminUser, AuditLog, SEOMeta, URLRedirect, etc.)
+- ✅ Admin middleware with session validation
+- ✅ Admin services with caching strategies
+- ✅ Admin components in `components/admin/` (shadcn/ui based)
+- ✅ Admin layout with sidebar (parallel routes)
+- ✅ User management with Server Actions
+- ✅ Subscription management with analytics
+- ✅ Analytics dashboard with charts (Recharts)
+- ✅ SEO management (meta tags, sitemap, redirects)
+- ✅ Settings dashboard with feature flags
+- ✅ Audit log viewer with filtering
+- ✅ Role-based access control with Next.js middleware
+- ✅ Admin-specific Vitest test suite
+
+### State Management
+- ✅ Zustand v5 for client state (auth, theme, admin)
+- ✅ TanStack Query v5 for server state
+- ✅ Server Actions for mutations
+- ✅ Optimistic updates with useOptimistic
+- ✅ React 19 useActionState for forms
+
+### Testing (Vitest + Playwright)
+- ✅ Vitest configuration with coverage
+- ✅ BDD test patterns for all business logic
+- ✅ Unit tests (90%+ coverage for services/utils)
+- ✅ Integration tests (85%+ coverage for Server Actions)
+- ✅ Component tests (75%+ coverage with Testing Library)
+- ✅ E2E tests with Playwright
+- ✅ MSW v2 for API mocking
+- ✅ CI/CD pipeline with GitHub Actions
+
+### Security & Performance
+- ✅ Firebase Authentication with session cookies
+- ✅ Firebase Admin SDK for server-side token verification
+- ✅ httpOnly, secure cookies
+- ✅ CSRF protection
+- ✅ Rate limiting with middleware
+- ✅ Input validation with Zod
+- ✅ Partial Prerendering (PPR) enabled
+- ✅ React 19 Compiler optimization
+- ✅ Edge runtime for API routes
+- ✅ Image optimization with next/image
+
+### Documentation
+- ✅ README with setup instructions (pnpm)
+- ✅ API and Server Actions documentation
+- ✅ Admin portal guide
+- ✅ Environment variable template (.env.example)
+- ✅ Database schema with ERD diagram
+- ✅ Testing guide (Vitest + Playwright)
+- ✅ Deployment guide (Vercel)
+- ✅ Contributing guidelines
+
+---
+
+## shadcn/ui Components to Include
+
+### Essential Components
+- ✅ Button (with variants: default, destructive, outline, secondary, ghost, link)
+- ✅ Card (with Header, Title, Description, Content, Footer)
+- ✅ Input (with Label integration)
+- ✅ Form (react-hook-form + Zod integration)
+- ✅ Dialog (Modal/AlertDialog for confirmations)
+- ✅ DropdownMenu (for user menu, actions menu)
+- ✅ Select (for filters and form selects)
+- ✅ Table (with responsive design)
+- ✅ Tabs (for settings pages)
+- ✅ Toast (with Sonner for notifications)
+- ✅ Avatar (with fallback)
+- ✅ Badge (for status indicators)
+- ✅ Skeleton (for loading states)
+- ✅ Separator (for visual hierarchy)
+- ✅ Popover (for date picker, tooltips)
+- ✅ Switch (for toggles)
+- ✅ Checkbox (for forms)
+- ✅ Textarea (for long-form inputs)
+- ✅ Calendar (for date picking)
+
+### Custom Components (Build on shadcn/ui)
+- ✅ DataTable (with sorting, filtering, pagination)
+- ✅ DateRangePicker (for date filters)
+- ✅ LoadingSpinner (branded loading state)
+- ✅ SearchInput (with debounce)
+- ✅ StatsCard (for metrics display)
+- ✅ Chart components (using Recharts)
+
+---
+
+## Next.js 16 Advanced Features
+
+### Parallel Routes
+```typescript
+// app/(dashboard)/dashboard/layout.tsx
+export default function DashboardLayout({
+  children,
+  analytics,
+  stats,
+}: {
+  children: React.ReactNode;
+  analytics: React.ReactNode;
+  stats: React.ReactNode;
+}) {
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="lg:col-span-2">{children}</div>
+      <div className="space-y-6">
+        {analytics}
+        {stats}
+      </div>
+    </div>
+  );
+}
+```
+
+### Intercepting Routes (Modals)
+```typescript
+// app/(admin)/admin/users/[id]/@modal/page.tsx
+import { Modal } from '@/components/ui/modal';
+
+export default function UserModal({ params }: { params: { id: string } }) {
+  return (
+    <Modal>
+      {/* User details content */}
+    </Modal>
+  );
+}
+```
+
+### Server Actions with revalidation
+```typescript
+// app/actions/user-actions.ts
+'use server';
+
+import { revalidatePath, revalidateTag } from 'next/cache';
+
+export async function updateProfileAction(formData: FormData) {
+  // Update user
+  await db.user.update({ ... });
+  
+  // Revalidate specific paths
+  revalidatePath('/profile');
+  revalidatePath('/dashboard');
+  
+  // Revalidate by tag
+  revalidateTag('user-profile');
+}
+```
+
+### Partial Prerendering (PPR)
+```typescript
+// app/dashboard/page.tsx
+import { Suspense } from 'react';
+import { Skeleton } from '@/components/ui/skeleton';
+
+export default function DashboardPage() {
+  return (
+    <div>
+      {/* Static shell - rendered at build time */}
+      <h1>Dashboard</h1>
+      
+      {/* Dynamic content - rendered on demand */}
+      <Suspense fallback={<Skeleton className="h-32 w-full" />}>
+        <UserStats />
+      </Suspense>
+      
+      <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+        <RecentActivity />
+      </Suspense>
+    </div>
+  );
+}
+```
+
+---
+
+## Quality Standards (Next.js 16)
+
+- **Code Quality**: ESLint 9 with Next.js config, Prettier with Tailwind plugin
+- **TypeScript**: Strict mode, no `any` types, proper type inference
+- **Testing**: Vitest with BDD patterns, 80%+ coverage, Playwright for E2E
+- **Performance**: Lighthouse score 95+, Core Web Vitals pass, PPR enabled
+- **Security**: OWASP Top 10 compliance, Firebase Auth with session cookies, input validation
+- **Accessibility**: WCAG 2.1 AA compliance, keyboard navigation, ARIA labels
+- **Documentation**: Clear, comprehensive, with code examples
+- **Modern Patterns**: Server Actions, Server Components, Parallel Routes, Streaming
+
+---
+
+## Package Manager: pnpm
+
+All commands use **pnpm** (version 9+) for faster, more efficient package management:
+
+```bash
+# Install dependencies
+pnpm install
+
+# Development
+pnpm dev          # Start with Turbopack
+pnpm lint         # ESLint
+pnpm typecheck    # TypeScript
+
+# Testing
+pnpm test         # Vitest
+pnpm test:e2e     # Playwright
+pnpm test:coverage # Coverage report
+
+# Database
+pnpm db:push      # Prisma push
+pnpm db:studio    # Prisma Studio
+pnpm db:migrate   # Run migrations
+
+# Production
+pnpm build        # Build for production
+pnpm start        # Start production server
+```
+
+---
+
+## Firebase Authentication for Mobile Apps
+
+### Mobile-Specific Firebase Configuration
+
+**iOS Setup (ios/App/App/GoogleService-Info.plist):**
+- Download GoogleService-Info.plist from Firebase Console
+- Add to Xcode project under ios/App/App/
+- Ensure it's added to the App target
+
+**Android Setup (android/app/google-services.json):**
+- Download google-services.json from Firebase Console  
+- Place in android/app/
+- Update android/build.gradle:
+
+```gradle
+buildscript {
+    dependencies {
+        classpath 'com.google.gms:google-services:4.4.0'
+    }
+}
+```
+
+**android/app/build.gradle:**
+```gradle
+apply plugin: 'com.google.gms.google-services'
+
+dependencies {
+    implementation platform('com.google.firebase:firebase-bom:32.7.0')
+    implementation 'com.google.firebase:firebase-auth'
+}
+```
+
+### Firebase Auth Persistence for Mobile
+```typescript
+// lib/firebase/auth-mobile.ts
+'use client';
+
+import { getAuth, setPersistence, browserLocalPersistence } from 'firebase/auth';
+import { isNativePlatform } from '@/lib/capacitor';
+
+export const initializeAuthPersistence = async () => {
+  const auth = getAuth();
+  
+  if (isNativePlatform()) {
+    // Use local persistence for mobile apps
+    await setPersistence(auth, browserLocalPersistence);
+  }
+};
+```
+
+### Biometric Authentication (iOS Face ID / Android Fingerprint)
+```typescript
+// lib/capacitor/biometric-auth.ts
+import { NativeBiometric, BiometryType } from 'capacitor-native-biometric';
+
+export const isBiometricAvailable = async (): Promise<boolean> => {
+  try {
+    const result = await NativeBiometric.isAvailable();
+    return result.isAvailable;
+  } catch {
+    return false;
+  }
+};
+
+export const authenticateWithBiometrics = async (
+  reason: string = 'Authenticate to access your account'
+): Promise<boolean> => {
+  try {
+    await NativeBiometric.verifyIdentity({
+      reason,
+      title: 'Biometric Authentication',
+      subtitle: 'Use your biometrics to login',
+      description: 'Place your finger on the sensor or look at the camera',
+    });
+    return true;
+  } catch (error) {
+    console.error('Biometric authentication failed:', error);
+    return false;
+  }
+};
+
+export const saveCredentials = async (username: string, password: string) => {
+  await NativeBiometric.setCredentials({
+    username,
+    password,
+    server: 'yourapp.com',
+  });
+};
+
+export const getCredentials = async () => {
+  try {
+    const credentials = await NativeBiometric.getCredentials({
+      server: 'yourapp.com',
+    });
+    return credentials;
+  } catch {
+    return null;
+  }
+};
+
+export const deleteCredentials = async () => {
+  await NativeBiometric.deleteCredentials({
+    server: 'yourapp.com',
+  });
+};
+```
+
+**Add to dependencies:**
+```json
+{
+  "dependencies": {
+    "capacitor-native-biometric": "^5.0.0"
+  }
+}
+```
+
+### Social Authentication for Mobile
+
+**Google Sign-In (iOS/Android):**
+```typescript
+// lib/firebase/social-auth-mobile.ts
+import { getAuth, GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
+import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth';
+
+export const initializeGoogleAuth = () => {
+  GoogleAuth.initialize({
+    clientId: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID!,
+    scopes: ['profile', 'email'],
+    grantOfflineAccess: true,
+  });
+};
+
+export const signInWithGoogle = async () => {
+  try {
+    const googleUser = await GoogleAuth.signIn();
+    const credential = GoogleAuthProvider.credential(googleUser.authentication.idToken);
+    const auth = getAuth();
+    const result = await signInWithCredential(auth, credential);
+    return result.user;
+  } catch (error) {
+    console.error('Google sign-in failed:', error);
+    throw error;
+  }
+};
+```
+
+**Add to dependencies:**
+```json
+{
+  "dependencies": {
+    "@codetrix-studio/capacitor-google-auth": "^3.3.0"
+  }
+}
+```
+
+**iOS Configuration (ios/App/App/Info.plist):**
+```xml
+<key>CFBundleURLTypes</key>
+<array>
+  <dict>
+    <key>CFBundleURLSchemes</key>
+    <array>
+      <string>com.googleusercontent.apps.YOUR_CLIENT_ID</string>
+    </array>
+  </dict>
+</array>
+```
+
+**Android Configuration (android/app/src/main/AndroidManifest.xml):**
+```xml
+<meta-data
+  android:name="com.google.android.gms.version"
+  android:value="@integer/google_play_services_version" />
+```
+
+### Push Notifications with Firebase Cloud Messaging
+```typescript
+// lib/capacitor/push-notifications.ts
+import { PushNotifications } from '@capacitor/push-notifications';
+
+export const requestNotificationPermission = async () => {
+  const permStatus = await PushNotifications.checkPermissions();
+  
+  if (permStatus.receive !== 'granted') {
+    const result = await PushNotifications.requestPermissions();
+    return result.receive === 'granted';
+  }
+  
+  return true;
+};
+
+export const registerForPushNotifications = async () => {
+  const hasPermission = await requestNotificationPermission();
+  
+  if (!hasPermission) {
+    throw new Error('Push notification permission denied');
+  }
+
+  await PushNotifications.register();
+
+  PushNotifications.addListener('registration', async token => {
+    console.log('Push registration success, token:', token.value);
+    // Send token to your backend
+    await fetch('/api/notifications/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: token.value }),
+    });
+  });
+
+  PushNotifications.addListener('registrationError', error => {
+    console.error('Push registration error:', error);
+  });
+
+  PushNotifications.addListener('pushNotificationReceived', notification => {
+    console.log('Push notification received:', notification);
+  });
+
+  PushNotifications.addListener('pushNotificationActionPerformed', notification => {
+    console.log('Push notification action performed:', notification);
+  });
+};
+```
+
+### Secure Storage for Tokens
+```typescript
+// lib/capacitor/secure-storage.ts
+import { Capacitor } from '@capacitor/core';
+import { SecureStoragePlugin } from 'capacitor-secure-storage-plugin';
+
+const isNative = Capacitor.isNativePlatform();
+
+export const secureStorage = {
+  async set(key: string, value: string): Promise<void> {
+    if (isNative) {
+      await SecureStoragePlugin.set({ key, value });
+    } else {
+      localStorage.setItem(key, value);
+    }
+  },
+
+  async get(key: string): Promise<string | null> {
+    if (isNative) {
+      try {
+        const { value } = await SecureStoragePlugin.get({ key });
+        return value;
+      } catch {
+        return null;
+      }
+    } else {
+      return localStorage.getItem(key);
+    }
+  },
+
+  async remove(key: string): Promise<void> {
+    if (isNative) {
+      await SecureStoragePlugin.remove({ key });
+    } else {
+      localStorage.removeItem(key);
+    }
+  },
+
+  async clear(): Promise<void> {
+    if (isNative) {
+      await SecureStoragePlugin.clear();
+    } else {
+      localStorage.clear();
+    }
+  },
+};
+```
+
+**Add to dependencies:**
+```json
+{
+  "dependencies": {
+    "capacitor-secure-storage-plugin": "^0.9.0"
+  }
+}
+```
+
+---
+
+## Mobile App Store Submission Checklist
+
+### iOS App Store Requirements
+
+**1. App Store Connect Setup:**
+- [ ] Create app listing in App Store Connect
+- [ ] Prepare app screenshots (6.5", 6.7", 12.9" displays)
+- [ ] Write app description and keywords
+- [ ] Set pricing and availability
+- [ ] Configure age rating
+
+**2. Technical Requirements:**
+- [ ] Support latest iOS version and iOS-1
+- [ ] Support all iPhone screen sizes
+- [ ] Implement Dark Mode support
+- [ ] Handle notch/Dynamic Island layouts
+- [ ] Privacy manifest (PrivacyInfo.xcprivacy) for third-party SDKs
+- [ ] App Transport Security configuration
+- [ ] App Tracking Transparency (if collecting data)
+
+**3. Xcode Configuration:**
+```xml
+<!-- ios/App/App/Info.plist -->
+<key>NSCameraUsageDescription</key>
+<string>This app requires camera access to upload profile pictures</string>
+
+<key>NSPhotoLibraryUsageDescription</key>
+<string>This app needs access to your photos to set profile pictures</string>
+
+<key>NSFaceIDUsageDescription</key>
+<string>Use Face ID for quick and secure login</string>
+
+<key>NSUserTrackingUsageDescription</key>
+<string>This app would like to track your activity for personalized ads</string>
+
+<key>NSAppTransportSecurity</key>
+<dict>
+  <key>NSAllowsArbitraryLoads</key>
+  <false/>
+</dict>
+```
+
+**4. Build and Submit:**
+```bash
+# 1. Increment build number
+agvtool next-version -all
+
+# 2. Archive in Xcode
+# Product > Archive
+
+# 3. Validate before submitting
+# Window > Organizer > Validate App
+
+# 4. Upload to App Store Connect
+# Window > Organizer > Distribute App
+
+# 5. Submit for review in App Store Connect
+```
+
+### Android Play Store Requirements
+
+**1. Google Play Console Setup:**
+- [ ] Create app listing in Google Play Console
+- [ ] Prepare screenshots (phone, 7" tablet, 10" tablet)
+- [ ] Write app description
+- [ ] Create feature graphic (1024x500)
+- [ ] Set content rating
+- [ ] Configure pricing and distribution
+
+**2. Technical Requirements:**
+- [ ] Target latest Android API level (API 34+)
+- [ ] Support Android 8.0 (API 26) minimum
+- [ ] 64-bit native libraries
+- [ ] Privacy Policy URL
+- [ ] Data safety form completion
+
+**3. Android Manifest Configuration:**
+```xml
+<!-- android/app/src/main/AndroidManifest.xml -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    
+    <!-- Permissions -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+                     android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    
+    <!-- Features -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    
+    <application
+        android:name=".MainApplication"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:allowBackup="true"
+        android:usesCleartextTraffic="false"
+        android:networkSecurityConfig="@xml/network_security_config">
+        
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/AppTheme.NoActionBarLaunch">
+            
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
+```
+
+**4. Signing Configuration:**
+```gradle
+// android/app/build.gradle
+android {
+    signingConfigs {
+        release {
+            if (project.hasProperty('RELEASE_STORE_FILE')) {
+                storeFile file(RELEASE_STORE_FILE)
+                storePassword RELEASE_STORE_PASSWORD
+                keyAlias RELEASE_KEY_ALIAS
+                keyPassword RELEASE_KEY_PASSWORD
+            }
+        }
+    }
+    
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+```
+
+**5. Build and Submit:**
+```bash
+# 1. Build Android App Bundle (AAB)
+cd android
+./gradlew bundleRelease
+
+# 2. Sign the bundle (if not configured in build.gradle)
+jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
+  -keystore release.keystore \
+  app/build/outputs/bundle/release/app-release.aab \
+  your-key-alias
+
+# 3. Upload to Google Play Console
+# - Go to Google Play Console
+# - Select app > Production > Create new release
+# - Upload app-release.aab
+# - Complete release notes and submit for review
+```
+
+### Common Requirements for Both Platforms
+
+**1. Privacy and Security:**
+- [ ] Implement app privacy policy
+- [ ] Handle user data securely (GDPR/CCPA compliance)
+- [ ] Implement secure authentication
+- [ ] Encrypt sensitive data
+- [ ] Implement certificate pinning for API calls
+
+**2. Performance:**
+- [ ] App launches in < 3 seconds
+- [ ] Smooth 60fps animations
+- [ ] Optimized bundle size (< 50MB initial download)
+- [ ] Efficient memory usage
+- [ ] Battery optimization
+
+**3. Testing:**
+- [ ] Test on multiple devices and OS versions
+- [ ] Test offline functionality
+- [ ] Test push notifications
+- [ ] Test deep linking
+- [ ] Test payment flows (if applicable)
+- [ ] Beta testing with TestFlight (iOS) / Internal Testing (Android)
+
+**4. Analytics and Monitoring:**
+- [ ] Implement crash reporting (Firebase Crashlytics)
+- [ ] Set up analytics (Firebase Analytics)
+- [ ] Configure performance monitoring
+- [ ] Error tracking and logging
+
+---
+
+## Mobile Development Best Practices
+
+### 1. Network Resilience
+```typescript
+// lib/api/mobile-fetch.ts
+import { Capacitor } from '@capacitor/core';
+import { Network } from '@capacitor/network';
+
+let isOnline = true;
+
+export const setupNetworkListener = () => {
+  if (!Capacitor.isNativePlatform()) return;
+
+  Network.addListener('networkStatusChange', status => {
+    isOnline = status.connected;
+    console.log('Network status changed:', status);
+  });
+};
+
+export const mobileFetch = async (url: string, options?: RequestInit) => {
+  if (!isOnline) {
+    throw new Error('No internet connection');
+  }
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: AbortSignal.timeout(30000), // 30s timeout
+    });
+    return response;
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Request timeout');
+    }
+    throw error;
+  }
+};
+```
+
+### 2. Memory Management
+```typescript
+// hooks/use-image-optimization.ts
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useMobilePlatform } from './use-mobile-platform';
+
+export function useImageOptimization(src: string) {
+  const { isNative } = useMobilePlatform();
+  const [optimizedSrc, setOptimizedSrc] = useState(src);
+
+  useEffect(() => {
+    if (isNative && src.startsWith('http')) {
+      // Resize images for mobile devices
+      const url = new URL(src);
+      url.searchParams.set('w', '800'); // Max width
+      url.searchParams.set('q', '75'); // Quality
+      setOptimizedSrc(url.toString());
+    }
+  }, [src, isNative]);
+
+  return optimizedSrc;
+}
+```
+
+### 3. Battery Optimization
+```typescript
+// lib/capacitor/battery-optimization.ts
+import { BackgroundTask } from '@capawesome/capacitor-background-task';
+
+export const runBackgroundTask = async (task: () => Promise<void>) => {
+  const taskId = await BackgroundTask.beforeExit(async () => {
+    try {
+      await task();
+    } finally {
+      BackgroundTask.finish({ taskId });
+    }
+  });
+};
+```
+
+### 4. App Updates
+```typescript
+// lib/capacitor/app-updates.ts
+import { App } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
+
+export const checkForUpdates = async () => {
+  if (!Capacitor.isNativePlatform()) return;
+
+  const info = await App.getInfo();
+  
+  // Check your backend for latest version
+  const response = await fetch('/api/app-version');
+  const { latestVersion } = await response.json();
+  
+  if (latestVersion > info.version) {
+    const updateUrl = Capacitor.getPlatform() === 'ios'
+      ? 'https://apps.apple.com/app/your-app-id'
+      : 'https://play.google.com/store/apps/details?id=com.yourapp';
+    
+    return updateUrl;
+  }
+  
+  return null;
+};
+```
+
+---
+
+**This specification ensures a cutting-edge, production-ready SaaS boilerplate using the latest Next.js 16 features, shadcn/ui for beautiful accessible components, Firebase Authentication for robust user management, complete separation of customer and admin dashboards, and full mobile app deployment support for iOS App Store and Google Play Store via Capacitor v6. The codebase follows best practices for performance, security, testing, and maintainability across web and mobile platforms.**
