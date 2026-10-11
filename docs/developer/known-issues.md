@@ -29,7 +29,6 @@ Items are listed by area. Each one is either tracked by a Jira key or marked as 
 
 - **`.claude/CLAUDE.md` names differ from `.env.example`.** CLAUDE.md lists `FIREBASE_PROJECT_ID` and `STRIPE_PRICE_ID_PRO_MONTHLY`. The real names are `FIREBASE_ADMIN_PROJECT_ID` and `STRIPE_PRICE_ID_PRO`. Use `.env.example` as the reference. Untracked.
 - **The root `README.md` is the old boilerplate README.** It describes Prisma-based setup and links `GUIDE.md`, which is in `nextjs-frontend/`. Do not follow it. Untracked.
-- **The service key name is not in the ADR text yet.** ADR-003 on the KAN-29 review branch names the `X-Internal-Key` header, but not the `BACKEND_INTERNAL_KEY` variable. Lands with KAN-29.
 
 ## Open bug tickets
 

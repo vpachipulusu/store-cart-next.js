@@ -78,4 +78,5 @@ These work today but **may change**:
 - **Admin tools** for suspending users, managing admin roles and cancelling subscriptions are
   planned; the audit log gains filters by organisation, store, user and action.
 - **Profile photo upload** is not working yet.
-- The **Contact** page form may not send messages yet. Use the email address on that page.
+- The **Contact** page form may not send messages yet, and its contact details are placeholders. A
+  support channel will be announced before launch.

@@ -53,7 +53,7 @@ Fill in the values from the team's secret store. Never commit `.env`. The list b
 | App | `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_APP_NAME`, `APP_ID`, `APP_NAME`, `NODE_ENV`, `LOG_LEVEL` | |
 | Monitoring | `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_AUTH_TOKEN` | The Sentry token is optional and used at build time only. |
 | FastAPI base URL *(lands with KAN-113)* | `BACKEND_API_URL` | Read by `npm run foundation:check`. The server-only API client (KAN-33) reads the same name. |
-| FastAPI service key *(lands with KAN-29)* | `BACKEND_INTERNAL_KEY` | Server-only. Sent to FastAPI as the `X-Internal-Key` header. |
+| FastAPI service key | `BACKEND_INTERNAL_KEY` | Server-only. Sent to FastAPI as the `X-Internal-Key` header. |
 | E2E test accounts *(lands with KAN-113)* | `TEST_USER_EMAIL`, `TEST_USER_PASSWORD`, `TEST_ADMIN_EMAIL`, `TEST_ADMIN_PASSWORD` | Written to `.env.e2e.local` by `npm run test:setup`. Do not edit by hand. |
 
 ### Run the frontend
@@ -70,7 +70,7 @@ The app serves at `http://localhost:3000`. The `predev` hook runs `scripts/dev-c
 cd fastapi_backend
 uv sync
 cp .env.example .env
-uv run fastapi dev app/main.py --host 0.0.0.0 --port 8000 --reload
+uv run fastapi dev app/main.py --host 127.0.0.1 --port 8000 --reload
 ```
 
 Run commands from `fastapi_backend/`. `app/config.py` reads `.env` from the working directory.
@@ -80,7 +80,7 @@ Run commands from `fastapi_backend/`. `app/config.py` reads `.env` from the work
 | Variable names | Required | Notes |
 |---|---|---|
 | `DATABASE_URL` | Yes | Platform database. |
-| `CORS_ORIGINS` | Yes | Set of allowed origins. The browser never calls FastAPI, so keep this minimal. |
+| `CORS_ORIGINS` | Yes | Set it to `[]`. The browser never calls FastAPI, so no browser origin is allowed (ADR-003). |
 | `ACCESS_SECRET_KEY`, `RESET_PASSWORD_SECRET_KEY`, `VERIFICATION_SECRET_KEY` | Yes | Template fastapi-users secrets. Removed in KAN-30 (template adaptation). |
 | `TEST_DATABASE_URL` | For `pytest` | Used by `tests/conftest.py`. |
 | `FRONTEND_URL`, `OPENAPI_OUTPUT_FILE` | No | `FRONTEND_URL` defaults to `http://localhost:3000`. |

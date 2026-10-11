@@ -35,7 +35,7 @@ Browser
    |  pages, server actions, route handlers (only Next.js is reachable)
    v
 Next.js server  (nextjs-frontend, Vercel)
-   |  X-Internal-Key + X-Session-Token            (lands with KAN-29)
+   |  X-Internal-Key + X-Session-Token            (ADR-003)
    v
 FastAPI  (fastapi_backend, Vercel serverless)
    |  SQLAlchemy 2 async, NullPool
@@ -78,4 +78,4 @@ Rules:
 | [009](../adr/0009-email-with-resend.md) | Email through Resend from the backend | D22 |
 | [010](../adr/0010-accounts-and-payments-model.md) | Account structure, seller of record and platform revenue | D3, D4, D9 |
 
-The ADRs are currently *Proposed*, awaiting sign-off on KAN-29. Review fixes to ADR-003 and ADR-005 are on a branch and land with KAN-29.
+The ADRs are currently *Proposed*, awaiting product-owner sign-off on KAN-29. The architect's review fixes to ADR-001, ADR-003, ADR-004, ADR-005 and ADR-007 are merged.

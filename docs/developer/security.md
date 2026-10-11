@@ -11,13 +11,13 @@ Every exported Next.js server action is a public POST endpoint. Anyone can call 
 - Validate every input with a schema (Zod in the frontend) before using it.
 - Return the `{ success, data?, error? }` shape and do not leak internal errors.
 
-*(lands with KAN-122)* The unauthenticated auth actions and the `/api/auth/signup`, `/api/auth/login` and `/api/auth/logout` route handlers are removed, and the client-supplied plan argument is gone. The `auth-actions-security` unit tests cover this.
+The unauthenticated auth actions and the `/api/auth/signup`, `/api/auth/login` and `/api/auth/logout` route handlers are removed, and the client-supplied plan argument is gone. The `auth-actions-security` unit tests cover this.
 
 ## Server secrets and database access
 
 - After Foundation, the frontend holds no `DATABASE_URL`, no Firebase Admin credentials, and no other server secrets. FastAPI owns them.
 - Until then, the frontend still uses Prisma and server secrets. Do not add more.
-- The frontend calls FastAPI from the server only, with the internal service key `BACKEND_INTERNAL_KEY`, sent as the `X-Internal-Key` header *(lands with KAN-29)*. The key is held only in the server environment of each Vercel project. Each environment (production, preview, development) has its own key.
+- The frontend calls FastAPI from the server only, with the internal service key `BACKEND_INTERNAL_KEY`, sent as the `X-Internal-Key` header (ADR-003). The key is held only in the server environment of each Vercel project. Each environment (production, preview, development) has its own key.
 - Open question: the service key is itself a server secret in the Next.js environment, and the done-check does not flag it. Decide before KAN-51 is closed whether it counts under the Foundation rule. See [known-issues.md](known-issues.md).
 
 ## Credentials

@@ -59,7 +59,7 @@ the sign-in was a **Success** or **Failed**.
 If you see a sign-in you don't recognise:
 
 1. [Change your password](profile-and-settings.md#change-your-password) straight away.
-2. Turn on [two-factor authentication](profile-and-settings.md#two-factor-authentication-2fa).
+2. Check your [login history](profile-and-settings.md#review-your-login-history) again afterwards.
 
 The full list is on the **Security** page under
 [Login history](profile-and-settings.md#review-your-login-history).

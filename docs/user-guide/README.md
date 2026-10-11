@@ -44,5 +44,5 @@ organisation, open several stores under it, and sell through each store's own st
 
 ## Getting help
 
-The **Contact** page lists ways to reach the team. Its message form may not send messages yet
-(**may change**), so use the email address shown on that page instead.
+The **Contact** page's message form may not send messages yet, and its contact details are
+placeholders (**may change**). A support channel will be announced before launch.

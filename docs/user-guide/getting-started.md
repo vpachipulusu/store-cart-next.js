@@ -59,9 +59,8 @@ If you see "Email not verified yet", the link has not been opened yet. Open it, 
    - Select **Continue with Google** or **Continue with GitHub**.
 3. You are taken to your dashboard.
 
-> **Two-factor authentication:** if you turned on two-factor authentication, StoreCart may ask for
-> a code from your authenticator app when you sign in. How and when this prompt appears **may
-> change** during the rebuild. See [Two-factor authentication](profile-and-settings.md#two-factor-authentication-2fa).
+> **Two-factor authentication:** sign-in does not ask for a 2FA code yet, even if you have set
+> 2FA up. This **may change** during the rebuild. See [Two-factor authentication](profile-and-settings.md#two-factor-authentication-2fa).
 
 ## Sign out
 
@@ -91,4 +90,4 @@ Tips:
 ## Next steps
 
 - Look around [your dashboard](dashboard.md).
-- Turn on [two-factor authentication](profile-and-settings.md#two-factor-authentication-2fa).
+- Choose a strong, unique password ([change your password](profile-and-settings.md#change-your-password)).

@@ -55,9 +55,13 @@ Your new password must be at least 8 characters long.
 
 ### Two-factor authentication (2FA)
 
-Two-factor authentication adds a second step to signing in: a 6-digit code from an authenticator
-app on your phone (for example Google Authenticator, Microsoft Authenticator or 1Password). We
-recommend it for everyone, especially the person who manages billing.
+> **May change: sign-in does not ask for your 2FA code yet.** You can set up two-factor
+> authentication today, but it does not yet add a step when you sign in, so it does not protect your
+> account on its own. Keep a strong, unique password. This page will be updated when sign-in checks
+> the code.
+
+Two-factor authentication uses a 6-digit code from an authenticator app on your phone (for example
+Google Authenticator, Microsoft Authenticator or 1Password).
 
 #### Turn on 2FA
 
@@ -77,9 +81,8 @@ Keep your phone and authenticator app safe. You need them to turn 2FA off again.
 2. Enter the current 6-digit code from your authenticator app.
 3. Select **Disable 2FA**. The status changes to **Disabled**.
 
-> **May change:** how StoreCart asks for your 2FA code when you sign in, and what to do if you lose
-> your phone, may change during the rebuild. Recovery options are not documented yet. Contact
-> support if you lose access to your authenticator app.
+> **May change:** how StoreCart will ask for your 2FA code when you sign in, and what to do if you
+> lose your phone. Recovery options are not available yet.
 
 ### Review your login history
 
@@ -91,7 +94,7 @@ Keep your phone and authenticator app safe. You need them to turn 2FA off again.
 - **Status**: **Success** or **Failed**
 
 Several **Failed** entries you don't recognise may mean someone is trying to get into your
-account. Change your password and turn on 2FA.
+account. [Change your password](#change-your-password) straight away.
 
 ### Export your data (being removed)
 
