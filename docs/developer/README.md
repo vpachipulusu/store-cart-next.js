@@ -1,0 +1,21 @@
+# StoreCart developer documentation
+
+**Last updated:** 2026-10-11
+**Scope:** the repository as it is on `main`. Items marked *(lands with KAN-n)* are on unmerged branches and are not yet in `main`.
+
+If you are setting up a machine for the first time, start with [getting-started.md](getting-started.md).
+
+| Page | Read it when |
+|---|---|
+| [getting-started.md](getting-started.md) | Installing prerequisites, cloning, configuring env, running both apps |
+| [architecture.md](architecture.md) | You need the monorepo layout and the request flow from browser to FastAPI |
+| [workflow.md](workflow.md) | You pick up a Jira story, branch, commit, or open a PR |
+| [testing.md](testing.md) | You run or write unit, integration, e2e, foundation, or backend tests |
+| [security.md](security.md) | You write a server action, handle secrets, or touch e2e accounts |
+| [known-issues.md](known-issues.md) | Something is broken and you want to know whether it is already tracked |
+
+## Related sources
+
+- Architecture decisions: [docs/adr/README.md](../adr/README.md) (ADR-001 to ADR-010). The ADRs are the reference; these pages link to them rather than repeat them.
+- Plan of record: [.claude/plans/storecart-plan.md](../../.claude/plans/storecart-plan.md)
+- Agent and workflow rules: [.claude/CLAUDE.md](../../.claude/CLAUDE.md)
