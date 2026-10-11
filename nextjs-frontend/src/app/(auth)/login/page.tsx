@@ -1,6 +1,6 @@
-import Link from 'next/link';
-import { LoginForm } from '@/components/auth/login-form';
-import { OAuthButtons } from '@/components/auth/oauth-buttons';
+import Link from "next/link";
+import { LoginForm } from "@/components/auth/login-form";
+import { OAuthButtons } from "@/components/auth/oauth-buttons";
 import {
   Card,
   CardContent,
@@ -8,12 +8,12 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
+} from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 
 export const metadata = {
-  title: 'Login',
-  description: 'Login to your account',
+  title: "Login",
+  description: "Login to your account",
 };
 
 export default function LoginPage() {
@@ -22,7 +22,9 @@ export default function LoginPage() {
       <CardHeader className="space-y-1">
         <div className="mb-3 h-px w-12 bg-gradient-to-r from-theme-accent to-transparent" />
         <CardTitle className="text-2xl">Welcome back</CardTitle>
-        <CardDescription>Sign in to your account to continue</CardDescription>
+        <CardDescription>
+          Sign in to your account to continue
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <OAuthButtons />
@@ -32,16 +34,21 @@ export default function LoginPage() {
             <Separator />
           </div>
           <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-card px-2 text-muted-foreground">Or continue with email</span>
+            <span className="bg-card px-2 text-muted-foreground">
+              Or continue with email
+            </span>
           </div>
         </div>
 
         <LoginForm />
       </CardContent>
       <CardFooter>
-        <p className="w-full text-center text-sm text-muted-foreground">
-          Don&apos;t have an account?{' '}
-          <Link href="/signup" className="font-medium text-primary hover:underline">
+        <p className="text-center text-sm text-muted-foreground w-full">
+          Don&apos;t have an account?{" "}
+          <Link
+            href="/signup"
+            className="font-medium text-primary hover:underline"
+          >
             Sign up
           </Link>
         </p>

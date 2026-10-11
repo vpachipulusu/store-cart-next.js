@@ -472,8 +472,8 @@ export default function SecurityPage() {
           </div>
           <p className="text-sm text-muted-foreground">
             Two-factor authentication (2FA) adds an additional layer of protection to your account.
-            Once enabled, you&apos;ll need to enter both your password and an authentication code
-            from your mobile device to sign in.
+            Once enabled, you&apos;ll need to enter both your password and an authentication code from
+            your mobile device to sign in.
           </p>
 
           {!twoFactorEnabled ? (

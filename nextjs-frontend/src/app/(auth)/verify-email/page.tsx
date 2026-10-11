@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { Button } from '@/components/ui/button';
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -11,32 +11,32 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from '@/components/ui/card';
-import { auth } from '@/lib/firebase/client';
-import { onAuthStateChanged } from 'firebase/auth';
-import { resendVerificationEmail } from '@/lib/firebase/auth-helpers';
-import { verifyTokenAction } from '@/app/actions/auth-actions';
+} from "@/components/ui/card";
+import { auth } from "@/lib/firebase/client";
+import { onAuthStateChanged } from "firebase/auth";
+import { resendVerificationEmail } from "@/lib/firebase/auth-helpers";
+import { verifyTokenAction } from "@/app/actions/auth-actions";
 
 export default function VerifyEmailPage() {
   const router = useRouter();
   const [isResending, setIsResending] = useState(false);
   const [resendSuccess, setResendSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [userEmail, setUserEmail] = useState<string>('');
+  const [userEmail, setUserEmail] = useState<string>("");
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (!user) {
         // User not logged in, redirect to login
-        router.push('/login');
+        router.push("/login");
         return;
       }
 
-      setUserEmail(user.email || '');
+      setUserEmail(user.email || "");
 
       // Check if email is already verified
       if (user.emailVerified) {
-        router.push('/dashboard');
+        router.push("/dashboard");
       }
     });
 
@@ -51,7 +51,7 @@ export default function VerifyEmailPage() {
 
       const user = auth.currentUser;
       if (!user) {
-        setError('No user found. Please log in again.');
+        setError("No user found. Please log in again.");
         return;
       }
 
@@ -64,8 +64,8 @@ export default function VerifyEmailPage() {
 
       setResendSuccess(true);
     } catch (error) {
-      setError('Failed to resend verification email. Please try again.');
-      console.error('Resend email error:', error);
+      setError("Failed to resend verification email. Please try again.");
+      console.error("Resend email error:", error);
     } finally {
       setIsResending(false);
     }
@@ -79,9 +79,9 @@ export default function VerifyEmailPage() {
         // Get fresh token and update session cookies (including email-verified)
         const idToken = await user.getIdToken(true);
         await verifyTokenAction(idToken);
-        router.push('/dashboard');
+        router.push("/dashboard");
       } else {
-        setError('Email not verified yet. Please check your inbox.');
+        setError("Email not verified yet. Please check your inbox.");
       }
     }
   };
@@ -89,7 +89,7 @@ export default function VerifyEmailPage() {
   return (
     <Card>
       <CardHeader className="space-y-1">
-        <div className="mb-4 flex justify-center">
+        <div className="flex justify-center mb-4">
           <div className="rounded-full bg-theme-accent/10 p-3">
             <svg
               className="h-6 w-6 text-theme-accent"
@@ -106,15 +106,19 @@ export default function VerifyEmailPage() {
             </svg>
           </div>
         </div>
-        <CardTitle className="text-center text-2xl">Verify your email</CardTitle>
+        <CardTitle className="text-2xl text-center">
+          Verify your email
+        </CardTitle>
         <CardDescription className="text-center">
-          We&apos;ve sent a verification link to{' '}
+          We&apos;ve sent a verification link to{" "}
           <span className="font-medium text-foreground">{userEmail}</span>
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {error && (
-          <div className="rounded-md bg-destructive/15 p-3 text-sm text-destructive">{error}</div>
+          <div className="rounded-md bg-destructive/15 p-3 text-sm text-destructive">
+            {error}
+          </div>
         )}
 
         {resendSuccess && (
@@ -123,9 +127,12 @@ export default function VerifyEmailPage() {
           </div>
         )}
 
-        <div className="space-y-2 text-center text-sm text-muted-foreground">
+        <div className="text-center text-sm text-muted-foreground space-y-2">
           <p>Click the link in the email to verify your account.</p>
-          <p>If you don&apos;t see the email, check your spam folder or request a new one.</p>
+          <p>
+            If you don&apos;t see the email, check your spam folder or request a new
+            one.
+          </p>
         </div>
 
         <div className="space-y-2">
@@ -141,7 +148,7 @@ export default function VerifyEmailPage() {
                 Sending...
               </>
             ) : (
-              'Resend verification email'
+              "Resend verification email"
             )}
           </Button>
 
@@ -151,9 +158,12 @@ export default function VerifyEmailPage() {
         </div>
       </CardContent>
       <CardFooter>
-        <p className="w-full text-center text-sm text-muted-foreground">
-          Wrong email?{' '}
-          <Link href="/signup" className="font-medium text-primary hover:underline">
+        <p className="text-center text-sm text-muted-foreground w-full">
+          Wrong email?{" "}
+          <Link
+            href="/signup"
+            className="font-medium text-primary hover:underline"
+          >
             Create a new account
           </Link>
         </p>
