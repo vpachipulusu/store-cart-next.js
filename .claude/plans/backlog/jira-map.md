@@ -7,8 +7,8 @@ Source of truth for the text: [backlog.json](backlog.json). Issue keys below wer
 | Epic | Jira | Stories (backlog ref → key) |
 |---|---|---|
 | E1 Monorepo restructure | KAN-4 | E1.1–E1.5 → KAN-25 … KAN-29; E1.6 → KAN-111; E1.7 → KAN-113 |
-| E2 Backend foundation (FastAPI template) | KAN-5 | E2.1–E2.6 → KAN-30 … KAN-35; E2.7 → KAN-112 |
-| E3 Platform data and authentication | KAN-6 | E3.1–E3.6 → KAN-36 … KAN-41 |
+| E2 Backend foundation (FastAPI template) | KAN-5 | KAN-30 … KAN-35, KAN-112, KAN-115 (spike) |
+| E3 Platform data and authentication | KAN-6 | KAN-36 … KAN-39, KAN-41 (KAN-40 moved to E22) |
 | E4 Organisation billing (Stripe Billing) | KAN-7 | E4.1–E4.4 → KAN-42 … KAN-45 |
 | E5 Platform admin | KAN-8 | E5.1–E5.5 → KAN-46 … KAN-50 |
 | E6 Frontend decoupling | KAN-9 | E6.1 → KAN-51 |
@@ -27,8 +27,9 @@ Source of truth for the text: [backlog.json](backlog.json). Issue keys below wer
 | E19 Returns, abandoned carts and analytics | KAN-22 | E19.1–E19.3 → KAN-94 … KAN-96 |
 | E20 VevoCart parity features | KAN-23 | E20.1–E20.11 → KAN-97 … KAN-107 |
 | E21 Marketplace mode and merchant mobile app | KAN-24 | E21.1–E21.3 → KAN-108 … KAN-110 |
+| E22 Deferred boilerplate features (redesigned for multi-tenancy) | KAN-114 | KAN-116 … KAN-119, KAN-40, KAN-120 |
 
-Story keys are sequential within each range in backlog order (e.g. E1.3 = KAN-27). E1.6 and E2.7 were added later (template adoption) and have out-of-range keys.
+**Authoritative per-story keys** are stored in `backlog.json` (`jira` field) and shown in `backlog.md` as `[KAN-n]`. Position numbers like E3.5 can shift when stories move; Jira keys never do.
 
 Plan: [../storecart-plan.md](../storecart-plan.md).
 

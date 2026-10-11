@@ -30,6 +30,7 @@ _Backlog ref: E1.4_",phase-a,release-foundation,frontend,infra,
 * docs/adr/ records decisions D1-D23 from .claude/plans/storecart-plan.md, including template adoption, Vercel backend, Firebase kept, hey-api client and Resend
 * Also decides: Next.js server to FastAPI authentication (forwarded Firebase session cookie plus internal service key), backend layering, and per-store database connection approach (NullPool + Neon pooled endpoints, session provider seam)
 * States Docker's role (local development and CI only) and that rate limits are keyed by user/organisation/store, not IP; accepted before KAN-30 starts
+* Records why StoreCart uses one database per store (or that it is provisional), confirmed or revisited after the KAN-115 latency spike
 
 _Backlog ref: E1.5_",phase-a,release-foundation,docs,,
 7,1,Story,Pre-commit hooks (from template),"h3. Acceptance criteria
@@ -89,41 +90,44 @@ _Backlog ref: E2.6_",phase-b,release-foundation,backend,docs,
 * Production deploys go through a release workflow and /health is smoke-tested after each deploy
 
 _Backlog ref: E2.7_",phase-b,release-foundation,backend,infra,
-17,,Epic,E3 Platform data and authentication,"h3. Goal
+17,9,Story,Spike: per-store database routing and latency on Vercel,"h3. Acceptance criteria
+* A second Neon database is reached through the KAN-30 session provider and one repository query runs from the Vercel-deployed backend
+* Median and p95 latency recorded for platform-only and platform + store requests, including an idle store database cold start
+* Outcome recorded in ADR-001; time-boxed to 3 days; depends on KAN-30 and KAN-112
+
+_Backlog ref: E2.8_",phase-b,release-foundation,backend,db,infra
+18,,Epic,E3 Platform data and authentication,"h3. Goal
 Port the boilerplate's user, auth and notification features to FastAPI on the final platform data model, with the frontend calling the API.
 
 _Backlog ref: E3_",phase-c,release-foundation,backend,frontend,
-18,17,Story,Platform database models and Alembic baseline,"h3. Acceptance criteria
+19,18,Story,Platform database models and Alembic baseline,"h3. Acceptance criteria
 * A new Alembic baseline replaces the template's user and item migrations
 * SQLAlchemy models cover the boilerplate's 11 models plus Organization, Membership, Invitation and the Store registry, with billing on Organization
 * alembic upgrade head succeeds on an empty database
 
 _Backlog ref: E3.1_",phase-c,release-foundation,backend,db,
-19,17,Story,Firebase session authentication (replaces fastapi-users),"h3. Acceptance criteria
+20,18,Story,Firebase session authentication (replaces fastapi-users),"h3. Acceptance criteria
 * POST /v1/auth/session verifies the ID token, syncs the user, records login history and returns a session cookie
 * Requests are authenticated with verify_session_cookie(check_revoked=True)
 * DELETE /v1/auth/session revokes the session
 
 _Backlog ref: E3.2_",phase-c,release-foundation,backend,security,
-20,17,Story,"Profile, settings and account endpoints","h3. Acceptance criteria
-* Profile, avatar, settings, login history, data export and account deletion are available under /v1/me
-* Each endpoint has integration tests
+21,18,Story,"Profile, settings and account endpoints","h3. Acceptance criteria
+* Profile, avatar, settings, login history and account deletion are available under /v1/me
+* Each endpoint has integration tests; data export is out of scope (KAN-114)
 
 _Backlog ref: E3.3_",phase-c,release-foundation,backend,,
-21,17,Story,Two-factor authentication (TOTP),"h3. Acceptance criteria
+22,18,Story,Two-factor authentication (TOTP),"h3. Acceptance criteria
 * Users can enrol, verify and disable TOTP
 * Secrets are never returned after enrolment
 
 _Backlog ref: E3.4_",phase-c,release-foundation,backend,security,
-22,17,Story,Notifications endpoints,"h3. Acceptance criteria
-* List, mark read, mark all read and delete notifications for the current user only
-
-_Backlog ref: E3.5_",phase-c,release-foundation,backend,,
-23,17,Story,"Frontend auth, profile and notifications use the API","h3. Acceptance criteria
-* auth, user and notification server actions call the API client instead of Prisma
+23,18,Story,Frontend auth and profile use the API,"h3. Acceptance criteria
+* auth and user server actions call the API client instead of Prisma
+* The notifications dropdown and data-export button are switched off until KAN-114 delivers them
 * Existing e2e tests auth.spec, dashboard.spec and session-expiry.spec pass
 
-_Backlog ref: E3.6_",phase-c,release-foundation,frontend,,
+_Backlog ref: E3.5_",phase-c,release-foundation,frontend,,
 24,,Epic,E4 Organisation billing (Stripe Billing),"h3. Goal
 Merchants pay the platform a subscription per organisation, managed entirely by the backend.
 
@@ -158,21 +162,26 @@ _Backlog ref: E5_",phase-e,release-foundation,backend,frontend,
 * Every admin change writes an audit log entry
 
 _Backlog ref: E5.1_",phase-e,release-foundation,backend,security,
-31,29,Story,Admin users API,"h3. Acceptance criteria
-* List, detail, update, delete, grant/revoke admin, ban/unban, stats and send notification
+31,29,Story,Admin users API (minimal),"h3. Acceptance criteria
+* List, detail, update, delete, grant/revoke admin and ban/unban users
+* User stats and admin-sent notifications are out of scope (KAN-114)
 
 _Backlog ref: E5.2_",phase-e,release-foundation,backend,,
-32,29,Story,Admin subscriptions API,"h3. Acceptance criteria
-* Subscription list, stats, revenue, refunds, free grants and Stripe sync
+32,29,Story,Admin subscriptions API (minimal),"h3. Acceptance criteria
+* List organisation subscriptions, view detail, cancel, refund and grant a free subscription
+* Revenue analytics and bulk Stripe sync are out of scope (KAN-114)
 
 _Backlog ref: E5.3_",phase-e,release-foundation,backend,payments,
-33,29,Story,"Admin settings, SEO and audit API","h3. Acceptance criteria
-* App settings, feature flags, email templates, SEO meta, redirects, audit logs and system stats
+33,29,Story,Tenant-aware audit log API,"h3. Acceptance criteria
+* Audit entries record user, organisation and store, and every admin or merchant change writes one
+* Platform admins can list and filter audit logs by organisation, store, user and action
+* App settings, feature flags, email templates, SEO, redirects and system stats are out of scope (KAN-114)
 
-_Backlog ref: E5.4_",phase-e,release-foundation,backend,,
-34,29,Story,Admin and dashboard pages use the API,"h3. Acceptance criteria
-* The 10 pages that query the database directly now call the API
-* admin.spec e2e passes
+_Backlog ref: E5.4_",phase-e,release-foundation,backend,security,
+34,29,Story,Admin and dashboard pages use the API or are switched off,"h3. Acceptance criteria
+* Kept pages (dashboard, admin users, admin subscriptions, audit logs) call the API
+* SEO, redirects, email templates, feature flags, app settings and analytics pages are switched off and no longer touch Prisma
+* None of the 10 pages that queried Prisma directly still does; admin.spec e2e passes
 
 _Backlog ref: E5.5_",phase-e,release-foundation,frontend,,
 35,,Epic,E6 Frontend decoupling,"h3. Goal
@@ -533,3 +542,37 @@ _Backlog ref: E21.2_",phase-later,release-future,frontend,,
 * Merchants can integrate through a documented API and webhooks
 
 _Backlog ref: E21.3_",phase-later,release-future,backend,,
+111,,Epic,E22 Deferred boilerplate features (redesigned for multi-tenancy),"h3. Goal
+Boilerplate features cut from Foundation by the council decision of 2026-10-11, redesigned for the multi-tenant model instead of ported as-is.
+
+_Backlog ref: E22_",phase-2,release-commerce-v2,backend,frontend,
+112,111,Story,Per-store SEO meta and URL redirects,"h3. Acceptance criteria
+* Merchants manage SEO meta and redirects for their own store
+* Platform marketing pages keep a separate platform-level version
+
+_Backlog ref: E22.1_",phase-2,release-commerce-v2,backend,frontend,
+113,111,Story,Per-store email templates,"h3. Acceptance criteria
+* Merchants customise transactional templates for their store with platform defaults
+* Template variables are validated before saving
+
+_Backlog ref: E22.2_",phase-2,release-commerce-v2,backend,frontend,
+114,111,Story,Platform feature flags and app settings,"h3. Acceptance criteria
+* Platform admins manage flags (with rollout percentage) and app settings via the API
+* Flags can target organisations or stores
+
+_Backlog ref: E22.3_",phase-2,release-commerce-v2,backend,frontend,
+115,111,Story,"Platform analytics, revenue and system stats","h3. Acceptance criteria
+* Admins see organisations, stores, revenue and system stats
+* Bulk Stripe subscription sync for reconciliation
+
+_Backlog ref: E22.4_",phase-2,release-commerce-v2,backend,frontend,
+116,111,Story,In-app notifications,"h3. Acceptance criteria
+* List, mark read, mark all read and delete notifications for the current user only
+* Notifications can be scoped to an organisation or store
+
+_Backlog ref: E22.5_",phase-2,release-commerce-v2,backend,frontend,
+117,111,Story,Account data export,"h3. Acceptance criteria
+* Users export their personal data as a downloadable file
+* Export is rate limited and recorded in the audit log
+
+_Backlog ref: E22.6_",phase-2,release-commerce-v2,backend,frontend,security

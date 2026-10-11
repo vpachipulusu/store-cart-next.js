@@ -67,17 +67,28 @@ store-cart-next.js/
 |---|---|---|---|
 | A | E1 Monorepo restructure | KAN-4 | Finalise the move into `nextjs-frontend/` + `fastapi_backend/`, `.gitignore`, Compose, pre-commit, CI, two Vercel projects, ADR |
 | B | E2 Backend foundation | KAN-5 | Adapt the template: strip examples and fastapi-users, layering, config/logging/errors, hardened Docker, OpenAPI client, rate limiting, Sentry, Vercel deployment |
-| C | E3 Platform data and auth | KAN-6 | New Alembic baseline with the final platform model; Firebase session auth; profile, 2FA, notifications; frontend switch-over |
+| C | E3 Platform data and auth | KAN-6 | New Alembic baseline with the final platform model; Firebase session auth; profile, settings, 2FA; frontend switch-over |
 | D | E4 Organisation billing | KAN-7 | Stripe Billing on the organisation |
-| E | E5 Platform admin | KAN-8 | Admin APIs; admin pages off Prisma |
+| E | E5 Platform admin (minimal) | KAN-8 | Users, subscriptions, tenant-aware audit log; every Prisma page moved to the API or switched off |
 | F | E6 Frontend decoupling | KAN-9 | Remove Prisma and server secrets from the frontend |
 | G | E7–E9 Multi-tenancy | KAN-10…12 | One database per store, provisioning, migrations from CI, onboarding, team, subdomains, R2 |
 | 1 | E10–E14 Commerce v1 | KAN-13…17 | Stripe Connect, catalogue, storefront and cart, orders, shipping/tax/limits |
 | 2 | E15–E19 Commerce v2 | KAN-18…22 | Custom domains, discounts, zones + Stripe Tax, shopper accounts, returns/analytics |
+| 2 | E22 Deferred boilerplate features | KAN-114 | Per-store SEO/redirects and email templates, platform flags/settings/analytics, notifications, data export |
 | 3 | E20 Commerce v3 | KAN-23 | VevoCart parity features |
 | Later | E21 | KAN-24 | Marketplace, mobile app, public API |
 
-**Foundation start order** (agreed at the dev-team kickoff, 2026-10-11): KAN-25 (commit the move, `.gitignore` fix) → KAN-29 (ADR-001, widened) → KAN-112 trial deploy + KAN-113 (parity inventory and behaviour baseline) in parallel → KAN-111 (pre-commit) → KAN-27 (CI with gate job) → KAN-30 (template adaptation, with the session-provider seam) → KAN-31 / KAN-33 → KAN-32, KAN-34, KAN-35, KAN-26, KAN-28.
+### Foundation scope (council decision, 2026-10-11)
+
+Option A with a real-database spike was chosen unanimously over porting all ~92 boilerplate actions.
+
+- **In Foundation:** E1, E2, auth/session, profile/settings, 2FA, organisation billing, tenant-aware audit log, minimal admin (users, subscriptions), E6 (no secrets in the frontend).
+- **Security exit rule:** every one of the 10 pages that queried Prisma directly is moved to the API or switched off; deferred features are switched off, never left on Prisma.
+- **Cut and redesigned later (E22, KAN-114):** SEO meta, redirects, email templates (per store), feature flags, app settings, analytics/system stats, notifications, data export.
+- **Spike KAN-115** (≤3 days, after KAN-30 + KAN-112): route one request to a second Neon store database on Vercel and record median/p95 latency including cold starts. If unacceptable, revisit hosting or one-database-per-store (dissent: shared DB + `store_id` + row-level security) before E7.
+- **Estimate:** Foundation ≈ 4–5 weeks (was 8–10).
+
+**Foundation start order:** KAN-25 (commit the move, `.gitignore` fix) → KAN-29 (ADR-001, widened) → KAN-112 trial deploy + KAN-113 (parity inventory and behaviour baseline) in parallel → KAN-111 (pre-commit) → KAN-27 (CI with gate job) → KAN-30 (template adaptation, with the session-provider seam) → **KAN-115 (spike)** → KAN-31 / KAN-33 → KAN-32, KAN-34, KAN-35, KAN-26, KAN-28 → E3, E4, E5 (trimmed), E6.
 
 Story-level scope and acceptance criteria live in [backlog/backlog.json](backlog/backlog.json) and in Jira.
 

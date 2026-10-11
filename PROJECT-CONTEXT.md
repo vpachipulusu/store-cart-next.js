@@ -14,8 +14,10 @@ its own Postgres database.
 - Payments: Stripe Billing (merchant subscriptions) and Stripe Connect direct charges (merchant is seller)
 
 ## Current phase
-Foundation release (epics E1–E6, Jira KAN-4…KAN-9): restructure the monorepo, adapt the template backend,
-and port the boilerplate's ~92 server actions to FastAPI. Multi-tenancy (E7–E9) follows. No live users or data.
+Foundation release (epics E1–E6, Jira KAN-4…KAN-9, ~4–5 weeks): restructure the monorepo, adapt the template
+backend, and port only what multi-tenancy needs (auth, profile, 2FA, org billing, minimal admin, audit log);
+other boilerplate features are cut to E22 (KAN-114). A latency spike (KAN-115) checks per-store databases on
+Vercel before multi-tenancy (E7–E9). No live users or data.
 
 ## Key constraints
 - The browser never calls FastAPI directly; only the Next.js server does
