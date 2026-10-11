@@ -1,4 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
+import dotenv from 'dotenv';
+
+// e2e test-account credentials written by `npm run test:setup` (gitignored); real env vars take precedence.
+dotenv.config({ path: '.env.e2e.local' });
 
 export default defineConfig({
   testDir: './src/__tests__/e2e',

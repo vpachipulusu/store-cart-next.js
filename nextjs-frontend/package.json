@@ -23,7 +23,7 @@
     "test:e2e:subscription": "playwright test subscription",
     "test:all": "vitest run && playwright test",
     "test:ci": "vitest run --coverage && playwright test",
-    "test:setup": "node scripts/create-test-user.mjs",
+    "test:setup": "node scripts/setup-e2e-accounts.mjs",
     "test:reset": "node scripts/reset-test-user.mjs",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
