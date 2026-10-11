@@ -77,6 +77,8 @@ store-cart-next.js/
 | 3 | E20 Commerce v3 | KAN-23 | VevoCart parity features |
 | Later | E21 | KAN-24 | Marketplace, mobile app, public API |
 
+**Foundation start order** (agreed at the dev-team kickoff, 2026-10-11): KAN-25 (commit the move, `.gitignore` fix) → KAN-29 (ADR-001, widened) → KAN-112 trial deploy + KAN-113 (parity inventory and behaviour baseline) in parallel → KAN-111 (pre-commit) → KAN-27 (CI with gate job) → KAN-30 (template adaptation, with the session-provider seam) → KAN-31 / KAN-33 → KAN-32, KAN-34, KAN-35, KAN-26, KAN-28.
+
 Story-level scope and acceptance criteria live in [backlog/backlog.json](backlog/backlog.json) and in Jira.
 
 ## Serverless consequences (Vercel backend)

@@ -15,7 +15,7 @@ Plan and decisions: `.claude/plans/storecart-plan.md`. Backlog: `.claude/plans/b
 
 All work is tracked in Jira project **Store Cart** (key `KAN`, https://storecart.atlassian.net/browse/KAN). Workflow (exact Jira status names): **To-do → In Progress → In Review → Done**.
 
-1. **Pick up** only a story in **To-do** (JQL: `project = KAN AND issuetype = Story AND status = "To-do" ORDER BY key`). Work epics in order (E1 → E2 → …) unless the user says otherwise. Never take a story that is already In Progress or In Review.
+1. **Pick up** only a story in **To-do** (JQL: `project = KAN AND issuetype = Story AND status = "To-do" ORDER BY key`). Work epics in order (E1 → E2 → …), and within Foundation follow the **start order** in `.claude/plans/storecart-plan.md` (not key order), unless the user says otherwise. Respect "Depends on" / "Blocks" notes in story descriptions. Never take a story that is already In Progress or In Review.
 2. **Before writing any code**, transition the story to **In Progress** and add a comment saying it was picked up and on which branch.
 3. **Branch** `<type>/KAN-<n>-<short-slug>`; **commits** `<type>(KAN-<n>): <description>` (conventional commit types).
 4. The story's **acceptance criteria are the definition of done**. Do not widen scope; propose a new story to the user for extra work.

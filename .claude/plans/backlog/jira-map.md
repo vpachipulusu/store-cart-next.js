@@ -6,7 +6,7 @@ Source of truth for the text: [backlog.json](backlog.json). Issue keys below wer
 
 | Epic | Jira | Stories (backlog ref → key) |
 |---|---|---|
-| E1 Monorepo restructure | KAN-4 | E1.1–E1.5 → KAN-25 … KAN-29; E1.6 → KAN-111 |
+| E1 Monorepo restructure | KAN-4 | E1.1–E1.5 → KAN-25 … KAN-29; E1.6 → KAN-111; E1.7 → KAN-113 |
 | E2 Backend foundation (FastAPI template) | KAN-5 | E2.1–E2.6 → KAN-30 … KAN-35; E2.7 → KAN-112 |
 | E3 Platform data and authentication | KAN-6 | E3.1–E3.6 → KAN-36 … KAN-41 |
 | E4 Organisation billing (Stripe Billing) | KAN-7 | E4.1–E4.4 → KAN-42 … KAN-45 |

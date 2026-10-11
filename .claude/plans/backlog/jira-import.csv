@@ -15,9 +15,9 @@ _Backlog ref: E1.1_",phase-a,release-foundation,frontend,infra,
 
 _Backlog ref: E1.2_",phase-a,release-foundation,infra,,
 4,1,Story,Path-filtered CI workflows for frontend and backend,"h3. Acceptance criteria
-* frontend.yml runs only when nextjs-frontend/** changes
-* backend.yml runs only when fastapi_backend/** changes (adapted from the template's workflows)
-* Both workflows pass on the restructure PR
+* frontend.yml runs only for nextjs-frontend/**, backend.yml only for fastapi_backend/**; shared files (OpenAPI schema, root config) trigger both
+* An always-run gate job is the single required check, verified with frontend-only, backend-only and shared-file test PRs
+* 80% coverage is enforced in CI for both apps
 
 _Backlog ref: E1.3_",phase-a,release-foundation,infra,,
 5,1,Story,Two Vercel projects and Playwright config fix,"h3. Acceptance criteria
@@ -27,8 +27,9 @@ _Backlog ref: E1.3_",phase-a,release-foundation,infra,,
 
 _Backlog ref: E1.4_",phase-a,release-foundation,frontend,infra,
 6,1,Story,ADR-001: architecture decisions,"h3. Acceptance criteria
-* docs/adr/ records decisions D1-D23 from .claude/plans/storecart-plan.md
-* Covers template adoption, Vercel backend, Firebase kept, hey-api client and Resend
+* docs/adr/ records decisions D1-D23 from .claude/plans/storecart-plan.md, including template adoption, Vercel backend, Firebase kept, hey-api client and Resend
+* Also decides: Next.js server to FastAPI authentication (forwarded Firebase session cookie plus internal service key), backend layering, and per-store database connection approach (NullPool + Neon pooled endpoints, session provider seam)
+* States Docker's role (local development and CI only) and that rate limits are keyed by user/organisation/store, not IP; accepted before KAN-30 starts
 
 _Backlog ref: E1.5_",phase-a,release-foundation,docs,,
 7,1,Story,Pre-commit hooks (from template),"h3. Acceptance criteria
@@ -37,491 +38,498 @@ _Backlog ref: E1.5_",phase-a,release-foundation,docs,,
 * README explains how to install the hooks
 
 _Backlog ref: E1.6_",phase-a,release-foundation,infra,,
-8,,Epic,E2 Backend foundation (FastAPI),"h3. Goal
+8,1,Story,Parity inventory and behaviour baseline,"h3. Acceptance criteria
+* .claude/plans/parity.md lists every boilerplate server action and API route with inputs, outputs, error cases and the porting story
+* A Playwright baseline suite of the boilerplate's current features passes before KAN-30 removes anything
+* A Foundation done-check fails if the frontend contains DATABASE_URL or server secrets, and runs e2e against FastAPI
+
+_Backlog ref: E1.7_",phase-a,release-foundation,frontend,backend,
+9,,Epic,E2 Backend foundation (FastAPI),"h3. Goal
 Adapt the template backend into a production-ready StoreCart API with configuration, logging, errors, health checks, rate limiting, a typed API contract and Vercel deployment.
 
 _Backlog ref: E2_",phase-b,release-foundation,backend,,
-9,8,Story,Adapt template backend for StoreCart,"h3. Acceptance criteria
+10,9,Story,Adapt template backend for StoreCart,"h3. Acceptance criteria
 * Example Item model/routes/migrations, fastapi-users and fastapi-mail are removed and the project is renamed to StoreCart
-* Outdated pins (ruff, fastapi, pytest-asyncio) are upgraded and code is organised into app/core, app/api/v1, services and repositories
-* uv run pytest, ruff check and mypy pass in CI
+* Outdated pins are upgraded in small steps with tests green after each; code is organised into app/core, app/api/v1, services and repositories
+* Repositories receive their session from an injected provider so per-store routing (E7) plugs in later (interface only)
+* uv run pytest, ruff check and mypy pass in CI; depends on KAN-29 and KAN-113
 
 _Backlog ref: E2.1_",phase-b,release-foundation,backend,,
-10,8,Story,"Configuration, structured logging and error envelope","h3. Acceptance criteria
+11,9,Story,"Configuration, structured logging and error envelope","h3. Acceptance criteria
 * Settings extend the template's pydantic-settings config and fail fast on missing secrets
 * All errors return {success:false, error} with no stack traces or internal details
 * JSON logs with a request ID replace print(); CORS is restricted to known origins
 
 _Backlog ref: E2.2_",phase-b,release-foundation,backend,,
-11,8,Story,Health endpoints and hardened Dockerfile,"h3. Acceptance criteria
+12,9,Story,Health endpoints and hardened Dockerfile,"h3. Acceptance criteria
 * /health returns 200; /ready checks database and Redis
 * Dockerfile uses a pinned uv image instead of curl | sh and runs as a non-root user
 
 _Backlog ref: E2.3_",phase-b,release-foundation,backend,infra,
-12,8,Story,OpenAPI schema and generated TypeScript client,"h3. Acceptance criteria
+13,9,Story,OpenAPI schema and generated TypeScript client,"h3. Acceptance criteria
 * commands/generate_openapi_schema (and watcher.py in dev) writes nextjs-frontend/openapi.json
 * nextjs-frontend generates a typed fetch client with @hey-api/openapi-ts, wrapped server-only and forwarding the Firebase session
 * CI and pre-commit fail when the generated client is out of date
 
 _Backlog ref: E2.4_",phase-b,release-foundation,backend,frontend,
-13,8,Story,Redis-backed rate limiting,"h3. Acceptance criteria
+14,9,Story,Redis-backed rate limiting,"h3. Acceptance criteria
 * Auth, API and webhook limits match the boilerplate's existing configuration
-* Limits use Upstash Redis so they hold across serverless instances
-* Exceeding a limit returns 429 with rate-limit headers
+* Authenticated limits are keyed by user, organisation or store (not IP); unauthenticated auth endpoints use the client IP forwarded by Next.js
+* Limits use Upstash Redis; behaviour when Redis is unavailable is decided and tested; exceeding a limit returns 429 with rate-limit headers
 
 _Backlog ref: E2.5_",phase-b,release-foundation,backend,security,
-14,8,Story,Sentry integration and backend conventions doc,"h3. Acceptance criteria
+15,9,Story,Sentry integration and backend conventions doc,"h3. Acceptance criteria
 * Unhandled errors reach Sentry with request context
 * fastapi_backend/CLAUDE.md documents commands, layering (routers > services > repositories) and test conventions
 
 _Backlog ref: E2.6_",phase-b,release-foundation,backend,docs,
-15,8,Story,Backend deployment on Vercel,"h3. Acceptance criteria
+16,9,Story,Backend deployment on Vercel,"h3. Acceptance criteria
 * Preview and production deployments of fastapi_backend work via api/index.py, with secrets from Vercel environment variables
 * The engine uses NullPool with Neon pooled endpoints; platform migrations run on production deploy only
 * Production deploys go through a release workflow and /health is smoke-tested after each deploy
 
 _Backlog ref: E2.7_",phase-b,release-foundation,backend,infra,
-16,,Epic,E3 Platform data and authentication,"h3. Goal
+17,,Epic,E3 Platform data and authentication,"h3. Goal
 Port the boilerplate's user, auth and notification features to FastAPI on the final platform data model, with the frontend calling the API.
 
 _Backlog ref: E3_",phase-c,release-foundation,backend,frontend,
-17,16,Story,Platform database models and Alembic baseline,"h3. Acceptance criteria
+18,17,Story,Platform database models and Alembic baseline,"h3. Acceptance criteria
 * A new Alembic baseline replaces the template's user and item migrations
 * SQLAlchemy models cover the boilerplate's 11 models plus Organization, Membership, Invitation and the Store registry, with billing on Organization
 * alembic upgrade head succeeds on an empty database
 
 _Backlog ref: E3.1_",phase-c,release-foundation,backend,db,
-18,16,Story,Firebase session authentication (replaces fastapi-users),"h3. Acceptance criteria
+19,17,Story,Firebase session authentication (replaces fastapi-users),"h3. Acceptance criteria
 * POST /v1/auth/session verifies the ID token, syncs the user, records login history and returns a session cookie
 * Requests are authenticated with verify_session_cookie(check_revoked=True)
 * DELETE /v1/auth/session revokes the session
 
 _Backlog ref: E3.2_",phase-c,release-foundation,backend,security,
-19,16,Story,"Profile, settings and account endpoints","h3. Acceptance criteria
+20,17,Story,"Profile, settings and account endpoints","h3. Acceptance criteria
 * Profile, avatar, settings, login history, data export and account deletion are available under /v1/me
 * Each endpoint has integration tests
 
 _Backlog ref: E3.3_",phase-c,release-foundation,backend,,
-20,16,Story,Two-factor authentication (TOTP),"h3. Acceptance criteria
+21,17,Story,Two-factor authentication (TOTP),"h3. Acceptance criteria
 * Users can enrol, verify and disable TOTP
 * Secrets are never returned after enrolment
 
 _Backlog ref: E3.4_",phase-c,release-foundation,backend,security,
-21,16,Story,Notifications endpoints,"h3. Acceptance criteria
+22,17,Story,Notifications endpoints,"h3. Acceptance criteria
 * List, mark read, mark all read and delete notifications for the current user only
 
 _Backlog ref: E3.5_",phase-c,release-foundation,backend,,
-22,16,Story,"Frontend auth, profile and notifications use the API","h3. Acceptance criteria
+23,17,Story,"Frontend auth, profile and notifications use the API","h3. Acceptance criteria
 * auth, user and notification server actions call the API client instead of Prisma
 * Existing e2e tests auth.spec, dashboard.spec and session-expiry.spec pass
 
 _Backlog ref: E3.6_",phase-c,release-foundation,frontend,,
-23,,Epic,E4 Organisation billing (Stripe Billing),"h3. Goal
+24,,Epic,E4 Organisation billing (Stripe Billing),"h3. Goal
 Merchants pay the platform a subscription per organisation, managed entirely by the backend.
 
 _Backlog ref: E4_",phase-d,release-foundation,backend,frontend,payments
-24,23,Story,Subscription plans config with limits,"h3. Acceptance criteria
+25,24,Story,Subscription plans config with limits,"h3. Acceptance criteria
 * Free, Pro and Enterprise plans define store, product and staff limits
 * Each plan has platform_fee_bps = 0 so a per-order fee can be enabled later
 
 _Backlog ref: E4.1_",phase-d,release-foundation,backend,payments,
-25,23,Story,Organisation billing endpoints,"h3. Acceptance criteria
+26,24,Story,Organisation billing endpoints,"h3. Acceptance criteria
 * Checkout, portal, plan change, cancel, resume, invoices and payment methods are scoped to an organisation
 * Only OWNER and ADMIN roles can manage billing
 
 _Backlog ref: E4.2_",phase-d,release-foundation,backend,payments,
-26,23,Story,Stripe Billing webhook with idempotency,"h3. Acceptance criteria
+27,24,Story,Stripe Billing webhook with idempotency,"h3. Acceptance criteria
 * Signature is verified on the raw body
 * Each Stripe event is processed at most once
 * Subscription status on the organisation stays in sync
 
 _Backlog ref: E4.3_",phase-d,release-foundation,backend,payments,security
-27,23,Story,Frontend billing and pricing pages use the API,"h3. Acceptance criteria
+28,24,Story,Frontend billing and pricing pages use the API,"h3. Acceptance criteria
 * Billing and pricing pages call the API
 * subscription and billing-management e2e tests pass
 
 _Backlog ref: E4.4_",phase-d,release-foundation,frontend,payments,
-28,,Epic,E5 Platform admin,"h3. Goal
+29,,Epic,E5 Platform admin,"h3. Goal
 Port the boilerplate's admin area to FastAPI with permission checks and audit logging.
 
 _Backlog ref: E5_",phase-e,release-foundation,backend,frontend,
-29,28,Story,Admin permissions dependency and audit logging,"h3. Acceptance criteria
+30,29,Story,Admin permissions dependency and audit logging,"h3. Acceptance criteria
 * require_admin(permissions) rejects users without the required permission
 * Every admin change writes an audit log entry
 
 _Backlog ref: E5.1_",phase-e,release-foundation,backend,security,
-30,28,Story,Admin users API,"h3. Acceptance criteria
+31,29,Story,Admin users API,"h3. Acceptance criteria
 * List, detail, update, delete, grant/revoke admin, ban/unban, stats and send notification
 
 _Backlog ref: E5.2_",phase-e,release-foundation,backend,,
-31,28,Story,Admin subscriptions API,"h3. Acceptance criteria
+32,29,Story,Admin subscriptions API,"h3. Acceptance criteria
 * Subscription list, stats, revenue, refunds, free grants and Stripe sync
 
 _Backlog ref: E5.3_",phase-e,release-foundation,backend,payments,
-32,28,Story,"Admin settings, SEO and audit API","h3. Acceptance criteria
+33,29,Story,"Admin settings, SEO and audit API","h3. Acceptance criteria
 * App settings, feature flags, email templates, SEO meta, redirects, audit logs and system stats
 
 _Backlog ref: E5.4_",phase-e,release-foundation,backend,,
-33,28,Story,Admin and dashboard pages use the API,"h3. Acceptance criteria
+34,29,Story,Admin and dashboard pages use the API,"h3. Acceptance criteria
 * The 10 pages that query the database directly now call the API
 * admin.spec e2e passes
 
 _Backlog ref: E5.5_",phase-e,release-foundation,frontend,,
-34,,Epic,E6 Frontend decoupling,"h3. Goal
+35,,Epic,E6 Frontend decoupling,"h3. Goal
 The frontend holds no database, Stripe secret or Firebase Admin credentials.
 
 _Backlog ref: E6_",phase-f,release-foundation,frontend,security,
-35,34,Story,Remove Prisma and server secrets from the frontend,"h3. Acceptance criteria
+36,35,Story,Remove Prisma and server secrets from the frontend,"h3. Acceptance criteria
 * nextjs-frontend/prisma, src/lib/db and server-side Stripe/Firebase Admin code are removed
 * @prisma/client, prisma, stripe and firebase-admin are no longer frontend dependencies
 * An ESLint rule blocks reintroducing them and the frontend has no DATABASE_URL
 
 _Backlog ref: E6.1_",phase-f,release-foundation,frontend,security,
-36,,Epic,E7 Multi-tenancy core (one database per store),"h3. Goal
+37,,Epic,E7 Multi-tenancy core (one database per store),"h3. Goal
 Each store gets its own Postgres database, created automatically, kept on the same schema version, and reachable only by members of its organisation.
 
 _Backlog ref: E7_",phase-g,release-multi-tenancy,backend,security,db
-37,36,Story,Merchant authorisation dependency,"h3. Acceptance criteria
+38,37,Story,Merchant authorisation dependency,"h3. Acceptance criteria
 * require_merchant(store_id, roles) returns user, organisation, store and role
 * A store from another organisation returns 404
 * Unit tests cover every role, missing membership and suspended stores
 
 _Backlog ref: E7.1_",phase-g,release-multi-tenancy,backend,security,
-38,36,Story,Encrypted store connection strings,"h3. Acceptance criteria
+39,37,Story,Encrypted store connection strings,"h3. Acceptance criteria
 * Connection strings are stored with AES-256-GCM using a key validated at startup
 * Tampered data or a wrong key fails safely
 * Plaintext connection strings never appear in logs
 
 _Backlog ref: E7.2_",phase-g,release-multi-tenancy,backend,security,
-39,36,Story,Store database session factory,"h3. Acceptance criteria
+40,37,Story,Store database session factory,"h3. Acceptance criteria
 * get_store_session(store_id) returns an async session for that store only
 * Uses NullPool with Neon pooled endpoints (serverless-safe), with no long-lived pools
 * A ruff banned-import rule stops store engines being created anywhere else
 
 _Backlog ref: E7.3_",phase-g,release-multi-tenancy,backend,db,
-40,36,Story,Database provisioner (local Postgres and Neon),"h3. Acceptance criteria
+41,37,Story,Database provisioner (local Postgres and Neon),"h3. Acceptance criteria
 * Local provider creates a database on the Docker Postgres
 * Neon provider creates the database through the Neon API
 * Both implement the same interface and are covered by tests
 
 _Backlog ref: E7.4_",phase-g,release-multi-tenancy,backend,db,infra
-41,36,Story,Store provisioning background job,"h3. Acceptance criteria
+42,37,Story,Store provisioning background job,"h3. Acceptance criteria
 * Creating a store enqueues QStash steps: create database, run migrations, mark ready
 * Each step is idempotent, fits within one Vercel function invocation, retries, and sets status failed on error
 
 _Backlog ref: E7.5_",phase-g,release-multi-tenancy,backend,infra,
-42,36,Story,Migration runner for all store databases,"h3. Acceptance criteria
+43,37,Story,Migration runner for all store databases,"h3. Acceptance criteria
 * commands/migrate_stores applies pending store migrations to every ready store in batches
 * Stops on the first failure and records each store's schema version
 * Runs from GitHub Actions on deploy, never inside a request; migrations stay compatible with the previous code version
 
 _Backlog ref: E7.6_",phase-g,release-multi-tenancy,backend,db,
-43,36,Story,Tenant isolation test suite,"h3. Acceptance criteria
+44,37,Story,Tenant isolation test suite,"h3. Acceptance criteria
 * Two organisations with several stores each, on real separate databases
 * Tests prove no user can read or write another organisation's store data
 
 _Backlog ref: E7.7_",phase-g,release-multi-tenancy,backend,security,
-44,,Epic,E8 Merchant onboarding and team,"h3. Goal
+45,,Epic,E8 Merchant onboarding and team,"h3. Goal
 Merchants can sign up, create organisations and stores, invite staff and switch between stores.
 
 _Backlog ref: E8_",phase-g,release-multi-tenancy,frontend,backend,
-45,44,Story,Organisation and store APIs,"h3. Acceptance criteria
+46,45,Story,Organisation and store APIs,"h3. Acceptance criteria
 * Create, list and update organisations and stores
 * Store slugs are validated for format, uniqueness and reserved words (www, admin, api, app)
 
 _Backlog ref: E8.1_",phase-g,release-multi-tenancy,backend,,
-46,44,Story,Merchant onboarding flow,"h3. Acceptance criteria
+47,45,Story,Merchant onboarding flow,"h3. Acceptance criteria
 * Sign-up leads to creating an organisation and first store
 * A status screen shows provisioning progress until the store is ready
 * e2e covers sign-up to a ready store
 
 _Backlog ref: E8.2_",phase-g,release-multi-tenancy,frontend,,
-47,44,Story,Merchant dashboard shell and store switcher,"h3. Acceptance criteria
+48,45,Story,Merchant dashboard shell and store switcher,"h3. Acceptance criteria
 * Dashboard layout scoped to the selected store
 * Merchants with several stores can switch between them
 
 _Backlog ref: E8.3_",phase-g,release-multi-tenancy,frontend,,
-48,44,Story,Team invitations and roles,"h3. Acceptance criteria
+49,45,Story,Team invitations and roles,"h3. Acceptance criteria
 * Owners and admins invite by email; links expire after 7 days and work once
 * STAFF cannot access team or billing settings
 
 _Backlog ref: E8.4_",phase-g,release-multi-tenancy,backend,frontend,security
-49,44,Story,Platform admin: merchants and stores,"h3. Acceptance criteria
+50,45,Story,Platform admin: merchants and stores,"h3. Acceptance criteria
 * Admins see organisations and stores with database status and schema version
 * Admins can suspend and unsuspend stores and re-run provisioning or migrations
 
 _Backlog ref: E8.5_",phase-g,release-multi-tenancy,frontend,backend,
-50,,Epic,E9 Storefront routing and media,"h3. Goal
+51,,Epic,E9 Storefront routing and media,"h3. Goal
 Each store is reachable on its own subdomain and can upload product images.
 
 _Backlog ref: E9_",phase-g,release-multi-tenancy,frontend,backend,
-51,50,Story,Wildcard subdomain routing,"h3. Acceptance criteria
+52,51,Story,Wildcard subdomain routing,"h3. Acceptance criteria
 * {slug}.yourplatform.com rewrites to the store's storefront via proxy.ts
 * Unknown or suspended stores return 404
 * Works locally on *.localhost
 
 _Backlog ref: E9.1_",phase-g,release-multi-tenancy,frontend,infra,
-52,50,Story,Public storefront store lookup API,"h3. Acceptance criteria
+53,51,Story,Public storefront store lookup API,"h3. Acceptance criteria
 * GET /v1/storefront/{slug} returns public store details only
 * Responses are cacheable
 
 _Backlog ref: E9.2_",phase-g,release-multi-tenancy,backend,,
-53,50,Story,Image uploads to Cloudflare R2,"h3. Acceptance criteria
+54,51,Story,Image uploads to Cloudflare R2,"h3. Acceptance criteria
 * Backend issues presigned uploads under stores/{id}/
 * Only allowed image types and sizes are accepted
 
 _Backlog ref: E9.3_",phase-g,release-multi-tenancy,backend,security,
-54,,Epic,E10 Stripe Connect payments,"h3. Goal
+55,,Epic,E10 Stripe Connect payments,"h3. Goal
 Shoppers pay merchants directly through Stripe Connect, with merchants as the seller of record.
 
 _Backlog ref: E10_",phase-1,release-commerce-v1,backend,payments,
-55,54,Story,Stripe Connect onboarding per organisation,"h3. Acceptance criteria
+56,55,Story,Stripe Connect onboarding per organisation,"h3. Acceptance criteria
 * Merchants complete Stripe-hosted onboarding
 * account.updated keeps charges and payouts status in sync
 * Checkout is blocked until charges are enabled
 
 _Backlog ref: E10.1_",phase-1,release-commerce-v1,backend,frontend,payments
-56,54,Story,Checkout session on the merchant's connected account,"h3. Acceptance criteria
+57,55,Story,Checkout session on the merchant's connected account,"h3. Acceptance criteria
 * Direct charges on the merchant's account with no application fee
 * Fee code path exists but is controlled by platform_fee_bps (0)
 * Order totals are calculated only on the server in minor units
 
 _Backlog ref: E10.2_",phase-1,release-commerce-v1,backend,payments,
-57,54,Story,Connect webhook handler,"h3. Acceptance criteria
+58,55,Story,Connect webhook handler,"h3. Acceptance criteria
 * Separate endpoint and signing secret from Stripe Billing
 * Events are routed to the right store via metadata and connected account
 * Each event is processed at most once
 
 _Backlog ref: E10.3_",phase-1,release-commerce-v1,backend,payments,security
-58,,Epic,E11 Catalogue and inventory,"h3. Goal
+59,,Epic,E11 Catalogue and inventory,"h3. Goal
 Merchants can create and manage products, variants, categories and stock.
 
 _Backlog ref: E11_",phase-1,release-commerce-v1,backend,frontend,
-59,58,Story,"Product, variant and option data model","h3. Acceptance criteria
+60,59,Story,"Product, variant and option data model","h3. Acceptance criteria
 * Store schema has products, variants (SKU, price, compare-at price, weight, stock), options and option values
 * Draft and active statuses with unique slugs
 
 _Backlog ref: E11.1_",phase-1,release-commerce-v1,backend,db,
-60,58,Story,Nested categories and product images,"h3. Acceptance criteria
+61,59,Story,Nested categories and product images,"h3. Acceptance criteria
 * Categories can be nested and ordered
 * Products have ordered images stored in R2
 
 _Backlog ref: E11.2_",phase-1,release-commerce-v1,backend,frontend,
-61,58,Story,Inventory with oversell protection,"h3. Acceptance criteria
+62,59,Story,Inventory with oversell protection,"h3. Acceptance criteria
 * Stock is decremented atomically when an order is paid
 * Concurrent checkouts cannot oversell; an oversold order is flagged
 
 _Backlog ref: E11.3_",phase-1,release-commerce-v1,backend,,
-62,58,Story,Merchant product management screens,"h3. Acceptance criteria
+63,59,Story,Merchant product management screens,"h3. Acceptance criteria
 * Product list with search and filters
 * Product editor with variants, images and categories
 
 _Backlog ref: E11.4_",phase-1,release-commerce-v1,frontend,,
-63,58,Story,Product CSV import,"h3. Acceptance criteria
+64,59,Story,Product CSV import,"h3. Acceptance criteria
 * Merchants can import products from CSV with validation errors reported per row
 
 _Backlog ref: E11.5_",phase-1,release-commerce-v1,backend,frontend,
-64,,Epic,E12 Storefront and cart,"h3. Goal
+65,,Epic,E12 Storefront and cart,"h3. Goal
 Shoppers can browse a store, add items to a cart and start checkout.
 
 _Backlog ref: E12_",phase-1,release-commerce-v1,frontend,backend,
-65,64,Story,Storefront theme pages,"h3. Acceptance criteria
+66,65,Story,Storefront theme pages,"h3. Acceptance criteria
 * Home, category, product and search pages for one well-designed theme
 * Pages are cached and revalidated per store
 * Per-store SEO metadata
 
 _Backlog ref: E12.1_",phase-1,release-commerce-v1,frontend,,
-66,64,Story,Server-side cart,"h3. Acceptance criteria
+67,65,Story,Server-side cart,"h3. Acceptance criteria
 * Cart is keyed by a store-scoped cookie
 * Prices and stock are re-checked on the server every time
 
 _Backlog ref: E12.2_",phase-1,release-commerce-v1,backend,frontend,
-67,64,Story,Checkout handoff from cart,"h3. Acceptance criteria
+68,65,Story,Checkout handoff from cart,"h3. Acceptance criteria
 * Creates a pending order and redirects to Stripe Checkout
 * The order is confirmed only by the webhook, never by the return page
 
 _Backlog ref: E12.3_",phase-1,release-commerce-v1,backend,frontend,payments
-68,,Epic,"E13 Orders, fulfilment and refunds","h3. Goal
+69,,Epic,"E13 Orders, fulfilment and refunds","h3. Goal
 Merchants can manage orders from payment to delivery, issue refunds, and customers receive emails.
 
 _Backlog ref: E13_",phase-1,release-commerce-v1,backend,frontend,
-69,68,Story,Order model with snapshots and status flow,"h3. Acceptance criteria
+70,69,Story,Order model with snapshots and status flow,"h3. Acceptance criteria
 * Order items snapshot name, price and tax at purchase time
 * Status flow pending > paid > fulfilled > cancelled/refunded
 
 _Backlog ref: E13.1_",phase-1,release-commerce-v1,backend,db,
-70,68,Story,Merchant order management,"h3. Acceptance criteria
+71,69,Story,Merchant order management,"h3. Acceptance criteria
 * Order list and detail pages
 * Manual fulfilment with tracking number
 
 _Backlog ref: E13.2_",phase-1,release-commerce-v1,frontend,backend,
-71,68,Story,Full and partial refunds,"h3. Acceptance criteria
+72,69,Story,Full and partial refunds,"h3. Acceptance criteria
 * Merchants can refund fully or partially through the connected account
 * Order and payment status update from the refund webhook
 
 _Backlog ref: E13.3_",phase-1,release-commerce-v1,backend,payments,
-72,68,Story,Transactional emails,"h3. Acceptance criteria
+73,69,Story,Transactional emails,"h3. Acceptance criteria
 * Order confirmation, shipped notice and new-order alert via Resend
 * Templates are scoped per store with a platform default
 
 _Backlog ref: E13.4_",phase-1,release-commerce-v1,backend,,
-73,,Epic,"E14 Store settings: shipping, tax and plan limits","h3. Goal
+74,,Epic,"E14 Store settings: shipping, tax and plan limits","h3. Goal
 Basic shipping and tax so a store can sell, and plan limits enforced.
 
 _Backlog ref: E14_",phase-1,release-commerce-v1,backend,frontend,
-74,73,Story,Flat-rate and free-over-threshold shipping,"h3. Acceptance criteria
+75,74,Story,Flat-rate and free-over-threshold shipping,"h3. Acceptance criteria
 * Merchants set a flat rate and optional free-shipping threshold
 * Shipping is included in server-side totals
 
 _Backlog ref: E14.1_",phase-1,release-commerce-v1,backend,frontend,
-75,73,Story,Manual tax rate per store,"h3. Acceptance criteria
+76,74,Story,Manual tax rate per store,"h3. Acceptance criteria
 * Merchants set a tax rate and whether prices include tax
 * Tax is included in server-side totals
 
 _Backlog ref: E14.2_",phase-1,release-commerce-v1,backend,frontend,
-76,73,Story,Enforce subscription plan limits,"h3. Acceptance criteria
+77,74,Story,Enforce subscription plan limits,"h3. Acceptance criteria
 * Store, product and staff limits are enforced on create
 * Clear upgrade message when a limit is reached
 
 _Backlog ref: E14.3_",phase-1,release-commerce-v1,backend,,
-77,,Epic,E15 Custom domains,"h3. Goal
+78,,Epic,E15 Custom domains,"h3. Goal
 Merchants can serve their store on their own domain with automatic SSL.
 
 _Backlog ref: E15_",phase-2,release-commerce-v2,frontend,backend,infra
-78,77,Story,Add and verify a custom domain,"h3. Acceptance criteria
+79,78,Story,Add and verify a custom domain,"h3. Acceptance criteria
 * Domain is added through the Vercel Domains API
 * Merchant sees the required DNS records and verification status
 * SSL is issued automatically once verified
 
 _Backlog ref: E15.1_",phase-2,release-commerce-v2,backend,frontend,infra
-79,77,Story,Route custom domains to the right store,"h3. Acceptance criteria
+80,78,Story,Route custom domains to the right store,"h3. Acceptance criteria
 * Requests on a verified domain render that store
 * Unverified domains return 404
 
 _Backlog ref: E15.2_",phase-2,release-commerce-v2,frontend,,
-80,,Epic,E16 Discounts and coupons,"h3. Goal
+81,,Epic,E16 Discounts and coupons,"h3. Goal
 Merchants can run promotions.
 
 _Backlog ref: E16_",phase-2,release-commerce-v2,backend,frontend,
-81,80,Story,Coupons,"h3. Acceptance criteria
+82,81,Story,Coupons,"h3. Acceptance criteria
 * Percentage, fixed amount and free shipping coupons
 * Minimum order, usage limits and expiry
 
 _Backlog ref: E16.1_",phase-2,release-commerce-v2,backend,frontend,
-82,80,Story,Automatic discounts,"h3. Acceptance criteria
+83,81,Story,Automatic discounts,"h3. Acceptance criteria
 * Discounts apply without a code based on cart rules
 * Quantity-based discounts (VevoCart reference)
 
 _Backlog ref: E16.2_",phase-2,release-commerce-v2,backend,frontend,
-83,,Epic,E17 Shipping zones and Stripe Tax,"h3. Goal
+84,,Epic,E17 Shipping zones and Stripe Tax,"h3. Goal
 Accurate shipping and tax for stores selling to several regions.
 
 _Backlog ref: E17_",phase-2,release-commerce-v2,backend,frontend,payments
-84,83,Story,Shipping zones and rates,"h3. Acceptance criteria
+85,84,Story,Shipping zones and rates,"h3. Acceptance criteria
 * Zones by country and state
 * Rates by weight or order total
 
 _Backlog ref: E17.1_",phase-2,release-commerce-v2,backend,frontend,
-85,83,Story,Stripe Tax on connected accounts,"h3. Acceptance criteria
+86,84,Story,Stripe Tax on connected accounts,"h3. Acceptance criteria
 * Tax is calculated by Stripe Tax at checkout
 * Manual tax rate remains as a fallback
 
 _Backlog ref: E17.2_",phase-2,release-commerce-v2,backend,payments,
-86,83,Story,Live carrier rates (optional),"h3. Acceptance criteria
+87,84,Story,Live carrier rates (optional),"h3. Acceptance criteria
 * Rates from an aggregator such as Shippo or EasyPost
 
 _Backlog ref: E17.3_",phase-2,release-commerce-v2,backend,,
-87,,Epic,E18 Shopper accounts,"h3. Goal
+88,,Epic,E18 Shopper accounts,"h3. Goal
 Shoppers can sign in to a store to see orders and save addresses.
 
 _Backlog ref: E18_",phase-2,release-commerce-v2,backend,frontend,security
-88,87,Story,Store-scoped shopper login by email code,"h3. Acceptance criteria
+89,88,Story,Store-scoped shopper login by email code,"h3. Acceptance criteria
 * Shopper accounts belong to one store and are separate from merchant Firebase logins
 * Codes expire and are rate limited
 
 _Backlog ref: E18.1_",phase-2,release-commerce-v2,backend,frontend,security
-89,87,Story,Order history and saved addresses,"h3. Acceptance criteria
+90,88,Story,Order history and saved addresses,"h3. Acceptance criteria
 * Signed-in shoppers see their past orders
 * Shoppers can save and reuse addresses
 
 _Backlog ref: E18.2_",phase-2,release-commerce-v2,frontend,backend,
-90,,Epic,"E19 Returns, abandoned carts and analytics","h3. Goal
+91,,Epic,"E19 Returns, abandoned carts and analytics","h3. Goal
 Operational tools merchants need once they have regular sales.
 
 _Backlog ref: E19_",phase-2,release-commerce-v2,backend,frontend,
-91,90,Story,Returns (RMA),"h3. Acceptance criteria
+92,91,Story,Returns (RMA),"h3. Acceptance criteria
 * Shoppers request a return; merchants approve, receive and refund
 
 _Backlog ref: E19.1_",phase-2,release-commerce-v2,backend,frontend,
-92,90,Story,Abandoned cart emails,"h3. Acceptance criteria
+93,91,Story,Abandoned cart emails,"h3. Acceptance criteria
 * Email sent after a configurable delay to shoppers who left an email
 
 _Backlog ref: E19.2_",phase-2,release-commerce-v2,backend,,
-93,90,Story,Merchant analytics dashboard,"h3. Acceptance criteria
+94,91,Story,Merchant analytics dashboard,"h3. Acceptance criteria
 * Sales, orders and top products over time
 
 _Backlog ref: E19.3_",phase-2,release-commerce-v2,frontend,backend,
-94,,Epic,E20 VevoCart parity features,"h3. Goal
+95,,Epic,E20 VevoCart parity features,"h3. Goal
 Features from VevoCart, built in order of merchant demand.
 
 _Backlog ref: E20_",phase-3,release-commerce-v3,backend,frontend,
-95,94,Story,Gift cards,"h3. Acceptance criteria
+96,95,Story,Gift cards,"h3. Acceptance criteria
 * Issue, sell and redeem gift cards with balances
 
 _Backlog ref: E20.1_",phase-3,release-commerce-v3,backend,frontend,
-96,94,Story,Loyalty points,"h3. Acceptance criteria
+97,95,Story,Loyalty points,"h3. Acceptance criteria
 * Earn and redeem points on orders
 
 _Backlog ref: E20.2_",phase-3,release-commerce-v3,backend,frontend,
-97,94,Story,Bundle promotions,"h3. Acceptance criteria
+98,95,Story,Bundle promotions,"h3. Acceptance criteria
 * Discounted bundles of selected products
 
 _Backlog ref: E20.3_",phase-3,release-commerce-v3,backend,frontend,
-98,94,Story,Product kits (build to order),"h3. Acceptance criteria
+99,95,Story,Product kits (build to order),"h3. Acceptance criteria
 * Kits made of selectable component products
 
 _Backlog ref: E20.4_",phase-3,release-commerce-v3,backend,frontend,
-99,94,Story,Wholesale price lists,"h3. Acceptance criteria
+100,95,Story,Wholesale price lists,"h3. Acceptance criteria
 * Customer-group pricing
 
 _Backlog ref: E20.5_",phase-3,release-commerce-v3,backend,frontend,
-100,94,Story,Multi-currency display,"h3. Acceptance criteria
+101,95,Story,Multi-currency display,"h3. Acceptance criteria
 * Prices shown in the shopper's currency
 
 _Backlog ref: E20.6_",phase-3,release-commerce-v3,backend,frontend,
-101,94,Story,Product reviews,"h3. Acceptance criteria
+102,95,Story,Product reviews,"h3. Acceptance criteria
 * Shoppers review purchased products; merchants moderate
 
 _Backlog ref: E20.7_",phase-3,release-commerce-v3,backend,frontend,
-102,94,Story,Blog and content pages,"h3. Acceptance criteria
+103,95,Story,Blog and content pages,"h3. Acceptance criteria
 * Merchants publish pages and blog posts
 
 _Backlog ref: E20.8_",phase-3,release-commerce-v3,backend,frontend,
-103,94,Story,Faceted search,"h3. Acceptance criteria
+104,95,Story,Faceted search,"h3. Acceptance criteria
 * Filter by attributes, price and category; Postgres full-text first
 
 _Backlog ref: E20.9_",phase-3,release-commerce-v3,backend,frontend,
-104,94,Story,Google Merchant Center and Meta catalogue feeds,"h3. Acceptance criteria
+105,95,Story,Google Merchant Center and Meta catalogue feeds,"h3. Acceptance criteria
 * Product feeds generated per store
 
 _Backlog ref: E20.10_",phase-3,release-commerce-v3,backend,,
-105,94,Story,Multi-language storefront,"h3. Acceptance criteria
+106,95,Story,Multi-language storefront,"h3. Acceptance criteria
 * Store content in several languages
 
 _Backlog ref: E20.11_",phase-3,release-commerce-v3,frontend,backend,
-106,,Epic,E21 Marketplace mode and merchant mobile app,"h3. Goal
+107,,Epic,E21 Marketplace mode and merchant mobile app,"h3. Goal
 Longer-term options, not yet scheduled.
 
 _Backlog ref: E21_",phase-later,release-future,backend,frontend,
-107,106,Story,Marketplace mode with vendors and split payouts,"h3. Acceptance criteria
+108,107,Story,Marketplace mode with vendors and split payouts,"h3. Acceptance criteria
 * Several vendors per store with payouts through Stripe Connect (VevoCart 6.2 reference)
 
 _Backlog ref: E21.1_",phase-later,release-future,backend,payments,
-108,106,Story,Merchant mobile app,"h3. Acceptance criteria
+109,107,Story,Merchant mobile app,"h3. Acceptance criteria
 * Order and product management app built on the existing Capacitor setup
 
 _Backlog ref: E21.2_",phase-later,release-future,frontend,,
-109,106,Story,Public API and webhooks for merchants,"h3. Acceptance criteria
+110,107,Story,Public API and webhooks for merchants,"h3. Acceptance criteria
 * Merchants can integrate through a documented API and webhooks
 
 _Backlog ref: E21.3_",phase-later,release-future,backend,,

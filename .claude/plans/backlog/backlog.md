@@ -2,11 +2,11 @@
 
 Source: .claude/plans/storecart-plan.md (nextjs-frontend + fastapi_backend from vintasoftware/nextjs-fastapi-template, multi-tenant commerce SaaS)
 
-**21 epics, 88 stories.**
+**21 epics, 89 stories.**
 
 | Epic | Phase | Release | Stories |
 |---|---|---|---|
-| E1 Monorepo restructure | A | Foundation | 6 |
+| E1 Monorepo restructure | A | Foundation | 7 |
 | E2 Backend foundation (FastAPI) | B | Foundation | 7 |
 | E3 Platform data and authentication | C | Foundation | 6 |
 | E4 Organisation billing (Stripe Billing) | D | Foundation | 4 |
@@ -42,20 +42,25 @@ Split the repository into nextjs-frontend/ (Next.js) and fastapi_backend/ (FastA
   - [ ] docker-compose.yml adapted from the template starts Postgres, test Postgres, Redis, backend (start.sh with watcher) and frontend, all with healthchecks
   - [ ] Root README explains both the Compose and the plain uv/npm workflows
 - **E1.3 Path-filtered CI workflows for frontend and backend** `infra`
-  - [ ] frontend.yml runs only when nextjs-frontend/** changes
-  - [ ] backend.yml runs only when fastapi_backend/** changes (adapted from the template's workflows)
-  - [ ] Both workflows pass on the restructure PR
+  - [ ] frontend.yml runs only for nextjs-frontend/**, backend.yml only for fastapi_backend/**; shared files (OpenAPI schema, root config) trigger both
+  - [ ] An always-run gate job is the single required check, verified with frontend-only, backend-only and shared-file test PRs
+  - [ ] 80% coverage is enforced in CI for both apps
 - **E1.4 Two Vercel projects and Playwright config fix** `frontend, infra`
   - [ ] Frontend Vercel project is rooted at nextjs-frontend; backend Vercel project is rooted at fastapi_backend using api/index.py
   - [ ] Preview deployments use a separate database from production
   - [ ] playwright.config.ts webServer uses npm run dev instead of the stale pnpm dev
 - **E1.5 ADR-001: architecture decisions** `docs`
-  - [ ] docs/adr/ records decisions D1-D23 from .claude/plans/storecart-plan.md
-  - [ ] Covers template adoption, Vercel backend, Firebase kept, hey-api client and Resend
+  - [ ] docs/adr/ records decisions D1-D23 from .claude/plans/storecart-plan.md, including template adoption, Vercel backend, Firebase kept, hey-api client and Resend
+  - [ ] Also decides: Next.js server to FastAPI authentication (forwarded Firebase session cookie plus internal service key), backend layering, and per-store database connection approach (NullPool + Neon pooled endpoints, session provider seam)
+  - [ ] States Docker's role (local development and CI only) and that rate limits are keyed by user/organisation/store, not IP; accepted before KAN-30 starts
 - **E1.6 Pre-commit hooks (from template)** `infra`
   - [ ] .pre-commit-config.yaml adapted from the template runs ruff (lint + format) and mypy for fastapi_backend, and eslint/prettier/tsc for nextjs-frontend
   - [ ] Hooks keep requirements.txt in sync with uv.lock and check that the OpenAPI client is up to date
   - [ ] README explains how to install the hooks
+- **E1.7 Parity inventory and behaviour baseline** `frontend, backend`
+  - [ ] .claude/plans/parity.md lists every boilerplate server action and API route with inputs, outputs, error cases and the porting story
+  - [ ] A Playwright baseline suite of the boilerplate's current features passes before KAN-30 removes anything
+  - [ ] A Foundation done-check fails if the frontend contains DATABASE_URL or server secrets, and runs e2e against FastAPI
 
 ### E2 Backend foundation (FastAPI) (phase B)
 
@@ -63,8 +68,9 @@ Adapt the template backend into a production-ready StoreCart API with configurat
 
 - **E2.1 Adapt template backend for StoreCart** `backend`
   - [ ] Example Item model/routes/migrations, fastapi-users and fastapi-mail are removed and the project is renamed to StoreCart
-  - [ ] Outdated pins (ruff, fastapi, pytest-asyncio) are upgraded and code is organised into app/core, app/api/v1, services and repositories
-  - [ ] uv run pytest, ruff check and mypy pass in CI
+  - [ ] Outdated pins are upgraded in small steps with tests green after each; code is organised into app/core, app/api/v1, services and repositories
+  - [ ] Repositories receive their session from an injected provider so per-store routing (E7) plugs in later (interface only)
+  - [ ] uv run pytest, ruff check and mypy pass in CI; depends on KAN-29 and KAN-113
 - **E2.2 Configuration, structured logging and error envelope** `backend`
   - [ ] Settings extend the template's pydantic-settings config and fail fast on missing secrets
   - [ ] All errors return {success:false, error} with no stack traces or internal details
@@ -78,8 +84,8 @@ Adapt the template backend into a production-ready StoreCart API with configurat
   - [ ] CI and pre-commit fail when the generated client is out of date
 - **E2.5 Redis-backed rate limiting** `backend, security`
   - [ ] Auth, API and webhook limits match the boilerplate's existing configuration
-  - [ ] Limits use Upstash Redis so they hold across serverless instances
-  - [ ] Exceeding a limit returns 429 with rate-limit headers
+  - [ ] Authenticated limits are keyed by user, organisation or store (not IP); unauthenticated auth endpoints use the client IP forwarded by Next.js
+  - [ ] Limits use Upstash Redis; behaviour when Redis is unavailable is decided and tested; exceeding a limit returns 429 with rate-limit headers
 - **E2.6 Sentry integration and backend conventions doc** `backend, docs`
   - [ ] Unhandled errors reach Sentry with request context
   - [ ] fastapi_backend/CLAUDE.md documents commands, layering (routers > services > repositories) and test conventions
