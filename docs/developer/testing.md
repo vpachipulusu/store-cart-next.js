@@ -1,6 +1,6 @@
 # Testing
 
-**Last updated:** 2026-10-11
+**Last updated:** 2026-10-12
 
 Coverage target: **80%** minimum. Write the test first (RED), make it pass (GREEN), then refactor.
 
@@ -10,11 +10,12 @@ Coverage target: **80%** minimum. Write the test first (RED), make it pass (GREE
 cd nextjs-frontend
 npm run test:unit          # src/__tests__/unit
 npm run test:watch         # watch mode
-npm run test:coverage      # enforces the 80% thresholds
+npm run test:coverage      # enforces the 80% thresholds; currently FAILS (see below)
 ```
 
 - Config: `vitest.config.ts`. Environment is jsdom, setup file is `vitest.setup.ts`.
 - Coverage thresholds are 80% for branches, functions, lines and statements.
+- **`npm run test:coverage` currently fails.** Coverage is about 2% lines, 3% functions and 10% branches. Whether and how the 80% rule applies is a PO decision tracked in KAN-139.
 - Coverage counts `src/lib/**`, `src/components/**` and `src/app/actions/**`.
 - Vitest excludes `e2e/` and `*.spec.ts`.
 - MSW is available for mocking HTTP.
@@ -25,7 +26,7 @@ npm run test:coverage      # enforces the 80% thresholds
 npm run test:integration   # src/__tests__/integration
 ```
 
-Integration tests cover API endpoints and database operations.
+There is currently one placeholder: `src/__tests__/integration/api/health.test.ts`, which asserts on a local object. No integration test exercises an API endpoint or a database yet.
 
 ## Frontend end-to-end tests (Playwright)
 
@@ -79,8 +80,19 @@ uv run pytest
 ```
 
 - Config: `pytest.ini` sets `asyncio_mode = auto`.
-- Tests live in `fastapi_backend/tests/`. `conftest.py` builds its engine from `TEST_DATABASE_URL`, so set it in `.env`.
-- Lint and types, using the dev-group tools: `uv run ruff check .` and `uv run mypy .`. These were not run while writing this page.
+- Tests live in `fastapi_backend/tests/`. `conftest.py` builds its engine from `TEST_DATABASE_URL`.
+- pytest imports `app.config`, so `.env` must set `DATABASE_URL`, `ACCESS_SECRET_KEY`, `RESET_PASSWORD_SECRET_KEY`, `VERIFICATION_SECRET_KEY` and `CORS_ORIGINS`, and `TEST_DATABASE_URL` must point at a reachable test database. Without them pytest exits with code 4 at import. Run `cp .env.example .env` and edit the two URLs (the example's test port 5433 is wrong here; see [getting-started](getting-started.md#local-databases)).
+
+Lint and types, using the dev-group tools:
+
+```bash
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy .
+```
+
+- `uv run mypy .` reports existing errors (80 at the last verification). Do not add new ones.
+- A bare `uv run mypy` fails on `main`, because `mypy.ini` has `files = src/**/*.py`. After KAN-111 merges (PR #8), it reads `app, commands` and a bare `uv run mypy` works.
 
 ## OpenAPI check
 
@@ -95,6 +107,7 @@ CI is planned to fail when the generated client is stale (ADR-008, lands with KA
 
 ## Before you open a PR
 
-- Frontend: `npm run test:unit`, `npm run test:integration`, `npm run test:coverage`, and `npm run typecheck`.
-- Backend: `uv run pytest`.
+- Frontend: `npm run test:unit`, `npm run test:integration`, `npm run typecheck`, `npm run lint` (works after KAN-111) and `npm run build`.
+- Frontend coverage: do not let it drop. The global 80% gate is not required until KAN-139 is decided.
+- Backend: `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .`, and `uv run mypy .` with no new errors.
 - Chromium e2e when the change is user-facing.

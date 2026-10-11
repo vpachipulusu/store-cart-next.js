@@ -1,6 +1,6 @@
 # Getting started
 
-**Last updated:** 2026-10-11
+**Last updated:** 2026-10-12
 
 ## Prerequisites
 
@@ -10,9 +10,27 @@
 | npm | 10 or later | npm only. Do not use pnpm or yarn. |
 | Python | 3.12 | Required by `fastapi_backend/pyproject.toml` (`>=3.12,<3.13`). |
 | uv | current | Manages the backend environment and dependencies. |
-| PostgreSQL | reachable instance | A local server, or a development database. |
+| PostgreSQL | reachable instance | A local server on port 5432, or a development database. See [Local databases](#local-databases). |
 
-Docker is optional. `fastapi_backend/Dockerfile` exists, but there is no `docker-compose.yml` yet.
+Docker is optional. `fastapi_backend/Dockerfile` exists, but there is no `docker-compose.yml` yet (it arrives with KAN-26).
+
+## Local databases
+
+Create a role, a development database and a separate test database on your local Postgres (port 5432):
+
+```bash
+psql -h localhost -p 5432 -U postgres -c "CREATE ROLE <user> LOGIN PASSWORD '<password>';"
+psql -h localhost -p 5432 -U postgres -c "CREATE DATABASE <db> OWNER <user>;"
+psql -h localhost -p 5432 -U postgres -c "CREATE DATABASE <test_db> OWNER <user>;"
+```
+
+The URLs then have this shape:
+
+- Backend `DATABASE_URL`: `postgresql+asyncpg://<user>:<password>@localhost:5432/<db>`
+- Backend `TEST_DATABASE_URL`: `postgresql+asyncpg://<user>:<password>@localhost:5432/<test_db>`
+- Frontend `DATABASE_URL` (Prisma): `postgresql://<user>:<password>@localhost:5432/<db>`
+
+`fastapi_backend/.env.example` sets `TEST_DATABASE_URL` to port **5433**. That is a leftover from the template's docker-compose, which does not exist in this repo. Use 5432, or the port of your own Postgres.
 
 ## Clone
 
@@ -32,7 +50,7 @@ npm run db:generate
 npm run typecheck
 ```
 
-`npm ci` does not generate the Prisma client. Run `npm run db:generate` before `npm run typecheck`, otherwise typecheck fails on missing Prisma types. Run it again after any change to `prisma/schema.prisma`.
+`npm ci` usually generates the Prisma client through the `@prisma/client` postinstall, but run `npm run db:generate` to be sure before `npm run typecheck`. It is required after any change to `prisma/schema.prisma`.
 
 ### Frontend environment
 
@@ -56,6 +74,16 @@ Fill in the values from the team's secret store. Never commit `.env`. The list b
 | FastAPI service key | `BACKEND_INTERNAL_KEY` | Server-only. Sent to FastAPI as the `X-Internal-Key` header. |
 | E2E test accounts *(lands with KAN-113)* | `TEST_USER_EMAIL`, `TEST_USER_PASSWORD`, `TEST_ADMIN_EMAIL`, `TEST_ADMIN_PASSWORD` | Written to `.env.e2e.local` by `npm run test:setup`. Do not edit by hand. |
 
+### Build the frontend
+
+```bash
+npx prisma generate
+npm run build
+```
+
+- The build needs the `NEXT_PUBLIC_*` client config in `.env`.
+- Until KAN-136 lands, it also needs `FIREBASE_ADMIN_*`, because `firebase-admin` initialises when its module is imported (`src/lib/firebase/admin.ts`).
+
 ### Run the frontend
 
 ```bash
@@ -69,7 +97,7 @@ The app serves at `http://localhost:3000`. The `predev` hook runs `scripts/dev-c
 ```bash
 cd fastapi_backend
 uv sync
-cp .env.example .env
+cp .env.example .env   # then set DATABASE_URL and TEST_DATABASE_URL (see Local databases)
 uv run fastapi dev app/main.py --host 127.0.0.1 --port 8000 --reload
 ```
 
