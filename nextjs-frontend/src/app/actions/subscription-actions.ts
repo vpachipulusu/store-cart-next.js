@@ -3,6 +3,7 @@
 import { cookies } from 'next/headers';
 import { z } from 'zod';
 import Stripe from 'stripe';
+import { getStripeServerClient } from '@/lib/stripe/server';
 import { adminAuth } from '@/lib/firebase/admin';
 import { db } from '@/lib/db/client';
 import crypto from 'crypto';
@@ -11,10 +12,6 @@ import { logger } from '@/lib/logger';
 /**
  * Initialize Stripe
  */
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2025-08-27.basil',
-  typescript: true,
-});
 
 /**
  * Response type for subscription actions
@@ -137,7 +134,7 @@ export async function getSubscriptionStatusAction(): Promise<SubscriptionActionR
     // Get detailed subscription info from Stripe if exists
     if (user.stripeSubscriptionId) {
       try {
-        const subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+        const subscription = await getStripeServerClient().subscriptions.retrieve(user.stripeSubscriptionId);
         subscriptionDetails = {
           id: subscription.id,
           status: subscription.status,
@@ -227,7 +224,7 @@ export async function createCheckoutSessionAction(
     let customerId = user.stripeCustomerId;
 
     if (!customerId) {
-      const customer = await stripe.customers.create({
+      const customer = await getStripeServerClient().customers.create({
         email: user.email,
         metadata: {
           userId: user.id,
@@ -245,7 +242,7 @@ export async function createCheckoutSessionAction(
     }
 
     // Create checkout session
-    const session = await stripe.checkout.sessions.create({
+    const session = await getStripeServerClient().checkout.sessions.create({
       customer: customerId,
       payment_method_types: ['card'],
       line_items: [
@@ -407,7 +404,7 @@ export async function createBillingPortalSessionAction(
     }
 
     // Create billing portal session
-    const session = await stripe.billingPortal.sessions.create({
+    const session = await getStripeServerClient().billingPortal.sessions.create({
       customer: user.stripeCustomerId,
       return_url: returnUrl,
     });
@@ -453,7 +450,7 @@ export async function cancelSubscriptionAction(): Promise<SubscriptionActionResp
     }
 
     // Cancel subscription at period end
-    const subscription = await stripe.subscriptions.update(user.stripeSubscriptionId, {
+    const subscription = await getStripeServerClient().subscriptions.update(user.stripeSubscriptionId, {
       cancel_at_period_end: true,
     });
 
@@ -499,7 +496,7 @@ export async function resumeSubscriptionAction(): Promise<SubscriptionActionResp
     }
 
     // First check current subscription state
-    const currentSub = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+    const currentSub = await getStripeServerClient().subscriptions.retrieve(user.stripeSubscriptionId);
 
     // Can only resume if subscription is in a valid state
     if (currentSub.status === 'canceled') {
@@ -534,7 +531,7 @@ export async function resumeSubscriptionAction(): Promise<SubscriptionActionResp
     }
 
     // Resume subscription
-    await stripe.subscriptions.update(user.stripeSubscriptionId, {
+    await getStripeServerClient().subscriptions.update(user.stripeSubscriptionId, {
       cancel_at_period_end: false,
     });
 
@@ -581,10 +578,10 @@ export async function updateSubscriptionAction(
     }
 
     // Get current subscription
-    const subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+    const subscription = await getStripeServerClient().subscriptions.retrieve(user.stripeSubscriptionId);
 
     // Update subscription with new price
-    const updatedSubscription = await stripe.subscriptions.update(user.stripeSubscriptionId, {
+    const updatedSubscription = await getStripeServerClient().subscriptions.update(user.stripeSubscriptionId, {
       items: [
         {
           id: subscription.items.data[0].id,
@@ -641,7 +638,7 @@ export async function getSubscriptionInvoicesAction(
     }
 
     // Get invoices from Stripe
-    const invoices = await stripe.invoices.list({
+    const invoices = await getStripeServerClient().invoices.list({
       customer: user.stripeCustomerId,
       limit,
     });
@@ -698,7 +695,7 @@ export async function getUpcomingInvoiceAction(): Promise<SubscriptionActionResp
     }
 
     // Get upcoming invoice
-    const invoice = await (stripe.invoices as any).retrieveUpcoming({
+    const invoice = await (getStripeServerClient().invoices as any).retrieveUpcoming({
       customer: user.stripeCustomerId,
       subscription: user.stripeSubscriptionId,
     });
@@ -801,7 +798,7 @@ export async function getSubscriptionDetailsAction(): Promise<SubscriptionAction
 
     if (user.stripeSubscriptionId) {
       try {
-        const subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId, {
+        const subscription = await getStripeServerClient().subscriptions.retrieve(user.stripeSubscriptionId, {
           expand: ['items.data.price'],
         });
         autoRenewal = !subscription.cancel_at_period_end;
@@ -863,7 +860,7 @@ export async function getPaymentMethodsAction(): Promise<SubscriptionActionRespo
     }
 
     // Get customer to find default payment method
-    const customer = await stripe.customers.retrieve(user.stripeCustomerId);
+    const customer = await getStripeServerClient().customers.retrieve(user.stripeCustomerId);
     const defaultPaymentMethodId =
       !customer.deleted && customer.invoice_settings?.default_payment_method
         ? typeof customer.invoice_settings.default_payment_method === 'string'
@@ -872,7 +869,7 @@ export async function getPaymentMethodsAction(): Promise<SubscriptionActionRespo
         : null;
 
     // List payment methods
-    const paymentMethods = await stripe.paymentMethods.list({
+    const paymentMethods = await getStripeServerClient().paymentMethods.list({
       customer: user.stripeCustomerId,
       type: 'card',
     });
@@ -924,7 +921,7 @@ export async function deletePaymentMethodAction(
 
     // Check if auto-renewal is active - block deletion if so
     if (user.stripeSubscriptionId) {
-      const subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+      const subscription = await getStripeServerClient().subscriptions.retrieve(user.stripeSubscriptionId);
       if (!subscription.cancel_at_period_end && subscription.status === 'active') {
         return {
           success: false,
@@ -935,7 +932,7 @@ export async function deletePaymentMethodAction(
     }
 
     // Verify the payment method belongs to this customer
-    const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
+    const pm = await getStripeServerClient().paymentMethods.retrieve(paymentMethodId);
     const pmCustomerId = extractCustomerId(pm.customer as any);
 
     if (!pmCustomerId) {
@@ -949,7 +946,7 @@ export async function deletePaymentMethodAction(
       };
     }
 
-    await stripe.paymentMethods.detach(paymentMethodId);
+    await getStripeServerClient().paymentMethods.detach(paymentMethodId);
 
     return { success: true, data: { message: 'Payment method removed' } };
   } catch (error: any) {
@@ -984,12 +981,12 @@ export async function setDefaultPaymentMethodAction(
     }
 
     // Verify the payment method belongs to this customer
-    const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
+    const pm = await getStripeServerClient().paymentMethods.retrieve(paymentMethodId);
     const pmCustomerId = extractCustomerId(pm.customer as any);
 
     // If payment method is not attached to a customer, attach it first
     if (!pm.customer) {
-      await stripe.paymentMethods.attach(paymentMethodId, {
+      await getStripeServerClient().paymentMethods.attach(paymentMethodId, {
         customer: user.stripeCustomerId,
       });
     } else if (pmCustomerId !== user.stripeCustomerId) {
@@ -997,14 +994,14 @@ export async function setDefaultPaymentMethodAction(
     }
 
     // Set as default on customer
-    await stripe.customers.update(user.stripeCustomerId, {
+    await getStripeServerClient().customers.update(user.stripeCustomerId, {
       invoice_settings: { default_payment_method: paymentMethodId },
     });
 
     // Also update on subscription if exists
     if (user.stripeSubscriptionId) {
       try {
-        await stripe.subscriptions.update(user.stripeSubscriptionId, {
+        await getStripeServerClient().subscriptions.update(user.stripeSubscriptionId, {
           default_payment_method: paymentMethodId,
         });
       } catch (subError) {

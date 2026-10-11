@@ -3,6 +3,7 @@
 import { cookies } from 'next/headers';
 import { z } from 'zod';
 import Stripe from 'stripe';
+import { getStripeServerClient } from '@/lib/stripe/server';
 import { adminAuth } from '@/lib/firebase/admin';
 import { db } from '@/lib/db/client';
 import { logger } from '@/lib/logger';
@@ -10,10 +11,6 @@ import { logger } from '@/lib/logger';
 /**
  * Initialize Stripe
  */
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2025-08-27.basil',
-  typescript: true,
-});
 
 /**
  * Response type for admin subscription actions
@@ -257,7 +254,7 @@ export async function getUserSubscriptionDetailsAction(
     // Get Stripe subscription details if exists
     if (user.stripeSubscriptionId) {
       try {
-        stripeSubscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+        stripeSubscription = await getStripeServerClient().subscriptions.retrieve(user.stripeSubscriptionId);
       } catch (error) {
         logger.error('Failed to retrieve Stripe subscription:', error);
       }
@@ -266,7 +263,7 @@ export async function getUserSubscriptionDetailsAction(
     // Get Stripe invoices if customer exists
     if (user.stripeCustomerId) {
       try {
-        const invoices = await stripe.invoices.list({
+        const invoices = await getStripeServerClient().invoices.list({
           customer: user.stripeCustomerId,
           limit: 10,
         });
@@ -392,7 +389,7 @@ export async function cancelUserSubscriptionAction(
 
     if (immediately) {
       // Cancel immediately
-      await stripe.subscriptions.cancel(user.stripeSubscriptionId);
+      await getStripeServerClient().subscriptions.cancel(user.stripeSubscriptionId);
 
       // Update database
       await db.user.update({
@@ -405,7 +402,7 @@ export async function cancelUserSubscriptionAction(
       });
     } else {
       // Cancel at period end
-      await stripe.subscriptions.update(user.stripeSubscriptionId, {
+      await getStripeServerClient().subscriptions.update(user.stripeSubscriptionId, {
         cancel_at_period_end: true,
       });
     }
@@ -467,7 +464,7 @@ export async function refundSubscriptionPaymentAction(
     }
 
     // Get latest successful payment intent
-    const charges = await stripe.charges.list({
+    const charges = await getStripeServerClient().charges.list({
       customer: user.stripeCustomerId,
       limit: 1,
     });
@@ -482,7 +479,7 @@ export async function refundSubscriptionPaymentAction(
     const charge = charges.data[0];
 
     // Create refund
-    const refund = await stripe.refunds.create({
+    const refund = await getStripeServerClient().refunds.create({
       charge: charge.id,
       amount: amount, // If undefined, refunds full amount
     });
@@ -617,7 +614,7 @@ export async function getSubscriptionRevenueAction(
 
     for (const customerId of customerIds) {
       try {
-        const invoices = await stripe.invoices.list({
+        const invoices = await getStripeServerClient().invoices.list({
           customer: customerId,
           status: 'paid',
           limit: 100,
@@ -682,7 +679,7 @@ export async function syncStripeSubscriptionsAction(): Promise<AdminSubscription
 
     for (const user of users) {
       try {
-        const subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId!);
+        const subscription = await getStripeServerClient().subscriptions.retrieve(user.stripeSubscriptionId!);
 
         await db.user.update({
           where: { id: user.id },
