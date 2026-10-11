@@ -18,11 +18,11 @@ vi.mock('next/headers', () => ({
   cookies: async () => ({ set: vi.fn(), get: vi.fn(), delete: vi.fn() }),
 }));
 vi.mock('@/lib/firebase/admin', () => ({
-  adminAuth: {
+  getAdminAuth: () => ({
     verifyIdToken: mocks.verifyIdToken,
     getUser: mocks.getUser,
     createSessionCookie: vi.fn().mockResolvedValue('session-cookie'),
-  },
+  }),
 }));
 vi.mock('@/lib/firebase/client', () => ({ auth: {} }));
 vi.mock('firebase/auth', () => ({ applyActionCode: vi.fn() }));

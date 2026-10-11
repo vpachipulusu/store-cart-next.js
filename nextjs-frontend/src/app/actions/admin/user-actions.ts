@@ -2,7 +2,7 @@
 
 import { cookies } from 'next/headers';
 import { z } from 'zod';
-import { adminAuth } from '@/lib/firebase/admin';
+import { getAdminAuth } from '@/lib/firebase/admin';
 import { db } from '@/lib/db/client';
 import { logger } from '@/lib/logger';
 
@@ -27,7 +27,7 @@ async function getAuthenticatedAdmin() {
       return null;
     }
 
-    const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
+    const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, true);
     const user = await db.user.findUnique({
       where: { firebaseUid: decodedClaims.uid },
       include: {
@@ -304,7 +304,7 @@ export async function deleteUserAction(userId: string): Promise<AdminUserActionR
 
     // Delete from Firebase Auth
     try {
-      await adminAuth.deleteUser(user.firebaseUid);
+      await getAdminAuth().deleteUser(user.firebaseUid);
     } catch (error) {
       logger.error('Firebase delete error:', error);
     }
@@ -527,7 +527,7 @@ export async function banUserAction(userId: string, reason?: string): Promise<Ad
     }
 
     // Disable user in Firebase
-    await adminAuth.updateUser(user.firebaseUid, {
+    await getAdminAuth().updateUser(user.firebaseUid, {
       disabled: true,
     });
 
@@ -580,7 +580,7 @@ export async function unbanUserAction(userId: string): Promise<AdminUserActionRe
     }
 
     // Enable user in Firebase
-    await adminAuth.updateUser(user.firebaseUid, {
+    await getAdminAuth().updateUser(user.firebaseUid, {
       disabled: false,
     });
 

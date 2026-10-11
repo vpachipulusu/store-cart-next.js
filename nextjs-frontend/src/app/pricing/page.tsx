@@ -3,7 +3,7 @@ import { cookies } from 'next/headers';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PricingCardsSection } from '@/components/pricing/pricing-cards-section';
-import { adminAuth } from '@/lib/firebase/admin';
+import { getAdminAuth } from '@/lib/firebase/admin';
 import { db } from '@/lib/db/client';
 import { getSubscriptionPlans, getCurrencySymbol } from '@/config/subscriptions';
 
@@ -43,7 +43,7 @@ async function getUserSession() {
       return { isAuthenticated: false };
     }
 
-    const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
+    const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, true);
     const user = await db.user.findUnique({
       where: { firebaseUid: decodedClaims.uid },
       select: {
