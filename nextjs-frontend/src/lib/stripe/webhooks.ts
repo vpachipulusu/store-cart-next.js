@@ -405,5 +405,3 @@ export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
   }
 }
 
-const stripe = getStripeClient();
-export { stripe };
