@@ -74,10 +74,8 @@ export function SignupForm({ selectedPlan }: SignupFormProps) {
       }
 
       if (user && idToken) {
-        // Create session on server with selected plan
-        const result = await verifyTokenAction(idToken, {
-          selectedPlan: selectedPlan || 'free',
-        });
+        // Create session on server. The selected plan never sets the tier (KAN-122); paid plans go through checkout.
+        const result = await verifyTokenAction(idToken);
 
         if (!result.success) {
           setError(result.error || 'Failed to create session. Please try again.');

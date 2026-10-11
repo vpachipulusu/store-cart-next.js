@@ -138,10 +138,7 @@ export async function logoutAction(): Promise<AuthActionResponse> {
 /**
  * Verify token and sync user with database
  */
-export async function verifyTokenAction(
-  idToken: string,
-  metadata?: { selectedPlan?: string }
-): Promise<AuthActionResponse> {
+export async function verifyTokenAction(idToken: string): Promise<AuthActionResponse> {
   try {
     // Verify Firebase ID token
     const decodedToken = await adminAuth.verifyIdToken(idToken);
@@ -175,8 +172,9 @@ export async function verifyTokenAction(
     });
 
     if (!user) {
-      // Determine subscription tier based on selected plan
-      const subscriptionTier = metadata?.selectedPlan || 'free';
+      // Every new account starts on free. The client's selected plan is never trusted for the tier:
+      // paid tiers are granted only by Stripe checkout (KAN-122).
+      const subscriptionTier = 'free';
 
       // Create new user in database
       user = await db.user.create({
@@ -294,47 +292,6 @@ export async function verifyTokenAction(
 }
 
 /**
- * Sync user data from Firebase to database
- */
-export async function syncUserAction(firebaseUid: string): Promise<AuthActionResponse> {
-  try {
-    // Get Firebase user
-    const firebaseUser = await adminAuth.getUser(firebaseUid);
-
-    // Update database user
-    const user = await db.user.upsert({
-      where: { firebaseUid },
-      update: {
-        email: firebaseUser.email || '',
-        emailVerified: firebaseUser.emailVerified,
-        displayName: firebaseUser.displayName || null,
-        avatarUrl: firebaseUser.photoURL || null,
-        phoneNumber: firebaseUser.phoneNumber || null,
-      },
-      create: {
-        firebaseUid,
-        email: firebaseUser.email || '',
-        emailVerified: firebaseUser.emailVerified,
-        displayName: firebaseUser.displayName || null,
-        avatarUrl: firebaseUser.photoURL || null,
-        phoneNumber: firebaseUser.phoneNumber || null,
-      },
-    });
-
-    return {
-      success: true,
-      data: { user },
-    };
-  } catch (error: any) {
-    logger.error('Sync user error:', error);
-    return {
-      success: false,
-      error: error.message || 'User sync failed',
-    };
-  }
-}
-
-/**
  * Get current session
  */
 export async function getCurrentSessionAction(): Promise<AuthActionResponse> {
@@ -394,36 +351,6 @@ export async function getCurrentSessionAction(): Promise<AuthActionResponse> {
     return {
       success: false,
       error: error.message || 'Session retrieval failed',
-    };
-  }
-}
-
-/**
- * Request password reset email
- */
-export async function requestPasswordResetAction(email: string): Promise<AuthActionResponse> {
-  try {
-    // Validate email
-    const validation = emailSchema.safeParse(email);
-    if (!validation.success) {
-      return {
-        success: false,
-        error: 'Invalid email format',
-      };
-    }
-
-    // Generate password reset link (Firebase handles email sending)
-    const resetLink = await adminAuth.generatePasswordResetLink(email);
-
-    return {
-      success: true,
-      data: { message: 'Password reset email sent', resetLink },
-    };
-  } catch (error: any) {
-    logger.error('Password reset error:', error);
-    return {
-      success: false,
-      error: error.message || 'Password reset failed',
     };
   }
 }
