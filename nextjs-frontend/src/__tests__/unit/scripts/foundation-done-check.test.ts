@@ -99,7 +99,7 @@ describe('scanForServerSecrets', () => {
 
   it('only ignores the exact done-check paths, not look-alikes elsewhere', () => {
     const findings = scanForServerSecrets([
-      file('src/lib/scripts/foundation-done-check-helper.ts', "process.env.DATABASE_URL"),
+      file('src/lib/scripts/foundation-done-check-helper.ts', 'process.env.DATABASE_URL'),
     ]);
 
     expect(findings.map((f) => f.match)).toEqual(['DATABASE_URL']);
@@ -128,7 +128,7 @@ describe('scanForServerSecrets', () => {
           'process.env.NEXT_PUBLIC_MAPS_API_KEY',
           'process.env.SENTRY_AUTH_TOKEN',
           'process.env.TEST_USER_PASSWORD',
-        ].join('\n'),
+        ].join('\n')
       ),
       file('.env.example', 'OPENAI_API_KEY=\nNEXT_PUBLIC_APP_URL=http://localhost:3000'),
     ]);
@@ -142,7 +142,10 @@ describe('scanForServerSecrets', () => {
 
   it('flags dynamic process.env access, which a name list cannot see', () => {
     const findings = scanForServerSecrets([
-      file('src/lib/a.ts', "const v = process.env[name];\nconst ok = process.env['NEXT_PUBLIC_X'];"),
+      file(
+        'src/lib/a.ts',
+        "const v = process.env[name];\nconst ok = process.env['NEXT_PUBLIC_X'];"
+      ),
     ]);
 
     expect(findings).toEqual([
@@ -159,7 +162,12 @@ describe('scanForServerSecrets', () => {
 
     expect(findings).toEqual([
       { path: '.env', line: 0, rule: 'committed-env-file', match: '.env' },
-      { path: 'config/.env.production', line: 0, rule: 'committed-env-file', match: '.env.production' },
+      {
+        path: 'config/.env.production',
+        line: 0,
+        rule: 'committed-env-file',
+        match: '.env.production',
+      },
     ]);
   });
 
@@ -180,10 +188,16 @@ describe('scanForServerSecrets', () => {
 
   it('reports every match on a line and handles CRLF line endings', () => {
     const findings = scanForServerSecrets([
-      file('src/a.ts', 'ok\r\nconst a = [process.env.STRIPE_SECRET_KEY, process.env.DATABASE_URL];'),
+      file(
+        'src/a.ts',
+        'ok\r\nconst a = [process.env.STRIPE_SECRET_KEY, process.env.DATABASE_URL];'
+      ),
     ]);
 
-    expect(findings.map((f) => `${f.line}:${f.match}`)).toEqual(['2:STRIPE_SECRET_KEY', '2:DATABASE_URL']);
+    expect(findings.map((f) => `${f.line}:${f.match}`)).toEqual([
+      '2:STRIPE_SECRET_KEY',
+      '2:DATABASE_URL',
+    ]);
   });
 });
 
@@ -269,6 +283,9 @@ describe('runDoneCheck', () => {
       runE2E: vi.fn().mockRejectedValue(new Error('spawn npx ENOENT')),
     });
 
-    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining('spawn npx ENOENT') });
+    expect(result).toMatchObject({
+      ok: false,
+      reason: expect.stringContaining('spawn npx ENOENT'),
+    });
   });
 });

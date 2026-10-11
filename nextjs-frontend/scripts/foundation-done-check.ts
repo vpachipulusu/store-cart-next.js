@@ -61,7 +61,12 @@ const SERVER_SECRET_ENV_NAMES = [
 const ALLOWED_SECRET_LOOKING_ENV = new Set(['SENTRY_AUTH_TOKEN']);
 
 const SERVER_ONLY_DEPENDENCIES = /^(prisma|@prisma\/.+|firebase-admin)$/;
-const DEPENDENCY_SECTIONS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'];
+const DEPENDENCY_SECTIONS = [
+  'dependencies',
+  'devDependencies',
+  'optionalDependencies',
+  'peerDependencies',
+];
 
 const KNOWN_SECRET_ENV = new RegExp(
   `(?<![A-Z0-9_])(${SERVER_SECRET_ENV_NAMES.join('|')})(?![A-Z0-9_])`,
@@ -134,7 +139,9 @@ function scanPackageJson(file: SourceFile): Finding[] {
   }
   return DEPENDENCY_SECTIONS.flatMap((section) => Object.keys((manifest[section] ?? {}) as object))
     .filter((name) => SERVER_ONLY_DEPENDENCIES.test(name))
-    .map((name): Finding => ({ path: file.path, line: 0, rule: 'server-only-dependency', match: name }));
+    .map(
+      (name): Finding => ({ path: file.path, line: 0, rule: 'server-only-dependency', match: name })
+    );
 }
 
 function scanFile(file: SourceFile): Finding[] {
@@ -158,7 +165,8 @@ export function scanForServerSecrets(files: readonly SourceFile[]): Finding[] {
     .flatMap(scanFile);
 }
 
-const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
 export async function runDoneCheck(options: DoneCheckOptions): Promise<DoneCheckResult> {
   const findings = scanForServerSecrets(options.files);
@@ -194,7 +202,11 @@ export async function runDoneCheck(options: DoneCheckOptions): Promise<DoneCheck
       };
     }
   } catch (error: unknown) {
-    return { ok: false, findings, reason: `e2e suite against FastAPI crashed: ${errorMessage(error)}` };
+    return {
+      ok: false,
+      findings,
+      reason: `e2e suite against FastAPI crashed: ${errorMessage(error)}`,
+    };
   }
 
   return { ok: true, findings };

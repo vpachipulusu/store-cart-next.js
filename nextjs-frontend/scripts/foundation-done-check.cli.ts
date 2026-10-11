@@ -29,11 +29,15 @@ function readTextFile(path: string): string | null {
 
 /** Tracked files plus untracked, non-ignored ones, so a new file is checked before it is committed. */
 function frontendFiles(): SourceFile[] {
-  const listing = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], {
-    cwd: FRONTEND_ROOT,
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-  });
+  const listing = execFileSync(
+    'git',
+    ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+    {
+      cwd: FRONTEND_ROOT,
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+    }
+  );
   return [...new Set(listing.split('\0').filter(Boolean))].flatMap((path): SourceFile[] => {
     const content = readTextFile(path);
     return content === null ? [] : [{ path, content }];
@@ -46,7 +50,9 @@ async function checkHealth(healthUrl: string): Promise<boolean> {
     if (!response.ok) process.stderr.write(`Health check returned HTTP ${response.status}\n`);
     return response.ok;
   } catch (error: unknown) {
-    process.stderr.write(`Health check failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(
+      `Health check failed: ${error instanceof Error ? error.message : String(error)}\n`
+    );
     return false;
   }
 }
