@@ -133,7 +133,7 @@
           "ac": [
             "Settings extend the template's pydantic-settings config and fail fast on missing secrets",
             "All errors return {success:false, error} with no stack traces or internal details",
-            "JSON logs with a request ID replace print(); CORS is restricted to known origins"
+            "JSON logs with a request ID replace print(); CORS allows no browser origins (empty list), per ADR-003"
           ],
           "jira": "KAN-31"
         },
@@ -211,7 +211,7 @@
           "ac": [
             "A second Neon database is reached through the KAN-30 session provider and one repository query runs from the Vercel-deployed backend",
             "Median and p95 latency recorded for platform-only and platform + store requests, including an idle store database cold start",
-            "Outcome recorded in ADR-001; time-boxed to 3 days; depends on KAN-30 and KAN-112"
+            "Outcome recorded in ADR-005 (docs/adr/0005-per-store-database-access.md); time-boxed to 3 days; depends on KAN-30 and KAN-112"
           ]
         }
       ],

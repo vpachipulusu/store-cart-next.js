@@ -21,8 +21,8 @@ api/v1/        HTTP only: routers, request/response schemas, dependencies (auth,
 services/      business logic and transaction boundaries; no FastAPI imports
 repositories/  SQLAlchemy queries for one aggregate each; no business rules
 db/platform/   platform models, engine/session factory, Alembic tree "platform"
-db/store/      store models, store session provider, Alembic tree "store"
-tenancy/       store lookup, membership checks, the store session seam (ADR-005)
+db/store/      store models, the NullPool StoreSessionProvider implementation, Alembic tree "store"
+tenancy/       store lookup, membership checks, store grants and the StoreSessionProvider protocol (ADR-005)
 core/          config (pydantic-settings), structured logging, error types and handlers, Sentry
 ```
 

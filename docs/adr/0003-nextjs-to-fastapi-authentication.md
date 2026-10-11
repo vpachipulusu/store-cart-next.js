@@ -21,21 +21,32 @@ our Next.js server, and which merchant it acts for.
    removed.
 3. **Each backend request carries two credentials:**
    - **Internal service key:** a shared secret in an `X-Internal-Key` header, held only in the server
-     environments of both Vercel projects. FastAPI compares it in constant time and rejects requests without
+     environments of both Vercel projects (the Next.js server reads it from `BACKEND_INTERNAL_KEY`, never a
+     `NEXT_PUBLIC_*` variable). FastAPI compares it in constant time and rejects requests without
      it before any other work. It proves the caller is our Next.js server. Two valid keys (current and next)
-     are accepted so the key can be rotated without downtime.
-   - **Forwarded Firebase session cookie:** the value of the `session` cookie, forwarded in a dedicated header
-     (not as a browser cookie). FastAPI verifies it with the Firebase Admin SDK, including the revocation check,
-     and turns it into the current merchant. This proves *who* the request is for.
-4. **Signing in:** Next.js posts the Firebase ID token to `POST /v1/auth/session`. FastAPI verifies it, syncs
-   the user, records login history and returns the session cookie value. Next.js sets the cookie in the
-   browser. The Firebase Admin credentials then live only in the backend.
+     are accepted so the key can be rotated without downtime. **Each environment has its own keys**
+     (production, preview, development), so a preview frontend cannot call the production backend.
+   - **Forwarded Firebase session cookie:** the value of the `session` cookie, forwarded in an
+     `X-Session-Token` header (not as a browser cookie). FastAPI verifies it with the Firebase Admin SDK,
+     including the revocation check, and turns it into the current merchant. This proves *who* the request is
+     for. The revocation check costs a Firebase round trip per request; KAN-115 includes it in its latency
+     numbers.
+   - Both headers are redacted from request logs and Sentry events.
+4. **Signing in:** Next.js posts the Firebase ID token to `POST /v1/auth/session`. FastAPI verifies it, rejects
+   tokens whose `auth_time` is older than 5 minutes (Firebase's guidance for minting session cookies), syncs the
+   user, records login history and returns the session cookie value. Next.js sets the cookie in the browser.
+   The Firebase Admin credentials then live only in the backend.
 5. **Endpoints not called by Next.js** (Stripe webhooks, QStash callbacks) do not use the service key; each
-   verifies its provider's signature instead.
-6. **The client IP** for unauthenticated endpoints is forwarded by Next.js in a header, and is trusted only on
-   requests that carry a valid service key ([ADR-007](0007-rate-limit-keys.md)).
-7. **Authorisation** (organisation membership and role, store access) happens in the backend, in dependencies
-   that run before any store database is opened ([ADR-005](0005-per-store-database-access.md)).
+   verifies its provider's signature instead. `/health` is also public and returns no internal detail. Because
+   the backend URL is public, the OpenAPI document and docs UI are switched off in production.
+6. **The client IP** for unauthenticated endpoints is forwarded by Next.js in an `X-Client-IP` header, and is
+   trusted only on requests that carry a valid service key ([ADR-007](0007-rate-limit-keys.md)). Next.js takes
+   it from the header set by the platform (Vercel's `x-vercel-forwarded-for`, or `x-real-ip`), never from the first client-supplied `X-Forwarded-For`
+   entry. FastAPI ignores inbound `X-Forwarded-For`.
+7. **Authorisation** happens in the backend, in dependencies that run before any store database is opened
+   ([ADR-005](0005-per-store-database-access.md)): organisation membership and role, store access, and the
+   platform-admin role for E5's admin endpoints. Email verification is enforced here from the verified token
+   claims (`email_verified`), not from a cookie the browser can set.
 
 ## Alternatives considered
 
