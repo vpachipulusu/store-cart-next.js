@@ -144,7 +144,8 @@ SENTRY_AUTH_TOKEN                     # Optional; disables source maps if absent
 ## Testing Notes
 
 - **E2E auth setup**: `src/__tests__/e2e/auth.setup.ts` runs before browser tests. Use `npm run test:setup` to create the test user.
-- **playwright.config.ts** has a stale `pnpm dev` reference in `webServer.command` — the project uses `npm run dev`. Start the dev server manually before running E2E tests locally.
+- **playwright.config.ts** starts `npm run dev` in `nextjs-frontend/` as its `webServer` (reused if one is already running).
+- After a clean install (`npm ci`), run `npm run db:generate` before `npm run typecheck` — the Prisma client is not generated automatically.
 - Vitest coverage thresholds are 80% for branches, functions, lines, and statements.
 - MSW (`msw`) is available for mocking HTTP in Vitest tests.
 

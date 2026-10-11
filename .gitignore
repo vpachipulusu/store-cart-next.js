@@ -1,23 +1,25 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# StoreCart monorepo: nextjs-frontend/ (npm) + fastapi_backend/ (uv).
+# Patterns without a leading slash match at any depth.
 
-# Dependencies
+# Dependencies (npm only: package-lock.json and uv.lock are committed)
 node_modules
-/.pnp
+.pnp
 .pnp.js
-package-lock.json
 yarn.lock
+pnpm-lock.yaml
 
 # Testing
-/coverage
+coverage/
 *.lcov
+playwright-report/
+test-results/
+playwright/.cache/
 
 # Next.js
-/.next/
-/out/
+.next/
+nextjs-frontend/out/
+nextjs-frontend/build/
 next-env.d.ts
-
-# Production
-/build
 
 # Misc
 .DS_Store
@@ -30,12 +32,12 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # Application logs
-/logs
+logs/
 
 # Sentry
 .sentryclirc
 
-# Local env files
+# Local env files (keep *.example committed)
 .env
 .env.local
 .env.development.local
@@ -50,9 +52,23 @@ yarn-error.log*
 *.tsbuildinfo
 
 # Capacitor
-/ios
-/android
-/capacitor.config.json
+nextjs-frontend/ios/
+nextjs-frontend/android/
+nextjs-frontend/capacitor.config.json
+
+# Prisma
+nextjs-frontend/prisma/migrations/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
 
 # IDE
 .vscode
@@ -60,14 +76,6 @@ yarn-error.log*
 *.swp
 *.swo
 *~
-
-# Prisma
-/prisma/migrations
-
-# Test
-/playwright-report
-/test-results
-/playwright/.cache
 
 # Windows reserved filename
 nul

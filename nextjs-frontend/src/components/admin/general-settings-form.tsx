@@ -15,7 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { upsertAppSettingAction } from '@/app/actions/admin/settings-actions';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, DollarSign, Globe, Type } from 'lucide-react';
-import { CURRENCIES } from '@/config/subscriptions';
+import { CURRENCIES } from '@/config/currencies';
 import { getFontOptions } from '@/config/fonts';
 
 interface GeneralSettingsFormProps {

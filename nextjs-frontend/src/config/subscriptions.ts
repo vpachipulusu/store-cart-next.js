@@ -2,6 +2,7 @@ import { unstable_cache } from 'next/cache';
 import Stripe from 'stripe';
 import { db } from '@/lib/db/client';
 import { logger } from '@/lib/logger';
+import { CURRENCIES } from './currencies';
 
 export const SUBSCRIPTION_TIERS = {
   FREE: 'free',
@@ -9,7 +10,7 @@ export const SUBSCRIPTION_TIERS = {
   ENTERPRISE: 'enterprise',
 } as const;
 
-export type SubscriptionTier = typeof SUBSCRIPTION_TIERS[keyof typeof SUBSCRIPTION_TIERS];
+export type SubscriptionTier = (typeof SUBSCRIPTION_TIERS)[keyof typeof SUBSCRIPTION_TIERS];
 
 export interface SubscriptionPlan {
   name: string;
@@ -41,12 +42,7 @@ export const subscriptionPlans: SubscriptionPlan[] = [
   {
     name: 'Free',
     description: 'Perfect for getting started',
-    features: [
-      'Up to 3 projects',
-      'Basic analytics',
-      'Community support',
-      '1 GB storage',
-    ],
+    features: ['Up to 3 projects', 'Basic analytics', 'Community support', '1 GB storage'],
     price: {
       monthly: 0,
       yearly: 0,
@@ -127,9 +123,7 @@ async function fetchStripePrices(): Promise<StripePrices> {
       return FALLBACK_PRICES;
     }
 
-    const prices = await Promise.all(
-      priceIds.map((id) => stripe.prices.retrieve(id))
-    );
+    const prices = await Promise.all(priceIds.map((id) => stripe.prices.retrieve(id)));
 
     const priceMap = new Map<string, number>();
     for (const price of prices) {
@@ -155,11 +149,10 @@ async function fetchStripePrices(): Promise<StripePrices> {
 /**
  * Cached Stripe prices. Revalidates every 1 hour.
  */
-export const getStripePrices = unstable_cache(
-  fetchStripePrices,
-  ['stripe-prices'],
-  { revalidate: 3600, tags: ['stripe-prices'] }
-);
+export const getStripePrices = unstable_cache(fetchStripePrices, ['stripe-prices'], {
+  revalidate: 3600,
+  tags: ['stripe-prices'],
+});
 
 /**
  * Returns subscription plans with prices fetched from Stripe.
@@ -178,20 +171,7 @@ export async function getSubscriptionPlans(): Promise<SubscriptionPlan[]> {
   });
 }
 
-/**
- * Supported currencies with their symbols.
- */
-export const CURRENCIES = [
-  { code: 'USD', symbol: '$', name: 'US Dollar' },
-  { code: 'EUR', symbol: '€', name: 'Euro' },
-  { code: 'GBP', symbol: '£', name: 'British Pound' },
-  { code: 'JPY', symbol: '¥', name: 'Japanese Yen' },
-  { code: 'AUD', symbol: 'A$', name: 'Australian Dollar' },
-  { code: 'CAD', symbol: 'C$', name: 'Canadian Dollar' },
-  { code: 'CHF', symbol: 'Fr', name: 'Swiss Franc' },
-  { code: 'CNY', symbol: '¥', name: 'Chinese Yuan' },
-  { code: 'INR', symbol: '₹', name: 'Indian Rupee' },
-] as const;
+export { CURRENCIES };
 
 async function fetchCurrencySymbol(): Promise<string> {
   try {
@@ -209,8 +189,7 @@ async function fetchCurrencySymbol(): Promise<string> {
 /**
  * Cached currency symbol from admin settings. Revalidates every 1 hour.
  */
-export const getCurrencySymbol = unstable_cache(
-  fetchCurrencySymbol,
-  ['currency-symbol'],
-  { revalidate: 3600, tags: ['currency-setting'] }
-);
+export const getCurrencySymbol = unstable_cache(fetchCurrencySymbol, ['currency-symbol'], {
+  revalidate: 3600,
+  tags: ['currency-setting'],
+});
