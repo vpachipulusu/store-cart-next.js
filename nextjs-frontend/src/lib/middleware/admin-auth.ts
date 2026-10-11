@@ -5,7 +5,7 @@
  */
 
 import { NextRequest } from 'next/server';
-import { adminAuth } from '@/lib/firebase/admin';
+import { getAdminAuth } from '@/lib/firebase/admin';
 import { db } from '@/lib/db/client';
 import { logger } from '@/lib/logger';
 
@@ -44,7 +44,7 @@ export async function verifyAdminAuth(
     // Verify Firebase token
     let decodedToken;
     try {
-      decodedToken = await adminAuth.verifyIdToken(token);
+      decodedToken = await getAdminAuth().verifyIdToken(token);
     } catch (error) {
       logger.error('Token verification failed:', error);
       return {

@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 import { z } from 'zod';
 import Stripe from 'stripe';
 import { getStripeServerClient } from '@/lib/stripe/server';
-import { adminAuth } from '@/lib/firebase/admin';
+import { getAdminAuth } from '@/lib/firebase/admin';
 import { db } from '@/lib/db/client';
 import crypto from 'crypto';
 import { logger } from '@/lib/logger';
@@ -34,7 +34,7 @@ async function getAuthenticatedUserId(): Promise<string | null> {
       return null;
     }
 
-    const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
+    const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, true);
     const user = await db.user.findUnique({
       where: { firebaseUid: decodedClaims.uid },
       select: { id: true },

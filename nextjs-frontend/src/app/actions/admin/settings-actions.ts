@@ -3,7 +3,7 @@
 import { cookies } from 'next/headers';
 import { revalidateTag } from 'next/cache';
 import { z } from 'zod';
-import { adminAuth } from '@/lib/firebase/admin';
+import { getAdminAuth } from '@/lib/firebase/admin';
 import { db } from '@/lib/db/client';
 import { logger } from '@/lib/logger';
 
@@ -28,7 +28,7 @@ async function getAuthenticatedAdmin() {
       return null;
     }
 
-    const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
+    const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, true);
     const user = await db.user.findUnique({
       where: { firebaseUid: decodedClaims.uid },
       include: {

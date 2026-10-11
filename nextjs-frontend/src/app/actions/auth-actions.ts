@@ -2,7 +2,7 @@
 
 import { cookies, headers } from 'next/headers';
 import { z } from 'zod';
-import { adminAuth } from '@/lib/firebase/admin';
+import { getAdminAuth } from '@/lib/firebase/admin';
 import { auth } from '@/lib/firebase/client';
 import { applyActionCode } from 'firebase/auth';
 import { db } from '@/lib/db/client';
@@ -110,9 +110,9 @@ export async function logoutAction(): Promise<AuthActionResponse> {
     if (sessionCookie) {
       try {
         // Verify session to get Firebase UID (don't check revocation)
-        const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, false);
+        const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, false);
         // Revoke all refresh tokens for this user
-        await adminAuth.revokeRefreshTokens(decodedClaims.uid);
+        await getAdminAuth().revokeRefreshTokens(decodedClaims.uid);
       } catch (error) {
         // Session may be expired/invalid, still proceed with cookie deletion
         logger.error('Token revocation during logout failed:', error);
@@ -141,7 +141,7 @@ export async function logoutAction(): Promise<AuthActionResponse> {
 export async function verifyTokenAction(idToken: string): Promise<AuthActionResponse> {
   try {
     // Verify Firebase ID token
-    const decodedToken = await adminAuth.verifyIdToken(idToken);
+    const decodedToken = await getAdminAuth().verifyIdToken(idToken);
     const { uid, email, email_verified } = decodedToken;
 
     if (!email) {
@@ -152,7 +152,7 @@ export async function verifyTokenAction(idToken: string): Promise<AuthActionResp
     }
 
     // Get full Firebase user data to access displayName
-    const firebaseUser = await adminAuth.getUser(uid);
+    const firebaseUser = await getAdminAuth().getUser(uid);
 
     // Get request headers for login tracking
     const headersList = await headers();
@@ -246,7 +246,7 @@ export async function verifyTokenAction(idToken: string): Promise<AuthActionResp
     // Set session cookie
     const expiresIn = 60 * 60 * 24 * 5 * 1000; // 5 days in ms (for Firebase)
     const maxAgeSeconds = 60 * 60 * 24 * 5; // 5 days in seconds (for cookie maxAge)
-    const sessionCookie = await adminAuth.createSessionCookie(idToken, { expiresIn });
+    const sessionCookie = await getAdminAuth().createSessionCookie(idToken, { expiresIn });
 
     const cookieStore = await cookies();
     cookieStore.set('session', sessionCookie, {
@@ -307,7 +307,7 @@ export async function getCurrentSessionAction(): Promise<AuthActionResponse> {
     }
 
     // Verify session cookie
-    const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
+    const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, true);
 
     // Get user from database
     const user = await db.user.findUnique({

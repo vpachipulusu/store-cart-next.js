@@ -2,7 +2,7 @@
 
 import { cookies } from 'next/headers';
 import { z } from 'zod';
-import { adminAuth } from '@/lib/firebase/admin';
+import { getAdminAuth } from '@/lib/firebase/admin';
 import { db } from '@/lib/db/client';
 import { profileUpdateSchema, userSettingsSchema } from '@/lib/utils/validation';
 import { cancelSubscription } from '@/lib/stripe/subscriptions';
@@ -31,7 +31,7 @@ async function getAuthenticatedUserId(): Promise<string | null> {
       return null;
     }
 
-    const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
+    const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, true);
     const user = await db.user.findUnique({
       where: { firebaseUid: decodedClaims.uid },
       select: { id: true },
@@ -563,7 +563,7 @@ export async function changePasswordAction(
     }
 
     // Update password in Firebase Auth
-    await adminAuth.updateUser(user.firebaseUid, {
+    await getAdminAuth().updateUser(user.firebaseUid, {
       password: newPassword,
     });
 
@@ -736,7 +736,7 @@ export async function deleteAccountAction(): Promise<UserActionResponse> {
     }
 
     // Delete from Firebase Auth
-    await adminAuth.deleteUser(user.firebaseUid);
+    await getAdminAuth().deleteUser(user.firebaseUid);
 
     // Delete from database (cascade will handle related records)
     await db.user.delete({

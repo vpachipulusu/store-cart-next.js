@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
-import { adminAuth } from '@/lib/firebase/admin';
+import { getAdminAuth } from '@/lib/firebase/admin';
 import { db } from '@/lib/db/client';
 import Link from 'next/link';
 import { LayoutDashboard } from 'lucide-react';
@@ -21,7 +21,7 @@ async function getUser() {
       return null;
     }
 
-    const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
+    const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, true);
 
     // Get user from database for additional data
     const dbUser = await db.user.findUnique({
