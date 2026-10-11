@@ -43,7 +43,8 @@
     "cap:run:android": "npx cap run android",
     "cap:update": "npx cap update",
     "ios:build": "npm run build:mobile && npx cap copy ios && npx cap open ios",
-    "android:build": "npm run build:mobile && npx cap copy android && npx cap open android"
+    "android:build": "npm run build:mobile && npx cap copy android && npx cap open android",
+    "foundation:check": "tsx scripts/foundation-done-check.cli.ts"
   },
   "dependencies": {
     "@capacitor/android": "^6.2.0",
