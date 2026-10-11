@@ -67,6 +67,9 @@ Visit `http://localhost:3000`
 
 - **[Complete Guide](GUIDE.md)** - Full documentation with setup, features, and troubleshooting
 - **[Environment Variables](#environment-variables)** - Required configuration
+- **[Developer documentation](docs/developer/README.md)** - Setup, architecture, workflow, testing, security, known issues
+- **[User guide](docs/user-guide/README.md)** - Using StoreCart
+- **[Architecture decisions](docs/adr/README.md)** - ADR-001 to ADR-010
 
 ## 🔑 Environment Variables
 
