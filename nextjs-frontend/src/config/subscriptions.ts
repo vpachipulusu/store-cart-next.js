@@ -2,6 +2,7 @@ import { unstable_cache } from 'next/cache';
 import Stripe from 'stripe';
 import { db } from '@/lib/db/client';
 import { logger } from '@/lib/logger';
+import { CURRENCIES } from './currencies';
 
 export const SUBSCRIPTION_TIERS = {
   FREE: 'free',
@@ -178,20 +179,7 @@ export async function getSubscriptionPlans(): Promise<SubscriptionPlan[]> {
   });
 }
 
-/**
- * Supported currencies with their symbols.
- */
-export const CURRENCIES = [
-  { code: 'USD', symbol: '$', name: 'US Dollar' },
-  { code: 'EUR', symbol: '€', name: 'Euro' },
-  { code: 'GBP', symbol: '£', name: 'British Pound' },
-  { code: 'JPY', symbol: '¥', name: 'Japanese Yen' },
-  { code: 'AUD', symbol: 'A$', name: 'Australian Dollar' },
-  { code: 'CAD', symbol: 'C$', name: 'Canadian Dollar' },
-  { code: 'CHF', symbol: 'Fr', name: 'Swiss Franc' },
-  { code: 'CNY', symbol: '¥', name: 'Chinese Yuan' },
-  { code: 'INR', symbol: '₹', name: 'Indian Rupee' },
-] as const;
+export { CURRENCIES };
 
 async function fetchCurrencySymbol(): Promise<string> {
   try {
