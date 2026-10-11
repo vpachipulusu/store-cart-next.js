@@ -138,10 +138,7 @@ export async function logoutAction(): Promise<AuthActionResponse> {
 /**
  * Verify token and sync user with database
  */
-export async function verifyTokenAction(
-  idToken: string,
-  metadata?: { selectedPlan?: string }
-): Promise<AuthActionResponse> {
+export async function verifyTokenAction(idToken: string): Promise<AuthActionResponse> {
   try {
     // Verify Firebase ID token
     const decodedToken = await adminAuth.verifyIdToken(idToken);
