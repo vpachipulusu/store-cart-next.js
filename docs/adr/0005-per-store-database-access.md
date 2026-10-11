@@ -40,7 +40,8 @@ updating this ADR or superseding it.
 - SQLAlchemy 2 async with asyncpg.
 - `NullPool` on every engine: a connection lives for one request only. Pooling is done by **Neon's pooled
   endpoints** (PgBouncer in transaction mode), for both platform and store databases.
-- asyncpg's prepared-statement cache is disabled (or statements are uniquely named) on pooled connections,
+- asyncpg's prepared-statement caches are disabled on pooled connections (`prepared_statement_cache_size=0` in
+  the SQLAlchemy URL and `connect_args={"statement_cache_size": 0}`), or statements are uniquely named,
   because transaction-mode PgBouncer cannot track them. KAN-112 verifies this against Neon.
 - **Migrations use Neon's direct (unpooled) endpoint**: the platform migration at deploy and `migrate_stores`.
   DDL and advisory locks must not go through the pooler. Requests always use the pooled endpoint.
