@@ -76,7 +76,7 @@ Adapt the template backend into a production-ready StoreCart API with configurat
 - **[KAN-31] E2.2 Configuration, structured logging and error envelope** `backend`
   - [ ] Settings extend the template's pydantic-settings config and fail fast on missing secrets
   - [ ] All errors return {success:false, error} with no stack traces or internal details
-  - [ ] JSON logs with a request ID replace print(); CORS is restricted to known origins
+  - [ ] JSON logs with a request ID replace print(); CORS allows no browser origins (empty list), per ADR-003
 - **[KAN-32] E2.3 Health endpoints and hardened Dockerfile** `backend, infra`
   - [ ] /health returns 200; /ready checks database and Redis
   - [ ] Dockerfile uses a pinned uv image instead of curl | sh and runs as a non-root user
@@ -98,7 +98,7 @@ Adapt the template backend into a production-ready StoreCart API with configurat
 - **[KAN-115] E2.8 Spike: per-store database routing and latency on Vercel** `backend, db, infra`
   - [ ] A second Neon database is reached through the KAN-30 session provider and one repository query runs from the Vercel-deployed backend
   - [ ] Median and p95 latency recorded for platform-only and platform + store requests, including an idle store database cold start
-  - [ ] Outcome recorded in ADR-001; time-boxed to 3 days; depends on KAN-30 and KAN-112
+  - [ ] Outcome recorded in ADR-005 (docs/adr/0005-per-store-database-access.md); time-boxed to 3 days; depends on KAN-30 and KAN-112
 
 ### E3 Platform data and authentication (phase C) — KAN-6
 

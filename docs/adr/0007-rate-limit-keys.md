@@ -25,8 +25,9 @@ many IPs.
 - Going over a limit returns **429** with standard rate-limit headers, in the normal error envelope.
 - The starting limits match the boilerplate's current auth, API and webhook settings. **What happens when Redis
   is unavailable** is decided and tested in KAN-34.
-- The Next.js proxy may keep a coarse IP limit as a first line of defence; the backend limits are the ones
-  that count.
+- The backend limits are the ones that count. The current in-memory limiter used by the Next.js proxy
+  (`src/lib/middleware/rate-limit.ts`, a per-instance `Map`) gives no real protection on serverless. Any
+  limit kept in the proxy must also use Upstash, or be removed.
 
 ## Alternatives considered
 

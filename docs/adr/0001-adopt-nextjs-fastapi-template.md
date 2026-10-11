@@ -28,6 +28,8 @@ Keep:
 - the `NullPool` engine (see [ADR-005](0005-per-store-database-access.md));
 - `generate_openapi_schema` and `watcher.py` (see [ADR-008](0008-api-client-generation.md));
 - Docker Compose, pre-commit, Makefile and GitHub workflows, adapted (see [ADR-006](0006-docker-role.md)).
+  These live at the upstream template's root and are **not yet in this repo**; KAN-26, KAN-111 and KAN-27 copy
+  them in.
 
 Tooling (D20): uv, ruff, mypy, pytest with pytest-asyncio, pre-commit hooks, Docker Compose for local
 development, and Sentry.
@@ -42,6 +44,7 @@ Remove or change:
 | `Dockerfile` (root user, `curl … \| sh` uv install) | Harden: pinned uv image, non-root user | Supply-chain and container safety |
 | `CORS_ORIGINS=["*"]` with credentials | Restrict (in practice, no browser origins) | The browser never calls the backend |
 | `print()` in the user manager | Structured logging | Goes with fastapi-users anyway |
+| `database.py` rebuilds the URL and drops its query string | Pass TLS settings through asyncpg `connect_args` | Neon's `sslmode` is otherwise lost, and asyncpg ignores it anyway ([ADR-005](0005-per-store-database-access.md)) |
 
 The upstream MIT licence is kept in `fastapi_backend/`.
 
