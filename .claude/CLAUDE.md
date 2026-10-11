@@ -2,6 +2,27 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Repository layout
+
+StoreCart is a monorepo:
+
+- `nextjs-frontend/` — the Next.js app. **Run every npm command below from this folder.**
+- `fastapi_backend/` — FastAPI service (uv), adapted from vintasoftware/nextjs-fastapi-template.
+
+Plan and decisions: `.claude/plans/storecart-plan.md`. Backlog: `.claude/plans/backlog/` (Jira key map in `jira-map.md`).
+
+## Work tracking (Jira) — REQUIRED
+
+All work is tracked in Jira project **Store Cart** (key `KAN`, https://storecart.atlassian.net/browse/KAN). Workflow (exact Jira status names): **To-do → In Progress → In Review → Done**.
+
+1. **Pick up** only a story in **To-do** (JQL: `project = KAN AND issuetype = Story AND status = "To-do" ORDER BY key`). Work epics in order (E1 → E2 → …) unless the user says otherwise. Never take a story that is already In Progress or In Review.
+2. **Before writing any code**, transition the story to **In Progress** and add a comment saying it was picked up and on which branch.
+3. **Branch** `<type>/KAN-<n>-<short-slug>`; **commits** `<type>(KAN-<n>): <description>` (conventional commit types).
+4. The story's **acceptance criteria are the definition of done**. Do not widen scope; propose a new story to the user for extra work.
+5. **Opening a PR**: link the PR in a comment and transition the story to **In Review**.
+6. **Merged and acceptance criteria verified**: transition to **Done**.
+7. **Blocked**: keep the story In Progress and comment with the blocker and what is needed; do not abandon it silently.
+
 ## Commands
 
 ```bash

@@ -1,0 +1,15 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 30
+    },
+    "auditLog": "C:\\MainData\\NewSourceCode\\boiler-plate-latest-nextjs\\logs\\.682b065653b4558ce2074660cd5cac20b0784c40-audit.json",
+    "files": [
+        {
+            "date": 1788883404826,
+            "name": "C:\\MainData\\NewSourceCode\\boiler-plate-latest-nextjs\\logs\\error-2026-09-08.log",
+            "hash": "445b8af3753506140ac7374a87fcebc8d3d2e0c9877eab97820a370e7e73d9dd"
+        }
+    ],
+    "hashType": "sha256"
+}

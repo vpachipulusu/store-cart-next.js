@@ -1,0 +1,1233 @@
+{
+  "project": "StoreCart",
+  "source_plan": ".claude/plans/storecart-plan.md (nextjs-frontend + fastapi_backend from vintasoftware/nextjs-fastapi-template, multi-tenant commerce SaaS)",
+  "epics": [
+    {
+      "id": "E1",
+      "phase": "A",
+      "release": "Foundation",
+      "name": "Monorepo restructure",
+      "labels": [
+        "infra"
+      ],
+      "goal": "Split the repository into nextjs-frontend/ (Next.js) and fastapi_backend/ (FastAPI, from vintasoftware/nextjs-fastapi-template) that build, test and deploy independently.",
+      "stories": [
+        {
+          "summary": "Finalise move of Next.js app into nextjs-frontend/",
+          "labels": [
+            "frontend",
+            "infra"
+          ],
+          "ac": [
+            "The move is committed so Git records renames and history is preserved",
+            "Root .gitignore covers nested paths (.next, node_modules, logs, playwright-report, test-results, coverage, .venv, __pycache__) and the stale root .next is removed",
+            "npm ci, npm run typecheck and npm run build pass inside nextjs-frontend/; .claude/CLAUDE.md paths are updated"
+          ]
+        },
+        {
+          "summary": "Docker Compose for local development (from template)",
+          "labels": [
+            "infra"
+          ],
+          "ac": [
+            "docker-compose.yml adapted from the template starts Postgres, test Postgres, Redis, backend (start.sh with watcher) and frontend, all with healthchecks",
+            "Root README explains both the Compose and the plain uv/npm workflows"
+          ]
+        },
+        {
+          "summary": "Path-filtered CI workflows for frontend and backend",
+          "labels": [
+            "infra"
+          ],
+          "ac": [
+            "frontend.yml runs only when nextjs-frontend/** changes",
+            "backend.yml runs only when fastapi_backend/** changes (adapted from the template's workflows)",
+            "Both workflows pass on the restructure PR"
+          ]
+        },
+        {
+          "summary": "Two Vercel projects and Playwright config fix",
+          "labels": [
+            "frontend",
+            "infra"
+          ],
+          "ac": [
+            "Frontend Vercel project is rooted at nextjs-frontend; backend Vercel project is rooted at fastapi_backend using api/index.py",
+            "Preview deployments use a separate database from production",
+            "playwright.config.ts webServer uses npm run dev instead of the stale pnpm dev"
+          ]
+        },
+        {
+          "summary": "ADR-001: architecture decisions",
+          "labels": [
+            "docs"
+          ],
+          "ac": [
+            "docs/adr/ records decisions D1-D23 from .claude/plans/storecart-plan.md",
+            "Covers template adoption, Vercel backend, Firebase kept, hey-api client and Resend"
+          ]
+        },
+        {
+          "summary": "Pre-commit hooks (from template)",
+          "labels": [
+            "infra"
+          ],
+          "ac": [
+            ".pre-commit-config.yaml adapted from the template runs ruff (lint + format) and mypy for fastapi_backend, and eslint/prettier/tsc for nextjs-frontend",
+            "Hooks keep requirements.txt in sync with uv.lock and check that the OpenAPI client is up to date",
+            "README explains how to install the hooks"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "E2",
+      "phase": "B",
+      "release": "Foundation",
+      "name": "Backend foundation (FastAPI)",
+      "labels": [
+        "backend"
+      ],
+      "goal": "Adapt the template backend into a production-ready StoreCart API with configuration, logging, errors, health checks, rate limiting, a typed API contract and Vercel deployment.",
+      "stories": [
+        {
+          "summary": "Adapt template backend for StoreCart",
+          "labels": [
+            "backend"
+          ],
+          "ac": [
+            "Example Item model/routes/migrations, fastapi-users and fastapi-mail are removed and the project is renamed to StoreCart",
+            "Outdated pins (ruff, fastapi, pytest-asyncio) are upgraded and code is organised into app/core, app/api/v1, services and repositories",
+            "uv run pytest, ruff check and mypy pass in CI"
+          ]
+        },
+        {
+          "summary": "Configuration, structured logging and error envelope",
+          "labels": [
+            "backend"
+          ],
+          "ac": [
+            "Settings extend the template's pydantic-settings config and fail fast on missing secrets",
+            "All errors return {success:false, error} with no stack traces or internal details",
+            "JSON logs with a request ID replace print(); CORS is restricted to known origins"
+          ]
+        },
+        {
+          "summary": "Health endpoints and hardened Dockerfile",
+          "labels": [
+            "backend",
+            "infra"
+          ],
+          "ac": [
+            "/health returns 200; /ready checks database and Redis",
+            "Dockerfile uses a pinned uv image instead of curl | sh and runs as a non-root user"
+          ]
+        },
+        {
+          "summary": "OpenAPI schema and generated TypeScript client",
+          "labels": [
+            "backend",
+            "frontend"
+          ],
+          "ac": [
+            "commands/generate_openapi_schema (and watcher.py in dev) writes nextjs-frontend/openapi.json",
+            "nextjs-frontend generates a typed fetch client with @hey-api/openapi-ts, wrapped server-only and forwarding the Firebase session",
+            "CI and pre-commit fail when the generated client is out of date"
+          ]
+        },
+        {
+          "summary": "Redis-backed rate limiting",
+          "labels": [
+            "backend",
+            "security"
+          ],
+          "ac": [
+            "Auth, API and webhook limits match the boilerplate's existing configuration",
+            "Limits use Upstash Redis so they hold across serverless instances",
+            "Exceeding a limit returns 429 with rate-limit headers"
+          ]
+        },
+        {
+          "summary": "Sentry integration and backend conventions doc",
+          "labels": [
+            "backend",
+            "docs"
+          ],
+          "ac": [
+            "Unhandled errors reach Sentry with request context",
+            "fastapi_backend/CLAUDE.md documents commands, layering (routers > services > repositories) and test conventions"
+          ]
+        },
+        {
+          "summary": "Backend deployment on Vercel",
+          "labels": [
+            "backend",
+            "infra"
+          ],
+          "ac": [
+            "Preview and production deployments of fastapi_backend work via api/index.py, with secrets from Vercel environment variables",
+            "The engine uses NullPool with Neon pooled endpoints; platform migrations run on production deploy only",
+            "Production deploys go through a release workflow and /health is smoke-tested after each deploy"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "E3",
+      "phase": "C",
+      "release": "Foundation",
+      "name": "Platform data and authentication",
+      "labels": [
+        "backend",
+        "frontend"
+      ],
+      "goal": "Port the boilerplate's user, auth and notification features to FastAPI on the final platform data model, with the frontend calling the API.",
+      "stories": [
+        {
+          "summary": "Platform database models and Alembic baseline",
+          "labels": [
+            "backend",
+            "db"
+          ],
+          "ac": [
+            "A new Alembic baseline replaces the template's user and item migrations",
+            "SQLAlchemy models cover the boilerplate's 11 models plus Organization, Membership, Invitation and the Store registry, with billing on Organization",
+            "alembic upgrade head succeeds on an empty database"
+          ]
+        },
+        {
+          "summary": "Firebase session authentication (replaces fastapi-users)",
+          "labels": [
+            "backend",
+            "security"
+          ],
+          "ac": [
+            "POST /v1/auth/session verifies the ID token, syncs the user, records login history and returns a session cookie",
+            "Requests are authenticated with verify_session_cookie(check_revoked=True)",
+            "DELETE /v1/auth/session revokes the session"
+          ]
+        },
+        {
+          "summary": "Profile, settings and account endpoints",
+          "labels": [
+            "backend"
+          ],
+          "ac": [
+            "Profile, avatar, settings, login history, data export and account deletion are available under /v1/me",
+            "Each endpoint has integration tests"
+          ]
+        },
+        {
+          "summary": "Two-factor authentication (TOTP)",
+          "labels": [
+            "backend",
+            "security"
+          ],
+          "ac": [
+            "Users can enrol, verify and disable TOTP",
+            "Secrets are never returned after enrolment"
+          ]
+        },
+        {
+          "summary": "Notifications endpoints",
+          "labels": [
+            "backend"
+          ],
+          "ac": [
+            "List, mark read, mark all read and delete notifications for the current user only"
+          ]
+        },
+        {
+          "summary": "Frontend auth, profile and notifications use the API",
+          "labels": [
+            "frontend"
+          ],
+          "ac": [
+            "auth, user and notification server actions call the API client instead of Prisma",
+            "Existing e2e tests auth.spec, dashboard.spec and session-expiry.spec pass"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "E4",
+      "phase": "D",
+      "release": "Foundation",
+      "name": "Organisation billing (Stripe Billing)",
+      "labels": [
+        "backend",
+        "frontend",
+        "payments"
+      ],
+      "goal": "Merchants pay the platform a subscription per organisation, managed entirely by the backend.",
+      "stories": [
+        {
+          "summary": "Subscription plans config with limits",
+          "labels": [
+            "backend",
+            "payments"
+          ],
+          "ac": [
+            "Free, Pro and Enterprise plans define store, product and staff limits",
+            "Each plan has platform_fee_bps = 0 so a per-order fee can be enabled later"
+          ]
+        },
+        {
+          "summary": "Organisation billing endpoints",
+          "labels": [
+            "backend",
+            "payments"
+          ],
+          "ac": [
+            "Checkout, portal, plan change, cancel, resume, invoices and payment methods are scoped to an organisation",
+            "Only OWNER and ADMIN roles can manage billing"
+          ]
+        },
+        {
+          "summary": "Stripe Billing webhook with idempotency",
+          "labels": [
+            "backend",
+            "payments",
+            "security"
+          ],
+          "ac": [
+            "Signature is verified on the raw body",
+            "Each Stripe event is processed at most once",
+            "Subscription status on the organisation stays in sync"
+          ]
+        },
+        {
+          "summary": "Frontend billing and pricing pages use the API",
+          "labels": [
+            "frontend",
+            "payments"
+          ],
+          "ac": [
+            "Billing and pricing pages call the API",
+            "subscription and billing-management e2e tests pass"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "E5",
+      "phase": "E",
+      "release": "Foundation",
+      "name": "Platform admin",
+      "labels": [
+        "backend",
+        "frontend"
+      ],
+      "goal": "Port the boilerplate's admin area to FastAPI with permission checks and audit logging.",
+      "stories": [
+        {
+          "summary": "Admin permissions dependency and audit logging",
+          "labels": [
+            "backend",
+            "security"
+          ],
+          "ac": [
+            "require_admin(permissions) rejects users without the required permission",
+            "Every admin change writes an audit log entry"
+          ]
+        },
+        {
+          "summary": "Admin users API",
+          "labels": [
+            "backend"
+          ],
+          "ac": [
+            "List, detail, update, delete, grant/revoke admin, ban/unban, stats and send notification"
+          ]
+        },
+        {
+          "summary": "Admin subscriptions API",
+          "labels": [
+            "backend",
+            "payments"
+          ],
+          "ac": [
+            "Subscription list, stats, revenue, refunds, free grants and Stripe sync"
+          ]
+        },
+        {
+          "summary": "Admin settings, SEO and audit API",
+          "labels": [
+            "backend"
+          ],
+          "ac": [
+            "App settings, feature flags, email templates, SEO meta, redirects, audit logs and system stats"
+          ]
+        },
+        {
+          "summary": "Admin and dashboard pages use the API",
+          "labels": [
+            "frontend"
+          ],
+          "ac": [
+            "The 10 pages that query the database directly now call the API",
+            "admin.spec e2e passes"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "E6",
+      "phase": "F",
+      "release": "Foundation",
+      "name": "Frontend decoupling",
+      "labels": [
+        "frontend",
+        "security"
+      ],
+      "goal": "The frontend holds no database, Stripe secret or Firebase Admin credentials.",
+      "stories": [
+        {
+          "summary": "Remove Prisma and server secrets from the frontend",
+          "labels": [
+            "frontend",
+            "security"
+          ],
+          "ac": [
+            "nextjs-frontend/prisma, src/lib/db and server-side Stripe/Firebase Admin code are removed",
+            "@prisma/client, prisma, stripe and firebase-admin are no longer frontend dependencies",
+            "An ESLint rule blocks reintroducing them and the frontend has no DATABASE_URL"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "E7",
+      "phase": "G",
+      "release": "Multi-tenancy",
+      "name": "Multi-tenancy core (one database per store)",
+      "labels": [
+        "backend",
+        "security",
+        "db"
+      ],
+      "goal": "Each store gets its own Postgres database, created automatically, kept on the same schema version, and reachable only by members of its organisation.",
+      "stories": [
+        {
+          "summary": "Merchant authorisation dependency",
+          "labels": [
+            "backend",
+            "security"
+          ],
+          "ac": [
+            "require_merchant(store_id, roles) returns user, organisation, store and role",
+            "A store from another organisation returns 404",
+            "Unit tests cover every role, missing membership and suspended stores"
+          ]
+        },
+        {
+          "summary": "Encrypted store connection strings",
+          "labels": [
+            "backend",
+            "security"
+          ],
+          "ac": [
+            "Connection strings are stored with AES-256-GCM using a key validated at startup",
+            "Tampered data or a wrong key fails safely",
+            "Plaintext connection strings never appear in logs"
+          ]
+        },
+        {
+          "summary": "Store database session factory",
+          "labels": [
+            "backend",
+            "db"
+          ],
+          "ac": [
+            "get_store_session(store_id) returns an async session for that store only",
+            "Uses NullPool with Neon pooled endpoints (serverless-safe), with no long-lived pools",
+            "A ruff banned-import rule stops store engines being created anywhere else"
+          ]
+        },
+        {
+          "summary": "Database provisioner (local Postgres and Neon)",
+          "labels": [
+            "backend",
+            "db",
+            "infra"
+          ],
+          "ac": [
+            "Local provider creates a database on the Docker Postgres",
+            "Neon provider creates the database through the Neon API",
+            "Both implement the same interface and are covered by tests"
+          ]
+        },
+        {
+          "summary": "Store provisioning background job",
+          "labels": [
+            "backend",
+            "infra"
+          ],
+          "ac": [
+            "Creating a store enqueues QStash steps: create database, run migrations, mark ready",
+            "Each step is idempotent, fits within one Vercel function invocation, retries, and sets status failed on error"
+          ]
+        },
+        {
+          "summary": "Migration runner for all store databases",
+          "labels": [
+            "backend",
+            "db"
+          ],
+          "ac": [
+            "commands/migrate_stores applies pending store migrations to every ready store in batches",
+            "Stops on the first failure and records each store's schema version",
+            "Runs from GitHub Actions on deploy, never inside a request; migrations stay compatible with the previous code version"
+          ]
+        },
+        {
+          "summary": "Tenant isolation test suite",
+          "labels": [
+            "backend",
+            "security"
+          ],
+          "ac": [
+            "Two organisations with several stores each, on real separate databases",
+            "Tests prove no user can read or write another organisation's store data"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "E8",
+      "phase": "G",
+      "release": "Multi-tenancy",
+      "name": "Merchant onboarding and team",
+      "labels": [
+        "frontend",
+        "backend"
+      ],
+      "goal": "Merchants can sign up, create organisations and stores, invite staff and switch between stores.",
+      "stories": [
+        {
+          "summary": "Organisation and store APIs",
+          "labels": [
+            "backend"
+          ],
+          "ac": [
+            "Create, list and update organisations and stores",
+            "Store slugs are validated for format, uniqueness and reserved words (www, admin, api, app)"
+          ]
+        },
+        {
+          "summary": "Merchant onboarding flow",
+          "labels": [
+            "frontend"
+          ],
+          "ac": [
+            "Sign-up leads to creating an organisation and first store",
+            "A status screen shows provisioning progress until the store is ready",
+            "e2e covers sign-up to a ready store"
+          ]
+        },
+        {
+          "summary": "Merchant dashboard shell and store switcher",
+          "labels": [
+            "frontend"
+          ],
+          "ac": [
+            "Dashboard layout scoped to the selected store",
+            "Merchants with several stores can switch between them"
+          ]
+        },
+        {
+          "summary": "Team invitations and roles",
+          "labels": [
+            "backend",
+            "frontend",
+            "security"
+          ],
+          "ac": [
+            "Owners and admins invite by email; links expire after 7 days and work once",
+            "STAFF cannot access team or billing settings"
+          ]
+        },
+        {
+          "summary": "Platform admin: merchants and stores",
+          "labels": [
+            "frontend",
+            "backend"
+          ],
+          "ac": [
+            "Admins see organisations and stores with database status and schema version",
+            "Admins can suspend and unsuspend stores and re-run provisioning or migrations"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "E9",
+      "phase": "G",
+      "release": "Multi-tenancy",
+      "name": "Storefront routing and media",
+      "labels": [
+        "frontend",
+        "backend"
+      ],
+      "goal": "Each store is reachable on its own subdomain and can upload product images.",
+      "stories": [
+        {
+          "summary": "Wildcard subdomain routing",
+          "labels": [
+            "frontend",
+            "infra"
+          ],
+          "ac": [
+            "{slug}.yourplatform.com rewrites to the store's storefront via proxy.ts",
+            "Unknown or suspended stores return 404",
+            "Works locally on *.localhost"
+          ]
+        },
+        {
+          "summary": "Public storefront store lookup API",
+          "labels": [
+            "backend"
+          ],
+          "ac": [
+            "GET /v1/storefront/{slug} returns public store details only",
+            "Responses are cacheable"
+          ]
+        },
+        {
+          "summary": "Image uploads to Cloudflare R2",
+          "labels": [
+            "backend",
+            "security"
+          ],
+          "ac": [
+            "Backend issues presigned uploads under stores/{id}/",
+            "Only allowed image types and sizes are accepted"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "E10",
+      "phase": "1",
+      "release": "Commerce v1",
+      "name": "Stripe Connect payments",
+      "labels": [
+        "backend",
+        "payments"
+      ],
+      "goal": "Shoppers pay merchants directly through Stripe Connect, with merchants as the seller of record.",
+      "stories": [
+        {
+          "summary": "Stripe Connect onboarding per organisation",
+          "labels": [
+            "backend",
+            "frontend",
+            "payments"
+          ],
+          "ac": [
+            "Merchants complete Stripe-hosted onboarding",
+            "account.updated keeps charges and payouts status in sync",
+            "Checkout is blocked until charges are enabled"
+          ]
+        },
+        {
+          "summary": "Checkout session on the merchant's connected account",
+          "labels": [
+            "backend",
+            "payments"
+          ],
+          "ac": [
+            "Direct charges on the merchant's account with no application fee",
+            "Fee code path exists but is controlled by platform_fee_bps (0)",
+            "Order totals are calculated only on the server in minor units"
+          ]
+        },
+        {
+          "summary": "Connect webhook handler",
+          "labels": [
+            "backend",
+            "payments",
+            "security"
+          ],
+          "ac": [
+            "Separate endpoint and signing secret from Stripe Billing",
+            "Events are routed to the right store via metadata and connected account",
+            "Each event is processed at most once"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "E11",
+      "phase": "1",
+      "release": "Commerce v1",
+      "name": "Catalogue and inventory",
+      "labels": [
+        "backend",
+        "frontend"
+      ],
+      "goal": "Merchants can create and manage products, variants, categories and stock.",
+      "stories": [
+        {
+          "summary": "Product, variant and option data model",
+          "labels": [
+            "backend",
+            "db"
+          ],
+          "ac": [
+            "Store schema has products, variants (SKU, price, compare-at price, weight, stock), options and option values",
+            "Draft and active statuses with unique slugs"
+          ]
+        },
+        {
+          "summary": "Nested categories and product images",
+          "labels": [
+            "backend",
+            "frontend"
+          ],
+          "ac": [
+            "Categories can be nested and ordered",
+            "Products have ordered images stored in R2"
+          ]
+        },
+        {
+          "summary": "Inventory with oversell protection",
+          "labels": [
+            "backend"
+          ],
+          "ac": [
+            "Stock is decremented atomically when an order is paid",
+            "Concurrent checkouts cannot oversell; an oversold order is flagged"
+          ]
+        },
+        {
+          "summary": "Merchant product management screens",
+          "labels": [
+            "frontend"
+          ],
+          "ac": [
+            "Product list with search and filters",
+            "Product editor with variants, images and categories"
+          ]
+        },
+        {
+          "summary": "Product CSV import",
+          "labels": [
+            "backend",
+            "frontend"
+          ],
+          "ac": [
+            "Merchants can import products from CSV with validation errors reported per row"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "E12",
+      "phase": "1",
+      "release": "Commerce v1",
+      "name": "Storefront and cart",
+      "labels": [
+        "frontend",
+        "backend"
+      ],
+      "goal": "Shoppers can browse a store, add items to a cart and start checkout.",
+      "stories": [
+        {
+          "summary": "Storefront theme pages",
+          "labels": [
+            "frontend"
+          ],
+          "ac": [
+            "Home, category, product and search pages for one well-designed theme",
+            "Pages are cached and revalidated per store",
+            "Per-store SEO metadata"
+          ]
+        },
+        {
+          "summary": "Server-side cart",
+          "labels": [
+            "backend",
+            "frontend"
+          ],
+          "ac": [
+            "Cart is keyed by a store-scoped cookie",
+            "Prices and stock are re-checked on the server every time"
+          ]
+        },
+        {
+          "summary": "Checkout handoff from cart",
+          "labels": [
+            "backend",
+            "frontend",
+            "payments"
+          ],
+          "ac": [
+            "Creates a pending order and redirects to Stripe Checkout",
+            "The order is confirmed only by the webhook, never by the return page"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "E13",
+      "phase": "1",
+      "release": "Commerce v1",
+      "name": "Orders, fulfilment and refunds",
+      "labels": [
+        "backend",
+        "frontend"
+      ],
+      "goal": "Merchants can manage orders from payment to delivery, issue refunds, and customers receive emails.",
+      "stories": [
+        {
+          "summary": "Order model with snapshots and status flow",
+          "labels": [
+            "backend",
+            "db"
+          ],
+          "ac": [
+            "Order items snapshot name, price and tax at purchase time",
+            "Status flow pending > paid > fulfilled > cancelled/refunded"
+          ]
+        },
+        {
+          "summary": "Merchant order management",
+          "labels": [
+            "frontend",
+            "backend"
+          ],
+          "ac": [
+            "Order list and detail pages",
+            "Manual fulfilment with tracking number"
+          ]
+        },
+        {
+          "summary": "Full and partial refunds",
+          "labels": [
+            "backend",
+            "payments"
+          ],
+          "ac": [
+            "Merchants can refund fully or partially through the connected account",
+            "Order and payment status update from the refund webhook"
+          ]
+        },
+        {
+          "summary": "Transactional emails",
+          "labels": [
+            "backend"
+          ],
+          "ac": [
+            "Order confirmation, shipped notice and new-order alert via Resend",
+            "Templates are scoped per store with a platform default"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "E14",
+      "phase": "1",
+      "release": "Commerce v1",
+      "name": "Store settings: shipping, tax and plan limits",
+      "labels": [
+        "backend",
+        "frontend"
+      ],
+      "goal": "Basic shipping and tax so a store can sell, and plan limits enforced.",
+      "stories": [
+        {
+          "summary": "Flat-rate and free-over-threshold shipping",
+          "labels": [
+            "backend",
+            "frontend"
+          ],
+          "ac": [
+            "Merchants set a flat rate and optional free-shipping threshold",
+            "Shipping is included in server-side totals"
+          ]
+        },
+        {
+          "summary": "Manual tax rate per store",
+          "labels": [
+            "backend",
+            "frontend"
+          ],
+          "ac": [
+            "Merchants set a tax rate and whether prices include tax",
+            "Tax is included in server-side totals"
+          ]
+        },
+        {
+          "summary": "Enforce subscription plan limits",
+          "labels": [
+            "backend"
+          ],
+          "ac": [
+            "Store, product and staff limits are enforced on create",
+            "Clear upgrade message when a limit is reached"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "E15",
+      "phase": "2",
+      "release": "Commerce v2",
+      "name": "Custom domains",
+      "labels": [
+        "frontend",
+        "backend",
+        "infra"
+      ],
+      "goal": "Merchants can serve their store on their own domain with automatic SSL.",
+      "stories": [
+        {
+          "summary": "Add and verify a custom domain",
+          "labels": [
+            "backend",
+            "frontend",
+            "infra"
+          ],
+          "ac": [
+            "Domain is added through the Vercel Domains API",
+            "Merchant sees the required DNS records and verification status",
+            "SSL is issued automatically once verified"
+          ]
+        },
+        {
+          "summary": "Route custom domains to the right store",
+          "labels": [
+            "frontend"
+          ],
+          "ac": [
+            "Requests on a verified domain render that store",
+            "Unverified domains return 404"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "E16",
+      "phase": "2",
+      "release": "Commerce v2",
+      "name": "Discounts and coupons",
+      "labels": [
+        "backend",
+        "frontend"
+      ],
+      "goal": "Merchants can run promotions.",
+      "stories": [
+        {
+          "summary": "Coupons",
+          "labels": [
+            "backend",
+            "frontend"
+          ],
+          "ac": [
+            "Percentage, fixed amount and free shipping coupons",
+            "Minimum order, usage limits and expiry"
+          ]
+        },
+        {
+          "summary": "Automatic discounts",
+          "labels": [
+            "backend",
+            "frontend"
+          ],
+          "ac": [
+            "Discounts apply without a code based on cart rules",
+            "Quantity-based discounts (VevoCart reference)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "E17",
+      "phase": "2",
+      "release": "Commerce v2",
+      "name": "Shipping zones and Stripe Tax",
+      "labels": [
+        "backend",
+        "frontend",
+        "payments"
+      ],
+      "goal": "Accurate shipping and tax for stores selling to several regions.",
+      "stories": [
+        {
+          "summary": "Shipping zones and rates",
+          "labels": [
+            "backend",
+            "frontend"
+          ],
+          "ac": [
+            "Zones by country and state",
+            "Rates by weight or order total"
+          ]
+        },
+        {
+          "summary": "Stripe Tax on connected accounts",
+          "labels": [
+            "backend",
+            "payments"
+          ],
+          "ac": [
+            "Tax is calculated by Stripe Tax at checkout",
+            "Manual tax rate remains as a fallback"
+          ]
+        },
+        {
+          "summary": "Live carrier rates (optional)",
+          "labels": [
+            "backend"
+          ],
+          "ac": [
+            "Rates from an aggregator such as Shippo or EasyPost"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "E18",
+      "phase": "2",
+      "release": "Commerce v2",
+      "name": "Shopper accounts",
+      "labels": [
+        "backend",
+        "frontend",
+        "security"
+      ],
+      "goal": "Shoppers can sign in to a store to see orders and save addresses.",
+      "stories": [
+        {
+          "summary": "Store-scoped shopper login by email code",
+          "labels": [
+            "backend",
+            "frontend",
+            "security"
+          ],
+          "ac": [
+            "Shopper accounts belong to one store and are separate from merchant Firebase logins",
+            "Codes expire and are rate limited"
+          ]
+        },
+        {
+          "summary": "Order history and saved addresses",
+          "labels": [
+            "frontend",
+            "backend"
+          ],
+          "ac": [
+            "Signed-in shoppers see their past orders",
+            "Shoppers can save and reuse addresses"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "E19",
+      "phase": "2",
+      "release": "Commerce v2",
+      "name": "Returns, abandoned carts and analytics",
+      "labels": [
+        "backend",
+        "frontend"
+      ],
+      "goal": "Operational tools merchants need once they have regular sales.",
+      "stories": [
+        {
+          "summary": "Returns (RMA)",
+          "labels": [
+            "backend",
+            "frontend"
+          ],
+          "ac": [
+            "Shoppers request a return; merchants approve, receive and refund"
+          ]
+        },
+        {
+          "summary": "Abandoned cart emails",
+          "labels": [
+            "backend"
+          ],
+          "ac": [
+            "Email sent after a configurable delay to shoppers who left an email"
+          ]
+        },
+        {
+          "summary": "Merchant analytics dashboard",
+          "labels": [
+            "frontend",
+            "backend"
+          ],
+          "ac": [
+            "Sales, orders and top products over time"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "E20",
+      "phase": "3",
+      "release": "Commerce v3",
+      "name": "VevoCart parity features",
+      "labels": [
+        "backend",
+        "frontend"
+      ],
+      "goal": "Features from VevoCart, built in order of merchant demand.",
+      "stories": [
+        {
+          "summary": "Gift cards",
+          "labels": [
+            "backend",
+            "frontend"
+          ],
+          "ac": [
+            "Issue, sell and redeem gift cards with balances"
+          ]
+        },
+        {
+          "summary": "Loyalty points",
+          "labels": [
+            "backend",
+            "frontend"
+          ],
+          "ac": [
+            "Earn and redeem points on orders"
+          ]
+        },
+        {
+          "summary": "Bundle promotions",
+          "labels": [
+            "backend",
+            "frontend"
+          ],
+          "ac": [
+            "Discounted bundles of selected products"
+          ]
+        },
+        {
+          "summary": "Product kits (build to order)",
+          "labels": [
+            "backend",
+            "frontend"
+          ],
+          "ac": [
+            "Kits made of selectable component products"
+          ]
+        },
+        {
+          "summary": "Wholesale price lists",
+          "labels": [
+            "backend",
+            "frontend"
+          ],
+          "ac": [
+            "Customer-group pricing"
+          ]
+        },
+        {
+          "summary": "Multi-currency display",
+          "labels": [
+            "backend",
+            "frontend"
+          ],
+          "ac": [
+            "Prices shown in the shopper's currency"
+          ]
+        },
+        {
+          "summary": "Product reviews",
+          "labels": [
+            "backend",
+            "frontend"
+          ],
+          "ac": [
+            "Shoppers review purchased products; merchants moderate"
+          ]
+        },
+        {
+          "summary": "Blog and content pages",
+          "labels": [
+            "backend",
+            "frontend"
+          ],
+          "ac": [
+            "Merchants publish pages and blog posts"
+          ]
+        },
+        {
+          "summary": "Faceted search",
+          "labels": [
+            "backend",
+            "frontend"
+          ],
+          "ac": [
+            "Filter by attributes, price and category; Postgres full-text first"
+          ]
+        },
+        {
+          "summary": "Google Merchant Center and Meta catalogue feeds",
+          "labels": [
+            "backend"
+          ],
+          "ac": [
+            "Product feeds generated per store"
+          ]
+        },
+        {
+          "summary": "Multi-language storefront",
+          "labels": [
+            "frontend",
+            "backend"
+          ],
+          "ac": [
+            "Store content in several languages"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "E21",
+      "phase": "Later",
+      "release": "Future",
+      "name": "Marketplace mode and merchant mobile app",
+      "labels": [
+        "backend",
+        "frontend"
+      ],
+      "goal": "Longer-term options, not yet scheduled.",
+      "stories": [
+        {
+          "summary": "Marketplace mode with vendors and split payouts",
+          "labels": [
+            "backend",
+            "payments"
+          ],
+          "ac": [
+            "Several vendors per store with payouts through Stripe Connect (VevoCart 6.2 reference)"
+          ]
+        },
+        {
+          "summary": "Merchant mobile app",
+          "labels": [
+            "frontend"
+          ],
+          "ac": [
+            "Order and product management app built on the existing Capacitor setup"
+          ]
+        },
+        {
+          "summary": "Public API and webhooks for merchants",
+          "labels": [
+            "backend"
+          ],
+          "ac": [
+            "Merchants can integrate through a documented API and webhooks"
+          ]
+        }
+      ]
+    }
+  ]
+}
