@@ -25,7 +25,7 @@ The repo is still the boilerplate with the target not yet built:
 
 - **The frontend reaches the database itself.** Server actions, route handlers and admin pages use the Prisma client (`src/lib/db/client.ts`, schema in `prisma/schema.prisma`). Firebase Admin, Stripe and Resend are also called from the frontend.
 - **The backend is the unmodified template structure.** It has fastapi-users auth, an `Item` example model and routes, and fastapi-mail. The frontend does not call it yet.
-- **`fastapi_backend/vercel.json`** runs `alembic upgrade head` as part of the build.
+- **Root `vercel.json`** deploys one Vercel project with two services (ADR-011, proposed): `nextjs-frontend` is public, `fastapi_backend` is internal and reached through the `BACKEND_API_URL` binding. Migrations no longer run during the build.
 - **`app/database.py`** uses `NullPool`, which suits serverless.
 
 ## Target state (Foundation complete)

@@ -50,7 +50,7 @@ store-cart-next.js/
 | Template piece | Decision |
 |---|---|
 | uv project, `pyproject.toml`, `uv.lock` | Keep; rename project to StoreCart, upgrade old pins (e.g. ruff `<0.2`) |
-| `api/index.py`, `vercel.json`, `vercel.prod.json` | Keep for Vercel; preview deployments must use a separate database |
+| `api/index.py`, `vercel.json`, `vercel.prod.json` | Replaced by the root `vercel.json` with Vercel services (ADR-011, proposed); preview deployments must use a separate database |
 | `NullPool` engine in `database.py` | Keep (correct for serverless); use Neon's pooled endpoints |
 | `generate_openapi_schema.py` + `watcher.py` | Keep; output to `nextjs-frontend/openapi.json` |
 | `docker-compose.yml`, `.pre-commit-config.yaml`, `Makefile`, GitHub workflows (template root, not yet copied) | Copy and adapt |

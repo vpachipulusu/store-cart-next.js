@@ -24,7 +24,7 @@ Adopt the template's backend as `fastapi_backend/` and keep the template's folde
 Keep:
 - the uv project (`pyproject.toml`, `uv.lock`), renamed to StoreCart, with its old pins upgraded (for example
   ruff `<0.2`) before anything is built on it;
-- `api/index.py`, `vercel.json`, `vercel.prod.json` (see [ADR-002](0002-hosting-on-vercel.md));
+- `api/index.py` (see [ADR-002](0002-hosting-on-vercel.md)); the template's `vercel.json` and `vercel.prod.json` are replaced by the root `vercel.json` ([ADR-011](0011-single-vercel-project-with-services.md));
 - the `NullPool` engine (see [ADR-005](0005-per-store-database-access.md));
 - `generate_openapi_schema` and `watcher.py` (see [ADR-008](0008-api-client-generation.md));
 - Docker Compose, pre-commit, Makefile and GitHub workflows, adapted (see [ADR-006](0006-docker-role.md)).

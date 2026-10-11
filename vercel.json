@@ -1,0 +1,29 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "nextjs-frontend": {
+      "root": "nextjs-frontend",
+      "framework": "nextjs",
+      "buildCommand": "npx prisma generate && npm run build",
+      "bindings": [
+        {
+          "type": "service",
+          "service": "fastapi_backend",
+          "format": "url",
+          "env": "BACKEND_API_URL"
+        }
+      ]
+    },
+    "fastapi_backend": {
+      "root": "fastapi_backend",
+      "framework": "fastapi",
+      "entrypoint": "app.main:app"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": { "service": "nextjs-frontend" }
+    }
+  ]
+}
