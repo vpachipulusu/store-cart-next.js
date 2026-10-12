@@ -1,6 +1,6 @@
 # Development workflow
 
-**Last updated:** 2026-10-11
+**Last updated:** 2026-10-12
 
 Work is tracked in the Jira project **Store Cart** (key `KAN`): https://storecart.atlassian.net/browse/KAN
 
@@ -34,10 +34,10 @@ Example: `fix(KAN-122): remove unused auth API routes and the client plan argume
 ## Pull requests
 
 1. Review the full branch before opening the PR: `git diff main...HEAD` and the commit list.
-2. Run the tests for the area you changed ([testing.md](testing.md)).
+2. Run the tests for the area you changed ([testing.md](testing.md)). The pre-commit hooks (KAN-111) run ruff, mypy, ESLint, Prettier and `tsc` on staged files at commit time; install them as in [getting-started](getting-started.md#pre-commit-hooks).
 3. Open the PR against `main`. The summary covers all commits, and the test plan lists what you ran.
 4. Comment the PR link on the Jira story and move the story to **In Review**.
-5. Merge once review is done and CI is green. CI is not in the repo yet (lands with KAN-27).
+5. Merge once review is done and CI is green. CI is not in the repo yet (lands with KAN-27); until then, the author runs the checks in [testing.md](testing.md#before-you-open-a-pr) locally.
 6. Check the story's acceptance criteria against the merged code, then move the story to **Done**.
 
 ## Definition of done

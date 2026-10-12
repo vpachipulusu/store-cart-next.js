@@ -16,6 +16,6 @@ If you are setting up a machine for the first time, start with [getting-started.
 
 ## Related sources
 
-- Architecture decisions: [docs/adr/README.md](../adr/README.md) (ADR-001 to ADR-010). The ADRs are the reference; these pages link to them rather than repeat them.
+- Architecture decisions: [docs/adr/README.md](../adr/README.md) (ADR-001 to ADR-011). The ADRs are the reference; these pages link to them rather than repeat them.
 - Plan of record: [.claude/plans/storecart-plan.md](../../.claude/plans/storecart-plan.md)
 - Agent and workflow rules: [.claude/CLAUDE.md](../../.claude/CLAUDE.md)
