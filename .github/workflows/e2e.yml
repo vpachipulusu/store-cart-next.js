@@ -1,6 +1,6 @@
 # Chromium end-to-end tests for nextjs-frontend/ (KAN-27).
 #
-# Opt-in until KAN-113 (e2e baseline) is merged. ci.yml calls this workflow only
+# Opt-in (KAN-113 e2e baseline: `npm run test:e2e:baseline`). ci.yml calls this workflow only
 # when the frontend changed AND the repository variable E2E_ENABLED is "true",
 # and it is NOT part of the "CI gate" job yet.
 #
@@ -128,18 +128,25 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
-      # After KAN-113 this creates random e2e accounts in the Firebase test project.
+      # Builds into .next-e2e with the test Firebase project and Sentry off (scripts/e2e-build.mjs). NEXT_PUBLIC_*
+      # values are baked in at build time, so this needs the public values from the job env and no private key.
+      - name: Build e2e app
+        run: npm run test:e2e:build
+
+      # Creates random e2e accounts in the Firebase test project and writes them to .env.e2e.local.
       - name: Create test accounts
         env:
           FIREBASE_ADMIN_PRIVATE_KEY: ${{ secrets.E2E_FIREBASE_ADMIN_PRIVATE_KEY }}
           STRIPE_SECRET_KEY: ${{ secrets.E2E_STRIPE_SECRET_KEY }}
         run: npm run test:setup
 
-      - name: Run Chromium e2e
+      # The KAN-113 baseline: gated specs, Chromium, serves the build above (scripts/e2e-start.mjs, never rebuilds),
+      # logs in once per role in auth.setup.ts. 1 worker in CI.
+      - name: Run Chromium e2e baseline
         env:
           FIREBASE_ADMIN_PRIVATE_KEY: ${{ secrets.E2E_FIREBASE_ADMIN_PRIVATE_KEY }}
           STRIPE_SECRET_KEY: ${{ secrets.E2E_STRIPE_SECRET_KEY }}
-        run: npx playwright test --project=chromium
+        run: npm run test:e2e:baseline
 
       - name: Upload Playwright report
         if: failure()
