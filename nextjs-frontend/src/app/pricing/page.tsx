@@ -7,6 +7,11 @@ import { getAdminAuth } from '@/lib/firebase/admin';
 import { db } from '@/lib/db/client';
 import { getSubscriptionPlans, getCurrencySymbol } from '@/config/subscriptions';
 
+/**
+ * Pricing adapts to the visitor's session and plan (cookie + Prisma), so it renders per request.
+ */
+export const dynamic = 'force-dynamic';
+
 const TIER_UI_CONFIG: Record<string, {
   limitations: string[];
   cta: string;

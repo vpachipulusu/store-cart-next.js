@@ -7,6 +7,11 @@ import { LayoutDashboard } from 'lucide-react';
 import { SessionProvider } from '@/components/providers/session-provider';
 import { DashboardHeader } from '@/components/dashboard/dashboard-header';
 
+/**
+ * Every /dashboard route is per-user (session cookie) and reads Prisma, so none can be prerendered.
+ */
+export const dynamic = 'force-dynamic';
+
 export const metadata = {
   title: 'Dashboard',
   description: 'Manage your account and settings',
