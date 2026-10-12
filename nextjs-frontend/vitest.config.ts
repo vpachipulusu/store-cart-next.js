@@ -8,12 +8,7 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
     globals: true,
-    exclude: [
-      '**/node_modules/**',
-      '**/dist/**',
-      '**/e2e/**',
-      '**/*.spec.ts',
-    ],
+    exclude: ['**/node_modules/**', '**/dist/**', '**/e2e/**', '**/*.spec.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
@@ -28,11 +23,18 @@ export default defineConfig({
         'src/**/*.spec.{ts,tsx}',
         'src/**/__tests__/e2e/**',
       ],
+      // Coverage ratchet (KAN-27, PO decision on KAN-139): the thresholds are the
+      // measured baseline, so CI fails if coverage drops. Raise them towards the
+      // 80% target as tests are added, and never lower them. To raise them to the
+      // current values in one step, run:
+      //   COVERAGE_RATCHET=1 npm run test:coverage
+      // (Vitest rewrites the numbers below when coverage is higher.)
       thresholds: {
-        branches: 80,
-        functions: 80,
-        lines: 80,
-        statements: 80,
+        autoUpdate: process.env.COVERAGE_RATCHET === '1',
+        branches: 29.87,
+        functions: 6.33,
+        lines: 5.07,
+        statements: 5.07,
       },
     },
   },

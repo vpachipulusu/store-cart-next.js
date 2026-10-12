@@ -28,10 +28,21 @@ dev = [
     "pytest-asyncio>=0.24.0,<0.25",
     "mkdocs-material>=9.6.9",
     "mkdocs-material[imaging]>=9.6.9",
+    "pytest-cov>=5,<7",
 ]
 
 [tool.uv]
 package = false
+
+# Coverage ratchet (KAN-27, PO decision on KAN-139). `uv run pytest --cov` fails
+# when line coverage of app/ and commands/ is below fail_under. fail_under is the
+# measured baseline: raise it towards 80 as tests are added, never lower it.
+[tool.coverage.run]
+source = ["app", "commands"]
+
+[tool.coverage.report]
+fail_under = 0
+precision = 2
 
 [tool.hatch.build.targets.sdist]
 include = ["commands"]

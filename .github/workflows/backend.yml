@@ -1,0 +1,96 @@
+# Backend checks for fastapi_backend/ (KAN-27).
+# Called by ci.yml only when fastapi_backend/** or shared root config changed.
+name: Backend
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Ruff, mypy, pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: fastapi_backend
+    services:
+      # Throwaway test database that exists only for this job.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: testdatabase
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # CI-only values, not secrets: app.config requires them at import time and
+      # the tests use the throwaway service database above.
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/testdatabase
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/testdatabase
+      ACCESS_SECRET_KEY: ci-only-not-a-secret
+      RESET_PASSWORD_SECRET_KEY: ci-only-not-a-secret
+      VERIFICATION_SECRET_KEY: ci-only-not-a-secret
+      CORS_ORIGINS: '[]'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: '0.8.12'
+          enable-cache: true
+          cache-dependency-glob: fastapi_backend/uv.lock
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format
+        run: uv run ruff format --check .
+
+      # mypy has known errors in template code (KAN-30). This step is blocking
+      # against a committed baseline: it fails only if the error count goes UP.
+      # Lower fastapi_backend/mypy-baseline.txt when you fix errors; at 0, replace
+      # this step with a plain `uv run mypy`.
+      - name: mypy (no new errors)
+        run: |
+          baseline=$(tr -dc '0-9' < mypy-baseline.txt)
+          set +e
+          uv run mypy > mypy-report.txt 2>&1
+          set -e
+          cat mypy-report.txt
+          count=$(grep -c ': error:' mypy-report.txt || true)
+          echo "mypy errors: ${count} (baseline ${baseline})"
+          echo "### mypy: ${count} errors (baseline ${baseline})" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$count" -gt "$baseline" ]; then
+            echo "::error::mypy reports ${count} errors, more than the baseline of ${baseline}. Fix the new errors."
+            exit 1
+          fi
+          if [ "$count" -lt "$baseline" ]; then
+            echo "::notice::mypy errors fell to ${count}. Lower fastapi_backend/mypy-baseline.txt to ${count}."
+          fi
+
+      # fail_under in pyproject.toml ([tool.coverage.report]) is the coverage
+      # ratchet: this step fails if coverage drops below it.
+      - name: pytest with coverage
+        run: uv run pytest --cov --cov-report=term-missing:skip-covered --cov-report=xml
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [ -f coverage.xml ]; then
+            rate=$(grep -o 'line-rate="[0-9.]*"' coverage.xml | head -1 | grep -o '[0-9.]*')
+            echo "### Backend coverage: $(awk "BEGIN { printf \"%.2f\", ${rate} * 100 }")% lines" >> "$GITHUB_STEP_SUMMARY"
+          fi

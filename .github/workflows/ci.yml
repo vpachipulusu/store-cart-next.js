@@ -1,0 +1,156 @@
+# StoreCart CI entry point (KAN-27).
+#
+# One workflow decides what changed, calls the per-app workflows only when their
+# paths changed, and ends in a single always-run "CI gate" job. Branch protection
+# requires only "CI gate", so a skipped app workflow never blocks a merge.
+#
+#   changes ──┬─> pre-commit (PRs only)  ─┐
+#             ├─> frontend.yml            ├─> CI gate  (the required check)
+#             ├─> backend.yml            ─┘
+#             └─> e2e.yml (opt-in, NOT part of the gate until KAN-113 lands)
+#
+# Path rules (KAN-27 AC1):
+#   nextjs-frontend/**  -> frontend
+#   fastapi_backend/**  -> backend
+#   shared root config  -> both (.github/**, .pre-commit-config.yaml, root
+#                          package files, vercel.json)
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # dorny/paths-filter lists PR files through the API
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+      backend: ${{ steps.filter.outputs.backend }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          # On pushes to main, paths-filter compares with the previous commit.
+          filters: |
+            shared: &shared
+              - '.github/**'
+              - '.pre-commit-config.yaml'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'vercel.json'
+            frontend:
+              - *shared
+              - 'nextjs-frontend/**'
+            backend:
+              - *shared
+              - 'fastapi_backend/**'
+
+  pre-commit:
+    name: Pre-commit (changed files)
+    needs: changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # --from-ref needs the base branch history
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: '0.8.12'
+          enable-cache: true
+          cache-dependency-glob: fastapi_backend/uv.lock
+
+      # The frontend hooks (eslint, prettier, tsc) run from nextjs-frontend/node_modules.
+      - if: needs.changes.outputs.frontend == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: nextjs-frontend/package-lock.json
+      - if: needs.changes.outputs.frontend == 'true'
+        name: Install frontend dependencies
+        working-directory: nextjs-frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm run db:generate
+
+      # The backend hooks (mypy, requirements sync, OpenAPI check) use `uv run`.
+      - if: needs.changes.outputs.backend == 'true'
+        name: Install backend dependencies
+        working-directory: fastapi_backend
+        run: uv sync --frozen
+
+      - name: Run pre-commit on the files changed by this PR
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: >-
+          uvx --from 'pre-commit==3.8.0' pre-commit run
+          --from-ref "origin/${BASE_REF}" --to-ref HEAD
+          --show-diff-on-failure --color always
+
+  frontend:
+    name: Frontend
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    uses: ./.github/workflows/frontend.yml
+
+  backend:
+    name: Backend
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    uses: ./.github/workflows/backend.yml
+
+  # Opt-in until KAN-113 (e2e baseline) is merged: set the repository variable
+  # E2E_ENABLED=true to run it. It is deliberately NOT in the gate's `needs`.
+  # To make it required after KAN-113, add `e2e` to the gate's `needs` below.
+  e2e:
+    name: E2E
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true' && vars.E2E_ENABLED == 'true'
+    uses: ./.github/workflows/e2e.yml
+
+  gate:
+    # Branch protection: require exactly this check ("CI gate").
+    name: CI gate
+    if: always()
+    needs: [changes, pre-commit, frontend, backend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every needed job succeeded or was skipped by the path filter
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          # The path filter itself must have run, otherwise "skipped" means nothing.
+          if [ "$(echo "$NEEDS" | jq -r '.changes.result')" != "success" ]; then
+            echo "::error::Path detection did not succeed."
+            exit 1
+          fi
+          bad=$(echo "$NEEDS" | jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | .key' | tr '\n' ' ')
+          if [ -n "$bad" ]; then
+            echo "::error::These jobs failed or were cancelled: $bad"
+            exit 1
+          fi
+          echo "CI gate passed."
