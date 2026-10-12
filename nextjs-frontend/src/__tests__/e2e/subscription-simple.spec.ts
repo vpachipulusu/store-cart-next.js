@@ -141,8 +141,9 @@ test.describe('Subscription Upgrade - Happy Path', () => {
     await page.waitForTimeout(2000); // Wait for verification
 
     // URL should be cleaned up
-    expect(page.url()).not.toContain('upgrade=success');
-    expect(page.url()).toMatch(/\/dashboard$/);
+    // The app removes ?upgrade=success once it finds no valid checkout session; retry until it has.
+    await expect(page).not.toHaveURL(/upgrade=success/);
+    await expect(page).toHaveURL(/\/dashboard$/);
 
     // Should NOT show the success processing banner
     const processingBanner = page.getByText(/processing your subscription/i);

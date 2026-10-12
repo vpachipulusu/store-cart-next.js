@@ -6,6 +6,7 @@
  *   (scripts/e2e-env.cjs): the FIREBASE_ADMIN_* service account in .env.e2e.local, never the dev project in .env.local.
  * - The users rows (and the admin's AdminUser row) are created in the dedicated e2e database (DATABASE_URL in
  *   .env.e2e.local, never the dev database). Run `npm run test:e2e:db` first to apply the schema there.
+ * - A fixed database-only Pro subscriber is seeded so the admin subscription pages always have a row to list.
  * - Emails are unguessable and passwords are random. Both are written only to .env.e2e.local (gitignored, read by
  *   playwright.config.ts) and are never printed. Only the TEST_* keys are updated; the rest of the file is kept.
  * - Re-running reuses the stored credentials and resets the Firebase passwords to match them.
@@ -17,6 +18,7 @@ import e2eEnv from './e2e-env.cjs';
 import {
   ensureDbUser,
   ensureFirebaseUser,
+  ensureSeedSubscriber,
   openE2eAccountClients,
   randomPassword,
   randomSuffix,
@@ -64,6 +66,8 @@ async function main() {
       update: { role: 'super_admin', permissions: ['*'] },
       create: { userId: adminDbUser.id, role: 'super_admin', permissions: ['*'] },
     });
+
+    await ensureSeedSubscriber(clients.prisma);
 
     console.log(
       `e2e test user and admin are ready in Firebase project ${env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}; ` +

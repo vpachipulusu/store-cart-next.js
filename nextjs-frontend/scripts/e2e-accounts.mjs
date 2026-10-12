@@ -12,8 +12,11 @@ import { getAuth } from 'firebase-admin/auth';
 import { PrismaClient } from '@prisma/client';
 import e2eEnv from './e2e-env.cjs';
 
-/** user/admin: the shared role accounts. temp: throwaway accounts for state-changing tests, deleted afterwards. */
-export const E2E_EMAIL = /^e2e-(user|admin|temp)-[0-9a-f]{12}@example\.com$/;
+/**
+ * user/admin: the shared role accounts. temp: throwaway accounts for state-changing tests, deleted afterwards. seed:
+ * the fixed database-only subscriber below.
+ */
+export const E2E_EMAIL = /^e2e-(user|admin|temp|seed)-[0-9a-f]{12}@example\.com$/;
 /** Marks the accounts for cleanup (KAN-131). */
 const E2E_CLAIMS = { e2e: true };
 const E2E_ADMIN_APP_NAME = 'e2e-accounts';
@@ -107,6 +110,33 @@ export async function ensureDbUser(prisma, firebaseUser, displayName) {
   });
   await prisma.userSettings.upsert({ where: { userId: user.id }, update: {}, create: { userId: user.id } });
   return user;
+}
+
+const SEED_SUBSCRIBER_EMAIL = 'e2e-seed-000000000001@example.com';
+/** Fixed far-future renewal date, so the seeded row never expires and never changes between runs. */
+const SEED_RENEWAL_DATE = new Date('2099-01-01T00:00:00.000Z');
+
+/**
+ * A fixed paying customer (database row only, no Firebase user, no real Stripe objects) so the admin subscription
+ * pages always have one active Pro subscription to list, whatever earlier runs left behind. Reset on every run.
+ */
+export async function ensureSeedSubscriber(prisma) {
+  assertE2eEmail(SEED_SUBSCRIBER_EMAIL);
+  const data = {
+    email: SEED_SUBSCRIBER_EMAIL,
+    emailVerified: true,
+    displayName: 'E2E Seed Subscriber',
+    subscriptionTier: 'pro',
+    subscriptionStatus: 'active',
+    stripeCustomerId: 'cus_e2e_seed_000000000001',
+    stripeSubscriptionId: 'sub_e2e_seed_000000000001',
+    stripeCurrentPeriodEnd: SEED_RENEWAL_DATE,
+  };
+  return prisma.user.upsert({
+    where: { firebaseUid: 'e2e-seed-000000000001' },
+    update: data,
+    create: { firebaseUid: 'e2e-seed-000000000001', ...data },
+  });
 }
 
 /** A fresh free-tier account for one test. Delete it with deleteThrowawayAccount. */

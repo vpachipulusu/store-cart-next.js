@@ -509,7 +509,7 @@ test.describe('Subscription Upgrade Flow', () => {
       // Check all stat cards are present
       await expect(page.getByText('Total Active')).toBeVisible();
       await expect(page.getByText('Pro Plans')).toBeVisible();
-      await expect(page.getByText('Enterprise Plans')).toBeVisible();
+      await expect(page.getByText('Enterprise Plans', { exact: true })).toBeVisible();
       await expect(page.getByText('MRR')).toBeVisible();
     });
 
@@ -641,8 +641,9 @@ test.describe('Subscription Upgrade Flow', () => {
 
       // Should redirect to clean dashboard URL (no query parameter)
       // because there's no valid checkout session cookie
-      expect(page.url()).not.toContain('upgrade=success');
-      expect(page.url()).toMatch(/\/dashboard$/);
+      // The app removes ?upgrade=success once it finds no valid checkout session; retry until it has.
+      await expect(page).not.toHaveURL(/upgrade=success/);
+      await expect(page).toHaveURL(/\/dashboard$/);
 
       console.log('✅ Security: Fake upgrade URL blocked - redirected to clean dashboard');
     });
@@ -667,7 +668,8 @@ test.describe('Subscription Upgrade Flow', () => {
       await expect(successBanner).not.toBeVisible();
 
       // Should be redirected away from ?upgrade=success
-      expect(page.url()).not.toContain('upgrade=success');
+      // The app removes ?upgrade=success once it finds no valid checkout session; retry until it has.
+      await expect(page).not.toHaveURL(/upgrade=success/);
 
       console.log('✅ Security: No success banner shown for fake URL');
     });
@@ -676,7 +678,8 @@ test.describe('Subscription Upgrade Flow', () => {
       // First verify manual URL doesn't work
       await page.goto('/dashboard?upgrade=success');
       await page.waitForTimeout(1500);
-      expect(page.url()).not.toContain('upgrade=success');
+      // The app removes ?upgrade=success once it finds no valid checkout session; retry until it has.
+      await expect(page).not.toHaveURL(/upgrade=success/);
 
       // Now if user goes through actual checkout flow (not completed in this test),
       // the checkout session cookie would be set and validation would pass

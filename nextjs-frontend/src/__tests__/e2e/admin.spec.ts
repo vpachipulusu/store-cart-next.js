@@ -221,7 +221,11 @@ test.describe('Admin Dashboard', () => {
     test('should display user action dropdown menu', async ({ page }) => {
       // Click the first action button in the table
       const actionButton = page.locator('table tbody tr').first().getByRole('button');
-      const isVisible = await actionButton.isVisible().catch(() => false);
+      // Wait for the table row to render (isVisible() alone does not wait, so the test passed without checking).
+      const isVisible = await actionButton
+        .waitFor({ state: 'visible' })
+        .then(() => true)
+        .catch(() => false);
 
       if (isVisible) {
         await actionButton.click();
@@ -289,7 +293,7 @@ test.describe('Admin Dashboard', () => {
     test('should display 4 subscription metric cards', async ({ page }) => {
       await expect(page.getByText('Total Active')).toBeVisible();
       await expect(page.getByText('Pro Plans')).toBeVisible();
-      await expect(page.getByText('Enterprise Plans')).toBeVisible();
+      await expect(page.getByText('Enterprise Plans', { exact: true })).toBeVisible();
       await expect(page.getByText('MRR')).toBeVisible();
     });
 
