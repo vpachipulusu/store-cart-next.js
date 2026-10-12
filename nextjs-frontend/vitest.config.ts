@@ -1,3 +1,4 @@
+// KAN-27 CI verification: frontend-only no-op change (do not merge).
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import path from 'path';
