@@ -1,5 +1,5 @@
-import { test, expect } from '@playwright/test';
-import { loginViaUI, TEST_USER, waitForPageReady } from './helpers/e2e-utils';
+import { test, expect } from './helpers/fixtures';
+import { STORAGE_STATE, waitForPageReady } from './helpers/e2e-utils';
 
 /**
  * Customer Dashboard E2E Tests
@@ -28,9 +28,11 @@ test.describe('Customer Dashboard', () => {
         !process.env.TEST_USER_EMAIL,
         'Skipped: TEST_USER_EMAIL not configured'
       );
+      test.use({ storageState: STORAGE_STATE.user });
 
       test.beforeEach(async ({ page }) => {
-        await loginViaUI(page, TEST_USER.email, TEST_USER.password);
+        await page.goto('/dashboard');
+        await waitForPageReady(page);
       });
 
       test('should display dashboard heading and welcome message', async ({ page }) => {
@@ -116,9 +118,11 @@ test.describe('Customer Dashboard', () => {
       !process.env.TEST_USER_EMAIL,
       'Skipped: TEST_USER_EMAIL not configured'
     );
+    test.use({ storageState: STORAGE_STATE.user });
 
     test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_USER.email, TEST_USER.password);
+      await page.goto('/dashboard');
+      await waitForPageReady(page);
     });
 
     test('should display top navigation bar', async ({ page }) => {
@@ -166,9 +170,9 @@ test.describe('Customer Dashboard', () => {
         !process.env.TEST_USER_EMAIL,
         'Skipped: TEST_USER_EMAIL not configured'
       );
+      test.use({ storageState: STORAGE_STATE.user });
 
       test.beforeEach(async ({ page }) => {
-        await loginViaUI(page, TEST_USER.email, TEST_USER.password);
         await page.goto('/dashboard/profile');
         await waitForPageReady(page);
       });
@@ -247,9 +251,9 @@ test.describe('Customer Dashboard', () => {
         !process.env.TEST_USER_EMAIL,
         'Skipped: TEST_USER_EMAIL not configured'
       );
+      test.use({ storageState: STORAGE_STATE.user });
 
       test.beforeEach(async ({ page }) => {
-        await loginViaUI(page, TEST_USER.email, TEST_USER.password);
         await page.goto('/dashboard/settings');
         await waitForPageReady(page);
       });
@@ -300,9 +304,9 @@ test.describe('Customer Dashboard', () => {
         !process.env.TEST_USER_EMAIL,
         'Skipped: TEST_USER_EMAIL not configured'
       );
+      test.use({ storageState: STORAGE_STATE.user });
 
       test.beforeEach(async ({ page }) => {
-        await loginViaUI(page, TEST_USER.email, TEST_USER.password);
         await page.goto('/dashboard/security');
         await waitForPageReady(page);
       });
@@ -390,6 +394,8 @@ test.describe('Customer Dashboard', () => {
         // Check for either table or "no login history" message
         const table = page.locator('table');
         const noHistory = page.getByText(/no login history/i);
+        // Login history loads client-side after the page renders; wait for it to finish (either outcome).
+        await expect(table.or(noHistory).first()).toBeVisible();
 
         const tableVisible = await table.isVisible().catch(() => false);
         const noHistoryVisible = await noHistory.isVisible().catch(() => false);

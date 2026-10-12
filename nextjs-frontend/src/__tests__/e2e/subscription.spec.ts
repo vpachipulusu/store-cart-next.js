@@ -1,9 +1,9 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import {
-  loginViaUI,
-  TEST_USER,
-  TEST_ADMIN,
+  STORAGE_STATE,
+  loginAsThrowawayAccount,
   waitForPageReady,
+  waitForServerActionResponse,
   navigateAndWait,
 } from './helpers/e2e-utils';
 
@@ -85,10 +85,9 @@ test.describe('Subscription Upgrade Flow', () => {
       'Skipped: TEST_USER_EMAIL or STRIPE keys not configured'
     );
 
-    test.beforeEach(async ({ page }) => {
-      // Login as test user (should be on free tier)
-      await loginViaUI(page, TEST_USER.email, TEST_USER.password);
-    });
+    // Test user (should be on free tier), session saved by auth.setup.ts. Tests that open Stripe checkout get a
+    // throwaway account instead: checkout stores a Stripe customer on the user and can change the plan.
+    test.use({ storageState: STORAGE_STATE.user });
 
     test('should show upgrade banner on dashboard for free tier users', async ({ page }) => {
       await navigateAndWait(page, '/dashboard');
@@ -146,7 +145,9 @@ test.describe('Subscription Upgrade Flow', () => {
     test('should initiate Stripe checkout when clicking upgrade button', async ({
       page,
       context,
+      throwawayAccount,
     }) => {
+      await loginAsThrowawayAccount(page, throwawayAccount);
       await navigateAndWait(page, '/pricing');
 
       // Find Pro tier upgrade button
@@ -174,7 +175,12 @@ test.describe('Subscription Upgrade Flow', () => {
       }
     });
 
-    test('should complete full upgrade flow with Stripe test card', async ({ page, context }) => {
+    test('should complete full upgrade flow with Stripe test card', async ({
+      page,
+      context,
+      throwawayAccount,
+    }) => {
+      await loginAsThrowawayAccount(page, throwawayAccount);
       await navigateAndWait(page, '/pricing');
 
       // Find and click Pro tier upgrade button
@@ -269,7 +275,8 @@ test.describe('Subscription Upgrade Flow', () => {
       }
     });
 
-    test('should handle Stripe checkout cancellation', async ({ page, context }) => {
+    test('should handle Stripe checkout cancellation', async ({ page, context, throwawayAccount }) => {
+      await loginAsThrowawayAccount(page, throwawayAccount);
       await navigateAndWait(page, '/pricing');
 
       const proCard = page.locator('[class*="card"]').filter({ hasText: /^Pro$/i });
@@ -309,9 +316,7 @@ test.describe('Subscription Upgrade Flow', () => {
   test.describe('Subscription Status Display', () => {
     test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
 
-    test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_USER.email, TEST_USER.password);
-    });
+    test.use({ storageState: STORAGE_STATE.user });
 
     test('should display current subscription tier on dashboard', async ({ page }) => {
       await navigateAndWait(page, '/dashboard');
@@ -360,11 +365,8 @@ test.describe('Subscription Upgrade Flow', () => {
       'Skipped: Stripe not configured for testing'
     );
 
-    test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_USER.email, TEST_USER.password);
-    });
-
-    test('should handle declined card gracefully', async ({ page, context }) => {
+    test('should handle declined card gracefully', async ({ page, context, throwawayAccount }) => {
+      await loginAsThrowawayAccount(page, throwawayAccount);
       await navigateAndWait(page, '/pricing');
 
       const proCard = page.locator('[class*="card"]').filter({ hasText: /^Pro$/i });
@@ -412,7 +414,8 @@ test.describe('Subscription Upgrade Flow', () => {
       }
     });
 
-    test('should handle insufficient funds card', async ({ page, context }) => {
+    test('should handle insufficient funds card', async ({ page, context, throwawayAccount }) => {
+      await loginAsThrowawayAccount(page, throwawayAccount);
       await navigateAndWait(page, '/pricing');
 
       const proCard = page.locator('[class*="card"]').filter({ hasText: /^Pro$/i });
@@ -460,9 +463,7 @@ test.describe('Subscription Upgrade Flow', () => {
   test.describe('Billing Management', () => {
     test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
 
-    test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_USER.email, TEST_USER.password);
-    });
+    test.use({ storageState: STORAGE_STATE.user });
 
     test('should have billing/subscription link in dashboard', async ({ page }) => {
       await navigateAndWait(page, '/dashboard');
@@ -490,9 +491,7 @@ test.describe('Subscription Upgrade Flow', () => {
   test.describe('Admin Subscription Management', () => {
     test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
 
-    test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_ADMIN.email, TEST_ADMIN.password);
-    });
+    test.use({ storageState: STORAGE_STATE.admin });
 
     test('should display subscription management page', async ({ page }) => {
       await navigateAndWait(page, '/admin/subscriptions');
@@ -627,14 +626,15 @@ test.describe('Subscription Upgrade Flow', () => {
   test.describe('Security - URL Manipulation Prevention', () => {
     test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
 
-    test('should prevent manual navigation to upgrade success URL', async ({ page }) => {
-      // Login as test user
-      await loginViaUI(page, TEST_USER.email, TEST_USER.password);
+    // Logged in as the test user (session saved by auth.setup.ts).
+    test.use({ storageState: STORAGE_STATE.user });
 
+    test('should prevent manual navigation to upgrade success URL', async ({ page }) => {
       // Try to manually navigate to upgrade success URL
       // This simulates a user trying to fake the upgrade by manipulating the URL
+      const verification = waitForServerActionResponse(page, '/dashboard');
       await page.goto('/dashboard?upgrade=success');
-      await page.waitForLoadState('networkidle');
+      await verification;
 
       // Wait for verification to complete
       await page.waitForTimeout(2000);
@@ -648,14 +648,13 @@ test.describe('Subscription Upgrade Flow', () => {
     });
 
     test('should NOT show success banner without valid checkout session', async ({ page }) => {
-      await loginViaUI(page, TEST_USER.email, TEST_USER.password);
-
       // Navigate to dashboard first
       await navigateAndWait(page, '/dashboard');
 
       // Then try to add query parameter manually
+      const verification = waitForServerActionResponse(page, '/dashboard');
       await page.goto('/dashboard?upgrade=success');
-      await page.waitForLoadState('networkidle');
+      await verification;
 
       // Wait a moment for component to verify and redirect
       await page.waitForTimeout(2000);
@@ -674,8 +673,6 @@ test.describe('Subscription Upgrade Flow', () => {
     });
 
     test('should only show success banner after legitimate checkout', async ({ page, context }) => {
-      await loginViaUI(page, TEST_USER.email, TEST_USER.password);
-
       // First verify manual URL doesn't work
       await page.goto('/dashboard?upgrade=success');
       await page.waitForTimeout(1500);

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import { waitForPageReady } from './helpers/e2e-utils';
 
 /**

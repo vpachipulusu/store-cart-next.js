@@ -1,8 +1,8 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import {
-  loginViaUI,
-  TEST_USER,
-  TEST_ADMIN,
+  loginAsThrowawayAccount,
+  signInWithSavedSession,
+  waitForServerActionResponse,
   navigateAndWait,
   STRIPE_TEST_CARDS,
   fillStripeCheckout,
@@ -31,9 +31,13 @@ test.describe('Subscription Upgrade - Happy Path', () => {
     'Skipped: TEST_USER_EMAIL or STRIPE not configured'
   );
 
-  test('should successfully upgrade from free to pro tier', async ({ page, context }) => {
-    // Step 1: Login as test user
-    await loginViaUI(page, TEST_USER.email, TEST_USER.password);
+  test('should successfully upgrade from free to pro tier', async ({
+    page,
+    context,
+    throwawayAccount,
+  }) => {
+    // Step 1: Login as a fresh free-tier user (throwaway: this test changes the plan)
+    await loginAsThrowawayAccount(page, throwawayAccount);
 
     // Step 2: Navigate to pricing page
     await navigateAndWait(page, '/pricing');
@@ -86,8 +90,8 @@ test.describe('Subscription Upgrade - Happy Path', () => {
 
   test('should display subscription in admin panel after upgrade', async ({ page, context }) => {
     // First, ensure user is on pro tier (prerequisite test or manual setup)
-    // Login as admin
-    await loginViaUI(page, TEST_ADMIN.email, TEST_ADMIN.password);
+    // Login as admin (session saved by auth.setup.ts)
+    await signInWithSavedSession(context, 'admin');
 
     // Navigate to admin subscriptions page
     await navigateAndWait(page, '/admin/subscriptions');
@@ -130,12 +134,13 @@ test.describe('Subscription Upgrade - Happy Path', () => {
   });
 
   test('should prevent fake upgrade success URL manipulation', async ({ page }) => {
-    // Login as test user
-    await loginViaUI(page, TEST_USER.email, TEST_USER.password);
+    // Login as test user (session saved by auth.setup.ts)
+    await signInWithSavedSession(page.context(), 'user');
 
     // Try to manually navigate to upgrade success URL (without actual payment)
+    const verification = waitForServerActionResponse(page, '/dashboard');
     await page.goto('/dashboard?upgrade=success');
-    await page.waitForLoadState('networkidle');
+    await verification;
 
     // Should redirect to clean dashboard URL (removing the query parameter)
     // because there's no valid checkout session

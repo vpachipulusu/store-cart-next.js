@@ -1,5 +1,5 @@
-import { test, expect } from '@playwright/test';
-import { loginViaUI, TEST_ADMIN, waitForPageReady } from './helpers/e2e-utils';
+import { test, expect } from './helpers/fixtures';
+import { STORAGE_STATE, signInWithSavedSession, waitForPageReady } from './helpers/e2e-utils';
 
 /**
  * Admin Dashboard E2E Tests
@@ -31,11 +31,8 @@ test.describe('Admin Dashboard', () => {
         return;
       }
 
-      await loginViaUI(
-        page,
-        process.env.TEST_USER_EMAIL,
-        process.env.TEST_USER_PASSWORD || 'TestPass123!'
-      );
+      // Logged in as the regular test user (session saved by auth.setup.ts).
+      await signInWithSavedSession(page.context(), 'user');
 
       await page.goto('/admin');
       // Non-admin users should be redirected away from admin
@@ -48,9 +45,9 @@ test.describe('Admin Dashboard', () => {
       !process.env.TEST_ADMIN_EMAIL,
       'Skipped: TEST_ADMIN_EMAIL not configured'
     );
+    test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_ADMIN.email, TEST_ADMIN.password);
       await page.goto('/admin');
       await waitForPageReady(page);
     });
@@ -108,9 +105,9 @@ test.describe('Admin Dashboard', () => {
       !process.env.TEST_ADMIN_EMAIL,
       'Skipped: TEST_ADMIN_EMAIL not configured'
     );
+    test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_ADMIN.email, TEST_ADMIN.password);
       await page.goto('/admin');
       await waitForPageReady(page);
     });
@@ -179,9 +176,9 @@ test.describe('Admin Dashboard', () => {
       !process.env.TEST_ADMIN_EMAIL,
       'Skipped: TEST_ADMIN_EMAIL not configured'
     );
+    test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_ADMIN.email, TEST_ADMIN.password);
       await page.goto('/admin/users');
       await waitForPageReady(page);
     });
@@ -252,10 +249,7 @@ test.describe('Admin Dashboard', () => {
       !process.env.TEST_ADMIN_EMAIL,
       'Skipped: TEST_ADMIN_EMAIL not configured'
     );
-
-    test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_ADMIN.email, TEST_ADMIN.password);
-    });
+    test.use({ storageState: STORAGE_STATE.admin });
 
     test('should display 404 for non-existent user', async ({ page }) => {
       await page.goto('/admin/users/nonexistent-id');
@@ -274,9 +268,9 @@ test.describe('Admin Dashboard', () => {
       !process.env.TEST_ADMIN_EMAIL,
       'Skipped: TEST_ADMIN_EMAIL not configured'
     );
+    test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_ADMIN.email, TEST_ADMIN.password);
       await page.goto('/admin/subscriptions');
       await waitForPageReady(page);
     });
@@ -330,9 +324,9 @@ test.describe('Admin Dashboard', () => {
       !process.env.TEST_ADMIN_EMAIL,
       'Skipped: TEST_ADMIN_EMAIL not configured'
     );
+    test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_ADMIN.email, TEST_ADMIN.password);
       await page.goto('/admin/analytics');
       await waitForPageReady(page);
     });
@@ -393,9 +387,9 @@ test.describe('Admin Dashboard', () => {
       !process.env.TEST_ADMIN_EMAIL,
       'Skipped: TEST_ADMIN_EMAIL not configured'
     );
+    test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_ADMIN.email, TEST_ADMIN.password);
       await page.goto('/admin/seo');
       await waitForPageReady(page);
     });
@@ -476,9 +470,9 @@ test.describe('Admin Dashboard', () => {
       !process.env.TEST_ADMIN_EMAIL,
       'Skipped: TEST_ADMIN_EMAIL not configured'
     );
+    test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_ADMIN.email, TEST_ADMIN.password);
       await page.goto('/admin/settings');
       await waitForPageReady(page);
     });
@@ -546,9 +540,9 @@ test.describe('Admin Dashboard', () => {
       !process.env.TEST_ADMIN_EMAIL,
       'Skipped: TEST_ADMIN_EMAIL not configured'
     );
+    test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_ADMIN.email, TEST_ADMIN.password);
       await page.goto('/admin/audit-logs');
       await waitForPageReady(page);
     });

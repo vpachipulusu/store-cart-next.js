@@ -1,4 +1,6 @@
-import { type Page, type BrowserContext, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { type Page, type BrowserContext, type Response, expect } from '@playwright/test';
 
 /**
  * Test credentials for E2E tests.
@@ -16,20 +18,91 @@ export const TEST_ADMIN = {
   name: 'Admin User',
 };
 
+export type SavedRole = 'user' | 'admin';
+
+/**
+ * Session saved once per role by auth.setup.ts (gitignored). Use with `test.use({ storageState: STORAGE_STATE.user })`
+ * for read-only tests. Tests that log out, revoke or expire sessions, or change plan or billing state must use a
+ * throwaway account instead (see helpers/fixtures.ts), because Firebase revokes per user, not per cookie.
+ */
+export const STORAGE_STATE: Record<SavedRole, string> = {
+  user: path.resolve('playwright/.auth/user.json'),
+  admin: path.resolve('playwright/.auth/admin.json'),
+};
+
+/**
+ * Add a saved role's session cookies to this context. For a single test inside a describe whose other tests run
+ * logged out, where `test.use({ storageState })` would apply to all of them.
+ */
+export async function signInWithSavedSession(context: BrowserContext, role: SavedRole): Promise<void> {
+  const state = JSON.parse(readFileSync(STORAGE_STATE[role], 'utf8')) as {
+    cookies: Parameters<BrowserContext['addCookies']>[0];
+  };
+  await context.addCookies(state.cookies);
+}
+
+const HYDRATION_ATTEMPTS = 3;
+
+/**
+ * Wait until React has hydrated every form on the page, so a click runs the React handler. Before hydration a click
+ * would submit the form natively, as a GET with the field values (including passwords) in the URL. React marks each
+ * hydrated DOM node with a `__reactProps$<id>` property. Retries if the page navigates while waiting.
+ */
+export async function waitForHydration(page: Page): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await page.waitForFunction(() =>
+        Array.from(document.querySelectorAll('form')).every((form) =>
+          Object.keys(form).some((key) => key.startsWith('__reactProps$'))
+        )
+      );
+      return;
+    } catch (error) {
+      const navigated = error instanceof Error && /context was destroyed|navigation/i.test(error.message);
+      if (!navigated || attempt >= HYDRATION_ATTEMPTS) throw error;
+      await page.waitForLoadState('load');
+    }
+  }
+}
+
+const PROVIDER_DISABLED_MESSAGE = /sign-in method is not enabled/i;
+
 /**
  * Log in a user via the login form UI.
- * Use this when testing the actual login flow.
+ * Use this when the login itself is under test, or for a throwaway account. Read-only tests use STORAGE_STATE.
+ * Fails with a clear message when Firebase Email/Password sign-in is disabled (auth/operation-not-allowed).
  */
 export async function loginViaUI(page: Page, email: string, password: string): Promise<void> {
   await page.goto('/login');
-  await page.waitForLoadState('networkidle');
+  await waitForHydration(page);
 
   await page.getByLabel(/email/i).fill(email);
   await page.getByLabel(/^password$/i).fill(password);
   await page.getByRole('button', { name: /sign in/i }).click();
 
   // Wait for navigation to dashboard
-  await page.waitForURL(/\/dashboard/, { timeout: 15_000 });
+  try {
+    await page.waitForURL(/\/dashboard/, { timeout: 15_000 });
+  } catch (error) {
+    if (await page.getByText(PROVIDER_DISABLED_MESSAGE).isVisible()) {
+      throw new Error(
+        'Firebase Email/Password sign-in is disabled in the e2e Firebase project (auth/operation-not-allowed). ' +
+          'Enable it in Firebase Console > Authentication > Sign-in method, then re-run.'
+      );
+    }
+    throw error;
+  }
+}
+
+/**
+ * Log this page in as a throwaway account: drop any saved session first, then log in through the UI.
+ */
+export async function loginAsThrowawayAccount(
+  page: Page,
+  account: { email: string; password: string }
+): Promise<void> {
+  await page.context().clearCookies();
+  await loginViaUI(page, account.email, account.password);
 }
 
 /**
@@ -78,6 +151,19 @@ export async function useDistinctClientIp(page: Page): Promise<void> {
 }
 
 /**
+ * Resolves with the response of the next Next.js server action called from `pathname` (a POST with a `next-action`
+ * header). Start waiting before the navigation or click that triggers the action.
+ */
+export function waitForServerActionResponse(page: Page, pathname: string): Promise<Response> {
+  return page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      'next-action' in response.request().headers() &&
+      new URL(response.url()).pathname === pathname
+  );
+}
+
+/**
  * Assert that the page redirects unauthenticated users to login.
  */
 export async function expectRedirectToLogin(page: Page, path: string): Promise<void> {
@@ -97,11 +183,12 @@ export async function expectToast(page: Page, text: string | RegExp): Promise<vo
 }
 
 /**
- * Wait for page to be fully loaded (no network activity + DOM stable).
+ * Wait for the page to load and hydrate. Assertions after this should still be web-first (`expect(...)`).
  */
 export async function waitForPageReady(page: Page): Promise<void> {
-  await page.waitForLoadState('networkidle');
-  await page.waitForLoadState('domcontentloaded');
+  // Not 'networkidle': Firebase, Stripe and Sentry keep connections open, so it can time out on its own.
+  await page.waitForLoadState('load');
+  await waitForHydration(page);
 }
 
 /**

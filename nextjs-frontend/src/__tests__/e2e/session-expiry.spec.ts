@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import { setSessionCookie, useDistinctClientIp, waitForPageReady } from './helpers/e2e-utils';
 
 /**

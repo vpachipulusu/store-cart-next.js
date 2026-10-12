@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import { TEST_USER, waitForPageReady } from './helpers/e2e-utils';
 
 test.describe('Authentication Flow', () => {
