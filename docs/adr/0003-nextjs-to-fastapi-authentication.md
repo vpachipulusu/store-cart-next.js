@@ -1,6 +1,6 @@
 # ADR-003: Authentication from the Next.js server to FastAPI
 
-- **Status:** Proposed
+- **Status:** Accepted by the product owner, 2026-10-12
 - **Date:** 2026-10-11
 - **Plan decisions:** D14 (frontend → backend), D21 (merchant auth)
 - **Jira:** KAN-29; carried out in KAN-30 and E3 (KAN-36 …)

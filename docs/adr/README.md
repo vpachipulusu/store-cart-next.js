@@ -4,24 +4,23 @@ One record per decision group. The decision IDs (D1–D23) come from the decisio
 [`.claude/plans/storecart-plan.md`](../../.claude/plans/storecart-plan.md); the plan stays the summary, these
 records hold the reasoning.
 
-Jira: [KAN-29](https://storecart.atlassian.net/browse/KAN-29). These records must be accepted before KAN-30
-(template adaptation) starts.
+Jira: [KAN-29](https://storecart.atlassian.net/browse/KAN-29). These records were accepted by the product owner on 2026-10-12, before KAN-30 (template adaptation) starts.
 
 ## Index
 
 | ADR | Title | Plan decisions | Status |
 |---|---|---|---|
-| [001](0001-adopt-nextjs-fastapi-template.md) | Adopt the nextjs-fastapi-template backend | D20, D23 | Proposed |
-| [002](0002-hosting-on-vercel.md) | Hosting: two Vercel projects and serverless services | D10, D13, D18, D19 | Proposed |
-| [003](0003-nextjs-to-fastapi-authentication.md) | Authentication from the Next.js server to FastAPI | D14, D21 | Proposed |
-| [004](0004-backend-layering.md) | Backend layering | D15 (data-access layer) | Proposed |
-| [005](0005-per-store-database-access.md) | Per-store database access | D1, D15 | Proposed (D1 provisional until KAN-115) |
-| [006](0006-docker-role.md) | Docker for local development and CI only | D20 (Docker Compose) | Proposed |
-| [007](0007-rate-limit-keys.md) | Rate limits keyed by user, organisation or store | — (new) | Proposed |
-| [008](0008-api-client-generation.md) | Typed API client generated from OpenAPI | D16, D17 | Proposed |
-| [009](0009-email-with-resend.md) | Email through Resend from the backend | D22 | Proposed |
-| [010](0010-accounts-and-payments-model.md) | Account structure, seller of record and platform revenue | D3, D4, D9 | Proposed |
-| [011](0011-single-vercel-project-with-services.md) | One Vercel project with services (supersedes ADR-002's two projects) | D10, D13, D14 | Proposed |
+| [001](0001-adopt-nextjs-fastapi-template.md) | Adopt the nextjs-fastapi-template backend | D20, D23 | Accepted |
+| [002](0002-hosting-on-vercel.md) | Hosting: two Vercel projects and serverless services | D10, D13, D18, D19 | Accepted; two-project part superseded by ADR-011 |
+| [003](0003-nextjs-to-fastapi-authentication.md) | Authentication from the Next.js server to FastAPI | D14, D21 | Accepted |
+| [004](0004-backend-layering.md) | Backend layering | D15 (data-access layer) | Accepted |
+| [005](0005-per-store-database-access.md) | Per-store database access | D1, D15 | Accepted (D1 provisional until KAN-115) |
+| [006](0006-docker-role.md) | Docker for local development and CI only | D20 (Docker Compose) | Accepted |
+| [007](0007-rate-limit-keys.md) | Rate limits keyed by user, organisation or store | — (new) | Accepted |
+| [008](0008-api-client-generation.md) | Typed API client generated from OpenAPI | D16, D17 | Accepted |
+| [009](0009-email-with-resend.md) | Email through Resend from the backend | D22 | Accepted |
+| [010](0010-accounts-and-payments-model.md) | Account structure, seller of record and platform revenue | D3, D4, D9 | Accepted |
+| [011](0011-single-vercel-project-with-services.md) | One Vercel project with services (supersedes ADR-002's two projects) | D10, D13, D14 | Accepted |
 
 ### Coverage of the plan's decision table
 

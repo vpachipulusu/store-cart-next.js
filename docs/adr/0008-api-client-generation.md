@@ -1,6 +1,6 @@
 # ADR-008: Typed API client generated from OpenAPI
 
-- **Status:** Proposed
+- **Status:** Accepted by the product owner, 2026-10-12
 - **Date:** 2026-10-11
 - **Plan decisions:** D16 (API contract), D17 (response envelope)
 - **Jira:** KAN-29; carried out in KAN-33

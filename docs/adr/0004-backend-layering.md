@@ -1,6 +1,6 @@
 # ADR-004: Backend layering
 
-- **Status:** Proposed
+- **Status:** Accepted by the product owner, 2026-10-12
 - **Date:** 2026-10-11
 - **Plan decisions:** D15 (data access, layer placement)
 - **Jira:** KAN-29; carried out in KAN-30
