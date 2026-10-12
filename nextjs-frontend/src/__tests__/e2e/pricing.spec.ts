@@ -42,11 +42,15 @@ test.describe('Pricing Page', () => {
 
       // Pro and Enterprise should show a dollar amount (fetched from Stripe)
       await expect(page.getByRole('heading', { name: /^pro$/i })).toBeVisible();
-      const proCard = page.locator('[class*="card"]').filter({ hasText: /^Pro$/ });
+      const proCard = page
+        .locator('[class*="card"]')
+        .filter({ has: page.getByRole('heading', { name: 'Pro', exact: true }) });
       await expect(proCard.getByText(/\$\d+/).first()).toBeVisible();
 
       await expect(page.getByRole('heading', { name: /^enterprise$/i })).toBeVisible();
-      const enterpriseCard = page.locator('[class*="card"]').filter({ hasText: /^Enterprise$/ });
+      const enterpriseCard = page
+        .locator('[class*="card"]')
+        .filter({ has: page.getByRole('heading', { name: 'Enterprise', exact: true }) });
       await expect(enterpriseCard.getByText(/\$\d+/).first()).toBeVisible();
     });
 
@@ -163,13 +167,13 @@ test.describe('Pricing Page', () => {
 
     test('should default to Monthly billing', async ({ page }) => {
       const monthlyButton = page.getByRole('button', { name: 'Monthly' });
-      await expect(monthlyButton).toHaveClass(/bg-primary/);
+      await expect(monthlyButton).toHaveClass(/\bbg-theme-accent\b/);
     });
 
     test('should switch to Yearly billing when clicked', async ({ page }) => {
       const yearlyButton = page.getByRole('button', { name: /yearly/i });
       await yearlyButton.click();
-      await expect(yearlyButton).toHaveClass(/bg-primary/);
+      await expect(yearlyButton).toHaveClass(/\bbg-theme-accent\b/);
     });
 
     test('should not display savings badge when there is 0% savings', async ({ page }) => {
@@ -193,7 +197,7 @@ test.describe('Pricing Page', () => {
 
       const monthlyButton = page.getByRole('button', { name: 'Monthly' });
       await monthlyButton.click();
-      await expect(monthlyButton).toHaveClass(/bg-primary/);
+      await expect(monthlyButton).toHaveClass(/\bbg-theme-accent\b/);
     });
   });
 

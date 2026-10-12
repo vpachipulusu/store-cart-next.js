@@ -48,7 +48,9 @@ test.describe('Currency Display on Pricing Page', () => {
   });
 
   test('should display free tier with currency symbol and zero', async ({ page }) => {
-    const freeCard = page.locator('[class*="card"]').filter({ hasText: /^Free$/ });
+    const freeCard = page
+      .locator('[class*="card"]')
+      .filter({ has: page.getByRole('heading', { name: 'Free', exact: true }) });
     await expect(freeCard).toBeVisible();
 
     // Free tier should show the currency symbol followed by 0
@@ -58,7 +60,9 @@ test.describe('Currency Display on Pricing Page', () => {
   });
 
   test('should not show /month for the free tier', async ({ page }) => {
-    const freeCard = page.locator('[class*="card"]').filter({ hasText: /^Free$/ });
+    const freeCard = page
+      .locator('[class*="card"]')
+      .filter({ has: page.getByRole('heading', { name: 'Free', exact: true }) });
     await expect(freeCard).toBeVisible();
 
     // Free tier should not show "/month" since price is 0
@@ -66,7 +70,9 @@ test.describe('Currency Display on Pricing Page', () => {
   });
 
   test('should show /month for paid tiers', async ({ page }) => {
-    const proCard = page.locator('[class*="card"]').filter({ hasText: /^Pro$/ });
+    const proCard = page
+      .locator('[class*="card"]')
+      .filter({ has: page.getByRole('heading', { name: 'Pro', exact: true }) });
     await expect(proCard.getByText('/month').first()).toBeVisible();
   });
 });

@@ -60,7 +60,9 @@ test.describe('Subscription Upgrade Flow', () => {
       await navigateAndWait(page, '/pricing');
 
       // Click on "Start Free Trial" for Pro tier
-      const proCard = page.locator('[class*="card"]').filter({ hasText: /^Pro$/i });
+      const proCard = page
+        .locator('[class*="card"]')
+        .filter({ has: page.getByRole('heading', { name: 'Pro', exact: true }) });
       const ctaButton = proCard.getByRole('link', { name: /start free trial/i });
       await ctaButton.click();
 
@@ -72,7 +74,7 @@ test.describe('Subscription Upgrade Flow', () => {
       await page.goto('/signup?plan=pro');
       await waitForPageReady(page);
 
-      await expect(page.getByRole('heading', { name: /sign up/i })).toBeVisible();
+      await expect(page.getByRole('heading', { name: /create an account/i })).toBeVisible();
       // User would complete signup and then be able to upgrade
     });
   });

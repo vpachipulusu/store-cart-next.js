@@ -52,13 +52,14 @@ test.describe('Authentication Flow', () => {
       await page.getByLabel(/^password$/i).fill(TEST_USER.password);
 
       // Intercept the Firebase auth call to delay it
-      await page.route('**/*identitytoolkit*', async (route) => {
+      await page.route('**/identitytoolkit.googleapis.com/**', async (route) => {
         await new Promise((r) => setTimeout(r, 1000));
         await route.abort();
       });
 
       // Click and immediately check for loading state
-      const submitButton = page.getByRole('button', { name: /sign in/i });
+      // The label changes to "Signing in..." while loading, so match both labels.
+      const submitButton = page.getByRole('button', { name: /sign in|signing in/i });
       await submitButton.click();
 
       // Button should show loading state - check for disabled state and text change
