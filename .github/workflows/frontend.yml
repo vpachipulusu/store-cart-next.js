@@ -40,6 +40,11 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
+      # Runtime dependencies only (KAN-138). Dev-only findings are tracked in
+      # docs/developer/known-issues.md and do not block.
+      - name: Audit runtime dependencies
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Generate Prisma client
         run: npm run db:generate
 

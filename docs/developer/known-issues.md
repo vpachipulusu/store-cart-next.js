@@ -9,7 +9,8 @@ Items are listed by area. Each one is either tracked by a Jira key or marked as 
 - **`npm run db:seed` points at a missing file.** It runs `tsx prisma/seed.ts`, and `nextjs-frontend/prisma/` has only `schema.prisma`. Untracked.
 - **`npm run build` needs `DATABASE_URL`.** KAN-140. It no longer needs `FIREBASE_ADMIN_*` (fixed in KAN-136).
 - **ESLint works.** `npm run lint` runs `eslint .` with the flat config `eslint.config.mjs` (fixed in KAN-111).
-- **`npm audit` reports 71 vulnerabilities, 10 critical.** KAN-138.
+- **`npm audit` still reports 19 findings, all dev-only (7 high, 11 moderate, 1 low; no critical).** KAN-138 fixed every critical and every runtime high, and CI blocks on `npm audit --omit=dev --audit-level=high`. The remaining highs are `braces` (GHSA-vfj7-8cjw-p6xm, no patched release) reached through `tailwindcss` 3 and `eslint-config-next`, at build and lint time only. They go away with the Tailwind 4 migration; the follow-up ticket is named in the KAN-138 PR. The 8 runtime moderates come from `uuid` under `firebase-admin`; the fix is a `firebase-admin` major bump.
+- **`eslint-plugin-react-hooks` is pinned to 7.0.1** (`overrides` in `nextjs-frontend/package.json`). 7.1.x adds rules that report 5 errors in `dashboard/profile`, `dashboard/security`, `dashboard/settings` and `dashboard/settings/billing` pages. Fix those pages, then drop the override.
 - **No CI in the repo yet.** CI lands with KAN-27. Pre-commit hooks exist (`.pre-commit-config.yaml`, KAN-111).
 
 ## Tests
@@ -51,6 +52,6 @@ Open bug tickets from the KAN-113 parity inventory (council triage, 2026-10-11).
 - KAN-131: move the e2e test accounts to a separate Firebase project and delete them before launch.
 - KAN-136: `firebase-admin` initialised at import, so `npm run build` needed `FIREBASE_ADMIN_*` (fixed; it now initialises on first use).
 - KAN-137: the `src/proxy.ts` API gate only checks that some Bearer header or `session` cookie is present (any value passes), so every `/api/*` handler must verify the session itself; also a logout CSRF via `GET /api/auth/clear-session` and a spoofable `x-forwarded-for` IP stored in login history (needs triage; fix in the E3 port).
-- KAN-138: `npm audit` reports 71 vulnerabilities, 10 critical.
+- KAN-138: `npm audit` reported 71 vulnerabilities, 10 critical (fixed for criticals and runtime highs; see Tooling).
 - KAN-139: PO decision on the 80% coverage rule (frontend coverage is about 2%).
 - KAN-140: `npm run build` still needs `DATABASE_URL`.
