@@ -193,6 +193,23 @@ export async function waitForPageReady(page: Page): Promise<void> {
   // load event, so wait until the fallback ("Loading") is gone before tests read the page without retrying.
   await expect(page.getByText('Loading', { exact: true })).toHaveCount(0);
   await waitForHydration(page);
+  await waitForRouterIdle(page);
+}
+
+const ROUTER_QUIET_MS = 500;
+
+/**
+ * Wait until Next.js has no RSC fetch (link prefetch or navigation) in flight and none started for a moment, so a
+ * following click is not lost to a prefetch for the same route that is still running (see helpers/fixtures.ts).
+ */
+export async function waitForRouterIdle(page: Page): Promise<void> {
+  await page.waitForFunction(
+    (quietMs) => {
+      const state = (window as unknown as { __rscFetches?: { inflight: number; lastActivity: number } }).__rscFetches;
+      return !state || (state.inflight === 0 && performance.now() - state.lastActivity > quietMs);
+    },
+    ROUTER_QUIET_MS
+  );
 }
 
 /**
@@ -246,38 +263,38 @@ export const TEST_BILLING_DETAILS = {
 
 /**
  * Fill Stripe checkout form with test card details.
- * Handles the iframe structure of Stripe's checkout page.
+ * Stripe's hosted checkout shows the email as text when the app passes an existing customer, and renders the card
+ * fields as textboxes named "Card number", "Expiration" and "Credit or debit card CVC/CVV".
  */
 export async function fillStripeCheckout(
   checkoutPage: Page,
   cardNumber: string = STRIPE_TEST_CARDS.success,
   billingDetails = TEST_BILLING_DETAILS
 ): Promise<void> {
-  // Wait for email field
-  const emailField = checkoutPage.locator('input[type="email"]').first();
-  await emailField.waitFor({ state: 'visible', timeout: 10000 });
+  // Wait for the card form to load
+  const cardNumberField = checkoutPage.getByRole('textbox', { name: 'Card number' });
+  await cardNumberField.waitFor({ state: 'visible', timeout: 10000 });
 
-  // Fill email if not pre-filled
-  const emailValue = await emailField.inputValue();
-  if (!emailValue) {
+  // Fill email only when the page asks for it (it is text when the customer already has an email)
+  const emailField = checkoutPage.locator('input[type="email"]').first();
+  if ((await emailField.count()) > 0 && !(await emailField.inputValue())) {
     await emailField.fill(billingDetails.email);
   }
 
-  // Fill card details in iframe
-  const cardFrame = checkoutPage.frameLocator('iframe[name*="card"]').first();
-  await cardFrame.locator('input[name="number"]').fill(cardNumber);
-  await cardFrame.locator('input[name="expiry"]').fill(billingDetails.expiry);
-  await cardFrame.locator('input[name="cvc"]').fill(billingDetails.cvc);
+  // Card details
+  await cardNumberField.fill(cardNumber);
+  await checkoutPage.getByRole('textbox', { name: 'Expiration' }).fill(billingDetails.expiry);
+  await checkoutPage.getByRole('textbox', { name: /CVC/ }).fill(billingDetails.cvc);
 
   // Fill billing name
-  const nameField = checkoutPage.locator('input[name="billingName"]');
-  if (await nameField.isVisible().catch(() => false)) {
+  const nameField = checkoutPage.getByRole('textbox', { name: 'Cardholder name' });
+  if (await nameField.isVisible()) {
     await nameField.fill(billingDetails.name);
   }
 
-  // Fill zip code if visible
-  const zipField = checkoutPage.locator('input[name="zip"]');
-  if (await zipField.isVisible().catch(() => false)) {
+  // Fill postal code if asked
+  const zipField = checkoutPage.getByRole('textbox', { name: 'Postal code' });
+  if (await zipField.isVisible()) {
     await zipField.fill(billingDetails.zip);
   }
 }

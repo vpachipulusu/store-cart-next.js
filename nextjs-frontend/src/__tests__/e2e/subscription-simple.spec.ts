@@ -32,6 +32,9 @@ test.describe('Subscription Upgrade - Happy Path', () => {
   );
 
   test('should successfully upgrade from free to pro tier', async ({ page, throwawayAccount }) => {
+    // Checkout, the Stripe webhook and the success handler's polling (up to 30 s) take longer than the 30 s default.
+    test.setTimeout(150_000);
+
     // Step 1: Login as a fresh free-tier user (throwaway: this test changes the plan)
     await loginAsThrowawayAccount(page, throwawayAccount);
 
@@ -59,30 +62,24 @@ test.describe('Subscription Upgrade - Happy Path', () => {
     // Verify on Stripe checkout
     expect(checkoutPage.url()).toContain('checkout.stripe.com');
 
-    try {
-      // Step 5: Fill checkout form with test card
-      await fillStripeCheckout(checkoutPage, STRIPE_TEST_CARDS.success);
+    // Step 5: Fill checkout form with test card
+    await fillStripeCheckout(checkoutPage, STRIPE_TEST_CARDS.success);
 
-      // Step 6: Submit payment
-      await submitStripeCheckout(checkoutPage);
+    // Step 6: Submit payment
+    await submitStripeCheckout(checkoutPage);
 
-      // Step 7: Wait for success redirect and webhook processing
-      const success = await waitForSubscriptionSuccess(page);
-      expect(success).toBe(true);
+    // Step 7: Wait for success redirect and webhook processing (the same tab returns to the app)
+    const success = await waitForSubscriptionSuccess(page);
+    expect(success).toBe(true);
 
-      // Step 8: Verify subscription tier updated
-      await expectSubscriptionTier(page, 'pro');
+    // Step 8: Verify subscription tier updated
+    await expectSubscriptionTier(page, 'pro');
 
-      // Step 9: Verify upgrade banner is gone
-      const upgradeBanner = page.getByText(/upgrade to pro/i).first();
-      await expect(upgradeBanner).not.toBeVisible();
+    // Step 9: Verify upgrade banner is gone
+    const upgradeBanner = page.getByText(/upgrade to pro/i).first();
+    await expect(upgradeBanner).not.toBeVisible();
 
-      console.log('✅ Subscription upgrade successful!');
-    } finally {
-      if (!checkoutPage.isClosed()) {
-        await checkoutPage.close();
-      }
-    }
+    console.log('✅ Subscription upgrade successful!');
   });
 
   test('should display subscription in admin panel after upgrade', async ({ page, context }) => {

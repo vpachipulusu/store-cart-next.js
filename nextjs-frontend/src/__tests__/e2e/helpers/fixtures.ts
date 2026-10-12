@@ -3,6 +3,28 @@ import { test as base, expect } from '@playwright/test';
 /** Sentry ingest hosts (e.g. o123.ingest.de.sentry.io). */
 const SENTRY_HOST = /^https:\/\/([a-z0-9-]+\.)*sentry\.io\//i;
 
+/**
+ * Counts in-flight Next.js RSC fetches (route prefetches and navigations) in every page, so waitForPageReady can wait
+ * for them to settle. Next.js prefetches visible links after load; a click that arrives while the same route's
+ * prefetch is still in flight can be lost (the aborted prefetch leaves the navigation request with an empty reply).
+ * A person never clicks that fast; a test does.
+ */
+const TRACK_RSC_FETCHES = () => {
+  const state = { inflight: 0, lastActivity: performance.now() };
+  (window as unknown as { __rscFetches: typeof state }).__rscFetches = state;
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+    if (!headers.has('rsc')) return originalFetch(input, init);
+    state.inflight += 1;
+    state.lastActivity = performance.now();
+    return originalFetch(input, init).finally(() => {
+      state.inflight -= 1;
+      state.lastActivity = performance.now();
+    });
+  };
+};
+
 export type ThrowawayAccount = { email: string; password: string; uid: string };
 
 type AccountClients = {
@@ -38,6 +60,7 @@ export const test = base.extend<
   // The fixture callback is named `provide` (not Playwright's usual `use`) so the React hooks lint rule ignores it.
   context: async ({ context }, provide) => {
     await context.route(SENTRY_HOST, (route) => route.abort());
+    await context.addInitScript(TRACK_RSC_FETCHES);
     await provide(context);
   },
 
