@@ -53,6 +53,30 @@ export async function setSessionCookie(
   ]);
 }
 
+const APP_ORIGIN = 'http://localhost:3000';
+const IP_OCTET_RANGE = 254;
+
+function randomPrivateIp(): string {
+  const octet = () => 1 + Math.floor(Math.random() * IP_OCTET_RANGE);
+  return `10.${octet()}.${octet()}.${octet()}`;
+}
+
+/**
+ * Give this page its own client IP for the app's rate limiter.
+ *
+ * `src/proxy.ts` keys rate limits on `x-forwarded-for`. Locally there is no proxy, so every request shares the key
+ * "unknown" and `/api/auth/*` (5 requests per 15 minutes) returns 429 after a handful of tests. In production each
+ * user has their own IP, so a distinct IP per test reproduces real behaviour. Only app requests get the header.
+ */
+export async function useDistinctClientIp(page: Page): Promise<void> {
+  const clientIp = randomPrivateIp();
+  await page.route(
+    (url) => url.origin === APP_ORIGIN,
+    (route) =>
+      route.continue({ headers: { ...route.request().headers(), 'x-forwarded-for': clientIp } })
+  );
+}
+
 /**
  * Assert that the page redirects unauthenticated users to login.
  */

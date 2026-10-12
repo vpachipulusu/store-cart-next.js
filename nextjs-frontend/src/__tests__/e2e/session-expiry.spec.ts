@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { setSessionCookie, waitForPageReady } from './helpers/e2e-utils';
+import { setSessionCookie, useDistinctClientIp, waitForPageReady } from './helpers/e2e-utils';
 
 /**
  * Session Expiry E2E Tests
@@ -10,6 +10,11 @@ import { setSessionCookie, waitForPageReady } from './helpers/e2e-utils';
  */
 
 test.describe('Session Expiry Redirect', () => {
+  test.beforeEach(async ({ page }) => {
+    // The redirect goes through /api/auth/clear-session, which is rate limited per client IP.
+    await useDistinctClientIp(page);
+  });
+
   test.describe('Invalid session cookie', () => {
     test('should redirect /dashboard to /login with invalid session', async ({ page, context }) => {
       await setSessionCookie(context, 'invalid-expired-token');
