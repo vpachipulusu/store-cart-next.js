@@ -30,9 +30,13 @@ const FIREBASE_ADMIN_VARS = [
   'FIREBASE_ADMIN_PRIVATE_KEY',
 ];
 
+/** Never taken from env files: Next.js sets NODE_ENV itself, and NODE_ENV=development from .env.local breaks builds. */
+const FILE_IGNORED_VARS = new Set(['NODE_ENV']);
+
 function parseEnvFile(cwd, file) {
   const fullPath = path.join(cwd, file);
-  return fs.existsSync(fullPath) ? dotenv.parse(fs.readFileSync(fullPath)) : {};
+  const parsed = fs.existsSync(fullPath) ? dotenv.parse(fs.readFileSync(fullPath)) : {};
+  return Object.fromEntries(Object.entries(parsed).filter(([name]) => !FILE_IGNORED_VARS.has(name)));
 }
 
 function definedOnly(env) {

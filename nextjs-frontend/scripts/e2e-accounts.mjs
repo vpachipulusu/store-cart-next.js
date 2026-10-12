@@ -84,6 +84,13 @@ export async function ensureFirebaseUser(auth, email, password, displayName) {
 
 /** Create or reset the app's users row (free tier, active) and its settings row. */
 export async function ensureDbUser(prisma, firebaseUser, displayName) {
+  assertE2eEmail(firebaseUser.email);
+  // The local database is shared with dev. An e2e row created for the same email under another Firebase project
+  // (before e2e moved to storecart-test) is re-linked to this project's uid instead of failing on the unique email.
+  await prisma.user.updateMany({
+    where: { email: firebaseUser.email, NOT: { firebaseUid: firebaseUser.uid } },
+    data: { firebaseUid: firebaseUser.uid },
+  });
   const user = await prisma.user.upsert({
     where: { firebaseUid: firebaseUser.uid },
     update: { email: firebaseUser.email, emailVerified: true, subscriptionTier: 'free', subscriptionStatus: 'active' },
