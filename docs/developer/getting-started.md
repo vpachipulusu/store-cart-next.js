@@ -9,7 +9,7 @@
 | Node.js | 22 | Team standard. `nextjs-frontend/package.json` declares `engines.node >=22`. |
 | npm | 10 or later | npm only. Do not use pnpm or yarn. |
 | Python | 3.12 | Required by `fastapi_backend/pyproject.toml` (`>=3.12,<3.13`). |
-| uv | current | Manages the backend environment and dependencies. |
+| uv | current (CI uses 0.8.12) | Manages the backend environment and dependencies. |
 | PostgreSQL | reachable instance | A local server on port 5432, or a development database. See [Local databases](#local-databases). |
 
 Docker is optional. `fastapi_backend/Dockerfile` exists, but there is no `docker-compose.yml` yet (it arrives with KAN-26).
