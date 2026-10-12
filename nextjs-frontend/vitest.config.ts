@@ -31,10 +31,14 @@ export default defineConfig({
       // (Vitest rewrites the numbers below when coverage is higher.)
       thresholds: {
         autoUpdate: process.env.COVERAGE_RATCHET === '1',
-        branches: 29.87,
-        functions: 6.33,
-        lines: 5.07,
-        statements: 5.07,
+        // Re-baselined for Vitest 5 (KAN-138): its AST-based V8 remapping counts
+        // every function and branch in a file, not only the ones that ran. The same
+        // 50 tests give 29.87% branches / 6.33% functions on Vitest 2 and
+        // 3.2% / 2.15% on Vitest 5. This is a change of measurement, not lost coverage.
+        branches: 3.2,
+        functions: 2.15,
+        lines: 5.35,
+        statements: 5.34,
       },
     },
   },
