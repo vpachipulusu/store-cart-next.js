@@ -36,12 +36,13 @@ package = false
 
 # Coverage ratchet (KAN-27, PO decision on KAN-139). `uv run pytest --cov` fails
 # when line coverage of app/ and commands/ is below fail_under. fail_under is the
-# measured baseline: raise it towards 80 as tests are added, never lower it.
+# measured baseline (84.13% on 2026-10-12, CI): raise it as tests are added,
+# never lower it.
 [tool.coverage.run]
 source = ["app", "commands"]
 
 [tool.coverage.report]
-fail_under = 0
+fail_under = 84.13
 precision = 2
 
 [tool.hatch.build.targets.sdist]

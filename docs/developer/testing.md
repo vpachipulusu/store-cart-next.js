@@ -10,12 +10,11 @@ Coverage target: **80%** minimum. Write the test first (RED), make it pass (GREE
 cd nextjs-frontend
 npm run test:unit          # src/__tests__/unit
 npm run test:watch         # watch mode
-npm run test:coverage      # enforces the 80% thresholds; currently FAILS (see below)
+npm run test:coverage      # enforces the coverage ratchet (see below)
 ```
 
 - Config: `vitest.config.ts`. Environment is jsdom, setup file is `vitest.setup.ts`.
-- Coverage thresholds are 80% for branches, functions, lines and statements.
-- **`npm run test:coverage` currently fails.** Coverage is about 2% lines, 3% functions and 10% branches. Whether and how the 80% rule applies is a PO decision tracked in KAN-139.
+- **Coverage ratchet (KAN-27, PO decision on KAN-139).** The thresholds in `vitest.config.ts` are the measured baseline (2026-10-12: 5.07% lines and statements, 6.33% functions, 29.87% branches). CI fails if coverage drops below them. Raise them towards 80% as tests are added and never lower them. To set them to the current values in one step, run `COVERAGE_RATCHET=1 npm run test:coverage` and commit the rewritten config.
 - Coverage counts `src/lib/**`, `src/components/**` and `src/app/actions/**`.
 - Vitest excludes `e2e/` and `*.spec.ts`.
 - MSW is available for mocking HTTP.
@@ -92,7 +91,8 @@ uv run mypy
 ```
 
 - A bare `uv run mypy` checks `app` and `commands` (`mypy.ini` sets `files = app, commands`), the same scope as the pre-commit hook.
-- It reports existing errors: 31 on 2026-10-12, from template code (KAN-30). Do not add new ones.
+- It reports existing errors: 31 on 2026-10-12, from template code (KAN-30). Do not add new ones. CI fails when the count exceeds `fastapi_backend/mypy-baseline.txt`; lower that number when you fix errors.
+- Coverage: `uv run pytest --cov`. `fail_under` in `[tool.coverage.report]` of `pyproject.toml` is the backend ratchet (baseline 84.13% lines of `app` and `commands` on 2026-10-12): raise it, never lower it.
 - Frontend lint: `npm run lint` runs `eslint .` with the flat config `eslint.config.mjs` (fixed in KAN-111).
 
 ## OpenAPI check
@@ -104,11 +104,26 @@ cd fastapi_backend
 uv run python -m commands.generate_openapi_schema
 ```
 
-CI is planned to fail when the generated client is stale (ADR-008, lands with KAN-27).
+CI runs the pre-commit `openapi-schema-check` hook on changed backend files. Failing on a stale generated client (ADR-008) arrives with KAN-33, which commits the schema and client.
+
+## Continuous integration (KAN-27)
+
+`.github/workflows/ci.yml` runs on every pull request to `main` and every push to `main`:
+
+| Job | Runs when | Checks |
+|---|---|---|
+| Detect changed paths | always | `dorny/paths-filter` decides frontend / backend |
+| Pre-commit (changed files) | pull requests | `pre-commit run --from-ref origin/<base> --to-ref HEAD` |
+| Frontend (`frontend.yml`) | `nextjs-frontend/**` or shared config | lint, typecheck, Vitest with coverage ratchet, `npm run build` with placeholder `NEXT_PUBLIC_*` only |
+| Backend (`backend.yml`) | `fastapi_backend/**` or shared config | ruff lint and format, mypy against baseline, pytest with coverage ratchet (Postgres service) |
+| E2E (`e2e.yml`) | frontend changed and repo variable `E2E_ENABLED=true` | Chromium Playwright, secrets from environment `e2e-test`. Not in the gate until KAN-113 |
+| **CI gate** | always | passes when every job above (except E2E) succeeded or was skipped |
+
+Shared config is `.github/**`, `.pre-commit-config.yaml`, root `package.json` / `package-lock.json` and `vercel.json`; it triggers both apps. Branch protection requires only **CI gate**.
 
 ## Before you open a PR
 
 - Frontend: `npm run test:unit`, `npm run test:integration`, `npm run typecheck`, `npm run lint` and `npm run build`.
-- Frontend coverage: do not let it drop. The global 80% gate is not required until KAN-139 is decided.
+- Coverage: do not let it drop below the ratchet; CI enforces it.
 - Backend: `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .`, and `uv run mypy` with no new errors.
 - Chromium e2e when the change is user-facing.
