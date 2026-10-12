@@ -37,6 +37,14 @@ The repo is still the boilerplate with the target not yet built:
 4. The admin role is verified server-side: the admin layout (`src/app/(admin)/admin/layout.tsx`) and each admin server action (`src/app/actions/admin/*`) verify the session cookie with Firebase Admin and look up the `adminUser` record.
 5. Vercel service bindings such as `BACKEND_API_URL` are not available in the proxy ([ADR-011](../adr/0011-single-vercel-project-with-services.md)).
 
+### Feature areas on `main`
+
+Boilerplate features that exist today and will be rebuilt behind FastAPI. Folded in from the retired `nextjs-frontend/GUIDE.md` (KAN-146); see also [admin-settings.md](admin-settings.md).
+
+- **Customer dashboard** (`src/app/dashboard/`): home, `profile`, `settings` and `security` pages.
+- **Admin portal** (`src/app/(admin)/admin/`): `users`, `subscriptions`, `analytics`, `seo`, `settings` and `audit-logs`. An admin needs an `AdminUser` record; create one with `node scripts/create-admin.mjs <email>` (the user must have signed up first). Admin actions are written to the audit log.
+- **Billing** (`src/app/actions/subscription-actions.ts`, `src/app/api/webhooks/stripe/route.ts`): `createCheckoutSessionAction` starts a Stripe Checkout session, the Stripe webhook at `/api/webhooks/stripe` updates the database, and `createBillingPortalSessionAction` opens the billing portal. The pricing page adapts its call-to-action to the sign-in state.
+
 ## Target state (Foundation complete)
 
 ```

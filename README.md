@@ -10,7 +10,7 @@ npm install
 
 # Setup environment
 cp .env.example .env
-# Edit .env with your credentials (see GUIDE.md)
+# Edit .env with your credentials (see docs/developer/getting-started.md)
 
 # Initialize database
 npx prisma generate
@@ -22,7 +22,7 @@ npm run dev
 
 Visit `http://localhost:3000`
 
-📖 **[Read the Complete Guide](GUIDE.md)** for detailed setup, features, and troubleshooting.
+📖 **[Read the developer docs](docs/developer/README.md)** for setup, architecture, testing and troubleshooting.
 
 ## ✨ Features
 
@@ -65,7 +65,6 @@ Visit `http://localhost:3000`
 
 ## 📚 Documentation
 
-- **[Complete Guide](GUIDE.md)** - Full documentation with setup, features, and troubleshooting
 - **[Environment Variables](#environment-variables)** - Required configuration
 - **[Developer documentation](docs/developer/README.md)** - Setup, architecture, workflow, testing, security, known issues
 - **[User guide](docs/user-guide/README.md)** - Using StoreCart
@@ -93,7 +92,7 @@ STRIPE_PRICE_ID_PRO_MONTHLY="price_..."
 STRIPE_PRICE_ID_PRO_YEARLY="price_..."
 ```
 
-See [GUIDE.md](GUIDE.md) for detailed setup instructions.
+See [getting-started.md](docs/developer/getting-started.md) for detailed setup instructions.
 
 ## 🚀 Commands
 
@@ -197,7 +196,7 @@ npx prisma generate
 npx prisma db push
 ```
 
-See [GUIDE.md](GUIDE.md) for more troubleshooting.
+See the Troubleshooting section of [getting-started.md](docs/developer/getting-started.md) for more.
 
 ## 📦 What's Included
 
@@ -240,8 +239,8 @@ MIT
 
 ## 🤝 Contributing
 
-Contributions welcome! Please read the [GUIDE.md](GUIDE.md) first.
+Contributions welcome! Please read the [developer docs](docs/developer/README.md) first.
 
 ## 📞 Support
 
-For detailed documentation, setup instructions, and troubleshooting, see **[GUIDE.md](GUIDE.md)**.
+For detailed documentation, setup instructions, and troubleshooting, see the **[developer docs](docs/developer/README.md)**.

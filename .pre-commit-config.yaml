@@ -28,8 +28,6 @@ repos:
       - id: check-symlinks
       - id: debug-statements
       - id: detect-private-key
-        # These docs only contain a placeholder FIREBASE_PRIVATE_KEY example value.
-        exclude: ^nextjs-frontend/(GUIDE\.md|SAAS_BOILERPLATE_PROMPT\.txt)$
 
   # ---------------------------------------------------------------- backend
   - repo: https://github.com/astral-sh/ruff-pre-commit

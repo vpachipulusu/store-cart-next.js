@@ -25,7 +25,7 @@ npm run test:coverage      # enforces the coverage ratchet (see below)
 npm run test:integration   # src/__tests__/integration
 ```
 
-There is currently one placeholder: `src/__tests__/integration/api/health.test.ts`, which asserts on a local object. No integration test exercises an API endpoint or a database yet.
+There are currently no integration tests, and the `src/__tests__/integration` folder does not exist (KAN-146 removed the only placeholder, which asserted on a local object). Running the script now finds no directory. Add the folder with the first real test that exercises an API endpoint or a database.
 
 ## Frontend end-to-end tests (Playwright)
 
@@ -124,7 +124,7 @@ Shared config is `.github/**`, `.pre-commit-config.yaml`, root `package.json` / 
 
 ## Before you open a PR
 
-- Frontend: `npm run test:unit`, `npm run test:integration`, `npm run typecheck`, `npm run lint` and `npm run build`.
+- Frontend: `npm run test:unit`, `npm run typecheck`, `npm run lint` and `npm run build`.
 - Coverage: do not let it drop below the ratchet; CI enforces it.
 - Backend: `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .`, and `uv run mypy` with no new errors.
 - Chromium e2e when the change is user-facing.

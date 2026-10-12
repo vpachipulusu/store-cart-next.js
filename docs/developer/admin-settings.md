@@ -1,10 +1,13 @@
-# Admin Settings Implementation Guide
+# Admin settings
+
+**Last updated:** 2026-10-12
+**Scope:** the admin settings area on `main` (`/admin/settings`). Moved from `nextjs-frontend/ADMIN_SETTINGS_GUIDE.md` in KAN-146. The "Next steps" are ideas, not planned work, and the area is Prisma-based boilerplate that the backend migration will replace.
 
 ## Overview
 
-This document provides a comprehensive guide to the newly implemented admin settings functionality, including currency and language configuration from the admin portal.
+This page describes the admin settings functionality, including currency and language configuration from the admin portal.
 
-## Features Implemented
+## Features
 
 ### 1. General Settings
 
@@ -106,12 +109,13 @@ All actions include:
 
 **Path**: `src/app/(admin)/admin/settings/page.tsx`
 
-**Structure**: Tabbed interface with 4 sections:
+**Structure**: Tabbed interface with 5 sections:
 
 1. **General**: App configuration (name, email, timezone, currency, language)
-2. **Features**: Feature flag toggles
-3. **Email**: Email template management
-4. **Pricing**: Pricing configuration
+2. **Theme**: Theme settings (`theme-settings-form.tsx`)
+3. **Feature Flags**: Feature flag toggles
+4. **Email Templates**: Email template management
+5. **Pricing**: Pricing configuration
 
 ## Database Schema
 
@@ -145,9 +149,9 @@ model FeatureFlag {
 
 ## Setup Instructions
 
-### 1. Run Database Migrations
+### 1. Push the schema
 
-Make sure your database is up to date:
+Make sure your development database is up to date:
 
 ```bash
 npm run db:push
@@ -168,10 +172,10 @@ This will create:
 
 ### 3. Access Admin Settings
 
-1. Login as an admin user (pacvenkatesh@gmail.com)
+1. Sign in as an admin user. To make an existing user an admin, run `node scripts/create-admin.mjs admin@example.com` from `nextjs-frontend/` (replace the address with that user's email)
 2. Navigate to `/admin/settings`
 3. Configure currency and language from the "General" tab
-4. Toggle feature flags from the "Features" tab
+4. Toggle feature flags from the "Feature Flags" tab
 
 ## Usage Examples
 
@@ -206,7 +210,7 @@ await upsertAppSettingAction({
 await toggleFeatureFlagAction('oauth_signup');
 ```
 
-## Next Steps
+## Ideas for later
 
 ### 1. Global Currency Application
 
@@ -355,9 +359,3 @@ Fetches all app settings, optionally filtered by category.
 Fetches all feature flags.
 
 **Returns**: `Promise<AdminSettingsActionResponse>`
-
-## Conclusion
-
-The admin settings implementation provides a robust foundation for configuring application-wide settings, including currency and language preferences. The feature flag system allows for controlled feature rollouts and A/B testing.
-
-All changes are audited, permission-controlled, and update in real-time with optimistic UI updates for the best user experience.
