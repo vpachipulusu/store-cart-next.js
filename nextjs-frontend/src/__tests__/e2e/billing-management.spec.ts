@@ -55,11 +55,10 @@ test.describe('Pricing Page - Billing Period Toggle', () => {
     const yearlyButton = page.getByRole('button', { name: /yearly/i });
     await yearlyButton.click();
 
-    // Should show /year label on pricing cards
-    const yearLabel = page.getByText('/year').first();
-    await expect(yearLabel).toBeVisible();
+    // Yearly shows the monthly equivalent ("/month") plus "<price> billed annually"; there is no "/year" label.
+    await expect(page.getByText('/month').first()).toBeVisible();
 
-    // Should show monthly equivalent text
+    // Should show the annual total
     const billedAnnually = page.getByText(/billed annually/i).first();
     await expect(billedAnnually).toBeVisible();
   });
@@ -85,11 +84,12 @@ test.describe('Pricing Page - Billing Period Toggle', () => {
 
     // Switch to yearly
     await page.getByRole('button', { name: /yearly/i }).click();
-    await expect(page.getByText('/year').first()).toBeVisible();
+    await expect(page.getByText(/billed annually/i).first()).toBeVisible();
 
     // Switch back to monthly
     await page.getByRole('button', { name: /monthly/i }).click();
     await expect(page.getByText('/month').first()).toBeVisible();
+    await expect(page.getByText(/billed annually/i)).toHaveCount(0);
   });
 });
 
@@ -392,10 +392,12 @@ test.describe('Pricing Page - Checkout with Billing Period', () => {
 
     // Switch to yearly billing
     await page.getByRole('button', { name: /yearly/i }).click();
-    await expect(page.getByText('/year').first()).toBeVisible();
+    await expect(page.getByText(/billed annually/i).first()).toBeVisible();
 
     // Find and click Pro tier upgrade button
-    const proCard = page.locator('[class*="card"]').filter({ hasText: /^Pro$/i });
+    const proCard = page
+      .locator('[class*="card"]')
+      .filter({ has: page.getByRole('heading', { name: 'Pro', exact: true }) });
     const upgradeButton = proCard.getByRole('button', { name: /upgrade to pro/i });
 
     const buttonExists = await upgradeButton.count().then((count) => count > 0);
