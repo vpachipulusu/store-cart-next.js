@@ -99,3 +99,4 @@ repos:
         language: system
         files: ^nextjs-frontend/.*\.(ts|tsx)$
         pass_filenames: false
+# KAN-27 CI verification: shared-file no-op change (do not merge).
