@@ -30,28 +30,58 @@ There are currently no integration tests, and the `src/__tests__/integration` fo
 ## Frontend end-to-end tests (Playwright)
 
 ```bash
-npm run test:e2e                              # all projects in playwright.config.ts
-npx playwright test --project=chromium        # the Chromium baseline
-npm run test:e2e:ui                           # interactive UI mode
-npm run test:e2e:subscription                 # subscription specs only
-npm run test:all                              # Vitest and Playwright together
+npm run test:setup                 # once: create the e2e user and admin in the TEST Firebase project
+npm run test:e2e:build             # build the e2e app once (.next-e2e, test Firebase project, Sentry off)
+npm run test:e2e:baseline          # the gated Chromium baseline against that build (never builds)
+npm run test:e2e:baseline:build    # both of the above
+npm run test:e2e                   # all projects in playwright.config.ts, against `npm run dev`
+npm run test:e2e:ui                # interactive UI mode
 ```
 
 - Tests live in `nextjs-frontend/src/__tests__/e2e/`. `auth.setup.ts` runs first, and the browser projects depend on it.
-- Chromium is the baseline. The foundation check runs only that project.
-- Playwright starts `npm run dev` on `http://localhost:3000` itself. Locally it reuses a server already on that port. With `CI` set, it always starts a fresh one. Stop any dev server pointed at another backend before a run.
+- **The baseline gate** (`playwright.baseline.config.ts`, PO-approved scope) is Chromium only and runs the specs for the flows Foundation keeps: auth, session-expiry, dashboard, subscription, subscription-simple, billing-management and admin. homepage, currency and pricing specs stay in the repo outside the gate. It uses 4 workers locally and 1 in CI.
+- Specs import `test` and `expect` from `helpers/fixtures.ts`, not from `@playwright/test`.
+
+### Dedicated Firebase test project
+
+e2e runs against the Firebase TEST project **`storecart-test`**, never the dev project in `.env.local`. **The dev and test projects must never be mixed:** the scripts refuse to run when the e2e config is missing, names the dev project, or pairs a service account from one project with the web config of another.
+
+- All e2e config lives in `nextjs-frontend/.env.e2e.local` (gitignored). `scripts/e2e-env.cjs` merges it over `.env.local` and `.env` for e2e only. Firebase variables are taken only from `.env.e2e.local` or real environment variables (CI), never from `.env`/`.env.local`. Your normal `.env.local` stays untouched.
+- `.env.e2e.local` holds:
+  - the test project's public web config: `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`;
+  - the test project's service account, which **the project owner adds by hand**: `FIREBASE_ADMIN_PROJECT_ID`, `FIREBASE_ADMIN_CLIENT_EMAIL`, `FIREBASE_ADMIN_PRIVATE_KEY` (Firebase Console > Project settings > Service accounts > Generate new private key, for `storecart-test`). Never paste these into chat, tickets or commits;
+  - the e2e accounts, written by `npm run test:setup`: `TEST_USER_EMAIL`, `TEST_USER_PASSWORD`, `TEST_ADMIN_EMAIL`, `TEST_ADMIN_PASSWORD`.
+- In the test project, Firebase Console > Authentication > Sign-in method must have **Email/Password** enabled. `auth.setup.ts` fails with a clear message if it is not.
+- `npm run test:setup`, `auth.setup.ts` and `scripts/e2e-start.mjs` fail fast and name the missing variables. They never print values.
+
+### Separate e2e build
+
+`NEXT_PUBLIC_*` values are baked in at build time, so the e2e build must be separate from your normal local build:
+
+- `npm run test:e2e:build` builds into **`.next-e2e`** (not `.next`) with the test project's config and an empty `NEXT_PUBLIC_SENTRY_DSN` (Sentry off). It writes `.next-e2e/e2e-build.json` with the Firebase project id.
+- The baseline's webServer runs `scripts/e2e-start.mjs`, which only serves. It refuses to start when there is no e2e build, when the build's project id differs from the current e2e env, or when the build had Sentry on. It warns when the build is from another commit.
+- Playwright reuses a server already on port 3000 only with `E2E_REUSE_SERVER=1`, so a normal dev server (dev project) is never tested by accident. To keep one running between runs, start it with `node scripts/e2e-start.mjs`.
+- CI builds in its own step (`npm run test:e2e:build`), then runs `npm run test:e2e:baseline` (KAN-27).
+- `npm run test:e2e` (the full config) starts `npm run dev` with the e2e env and its own output folder `.next-e2e-dev`.
+
+### Logins, sessions and test accounts
+
+- `auth.setup.ts` logs in through the UI **once per role** (`user`, `admin`) and saves the session cookies to `playwright/.auth/<role>.json` (gitignored). Read-only specs use `test.use({ storageState: STORAGE_STATE.<role> })`, or `signInWithSavedSession(context, role)` for one test in an otherwise logged-out describe.
+- `loginViaUI` stays only where the login itself is under test, and for throwaway accounts.
+- **Isolation:** a test that logs out, revokes or expires a session, or changes plan or billing state (Stripe checkout, auto-renewal) must use the `throwawayAccount` fixture: a fresh free-tier account created in the test project and the local database, logged in with `loginAsThrowawayAccount`, and deleted after the test. Firebase revokes sessions per user, not per cookie, so one such test on a shared role account would break every other worker's saved session.
+- No `networkidle` waits. Firebase, Stripe and Sentry keep connections open, so `networkidle` can time out on its own. `waitForPageReady` waits for `load` and React hydration. Use web-first assertions, `waitForURL`, or `waitForServerActionResponse`.
+- Every browser context blocks `*.sentry.io` (in `helpers/fixtures.ts`), in addition to the Sentry-off build.
 
 ### Test accounts
 
-- `npm run test:setup` creates the test accounts. On `main`, it runs `scripts/create-test-user.mjs`.
-- *(lands with KAN-113)* `npm run test:setup` runs `scripts/setup-e2e-accounts.mjs` instead. It:
-  - creates one e2e user and one admin, with random emails and passwords;
-  - writes `.env.e2e.local`, which is gitignored and loaded by `playwright.config.ts`;
+- `npm run test:setup` runs `scripts/setup-e2e-accounts.mjs`. It:
+  - creates one e2e user and one admin in the **test** Firebase project through the Admin SDK, using the e2e env only;
+  - updates only the `TEST_*` keys in `.env.e2e.local` and keeps everything else;
   - refuses a `DATABASE_URL` whose host is not `localhost`, `127.0.0.1`, `::1` or `db`;
   - never prints credentials.
 - Re-running `npm run test:setup` reuses the stored credentials and resets the Firebase passwords to match.
-- `npm run test:reset` resets the test user. The script exists on `main`. Its behaviour with the new accounts has not been reviewed.
-- Local runs create the accounts in whichever Firebase project your `.env` points at; see [security.md](security.md).
+- `npm run test:reset` (`scripts/reset-test-user.mjs`) is not part of the e2e flow and does not use the e2e env.
+- Accounts created before KAN-113 moved e2e to `storecart-test` still exist in the dev project. KAN-131 deletes them.
 - CI e2e uses only the dedicated Firebase test project `storecart-test` (GitHub environment `e2e-test`) and Stripe test-mode keys. It must never use the development or production projects: the e2e job refuses live Stripe keys and refuses to run when `E2E_FIREBASE_PROJECT_ID` equals the repository variable `PROD_FIREBASE_PROJECT_ID`.
 
 ### Assertion rule
