@@ -4,6 +4,8 @@
  *
  * - Accounts are created in the Firebase TEST project (storecart-test) through the Admin SDK, using the e2e env only
  *   (scripts/e2e-env.cjs): the FIREBASE_ADMIN_* service account in .env.e2e.local, never the dev project in .env.local.
+ * - The users rows (and the admin's AdminUser row) are created in the dedicated e2e database (DATABASE_URL in
+ *   .env.e2e.local, never the dev database). Run `npm run test:e2e:db` first to apply the schema there.
  * - Emails are unguessable and passwords are random. Both are written only to .env.e2e.local (gitignored, read by
  *   playwright.config.ts) and are never printed. Only the TEST_* keys are updated; the rest of the file is kept.
  * - Re-running reuses the stored credentials and resets the Firebase passwords to match them.

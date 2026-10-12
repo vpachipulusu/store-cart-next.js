@@ -5,7 +5,8 @@
  * Refuses to start, with a clear message, when:
  * - there is no e2e build in .next-e2e (run `npm run test:e2e:build` first), or
  * - the build was made for a different Firebase project than the current e2e env, or with Sentry on, or
- * - the e2e Firebase config (web config + FIREBASE_ADMIN_* service account) is incomplete.
+ * - the e2e Firebase config (web config + FIREBASE_ADMIN_* service account) is incomplete, or
+ * - DATABASE_URL is missing or equals the dev database in .env.local/.env (e2e has its own database).
  * Warns when the build is from a different commit than HEAD.
  */
 import { spawn, spawnSync } from 'node:child_process';
@@ -13,7 +14,14 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import e2eEnv from './e2e-env.cjs';
 
-const { E2E_DIST_DIR, E2E_BUILD_MARKER, loadE2eEnv, toNextProcessEnv, assertE2eFirebaseEnv } = e2eEnv;
+const {
+  E2E_DIST_DIR,
+  E2E_BUILD_MARKER,
+  loadE2eEnv,
+  toNextProcessEnv,
+  assertE2eFirebaseEnv,
+  assertE2eDatabaseEnv,
+} = e2eEnv;
 
 function fail(message) {
   console.error(`[e2e-start] ${message}`);
@@ -35,6 +43,8 @@ function readMarker() {
 const env = loadE2eEnv();
 try {
   assertE2eFirebaseEnv(env, { requireAdmin: true });
+  const database = assertE2eDatabaseEnv(env);
+  console.log(`[e2e-start] Firebase project ${env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}, database ${database} (not the dev one).`);
 } catch (error) {
   fail(error.message);
 }

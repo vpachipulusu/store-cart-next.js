@@ -6,8 +6,8 @@
 #
 # Secrets come from the GitHub environment `e2e-test`, which must hold TEST
 # credentials only: the dedicated Firebase test project `storecart-test` and
-# Stripe test-mode keys. It must never use the development or production
-# Firebase projects. Secrets are referenced by name only. The two sensitive
+# Stripe test-mode keys and the dedicated e2e database (E2E_DATABASE_URL). It must never use the development or
+# production Firebase projects or databases. Secrets are referenced by name only. The two sensitive
 # ones (Firebase Admin private key, Stripe secret key) are exposed only to the
 # steps that need them, not to `npm ci` or the Playwright install.
 name: E2E
@@ -27,25 +27,11 @@ jobs:
     defaults:
       run:
         working-directory: nextjs-frontend
-    services:
-      # Throwaway database for the Prisma-backed pages; exists only for this job.
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: storecart_e2e
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     env:
       CI: 'true'
       NEXT_TELEMETRY_DISABLED: '1'
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/storecart_e2e?schema=public
+      # Dedicated e2e test database (environment e2e-test), never the dev or production database.
+      DATABASE_URL: ${{ secrets.E2E_DATABASE_URL }}
       NEXT_PUBLIC_APP_URL: http://localhost:3000
       NEXT_PUBLIC_APP_NAME: StoreCart
       # Firebase test project `storecart-test` (environment e2e-test).
@@ -88,13 +74,14 @@ jobs:
             FIREBASE_ADMIN_PRIVATE_KEY
             NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
             STRIPE_SECRET_KEY
+            DATABASE_URL
           "
           missing=""
           for name in $required_names; do
             if [ -z "$(printenv "$name")" ]; then missing="$missing $name"; fi
           done
           if [ -n "$missing" ]; then
-            echo "::error::These values are empty in the e2e-test environment (E2E_* secrets):${missing}"
+            echo "::error::These values are empty in the e2e-test environment (E2E_* secrets; DATABASE_URL is E2E_DATABASE_URL):${missing}"
             exit 1
           fi
           # Accept only Stripe test-mode keys; anything else is rejected.
@@ -120,10 +107,11 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
+      # Applies the Prisma schema to the dedicated e2e database (scripts/e2e-db.mjs; refuses the dev database).
       - name: Prepare database
         run: |
           npm run db:generate
-          npx prisma db push --skip-generate
+          npm run test:e2e:db
 
       - name: Install Chromium
         run: npx playwright install --with-deps chromium

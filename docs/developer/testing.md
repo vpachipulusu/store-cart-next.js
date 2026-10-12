@@ -30,7 +30,8 @@ There are currently no integration tests, and the `src/__tests__/integration` fo
 ## Frontend end-to-end tests (Playwright)
 
 ```bash
-npm run test:setup                 # once: create the e2e user and admin in the TEST Firebase project
+npm run test:e2e:db                # once: apply the Prisma schema to the dedicated e2e database
+npm run test:setup                 # once: create the e2e user and admin in the TEST Firebase project and e2e database
 npm run test:e2e:build             # build the e2e app once (.next-e2e, test Firebase project, Sentry off)
 npm run test:e2e:baseline          # the gated Chromium baseline against that build (never builds)
 npm run test:e2e:baseline:build    # both of the above
@@ -42,17 +43,19 @@ npm run test:e2e:ui                # interactive UI mode
 - **The baseline gate** (`playwright.baseline.config.ts`, PO-approved scope) is Chromium only and runs the specs for the flows Foundation keeps: auth, session-expiry, dashboard, subscription, subscription-simple, billing-management and admin. homepage, currency and pricing specs stay in the repo outside the gate. It uses 4 workers locally and 1 in CI.
 - Specs import `test` and `expect` from `helpers/fixtures.ts`, not from `@playwright/test`.
 
-### Dedicated Firebase test project
+### Dedicated Firebase test project and test database
 
-e2e runs against the Firebase TEST project **`storecart-test`**, never the dev project in `.env.local`. **The dev and test projects must never be mixed:** the scripts refuse to run when the e2e config is missing, names the dev project, or pairs a service account from one project with the web config of another.
+e2e runs against the Firebase TEST project **`storecart-test`** and a **dedicated Postgres test database**, never the dev project or dev database in `.env.local`/`.env`. **The dev and test environments must never be mixed:** the scripts refuse to run when the e2e config is missing, names the dev project, pairs a service account from one project with the web config of another, or when the e2e `DATABASE_URL` is missing or equals the dev one (they compare the parsed values and print only "same"/"different" or the host).
 
-- All e2e config lives in `nextjs-frontend/.env.e2e.local` (gitignored). `scripts/e2e-env.cjs` merges it over `.env.local` and `.env` for e2e only. Firebase variables are taken only from `.env.e2e.local` or real environment variables (CI), never from `.env`/`.env.local`. Your normal `.env.local` stays untouched.
+- All e2e config lives in `nextjs-frontend/.env.e2e.local` (gitignored). `scripts/e2e-env.cjs` merges it over `.env.local` and `.env` for e2e only. The Firebase variables and `DATABASE_URL` are taken only from `.env.e2e.local` or real environment variables (CI), never from `.env`/`.env.local`. Your normal `.env.local` stays untouched.
 - `.env.e2e.local` holds:
   - the test project's public web config: `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`;
   - the test project's service account, which **the project owner adds by hand**: `FIREBASE_ADMIN_PROJECT_ID`, `FIREBASE_ADMIN_CLIENT_EMAIL`, `FIREBASE_ADMIN_PRIVATE_KEY` (Firebase Console > Project settings > Service accounts > Generate new private key, for `storecart-test`). Never paste these into chat, tickets or commits;
+  - `DATABASE_URL`, the dedicated e2e test database, added by the project owner (never the dev database);
   - the e2e accounts, written by `npm run test:setup`: `TEST_USER_EMAIL`, `TEST_USER_PASSWORD`, `TEST_ADMIN_EMAIL`, `TEST_ADMIN_PASSWORD`.
 - In the test project, Firebase Console > Authentication > Sign-in method must have **Email/Password** enabled. `auth.setup.ts` fails with a clear message if it is not.
 - `npm run test:setup`, `auth.setup.ts` and `scripts/e2e-start.mjs` fail fast and name the missing variables. They never print values.
+- `npm run test:e2e:db` (`scripts/e2e-db.mjs`) applies the Prisma schema (`prisma db push`; the repo has no migrations) to the e2e database, using the e2e env only. Plain `npm run db:push` uses `.env`, i.e. the dev database; do not use it for e2e.
 
 ### Separate e2e build
 
@@ -68,7 +71,7 @@ e2e runs against the Firebase TEST project **`storecart-test`**, never the dev p
 
 - `auth.setup.ts` logs in through the UI **once per role** (`user`, `admin`) and saves the session cookies to `playwright/.auth/<role>.json` (gitignored). Read-only specs use `test.use({ storageState: STORAGE_STATE.<role> })`, or `signInWithSavedSession(context, role)` for one test in an otherwise logged-out describe.
 - `loginViaUI` stays only where the login itself is under test, and for throwaway accounts.
-- **Isolation:** a test that logs out, revokes or expires a session, or changes plan or billing state (Stripe checkout, auto-renewal) must use the `throwawayAccount` fixture: a fresh free-tier account created in the test project and the local database, logged in with `loginAsThrowawayAccount`, and deleted after the test. Firebase revokes sessions per user, not per cookie, so one such test on a shared role account would break every other worker's saved session.
+- **Isolation:** a test that logs out, revokes or expires a session, or changes plan or billing state (Stripe checkout, auto-renewal) must use the `throwawayAccount` fixture: a fresh free-tier account created in the test project and the e2e database, logged in with `loginAsThrowawayAccount`, and deleted after the test. Firebase revokes sessions per user, not per cookie, so one such test on a shared role account would break every other worker's saved session.
 - No `networkidle` waits. Firebase, Stripe and Sentry keep connections open, so `networkidle` can time out on its own. `waitForPageReady` waits for `load` and React hydration. Use web-first assertions, `waitForURL`, or `waitForServerActionResponse`.
 - Every browser context blocks `*.sentry.io` (in `helpers/fixtures.ts`), in addition to the Sentry-off build.
 
@@ -77,7 +80,7 @@ e2e runs against the Firebase TEST project **`storecart-test`**, never the dev p
 - `npm run test:setup` runs `scripts/setup-e2e-accounts.mjs`. It:
   - creates one e2e user and one admin in the **test** Firebase project through the Admin SDK, using the e2e env only;
   - updates only the `TEST_*` keys in `.env.e2e.local` and keeps everything else;
-  - refuses a `DATABASE_URL` whose host is not `localhost`, `127.0.0.1`, `::1` or `db`;
+  - creates their `users` rows (free tier, no Stripe links, reset on every run) and the admin's `AdminUser` row in the e2e database, and refuses a missing `DATABASE_URL` or one equal to the dev database;
   - never prints credentials.
 - Re-running `npm run test:setup` reuses the stored credentials and resets the Firebase passwords to match.
 - `npm run test:reset` (`scripts/reset-test-user.mjs`) is not part of the e2e flow and does not use the e2e env.

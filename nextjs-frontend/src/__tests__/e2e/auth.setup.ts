@@ -7,7 +7,8 @@ import { STORAGE_STATE, TEST_ADMIN, TEST_USER, loginViaUI } from './helpers/e2e-
 /**
  * Global setup for Playwright tests (KAN-113). Runs before every browser project.
  *
- * 1. Fails fast, naming the missing variables, when the e2e Firebase config (test project) is incomplete.
+ * 1. Fails fast, naming the missing variables, when the e2e Firebase config (test project) is incomplete or
+ *    DATABASE_URL is missing or is the dev database.
  * 2. Checks the app is reachable.
  * 3. Logs in through the UI ONCE per role and saves the session to playwright/.auth/<role>.json (gitignored).
  *    Specs reuse it with `test.use({ storageState: STORAGE_STATE.<role> })`, so they do not log in themselves.
@@ -17,6 +18,7 @@ import { STORAGE_STATE, TEST_ADMIN, TEST_USER, loginViaUI } from './helpers/e2e-
 
 setup('verify e2e environment', async ({ page }) => {
   e2eEnv.assertE2eFirebaseEnv(process.env, { requireAdmin: true });
+  e2eEnv.assertE2eDatabaseEnv(process.env);
 
   const response = await page.goto('/');
   if (!response || !response.ok()) {

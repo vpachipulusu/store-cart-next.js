@@ -2,7 +2,7 @@
  * e2e account helpers (KAN-113), shared by scripts/setup-e2e-accounts.mjs and the Playwright throwaway-user fixture.
  *
  * Every account is created in the Firebase TEST project through the Admin SDK, using the e2e env only
- * (scripts/e2e-env.cjs), and in the local Postgres. Only accounts whose email matches E2E_EMAIL can be touched, so a
+ * (scripts/e2e-env.cjs), and in the dedicated e2e Postgres database (DATABASE_URL from .env.e2e.local). Only accounts whose email matches E2E_EMAIL can be touched, so a
  * real user can never be reset or deleted. Nothing here prints a credential.
  */
 import { randomBytes } from 'node:crypto';
@@ -10,29 +10,21 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { cert, deleteApp, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { PrismaClient } from '@prisma/client';
+import e2eEnv from './e2e-env.cjs';
 
 /** user/admin: the shared role accounts. temp: throwaway accounts for state-changing tests, deleted afterwards. */
 export const E2E_EMAIL = /^e2e-(user|admin|temp)-[0-9a-f]{12}@example\.com$/;
 /** Marks the accounts for cleanup (KAN-131). */
 const E2E_CLAIMS = { e2e: true };
-const LOCAL_DB_HOSTS = new Set(['localhost', '127.0.0.1', '::1', 'db']);
 const E2E_ADMIN_APP_NAME = 'e2e-accounts';
 
 export const randomSuffix = () => randomBytes(6).toString('hex');
 export const randomPassword = () => randomBytes(24).toString('base64url');
 
-/** Throws unless DATABASE_URL points at a local database. */
-export function assertLocalDatabase(env) {
-  const url = env.DATABASE_URL;
-  const host = url ? new URL(url).hostname : '';
-  if (!LOCAL_DB_HOSTS.has(host)) {
-    throw new Error(`Refusing to run: DATABASE_URL must point at a local database, not "${host || 'unset'}".`);
-  }
-}
-
 /** Firebase Admin and Prisma clients for the e2e env. Call `close()` when done. */
 export function openE2eAccountClients(env) {
-  assertLocalDatabase(env);
+  // The e2e database is a dedicated one and never the dev database (throws without printing any URL).
+  e2eEnv.assertE2eDatabaseEnv(env);
   const app =
     getApps().find((existing) => existing.name === E2E_ADMIN_APP_NAME) ??
     initializeApp(
@@ -93,7 +85,17 @@ export async function ensureDbUser(prisma, firebaseUser, displayName) {
   });
   const user = await prisma.user.upsert({
     where: { firebaseUid: firebaseUser.uid },
-    update: { email: firebaseUser.email, emailVerified: true, subscriptionTier: 'free', subscriptionStatus: 'active' },
+    // Deterministic starting state: free tier, no Stripe links, whatever a previous run left behind.
+    update: {
+      email: firebaseUser.email,
+      emailVerified: true,
+      subscriptionTier: 'free',
+      subscriptionStatus: 'active',
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+      stripePriceId: null,
+      stripeCurrentPeriodEnd: null,
+    },
     create: {
       firebaseUid: firebaseUser.uid,
       email: firebaseUser.email,
