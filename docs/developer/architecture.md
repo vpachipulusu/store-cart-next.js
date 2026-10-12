@@ -26,7 +26,7 @@ The repo is still the boilerplate with the target not yet built:
 
 - **The frontend reaches the database itself.** Server actions, route handlers and admin pages use the Prisma client (`src/lib/db/client.ts`, schema in `prisma/schema.prisma`). Firebase Admin, Stripe and Resend are also called from the frontend.
 - **The backend is the unmodified template structure.** It has fastapi-users auth, an `Item` example model and routes, and fastapi-mail. The frontend does not call it yet.
-- **Root `vercel.json`** deploys one Vercel project with two services (ADR-011, proposed): `nextjs-frontend` is public, `fastapi_backend` is internal and reached through the `BACKEND_API_URL` binding. Migrations no longer run during the build.
+- **Root `vercel.json`** deploys one Vercel project with two services (ADR-011): `nextjs-frontend` is public, `fastapi_backend` is internal and reached through the `BACKEND_API_URL` binding. Migrations no longer run during the build.
 - **`app/database.py`** uses `NullPool`, which suits serverless.
 
 ### Current auth flow (`main`)
@@ -88,4 +88,4 @@ Rules:
 | [010](../adr/0010-accounts-and-payments-model.md) | Account structure, seller of record and platform revenue | D3, D4, D9 |
 | [011](../adr/0011-single-vercel-project-with-services.md) | One Vercel project with services | D10, D13, D14 |
 
-The ADRs are currently *Proposed*, awaiting product-owner sign-off on KAN-29. The architect's review fixes to ADR-001, ADR-003, ADR-004, ADR-005 and ADR-007 are merged.
+All eleven ADRs were accepted by the product owner on 2026-10-12 (KAN-29). ADR-005's one-database-per-store choice (D1) stays provisional until the KAN-115 spike, and the two-project part of ADR-002 is superseded by ADR-011. The architect's review fixes to ADR-001, ADR-003, ADR-004, ADR-005 and ADR-007 are merged.

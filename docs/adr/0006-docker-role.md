@@ -1,6 +1,6 @@
 # ADR-006: Docker for local development and CI only
 
-- **Status:** Proposed
+- **Status:** Accepted by the product owner, 2026-10-12
 - **Date:** 2026-10-11
 - **Plan decisions:** D20 (Docker Compose for local development)
 - **Jira:** KAN-29; carried out in KAN-26 and KAN-30

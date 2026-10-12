@@ -1,6 +1,6 @@
 # ADR-007: Rate limits keyed by user, organisation or store
 
-- **Status:** Proposed
+- **Status:** Accepted by the product owner, 2026-10-12
 - **Date:** 2026-10-11
 - **Plan decisions:** none (new decision required by KAN-29)
 - **Jira:** KAN-29; carried out in KAN-34
