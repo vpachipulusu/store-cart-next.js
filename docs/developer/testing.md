@@ -91,8 +91,8 @@ uv run ruff format --check .
 uv run mypy .
 ```
 
-- `uv run mypy .` reports existing errors (80 at the last verification). Do not add new ones.
-- A bare `uv run mypy` fails on `main`, because `mypy.ini` has `files = src/**/*.py`. After KAN-111 merges (PR #8), it reads `app, commands` and a bare `uv run mypy` works.
+- `uv run mypy .` reports existing errors (80 at the last verification; template code, KAN-30). Do not add new ones.
+- A bare `uv run mypy` also works: `mypy.ini` sets `files = app, commands`.
 
 ## OpenAPI check
 
@@ -107,7 +107,7 @@ CI is planned to fail when the generated client is stale (ADR-008, lands with KA
 
 ## Before you open a PR
 
-- Frontend: `npm run test:unit`, `npm run test:integration`, `npm run typecheck`, `npm run lint` (works after KAN-111) and `npm run build`.
+- Frontend: `npm run test:unit`, `npm run test:integration`, `npm run typecheck`, `npm run lint` and `npm run build`.
 - Frontend coverage: do not let it drop. The global 80% gate is not required until KAN-139 is decided.
 - Backend: `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .`, and `uv run mypy .` with no new errors.
 - Chromium e2e when the change is user-facing.

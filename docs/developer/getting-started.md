@@ -6,7 +6,7 @@
 
 | Tool | Version | Notes |
 |---|---|---|
-| Node.js | 22 | Team standard. `nextjs-frontend/package.json` still declares `engines.node >=20`; see [known-issues](known-issues.md). |
+| Node.js | 22 | Team standard. `nextjs-frontend/package.json` declares `engines.node >=22`. |
 | npm | 10 or later | npm only. Do not use pnpm or yarn. |
 | Python | 3.12 | Required by `fastapi_backend/pyproject.toml` (`>=3.12,<3.13`). |
 | uv | current | Manages the backend environment and dependencies. |
@@ -82,7 +82,8 @@ npm run build
 ```
 
 - The build needs the `NEXT_PUBLIC_*` client config in `.env`.
-- Until KAN-136 lands, it also needs `FIREBASE_ADMIN_*`, because `firebase-admin` initialises when its module is imported (`src/lib/firebase/admin.ts`).
+- Until KAN-140 lands, it also needs `DATABASE_URL`.
+- It does not need `FIREBASE_ADMIN_*`. Since KAN-136, `firebase-admin` initialises on first use (`src/lib/firebase/admin.ts`).
 
 ### Run the frontend
 
@@ -125,6 +126,16 @@ uv run python -m commands.generate_openapi_schema
 ```
 
 It writes to the path in `OPENAPI_OUTPUT_FILE`.
+
+## Pre-commit hooks
+
+The repository root has a `.pre-commit-config.yaml` (KAN-111). It runs ruff, ruff format and mypy on `fastapi_backend/`, and ESLint, Prettier and `tsc --noEmit` on `nextjs-frontend/`. Install it once per clone, after both apps are set up:
+
+```bash
+uvx pre-commit install
+```
+
+The root [README](../../README.md#-pre-commit-hooks) has the details. There is no CI yet; it lands with KAN-27.
 
 ## Running both apps
 
