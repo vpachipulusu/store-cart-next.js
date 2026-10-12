@@ -57,9 +57,7 @@ test.describe('Pricing Page', () => {
       const enterpriseCard = page
         .locator('[class*="card"]')
         .filter({ has: page.getByRole('heading', { name: 'Enterprise', exact: true }) });
-      await expect(
-        enterpriseCard.getByText(PRICE_AMOUNT).first()
-      ).toBeVisible();
+      await expect(enterpriseCard.getByText(PRICE_AMOUNT).first()).toBeVisible();
     });
 
     test('should display tier descriptions', async ({ page }) => {
@@ -289,9 +287,7 @@ test.describe('Pricing Page', () => {
       await page.waitForTimeout(500);
 
       // Get all price elements
-      const monthlyPrices = await page
-        .getByText(MONTHLY_PRICE)
-        .all();
+      const monthlyPrices = await page.getByText(MONTHLY_PRICE).all();
       const annualTexts = await page.getByText(/billed annually/i).all();
 
       // Should have monthly breakdown prices displayed
