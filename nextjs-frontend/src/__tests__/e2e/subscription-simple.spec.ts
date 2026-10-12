@@ -31,11 +31,7 @@ test.describe('Subscription Upgrade - Happy Path', () => {
     'Skipped: TEST_USER_EMAIL or STRIPE not configured'
   );
 
-  test('should successfully upgrade from free to pro tier', async ({
-    page,
-    context,
-    throwawayAccount,
-  }) => {
+  test('should successfully upgrade from free to pro tier', async ({ page, throwawayAccount }) => {
     // Step 1: Login as a fresh free-tier user (throwaway: this test changes the plan)
     await loginAsThrowawayAccount(page, throwawayAccount);
 
@@ -43,7 +39,9 @@ test.describe('Subscription Upgrade - Happy Path', () => {
     await navigateAndWait(page, '/pricing');
 
     // Step 3: Find and click Pro tier upgrade button
-    const proCard = page.locator('[class*="card"]').filter({ hasText: /^Pro$/i });
+    const proCard = page
+      .locator('[class*="card"]')
+      .filter({ has: page.getByRole('heading', { name: 'Pro', exact: true }) });
     const upgradeButton = proCard.getByRole('button', { name: /upgrade to pro/i });
 
     const buttonExists = await upgradeButton.count().then((count) => count > 0);
@@ -53,11 +51,10 @@ test.describe('Subscription Upgrade - Happy Path', () => {
       return;
     }
 
-    // Step 4: Click upgrade and handle Stripe checkout popup
-    const checkoutPagePromise = context.waitForEvent('page');
+    // Step 4: Click upgrade: the app sends this tab to Stripe Checkout (window.location.href), not a new tab.
     await upgradeButton.click();
-    const checkoutPage = await checkoutPagePromise;
-    await checkoutPage.waitForLoadState();
+    await page.waitForURL(/checkout\.stripe\.com/);
+    const checkoutPage = page;
 
     // Verify on Stripe checkout
     expect(checkoutPage.url()).toContain('checkout.stripe.com');

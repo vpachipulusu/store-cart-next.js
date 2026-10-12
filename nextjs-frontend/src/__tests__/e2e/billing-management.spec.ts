@@ -391,7 +391,6 @@ test.describe('Pricing Page - Checkout with Billing Period', () => {
 
   test('should use selected billing period in checkout (yearly)', async ({
     page,
-    context,
     throwawayAccount,
   }) => {
     await loginAsThrowawayAccount(page, throwawayAccount);
@@ -413,11 +412,10 @@ test.describe('Pricing Page - Checkout with Billing Period', () => {
       return;
     }
 
-    // Click upgrade and handle Stripe checkout
-    const checkoutPagePromise = context.waitForEvent('page');
+    // Click upgrade: the app sends this tab to Stripe Checkout (window.location.href), not a new tab.
     await upgradeButton.click();
-    const checkoutPage = await checkoutPagePromise;
-    await checkoutPage.waitForLoadState();
+    await page.waitForURL(/checkout\.stripe\.com/);
+    const checkoutPage = page;
 
     // Verify we're on Stripe checkout
     expect(checkoutPage.url()).toContain('checkout.stripe.com');

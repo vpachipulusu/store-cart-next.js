@@ -60,42 +60,43 @@ test.describe('Admin Dashboard', () => {
       const sidebar = page.locator('aside');
       await expect(sidebar).toBeVisible();
 
-      await expect(page.getByRole('link', { name: /^dashboard$/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: /^users$/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: /^subscriptions$/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: /^analytics$/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: /^seo$/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: /^settings$/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: /^audit logs$/i })).toBeVisible();
+      await expect(sidebar.getByRole('link', { name: /^dashboard$/i })).toBeVisible();
+      await expect(sidebar.getByRole('link', { name: /^users$/i })).toBeVisible();
+      await expect(sidebar.getByRole('link', { name: /^subscriptions$/i })).toBeVisible();
+      await expect(sidebar.getByRole('link', { name: /^analytics$/i })).toBeVisible();
+      await expect(sidebar.getByRole('link', { name: /^seo$/i })).toBeVisible();
+      await expect(sidebar.getByRole('link', { name: /^settings$/i })).toBeVisible();
+      await expect(sidebar.getByRole('link', { name: /^audit logs$/i })).toBeVisible();
     });
 
     test('should navigate to all admin sections via sidebar', async ({ page }) => {
+      const sidebar = page.locator('aside');
       // Users
-      await page.getByRole('link', { name: /^users$/i }).click();
+      await sidebar.getByRole('link', { name: /^users$/i }).click();
       await expect(page).toHaveURL(/\/admin\/users/);
 
       // Subscriptions
-      await page.getByRole('link', { name: /^subscriptions$/i }).click();
+      await sidebar.getByRole('link', { name: /^subscriptions$/i }).click();
       await expect(page).toHaveURL(/\/admin\/subscriptions/);
 
       // Analytics
-      await page.getByRole('link', { name: /^analytics$/i }).click();
+      await sidebar.getByRole('link', { name: /^analytics$/i }).click();
       await expect(page).toHaveURL(/\/admin\/analytics/);
 
       // SEO
-      await page.getByRole('link', { name: /^seo$/i }).click();
+      await sidebar.getByRole('link', { name: /^seo$/i }).click();
       await expect(page).toHaveURL(/\/admin\/seo/);
 
       // Settings
-      await page.getByRole('link', { name: /^settings$/i }).click();
+      await sidebar.getByRole('link', { name: /^settings$/i }).click();
       await expect(page).toHaveURL(/\/admin\/settings/);
 
       // Audit Logs
-      await page.getByRole('link', { name: /^audit logs$/i }).click();
+      await sidebar.getByRole('link', { name: /^audit logs$/i }).click();
       await expect(page).toHaveURL(/\/admin\/audit-logs/);
 
       // Back to Dashboard
-      await page.getByRole('link', { name: /^dashboard$/i }).click();
+      await sidebar.getByRole('link', { name: /^dashboard$/i }).click();
       await expect(page).toHaveURL(/\/admin$/);
     });
   });
@@ -126,7 +127,8 @@ test.describe('Admin Dashboard', () => {
 
     test('should display MRR with dollar sign', async ({ page }) => {
       const mrrCard = page.locator('[class*="card"]').filter({ hasText: 'MRR' });
-      await expect(mrrCard.getByText(/\$/)).toBeVisible();
+      // MRR is shown in the Stripe price's currency (GBP in the e2e Stripe account).
+      await expect(mrrCard.getByText(/[$£€]/)).toBeVisible();
       await expect(mrrCard.getByText(/monthly recurring revenue/i)).toBeVisible();
     });
 
@@ -154,10 +156,12 @@ test.describe('Admin Dashboard', () => {
     test('should display quick actions section', async ({ page }) => {
       await expect(page.getByText('Quick Actions')).toBeVisible();
 
-      await expect(page.getByRole('link', { name: /manage users/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: /subscriptions/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: /analytics/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: /settings/i })).toBeVisible();
+      // Quick action links are in the main area (the sidebar repeats some of the names).
+      const main = page.getByRole('main');
+      await expect(main.getByRole('link', { name: /manage users/i })).toBeVisible();
+      await expect(main.getByRole('link', { name: /subscriptions/i })).toBeVisible();
+      await expect(main.getByRole('link', { name: /analytics/i })).toBeVisible();
+      await expect(main.getByRole('link', { name: /settings/i })).toBeVisible();
     });
 
     test('should navigate to users page from "View All Users"', async ({ page }) => {
@@ -205,7 +209,7 @@ test.describe('Admin Dashboard', () => {
       const table = page.locator('table');
       await expect(table).toBeVisible();
 
-      await expect(table.getByText(/^user$/i)).toBeVisible();
+      await expect(table.getByRole('columnheader', { name: /^user$/i })).toBeVisible();
       await expect(table.getByText(/^email$/i)).toBeVisible();
       await expect(table.getByText(/^status$/i)).toBeVisible();
       await expect(table.getByText(/^subscription$/i)).toBeVisible();
@@ -291,10 +295,10 @@ test.describe('Admin Dashboard', () => {
 
     test('should display pricing info in metric cards', async ({ page }) => {
       const proCard = page.locator('[class*="card"]').filter({ hasText: 'Pro Plans' });
-      await expect(proCard.getByText(/\$\d+\/month/i)).toBeVisible();
+      await expect(proCard.getByText(/[$£€]\d+\/month/i)).toBeVisible();
 
       const enterpriseCard = page.locator('[class*="card"]').filter({ hasText: 'Enterprise Plans' });
-      await expect(enterpriseCard.getByText(/\$\d+\/month/i)).toBeVisible();
+      await expect(enterpriseCard.getByText(/[$£€]\d+\/month/i)).toBeVisible();
     });
 
     test('should display recent subscriptions table', async ({ page }) => {
@@ -340,7 +344,7 @@ test.describe('Admin Dashboard', () => {
       await expect(page.getByText('New Users')).toBeVisible();
       await expect(page.getByText('Active Subscriptions')).toBeVisible();
       await expect(page.getByText('MRR')).toBeVisible();
-      await expect(page.getByText('Total Logins')).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Total Logins', exact: true })).toBeVisible();
     });
 
     test('should display growth percentage indicator', async ({ page }) => {
@@ -413,7 +417,7 @@ test.describe('Admin Dashboard', () => {
     test('should switch to redirects tab', async ({ page }) => {
       await page.getByRole('tab', { name: /redirects/i }).click();
 
-      await expect(page.getByText('URL Redirects')).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'URL Redirects' })).toBeVisible();
       await expect(page.getByText(/manage 301\/302 redirects/i)).toBeVisible();
     });
 
@@ -506,7 +510,7 @@ test.describe('Admin Dashboard', () => {
     test('should switch to email templates tab', async ({ page }) => {
       await page.getByRole('tab', { name: /email/i }).click();
 
-      await expect(page.getByText('Email Templates')).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Email Templates' })).toBeVisible();
       await expect(page.getByText(/manage transactional email/i)).toBeVisible();
     });
 
@@ -517,12 +521,19 @@ test.describe('Admin Dashboard', () => {
       await expect(page.getByText(/manage subscription plans/i)).toBeVisible();
 
       // Pro plan fields
+      // Each plan is a card with its own price field (labelled "Monthly Price (<currency>)").
       await expect(page.getByText(/pro plan/i)).toBeVisible();
-      await expect(page.getByLabel(/pro.*price/i).first()).toBeVisible();
+      const proPlanCard = page
+        .locator('[class*="card"]')
+        .filter({ has: page.getByRole('heading', { name: /^pro plan$/i }) });
+      await expect(proPlanCard.getByLabel(/price/i).first()).toBeVisible();
 
       // Enterprise plan fields
       await expect(page.getByText(/enterprise plan/i)).toBeVisible();
-      await expect(page.getByLabel(/enterprise.*price/i).first()).toBeVisible();
+      const enterprisePlanCard = page
+        .locator('[class*="card"]')
+        .filter({ has: page.getByRole('heading', { name: /^enterprise plan$/i }) });
+      await expect(enterprisePlanCard.getByLabel(/price/i).first()).toBeVisible();
 
       // Save button
       await expect(page.getByRole('button', { name: /save pricing/i })).toBeVisible();

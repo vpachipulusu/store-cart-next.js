@@ -44,16 +44,17 @@ export async function signInWithSavedSession(context: BrowserContext, role: Save
 const HYDRATION_ATTEMPTS = 3;
 
 /**
- * Wait until React has hydrated every form on the page, so a click runs the React handler. Before hydration a click
- * would submit the form natively, as a GET with the field values (including passwords) in the URL. React marks each
- * hydrated DOM node with a `__reactProps$<id>` property. Retries if the page navigates while waiting.
+ * Wait until React has hydrated every form and button on the page, so a click runs the React handler. Before
+ * hydration a form click would submit natively, as a GET with the field values (including passwords) in the URL, and
+ * a menu button would do nothing. React marks each hydrated DOM node with a `__reactProps$<id>` property. Retries if
+ * the page navigates while waiting.
  */
 export async function waitForHydration(page: Page): Promise<void> {
   for (let attempt = 1; ; attempt += 1) {
     try {
       await page.waitForFunction(() =>
-        Array.from(document.querySelectorAll('form')).every((form) =>
-          Object.keys(form).some((key) => key.startsWith('__reactProps$'))
+        Array.from(document.querySelectorAll('form, button')).every((element) =>
+          Object.keys(element).some((key) => key.startsWith('__reactProps$'))
         )
       );
       return;
@@ -188,6 +189,9 @@ export async function expectToast(page: Page, text: string | RegExp): Promise<vo
 export async function waitForPageReady(page: Page): Promise<void> {
   // Not 'networkidle': Firebase, Stripe and Sentry keep connections open, so it can time out on its own.
   await page.waitForLoadState('load');
+  // src/app/loading.tsx is the Suspense fallback for every route. React reveals streamed content shortly after the
+  // load event, so wait until the fallback ("Loading") is gone before tests read the page without retrying.
+  await expect(page.getByText('Loading', { exact: true })).toHaveCount(0);
   await waitForHydration(page);
 }
 
