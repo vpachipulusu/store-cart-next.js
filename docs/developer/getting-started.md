@@ -58,7 +58,7 @@ npm run typecheck
 cp .env.example .env
 ```
 
-Fill in the values from the team's secret store. Never commit `.env`. The list below gives names only; `nextjs-frontend/.env.example` is the reference.
+Fill in the values from the team's secret store. Never commit `.env`. The list below gives names only. `nextjs-frontend/.env.example` is the reference for the variables `main` uses today; rows marked "not yet in `.env.example`" are planned.
 
 | Group | Variable names | Notes |
 |---|---|---|
@@ -70,8 +70,8 @@ Fill in the values from the team's secret store. Never commit `.env`. The list b
 | Auth | `NEXTAUTH_SECRET` | Server-only. |
 | App | `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_APP_NAME`, `APP_ID`, `APP_NAME`, `NODE_ENV`, `LOG_LEVEL` | |
 | Monitoring | `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_AUTH_TOKEN` | The Sentry token is optional and used at build time only. |
-| FastAPI base URL *(lands with KAN-113)* | `BACKEND_API_URL` | Read by `npm run foundation:check`. The server-only API client (KAN-33) reads the same name. |
-| FastAPI service key | `BACKEND_INTERNAL_KEY` | Server-only. Sent to FastAPI as the `X-Internal-Key` header. |
+| FastAPI base URL *(lands with KAN-113)* | `BACKEND_API_URL` | Not yet in `.env.example`; lands with the FastAPI integration work. Read by `npm run foundation:check`. The server-only API client (KAN-33) reads the same name. |
+| FastAPI service key | `BACKEND_INTERNAL_KEY` | Not yet in `.env.example`; lands with the FastAPI integration work. Server-only. Will be sent to FastAPI as the `X-Internal-Key` header (ADR-003). |
 | E2E test accounts *(lands with KAN-113)* | `TEST_USER_EMAIL`, `TEST_USER_PASSWORD`, `TEST_ADMIN_EMAIL`, `TEST_ADMIN_PASSWORD` | Written to `.env.e2e.local` by `npm run test:setup`. Do not edit by hand. |
 
 ### Build the frontend
