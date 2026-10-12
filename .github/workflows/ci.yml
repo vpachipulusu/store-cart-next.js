@@ -16,6 +16,9 @@
 #                          package files, vercel.json, and the OpenAPI schema
 #                          nextjs-frontend/openapi.json, which links the apps)
 #   manual dispatch     -> both
+#
+# E2E_* secrets must be secrets of the GitHub ENVIRONMENT `e2e-test`, not
+# repository secrets: the e2e job is the only one that is bound to that environment.
 name: CI
 
 on:
@@ -90,6 +93,7 @@ jobs:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: '0.8.12'
+          cache-suffix: pre-commit
           enable-cache: true
           cache-dependency-glob: fastapi_backend/uv.lock
 
@@ -142,7 +146,8 @@ jobs:
     needs: changes
     if: >-
       needs.changes.outputs.frontend == 'true' && vars.E2E_ENABLED == 'true' &&
-      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+      github.actor != 'dependabot[bot]'
     uses: ./.github/workflows/e2e.yml
 
   gate:

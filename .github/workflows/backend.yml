@@ -66,8 +66,11 @@ jobs:
       # the same PR. At 0, replace this step with a plain `uv run mypy`.
       - name: mypy (error count must equal the baseline)
         run: |
-          baseline=$(tr -dc '0-9' < mypy-baseline.txt)
-          : "${baseline:?mypy-baseline.txt is empty or not a number}"
+          if ! grep -qxE '[0-9]+' mypy-baseline.txt; then
+            echo "::error::mypy-baseline.txt must contain a single non-negative integer."
+            exit 1
+          fi
+          baseline=$(grep -xE '[0-9]+' mypy-baseline.txt | head -n 1)
           set +e
           uv run mypy > mypy-report.txt 2>&1
           rc=$?
