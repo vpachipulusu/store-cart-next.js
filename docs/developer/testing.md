@@ -14,7 +14,7 @@ npm run test:coverage      # enforces the coverage ratchet (see below)
 ```
 
 - Config: `vitest.config.ts`. Environment is jsdom, setup file is `vitest.setup.ts`.
-- **Coverage ratchet (KAN-27, PO decision on KAN-139).** The thresholds in `vitest.config.ts` are the measured baseline (2026-10-12: 5.07% lines and statements, 6.33% functions, 29.87% branches). CI fails if coverage drops below them. Raise them towards 80% as tests are added and never lower them. To set them to the current values in one step, run `COVERAGE_RATCHET=1 npm run test:coverage` and commit the rewritten config.
+- **Coverage ratchet (KAN-27, PO decision on KAN-139).** The thresholds in `vitest.config.ts` are the measured baseline (2026-10-12: 5.07% lines and statements, 6.33% functions, 29.87% branches). CI fails if coverage drops below them. Raise them towards 80% as tests are added and never lower them. To set them to the current values in one step, run `COVERAGE_RATCHET=1 npm run test:coverage`, then run `npx prettier --write vitest.config.ts` (Vitest rewrites the file without Prettier formatting) and commit the config.
 - Coverage counts `src/lib/**`, `src/components/**` and `src/app/actions/**`.
 - Vitest excludes `e2e/` and `*.spec.ts`.
 - MSW is available for mocking HTTP.
@@ -51,7 +51,8 @@ npm run test:all                              # Vitest and Playwright together
   - never prints credentials.
 - Re-running `npm run test:setup` reuses the stored credentials and resets the Firebase passwords to match.
 - `npm run test:reset` resets the test user. The script exists on `main`. Its behaviour with the new accounts has not been reviewed.
-- The accounts live in the Firebase project that production will use until KAN-131 moves them. See [security.md](security.md).
+- Local runs create the accounts in whichever Firebase project your `.env` points at; see [security.md](security.md).
+- CI e2e uses only the dedicated Firebase test project `storecart-test` (GitHub environment `e2e-test`) and Stripe test-mode keys. It must never use the development or production projects: the e2e job refuses live Stripe keys and refuses to run when `E2E_FIREBASE_PROJECT_ID` equals the repository variable `PROD_FIREBASE_PROJECT_ID`.
 
 ### Assertion rule
 
@@ -91,7 +92,7 @@ uv run mypy
 ```
 
 - A bare `uv run mypy` checks `app` and `commands` (`mypy.ini` sets `files = app, commands`), the same scope as the pre-commit hook.
-- It reports existing errors: 31 on 2026-10-12, from template code (KAN-30). Do not add new ones. CI fails when the count exceeds `fastapi_backend/mypy-baseline.txt`; lower that number when you fix errors.
+- It reports existing errors: 31 on 2026-10-12, from template code (KAN-30). Do not add new ones. `fastapi_backend/mypy-baseline.txt` holds the expected count and CI fails when the count differs from it: higher means new errors, lower means you must lower the baseline to the new count in the same PR. CI also fails if mypy crashes, exits 1 without reporting errors, or the baseline file is empty or not a number.
 - Coverage: `uv run pytest --cov`. `fail_under` in `[tool.coverage.report]` of `pyproject.toml` is the backend ratchet (baseline 84.13% lines of `app` and `commands` on 2026-10-12): raise it, never lower it.
 - Frontend lint: `npm run lint` runs `eslint .` with the flat config `eslint.config.mjs` (fixed in KAN-111).
 
@@ -119,7 +120,7 @@ CI runs the pre-commit `openapi-schema-check` hook on changed backend files. Fai
 | E2E (`e2e.yml`) | frontend changed and repo variable `E2E_ENABLED=true` | Chromium Playwright, secrets from environment `e2e-test`. Not in the gate until KAN-113 |
 | **CI gate** | always | passes when every job above (except E2E) succeeded or was skipped |
 
-Shared config is `.github/**`, `.pre-commit-config.yaml`, root `package.json` / `package-lock.json` and `vercel.json`; it triggers both apps. Branch protection requires only **CI gate**.
+Shared config is `.github/**`, `.pre-commit-config.yaml`, root `package.json` / `package-lock.json`, `vercel.json` and the OpenAPI schema `nextjs-frontend/openapi.json`; it triggers both apps. A manual run (`workflow_dispatch`) runs both apps. The E2E job also runs only for pull requests from this repository, not from forks. Actions are SHA-pinned and kept current by Dependabot (`.github/dependabot.yml`, weekly). Branch protection requires only **CI gate**.
 
 ## Before you open a PR
 

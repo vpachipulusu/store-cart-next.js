@@ -12,8 +12,10 @@
 # Path rules (KAN-27 AC1):
 #   nextjs-frontend/**  -> frontend
 #   fastapi_backend/**  -> backend
-#   shared root config  -> both (.github/**, .pre-commit-config.yaml, root
-#                          package files, vercel.json)
+#   shared config       -> both (.github/**, .pre-commit-config.yaml, root
+#                          package files, vercel.json, and the OpenAPI schema
+#                          nextjs-frontend/openapi.json, which links the apps)
+#   manual dispatch     -> both
 name: CI
 
 on:
@@ -27,7 +29,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -39,8 +41,9 @@ jobs:
       contents: read
       pull-requests: read # dorny/paths-filter lists PR files through the API
     outputs:
-      frontend: ${{ steps.filter.outputs.frontend }}
-      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.frontend }}
+      backend: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.backend }}
+      openapi: ${{ steps.filter.outputs.openapi }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -56,6 +59,9 @@ jobs:
               - 'package.json'
               - 'package-lock.json'
               - 'vercel.json'
+              - 'nextjs-frontend/openapi.json'
+            openapi:
+              - 'nextjs-frontend/openapi.json'
             frontend:
               - *shared
               - 'nextjs-frontend/**'
@@ -74,6 +80,12 @@ jobs:
         with:
           fetch-depth: 0 # --from-ref needs the base branch history
           persist-credentials: false
+
+      - name: Cache pre-commit environments
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
 
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
@@ -95,8 +107,9 @@ jobs:
           npm ci --no-audit --no-fund
           npm run db:generate
 
-      # The backend hooks (mypy, requirements sync, OpenAPI check) use `uv run`.
-      - if: needs.changes.outputs.backend == 'true'
+      # The backend hooks (mypy, requirements sync, OpenAPI check) use `uv run`;
+      # the OpenAPI check also runs when only openapi.json changed.
+      - if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi == 'true'
         name: Install backend dependencies
         working-directory: fastapi_backend
         run: uv sync --frozen
@@ -127,7 +140,9 @@ jobs:
   e2e:
     name: E2E
     needs: changes
-    if: needs.changes.outputs.frontend == 'true' && vars.E2E_ENABLED == 'true'
+    if: >-
+      needs.changes.outputs.frontend == 'true' && vars.E2E_ENABLED == 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     uses: ./.github/workflows/e2e.yml
 
   gate:

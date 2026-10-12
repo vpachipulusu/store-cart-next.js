@@ -5,8 +5,11 @@
 # and it is NOT part of the "CI gate" job yet.
 #
 # Secrets come from the GitHub environment `e2e-test`, which must hold TEST
-# credentials only (a Firebase test project and Stripe test-mode keys), never
-# production values. Secrets are referenced by name only.
+# credentials only: the dedicated Firebase test project `storecart-test` and
+# Stripe test-mode keys. It must never use the development or production
+# Firebase projects. Secrets are referenced by name only. The two sensitive
+# ones (Firebase Admin private key, Stripe secret key) are exposed only to the
+# steps that need them, not to `npm ci` or the Playwright install.
 name: E2E
 
 on:
@@ -45,7 +48,7 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/storecart_e2e?schema=public
       NEXT_PUBLIC_APP_URL: http://localhost:3000
       NEXT_PUBLIC_APP_NAME: StoreCart
-      # Firebase TEST project (environment e2e-test).
+      # Firebase test project `storecart-test` (environment e2e-test).
       NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.E2E_FIREBASE_API_KEY }}
       NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.E2E_FIREBASE_AUTH_DOMAIN }}
       NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.E2E_FIREBASE_PROJECT_ID }}
@@ -54,10 +57,8 @@ jobs:
       NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.E2E_FIREBASE_APP_ID }}
       FIREBASE_ADMIN_PROJECT_ID: ${{ secrets.E2E_FIREBASE_ADMIN_PROJECT_ID }}
       FIREBASE_ADMIN_CLIENT_EMAIL: ${{ secrets.E2E_FIREBASE_ADMIN_CLIENT_EMAIL }}
-      FIREBASE_ADMIN_PRIVATE_KEY: ${{ secrets.E2E_FIREBASE_ADMIN_PRIVATE_KEY }}
-      # Stripe TEST mode keys (environment e2e-test).
+      # Stripe TEST mode publishable key (environment e2e-test).
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.E2E_STRIPE_PUBLISHABLE_KEY }}
-      STRIPE_SECRET_KEY: ${{ secrets.E2E_STRIPE_SECRET_KEY }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -69,11 +70,34 @@ jobs:
           cache: npm
           cache-dependency-path: nextjs-frontend/package-lock.json
 
-      - name: Refuse live Stripe keys
+      - name: Check test-only configuration
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.E2E_STRIPE_SECRET_KEY }}
+          FIREBASE_ADMIN_PRIVATE_KEY: ${{ secrets.E2E_FIREBASE_ADMIN_PRIVATE_KEY }}
+          PROD_FIREBASE_PROJECT_ID: ${{ vars.PROD_FIREBASE_PROJECT_ID }}
         run: |
+          missing=""
+          for name in NEXT_PUBLIC_FIREBASE_API_KEY NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN             NEXT_PUBLIC_FIREBASE_PROJECT_ID NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET             NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID NEXT_PUBLIC_FIREBASE_APP_ID             FIREBASE_ADMIN_PROJECT_ID FIREBASE_ADMIN_CLIENT_EMAIL FIREBASE_ADMIN_PRIVATE_KEY             NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY STRIPE_SECRET_KEY; do
+            if [ -z "$(printenv "$name")" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::These values are empty in the e2e-test environment (E2E_* secrets):${missing}"
+            exit 1
+          fi
           case "${STRIPE_SECRET_KEY}" in
-            sk_live_*|rk_live_*) echo "::error::e2e-test holds a live Stripe key. Use test-mode keys only."; exit 1 ;;
+            sk_live_*|rk_live_*) echo "::error::e2e-test holds a live Stripe secret key. Use test-mode keys only."; exit 1 ;;
           esac
+          case "${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}" in
+            pk_live_*) echo "::error::e2e-test holds a live Stripe publishable key. Use test-mode keys only."; exit 1 ;;
+          esac
+          if [ -n "${PROD_FIREBASE_PROJECT_ID}" ] && [ "${NEXT_PUBLIC_FIREBASE_PROJECT_ID}" = "${PROD_FIREBASE_PROJECT_ID}" ]; then
+            echo "::error::E2E_FIREBASE_PROJECT_ID equals PROD_FIREBASE_PROJECT_ID. e2e must use the dedicated test project, never production."
+            exit 1
+          fi
+          if [ "${FIREBASE_ADMIN_PROJECT_ID}" != "${NEXT_PUBLIC_FIREBASE_PROJECT_ID}" ]; then
+            echo "::error::Firebase Admin and client project IDs differ."
+            exit 1
+          fi
 
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
@@ -88,9 +112,15 @@ jobs:
 
       # After KAN-113 this creates random e2e accounts in the Firebase test project.
       - name: Create test accounts
+        env:
+          FIREBASE_ADMIN_PRIVATE_KEY: ${{ secrets.E2E_FIREBASE_ADMIN_PRIVATE_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.E2E_STRIPE_SECRET_KEY }}
         run: npm run test:setup
 
       - name: Run Chromium e2e
+        env:
+          FIREBASE_ADMIN_PRIVATE_KEY: ${{ secrets.E2E_FIREBASE_ADMIN_PRIVATE_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.E2E_STRIPE_SECRET_KEY }}
         run: npx playwright test --project=chromium
 
       - name: Upload Playwright report

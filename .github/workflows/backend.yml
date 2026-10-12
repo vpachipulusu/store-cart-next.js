@@ -60,26 +60,37 @@ jobs:
       - name: Ruff format
         run: uv run ruff format --check .
 
-      # mypy has known errors in template code (KAN-30). This step is blocking
-      # against a committed baseline: it fails only if the error count goes UP.
-      # Lower fastapi_backend/mypy-baseline.txt when you fix errors; at 0, replace
-      # this step with a plain `uv run mypy`.
-      - name: mypy (no new errors)
+      # mypy has known errors in template code (KAN-30). The committed count in
+      # fastapi_backend/mypy-baseline.txt is a ratchet: this step fails if the
+      # error count goes UP or DOWN. When you fix errors, lower the baseline in
+      # the same PR. At 0, replace this step with a plain `uv run mypy`.
+      - name: mypy (error count must equal the baseline)
         run: |
           baseline=$(tr -dc '0-9' < mypy-baseline.txt)
+          : "${baseline:?mypy-baseline.txt is empty or not a number}"
           set +e
           uv run mypy > mypy-report.txt 2>&1
+          rc=$?
           set -e
           cat mypy-report.txt
           count=$(grep -c ': error:' mypy-report.txt || true)
-          echo "mypy errors: ${count} (baseline ${baseline})"
-          echo "### mypy: ${count} errors (baseline ${baseline})" >> "$GITHUB_STEP_SUMMARY"
+          echo "mypy exit code ${rc}, errors ${count}, baseline ${baseline}"
+          echo "### mypy: ${count} errors (baseline ${baseline}, exit code ${rc})" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$rc" -gt 1 ]; then
+            echo "::error::mypy did not complete (exit code ${rc}); the error count cannot be trusted."
+            exit 1
+          fi
+          if [ "$rc" -eq 1 ] && [ "$count" -eq 0 ]; then
+            echo "::error::mypy exited 1 but reported no errors; its output could not be parsed."
+            exit 1
+          fi
           if [ "$count" -gt "$baseline" ]; then
             echo "::error::mypy reports ${count} errors, more than the baseline of ${baseline}. Fix the new errors."
             exit 1
           fi
           if [ "$count" -lt "$baseline" ]; then
-            echo "::notice::mypy errors fell to ${count}. Lower fastapi_backend/mypy-baseline.txt to ${count}."
+            echo "::error::mypy errors fell to ${count}: lower mypy-baseline.txt to ${count}."
+            exit 1
           fi
 
       # fail_under in pyproject.toml ([tool.coverage.report]) is the coverage

@@ -33,6 +33,7 @@ dev = [
 
 [tool.uv]
 package = false
+required-version = ">=0.8.12"
 
 # Coverage ratchet (KAN-27, PO decision on KAN-139). `uv run pytest --cov` fails
 # when line coverage of app/ and commands/ is below fail_under. fail_under is the
