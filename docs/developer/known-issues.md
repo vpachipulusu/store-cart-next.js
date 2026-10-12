@@ -6,6 +6,7 @@ Items are listed by area. Each one is either tracked by a Jira key or marked as 
 
 ## Tooling
 
+- **`npm run test:integration` has no tests or folder.** KAN-146 removed the only placeholder, so the script finds nothing. Add the first real integration test, or drop the script. Untracked.
 - **`npm run db:seed` points at a missing file.** It runs `tsx prisma/seed.ts`, and `nextjs-frontend/prisma/` has only `schema.prisma`. Untracked.
 - **`npm run build` needs `DATABASE_URL`.** KAN-140. It no longer needs `FIREBASE_ADMIN_*` (fixed in KAN-136).
 - **ESLint works.** `npm run lint` runs `eslint .` with the flat config `eslint.config.mjs` (fixed in KAN-111).
@@ -30,7 +31,7 @@ Items are listed by area. Each one is either tracked by a Jira key or marked as 
 ## Docs drift
 
 - **`.claude/CLAUDE.md` names differ from `.env.example`.** CLAUDE.md lists `FIREBASE_PROJECT_ID` and `STRIPE_PRICE_ID_PRO_MONTHLY`. The real names are `FIREBASE_ADMIN_PROJECT_ID` and `STRIPE_PRICE_ID_PRO`. Use `.env.example` as the reference. Untracked.
-- **Parts of the root `README.md` are from the old boilerplate.** Its Quick Start describes the Prisma-based setup, and it links `GUIDE.md`, which is in `nextjs-frontend/` and is also outdated. Do not follow those parts; use [getting-started.md](getting-started.md). The README's pre-commit section is current. Untracked.
+- **Parts of the root `README.md` are from the old boilerplate.** Its Quick Start describes the Prisma-based setup, and it linked a `GUIDE.md` that KAN-146 removed (its accurate parts are now in these pages). Do not follow the outdated parts; use [getting-started.md](getting-started.md). The README's pre-commit section is current. Untracked.
 
 ## Open questions
 
@@ -47,7 +48,7 @@ Open bug tickets from the KAN-113 parity inventory (council triage, 2026-10-11).
 - KAN-127: open redirects in the checkout and billing-portal return URLs (confirmed).
 - KAN-128: the Stripe webhook acknowledges failed events and is not idempotent (confirmed).
 - KAN-129: raw error messages, open CORS and no real rate limiting in auth paths (partial: raw errors and missing rate limiting confirmed; open CORS not reproducible).
-- KAN-130: unauthenticated `/api/test-logging` route (confirmed; delete).
+- KAN-130: unauthenticated `/api/test-logging` route (confirmed; deleted in KAN-146).
 - KAN-131: move the e2e test accounts to a separate Firebase project and delete them before launch.
 - KAN-136: `firebase-admin` initialised at import, so `npm run build` needed `FIREBASE_ADMIN_*` (fixed; it now initialises on first use).
 - KAN-137: the `src/proxy.ts` API gate only checks that some Bearer header or `session` cookie is present (any value passes), so every `/api/*` handler must verify the session itself; also a logout CSRF via `GET /api/auth/clear-session` and a spoofable `x-forwarded-for` IP stored in login history (needs triage; fix in the E3 port).
