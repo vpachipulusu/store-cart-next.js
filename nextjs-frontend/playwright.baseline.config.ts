@@ -21,7 +21,12 @@ const GATED_SPEC_PATTERN = new RegExp(`[\\\\/](${GATED_SPECS.join('|')})\\.spec\
  * KAN-113 behaviour baseline: Chromium only, gated specs only, against a production build.
  *
  * `next dev` compiles each route on first request. Under parallel workers that pushed page loads and redirects past
- * the test timeouts, so the baseline runs `next build && next start` instead. Run with `npm run test:e2e:baseline`.
+ * the test timeouts, so the baseline serves a production build. It never builds: `npm run test:e2e:build` makes the
+ * e2e build once (separate .next-e2e folder, test Firebase project, Sentry off) and scripts/e2e-start.mjs refuses to
+ * serve a missing or mismatched build. `npm run test:e2e:baseline:build` does both.
+ *
+ * A server already running on :3000 is reused only when E2E_REUSE_SERVER=1, so a normal dev server (dev Firebase
+ * project) is never tested by accident. Start a reusable one with `node scripts/e2e-start.mjs`.
  */
 /**
  * With the default worker count (10 on the dev machine) the browser and `next start` competed for CPU: tests that need
@@ -29,6 +34,7 @@ const GATED_SPEC_PATTERN = new RegExp(`[\\\\/](${GATED_SPECS.join('|')})\\.spec\
  * workers. CI keeps the base config's single worker.
  */
 const LOCAL_BASELINE_WORKERS = 4;
+const SERVER_START_TIMEOUT_MS = 120_000;
 
 export default defineConfig({
   ...baseConfig,
@@ -39,9 +45,9 @@ export default defineConfig({
       project.name === 'chromium' ? { ...project, testMatch: GATED_SPEC_PATTERN } : project
     ),
   webServer: {
-    command: 'npm run build && npm run start',
+    command: 'node scripts/e2e-start.mjs',
     url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-    timeout: 600_000,
+    reuseExistingServer: !process.env.CI && process.env.E2E_REUSE_SERVER === '1',
+    timeout: SERVER_START_TIMEOUT_MS,
   },
 });
