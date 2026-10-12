@@ -119,7 +119,7 @@ vintasoftware/nextjs-fastapi-template). On every commit it checks only the stage
 | `nextjs-frontend/` | eslint, prettier (`--write`), `tsc --noEmit` |
 | Whole repo | large files, merge conflicts, private keys, byte-order marks |
 
-**Prerequisites:** Node 22+, [uv](https://docs.astral.sh/uv/), and `sh` on your `PATH`
+**Prerequisites:** Node 22.12+ (22 or 24), [uv](https://docs.astral.sh/uv/), and `sh` on your `PATH`
 (on Windows, run from Git Bash). Install the dependencies first, because the hooks use them:
 
 ```bash
