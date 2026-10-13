@@ -1,9 +1,16 @@
 import { defineConfig, devices } from '@playwright/test';
 import e2eEnv from './scripts/e2e-env.cjs';
+import ports from './scripts/ports.cjs';
 
 // e2e uses the Firebase TEST project from .env.e2e.local (plus the e2e accounts written by `npm run test:setup`),
 // never the dev project in .env.local. Real env vars take precedence. See scripts/e2e-env.cjs.
 const testEnv = e2eEnv.applyE2eEnv();
+
+// KAN-167: E2E_PORT (default 3000) moves the Playwright server so two checkouts can run in parallel. Tests and
+// helpers read the origin from E2E_BASE_URL.
+const E2E_PORT = ports.getE2ePort(process.env);
+const baseURL = ports.getE2eBaseUrl(process.env);
+process.env.E2E_BASE_URL = baseURL;
 
 export default defineConfig({
   testDir: './src/__tests__/e2e',
@@ -17,7 +24,7 @@ export default defineConfig({
     timeout: 10_000,
   },
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -62,8 +69,8 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:3000',
+    command: `npm run dev -- -p ${E2E_PORT}`,
+    url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
     // The dev server gets the e2e env (test Firebase project, Sentry off) and its own output folder.

@@ -264,7 +264,7 @@ If the test user is already upgraded:
 3. Use Stripe CLI for local testing:
 
 ```bash
-stripe listen --forward-to localhost:3000/api/webhooks/stripe
+stripe listen --forward-to localhost:3000/api/webhooks/stripe   # your PORT if you changed it
 ```
 
 ### Timeout Errors

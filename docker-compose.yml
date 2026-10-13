@@ -1,7 +1,8 @@
 # Local development stack (KAN-26, ADR-006): Docker is for local dev and CI only; Vercel
 # does not use these images. Adapted from vintasoftware/nextjs-fastapi-template.
 # All credentials below are fake and local. Override them through a root .env (see .env.example).
-name: storecart
+# COMPOSE_PROJECT_NAME (KAN-167) gives a second checkout its own containers and volumes; set it with the host ports.
+name: ${COMPOSE_PROJECT_NAME:-storecart}
 
 services:
   db:

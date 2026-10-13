@@ -91,7 +91,7 @@ npm run build
 npm run dev
 ```
 
-The app serves at `http://localhost:3000`. The `predev` hook runs `scripts/dev-clean.cjs` first. If a stale lock or process blocks startup, run `npm run dev:kill` and then `npm run dev`.
+The app serves at `http://localhost:3000` (set `PORT` to change it; see [Running in parallel](#running-in-parallel)). The `predev` hook runs `scripts/dev-clean.cjs` first. If a stale lock or process blocks startup, run `npm run dev:kill` and then `npm run dev`.
 
 ## Backend (`fastapi_backend/`)
 
@@ -99,7 +99,7 @@ The app serves at `http://localhost:3000`. The `predev` hook runs `scripts/dev-c
 cd fastapi_backend
 uv sync
 cp .env.example .env   # then set DATABASE_URL (see Local databases)
-uv run fastapi dev app/main.py --host 127.0.0.1 --port 8000 --reload
+uv run fastapi dev app/main.py --host 127.0.0.1 --port 8000 --reload   # --port $BACKEND_PORT to move it
 ```
 
 Run commands from `fastapi_backend/`. `app/core/config.py` reads `.env` from the working directory. Check it with `curl http://localhost:8000/health` (`{"status":"ok"}`); `/health/ready` also queries the database and returns 503 when it is unreachable.
@@ -135,7 +135,7 @@ It writes to the path in `OPENAPI_OUTPUT_FILE`.
 - **`Can't reach database server`:** check `DATABASE_URL` in `.env`, that Postgres is running, and the port (see [Local databases](#local-databases)).
 - **Prisma client out of date after a schema change:** run `npm run db:generate`, then `npm run db:push` (development) or `npm run db:migrate`.
 - **`Firebase: Error (auth/invalid-api-key)`:** the `NEXT_PUBLIC_FIREBASE_*` values must match the Firebase console, and Email/Password sign-in must be enabled there.
-- **Stripe webhook signature failures locally:** run `stripe listen --forward-to localhost:3000/api/webhooks/stripe` and set `STRIPE_WEBHOOK_SECRET` to the secret it prints.
+- **Stripe webhook signature failures locally:** run `stripe listen --forward-to localhost:3000/api/webhooks/stripe` (use your `PORT` if you changed it) and set `STRIPE_WEBHOOK_SECRET` to the secret it prints.
 - **Admin pages deny access:** the user needs an `AdminUser` record (`node scripts/create-admin.mjs <email>`).
 
 ## Pre-commit hooks
@@ -150,8 +150,36 @@ The root [README](../../README.md#-pre-commit-hooks) has the details. There is n
 
 ## Running both apps
 
-Run the frontend on port 3000 and the backend on port 8000. On `main`, the frontend does not call FastAPI yet. Wiring happens in KAN-33, after which the Next.js server reads `BACKEND_API_URL`. The browser never calls port 8000 directly ([ADR-003](../adr/0003-nextjs-to-fastapi-authentication.md)).
+Run the frontend on port 3000 and the backend on port 8000 (the defaults; both can be changed, see [Running in parallel](#running-in-parallel)). On `main`, the frontend does not call FastAPI yet. Wiring happens in KAN-33, after which the Next.js server reads `BACKEND_API_URL`. The browser never calls port 8000 directly ([ADR-003](../adr/0003-nextjs-to-fastapi-authentication.md)).
 
 **Running both together like Vercel does:** from the repository root, `vercel dev -L` starts both services from the root `vercel.json` and injects `BACKEND_API_URL` (the service binding) automatically ([ADR-011](../adr/0011-single-vercel-project-with-services.md)). When you run the apps separately instead, set `BACKEND_API_URL=http://127.0.0.1:8000` in `nextjs-frontend/.env.local`. On Vercel the binding sets it; never set it by hand there. The binding is not available in `src/proxy.ts` or during `next build`.
+
+## Running in parallel
+
+Two checkouts (for example two git worktrees) can run side by side when each uses its own ports (KAN-167). The defaults are unchanged, and CI and Vercel set none of these variables.
+
+| Variable                                        | Default                                   | What it moves                                                                                                 |
+| ----------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `PORT`                                          | `3000`                                    | `npm run dev`, `npm start`, `npm run dev:kill` (kills only the listener on exactly this port)                 |
+| `E2E_PORT`                                      | `3000`                                    | The Playwright-managed server, `baseURL`, and the e2e build (`NEXT_PUBLIC_APP_URL` is baked in at build time) |
+| `BACKEND_PORT`                                  | `8000`                                    | `fastapi_backend/start.sh`, and the e2e server's `BACKEND_API_URL` (`http://127.0.0.1:$BACKEND_PORT`)         |
+| `BACKEND_API_URL`                               | unset                                     | Wins over `BACKEND_PORT` when set explicitly                                                                  |
+| `COMPOSE_PROJECT_NAME`, `*_PORT` in root `.env` | `storecart`, 5432, 5434, 6379, 8000, 3000 | Docker stack: separate containers and volumes, other host ports (container ports do not change)               |
+
+Example, second checkout next to one on the defaults:
+
+```bash
+# fastapi_backend/ (terminal 1)
+BACKEND_PORT=8100 ./start.sh
+
+# nextjs-frontend/ (terminal 2): dev server
+PORT=3100 BACKEND_API_URL=http://127.0.0.1:8100 npm run dev
+
+# nextjs-frontend/: e2e (the build records its port; a build for another E2E_PORT is refused)
+E2E_PORT=3100 BACKEND_PORT=8100 npm run test:e2e:build
+E2E_PORT=3100 BACKEND_PORT=8100 npx playwright test --config=playwright.baseline.config.ts dashboard
+```
+
+Rebuild with `npm run test:e2e:build` whenever you change `E2E_PORT`. Each checkout has its own `.next-e2e` folder, so builds do not collide. Use `PORT=3100 npm run dev:kill` to stop only that checkout's dev server. Database and Firebase test project are shared unless you point each checkout's `.env.e2e.local` at its own; avoid running the same specs against one database from both checkouts at once.
 
 Next steps: [testing.md](testing.md) for the test commands, [architecture.md](architecture.md) for the request flow.

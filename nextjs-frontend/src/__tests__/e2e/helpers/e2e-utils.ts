@@ -159,7 +159,7 @@ export async function setSessionCookie(
   ]);
 }
 
-const APP_ORIGIN = 'http://localhost:3000';
+const APP_ORIGIN = process.env.E2E_BASE_URL ?? 'http://localhost:3000';
 const IP_OCTET_RANGE = 254;
 
 function randomPrivateIp(): string {

@@ -58,7 +58,8 @@ e2e runs against the Firebase TEST project **`storecart-test`** and a **dedicate
 
 - `npm run test:e2e:build` builds into **`.next-e2e`** (not `.next`) with the test project's config and an empty `NEXT_PUBLIC_SENTRY_DSN` (Sentry off). It writes `.next-e2e/e2e-build.json` with the Firebase project id.
 - The baseline's webServer runs `scripts/e2e-start.mjs`, which only serves. It refuses to start when there is no e2e build, when the build's project id differs from the current e2e env, or when the build had Sentry on. It warns when the build is from another commit.
-- Playwright reuses a server already on port 3000 only with `E2E_REUSE_SERVER=1`, so a normal dev server (dev project) is never tested by accident. To keep one running between runs, start it with `node scripts/e2e-start.mjs`.
+- **Ports (KAN-167):** the e2e server uses `E2E_PORT` (default 3000) and reaches the backend at `BACKEND_PORT` (default 8000) unless `BACKEND_API_URL` is set. The build marker records the port, because `NEXT_PUBLIC_APP_URL` is baked in at build time; `e2e-start.mjs` refuses a build made for a different `E2E_PORT`. Tests read the origin from `E2E_BASE_URL`, which `playwright.config.ts` sets. See [Running in parallel](getting-started.md#running-in-parallel).
+- Playwright reuses a server already on the e2e port (`E2E_PORT`, default 3000) only with `E2E_REUSE_SERVER=1`, so a normal dev server (dev project) is never tested by accident. To keep one running between runs, start it with `node scripts/e2e-start.mjs`.
 - CI builds in its own step (`npm run test:e2e:build`), then runs `npm run test:e2e:baseline` (KAN-27).
 - `npm run test:e2e` (the full config) starts `npm run dev` with the e2e env and its own output folder `.next-e2e-dev`.
 - **Test rate-limit identities (KAN-144):** the E2E scripts explicitly enable `E2E_RATE_LIMIT_TEST_MODE=1` for the dedicated `.next-e2e` / `.next-e2e-dev` artifact. `useDistinctClientIp` sends `x-e2e-client-ip` only to the local app, preserving the real authentication limits while isolating test buckets. Ordinary builds compile this override off; Vercel deployments always reject it, even for an E2E artifact. Rebuild older E2E artifacts before running these tests. Outside Vercel, ordinary requests share a conservative bucket rather than trusting forwarded headers. This is an identifier fix; durable serverless limits remain KAN-34.
@@ -90,7 +91,7 @@ Update an assertion only when user-visible behaviour is unchanged, for example a
 ## Foundation check _(lands with KAN-113)_
 
 ```bash
-BACKEND_API_URL=http://localhost:8000 npm run foundation:check
+BACKEND_API_URL=http://localhost:8000 npm run foundation:check   # use your BACKEND_PORT if you changed it
 ```
 
 The check (`scripts/foundation-done-check.cli.ts`) does three things:
