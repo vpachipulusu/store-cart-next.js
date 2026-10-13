@@ -6,32 +6,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getClientIdentifier } from '@/lib/middleware/client-identifier';
 import {
   rateLimit,
   getRateLimitHeaders,
   RATE_LIMIT_CONFIGS,
   RateLimitConfig,
 } from '@/lib/middleware/rate-limit';
-
-/**
- * Get client identifier for rate limiting
- */
-function getClientIdentifier(request: NextRequest): string {
-  // Use forwarded IP if behind proxy
-  const forwardedFor = request.headers.get('x-forwarded-for');
-  if (forwardedFor) {
-    return forwardedFor.split(',')[0].trim();
-  }
-
-  // Use real IP
-  const realIp = request.headers.get('x-real-ip');
-  if (realIp) {
-    return realIp;
-  }
-
-  // Fallback to connection IP
-  return 'unknown';
-}
 
 /**
  * Apply rate limiting to request

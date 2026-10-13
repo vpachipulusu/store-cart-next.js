@@ -2,6 +2,17 @@ import type { NextConfig } from 'next';
 import { withSentryConfig } from '@sentry/nextjs';
 
 const nextConfig: NextConfig = {
+  // Compile out the test override from ordinary production artifacts, even if someone
+  // sets the runtime switch later. Only the dedicated local E2E scripts opt in.
+  env: {
+    E2E_RATE_LIMIT_TEST_MODE:
+      process.env.E2E_RATE_LIMIT_TEST_MODE === '1' &&
+      ['.next-e2e', '.next-e2e-dev'].includes(process.env.NEXT_DIST_DIR ?? '') &&
+      !process.env.VERCEL &&
+      !process.env.VERCEL_ENV
+        ? '1'
+        : '0',
+  },
   // e2e builds use their own folder (scripts/e2e-build.mjs sets NEXT_DIST_DIR=.next-e2e), so they never replace the
   // developer's normal .next build, which uses the dev Firebase project.
   distDir: process.env.NEXT_DIST_DIR || '.next',

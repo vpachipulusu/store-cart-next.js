@@ -1,5 +1,37 @@
 import { test, expect } from './helpers/fixtures';
-import { TEST_USER, waitForPageReady } from './helpers/e2e-utils';
+import { TEST_USER, useDistinctClientIp, waitForPageReady } from './helpers/e2e-utils';
+
+test('authentication rate limits resist forged headers while E2E identities stay isolated', async ({
+  page,
+  context,
+}) => {
+  await useDistinctClientIp(page);
+  await page.goto('/login');
+  const statuses = await page.evaluate(async () => {
+    const responses: number[] = [];
+    for (let index = 1; index <= 6; index += 1) {
+      const response = await fetch('/api/auth/kan-144-rate-limit-probe', {
+        headers: { 'x-forwarded-for': `192.0.2.${index}`, 'x-real-ip': `198.51.100.${index}` },
+      });
+      responses.push(response.status);
+    }
+    return responses;
+  });
+  expect(statuses).toEqual([401, 401, 401, 401, 401, 429]);
+
+  const otherPage = await context.newPage();
+  try {
+    await useDistinctClientIp(otherPage);
+    await otherPage.goto('/login');
+    expect(
+      await otherPage.evaluate(
+        async () => (await fetch('/api/auth/kan-144-rate-limit-probe')).status
+      )
+    ).toBe(401);
+  } finally {
+    await otherPage.close();
+  }
+});
 
 test.describe('Authentication Flow', () => {
   test.describe('Login Page', () => {

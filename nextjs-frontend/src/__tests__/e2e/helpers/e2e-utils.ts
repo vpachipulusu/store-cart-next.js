@@ -168,18 +168,18 @@ function randomPrivateIp(): string {
 }
 
 /**
- * Give this page its own client IP for the app's rate limiter.
+ * Give this page its own test identity for the app's rate limiter.
  *
- * `src/proxy.ts` keys rate limits on `x-forwarded-for`. Locally there is no proxy, so every request shares the key
- * "unknown" and `/api/auth/*` (5 requests per 15 minutes) returns 429 after a handful of tests. In production each
- * user has their own IP, so a distinct IP per test reproduces real behaviour. Only app requests get the header.
+ * Dedicated local E2E builds opt into `x-e2e-client-ip`; ordinary builds and Vercel deployments ignore it.
+ * Locally there is no trusted proxy, so requests otherwise share the conservative "unknown" bucket.
+ * Only app requests get the header; the authentication limit itself is unchanged.
  */
 export async function useDistinctClientIp(page: Page): Promise<void> {
   const clientIp = randomPrivateIp();
   await page.route(
     (url) => url.origin === APP_ORIGIN,
     (route) =>
-      route.continue({ headers: { ...route.request().headers(), 'x-forwarded-for': clientIp } })
+      route.continue({ headers: { ...route.request().headers(), 'x-e2e-client-ip': clientIp } })
   );
 }
 
