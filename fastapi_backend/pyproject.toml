@@ -30,6 +30,12 @@ dev = [
 [tool.uv]
 package = false
 
+# Makes ruff treat this folder as its project root even when it is run from the
+# repository root (the pre-commit hook does), so app, tests and commands are
+# classified as first-party imports in both places.
+[tool.ruff]
+src = ["."]
+
 # Coverage ratchet (KAN-27, PO decision on KAN-139). `uv run pytest --cov` fails
 # when line coverage of app/ and commands/ is below fail_under. fail_under is the
 # measured baseline (84.13% on 2026-10-12, CI): raise it as tests are added,
