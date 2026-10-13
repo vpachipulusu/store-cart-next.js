@@ -53,8 +53,8 @@ function applyRateLimit(request: NextRequest, pathname: string): NextResponse | 
 export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
-  // Apply rate limiting to API routes (/api/health is exempt so deploy smoke checks never get 429)
-  if (pathname.startsWith('/api/') && pathname !== '/api/health') {
+  // Apply rate limiting to API routes
+  if (pathname.startsWith('/api/')) {
     const rateLimitResponse = applyRateLimit(request, pathname);
     if (rateLimitResponse) {
       return rateLimitResponse;
@@ -110,8 +110,11 @@ export async function proxy(request: NextRequest) {
   }
 
   // Public API routes (no auth required)
-  const publicApiRoutes = ['/api/webhooks/', '/api/health'];
-  const isPublicApiRoute = publicApiRoutes.some((route) => pathname.startsWith(route));
+  const publicApiPrefixes = ['/api/webhooks/'];
+  const publicApiExact = ['/api/health'];
+  const isPublicApiRoute =
+    publicApiPrefixes.some((route) => pathname.startsWith(route)) ||
+    publicApiExact.includes(pathname);
 
   // Protected API routes (require authentication)
   if (pathname.startsWith('/api/') && !isPublicApiRoute) {
