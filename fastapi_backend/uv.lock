@@ -1433,6 +1433,8 @@ dependencies = [
     { name = "fastapi", extra = ["standard"] },
     { name = "pydantic-settings" },
     { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "upstash-ratelimit" },
+    { name = "upstash-redis" },
 ]
 
 [package.dev-dependencies]
@@ -1457,6 +1459,8 @@ requires-dist = [
     { name = "fastapi", extras = ["standard"], specifier = ">=0.143.0,<0.144" },
     { name = "pydantic-settings", specifier = ">=2.15.0,<3" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.1.4,<3" },
+    { name = "upstash-ratelimit", specifier = "==1.2.0" },
+    { name = "upstash-redis", specifier = "==1.8.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -1522,6 +1526,30 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a3/26/b09b8010994eccc3c09092e6b34058f36a460eea2d4c3e8b910c695975a0/typing_inspection-0.4.4.tar.gz", hash = "sha256:547274fa6b0a561ccf549cc9524b999a578e737d015d8709d021f9d0d13bea47", size = 76928, upload-time = "2026-08-12T12:37:25.997Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/67/81/4add07e5172b7ac40d8ed5ff580409a7801a4fe26d529bdd915401dabfbe/typing_inspection-0.4.4-py3-none-any.whl", hash = "sha256:65b8397ba37ccbce054456aaccddfc91e6e3083c92824df348d96ca832f3f147", size = 14750, upload-time = "2026-08-12T12:37:24.648Z" },
+]
+
+[[package]]
+name = "upstash-ratelimit"
+version = "1.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "upstash-redis" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/15/92/a43191ed6d20abdd10670e0af5a8abfafd9b13e47007c7ec772a3056eaba/upstash_ratelimit-1.2.0.tar.gz", hash = "sha256:c29c128787ddcca7715bb2fccdc9674387e0ca6f7d4bc8e1dcd71d775abed8fb", size = 12537, upload-time = "2026-09-18T07:58:10.811Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/42/ee/5bc9072a4288d5559818ee43bb16b4f7ea2b7d130de44a61b7ab6472be56/upstash_ratelimit-1.2.0-py3-none-any.whl", hash = "sha256:bc991480da27868401bb4df7dffb2296aea217bf7e98edc54cab97b4105b8c76", size = 13453, upload-time = "2026-09-18T07:58:09.914Z" },
+]
+
+[[package]]
+name = "upstash-redis"
+version = "1.8.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6d/63/98fffe42262376f4b39d371d9b583b33b13c08f662bda05c627827d2c290/upstash_redis-1.8.0.tar.gz", hash = "sha256:5fcd172802f517473b711de2fd1d2d2587c13c816cd2c570ad66fceb4f77e695", size = 47555, upload-time = "2026-08-26T09:50:41.96Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/05/04/a350e6b9b910c6006826dd63deb45be30fed85b826351588df27671bd92b/upstash_redis-1.8.0-py3-none-any.whl", hash = "sha256:e08f18d9a955b2b224ab8d1611a9782bc21054a83afb3b88df36809ff87096fa", size = 49959, upload-time = "2026-08-26T09:50:40.809Z" },
 ]
 
 [[package]]

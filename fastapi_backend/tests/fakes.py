@@ -7,6 +7,12 @@ from typing import Any
 from sqlalchemy.exc import OperationalError
 
 from app.core.database import SessionProvider
+from app.core.rate_limit import (
+    RateLimitDecision,
+    RateLimiter,
+    RateLimiterUnavailable,
+    RateLimitPolicy,
+)
 
 
 class FakeResult:
@@ -56,3 +62,48 @@ def failing_session() -> FakeSession:
 def as_provider(provider: FakeSessionProvider) -> SessionProvider:
     """Static proof that the fake satisfies the protocol (checked by mypy)."""
     return provider
+
+
+class FakeRateLimiter:
+    """In-memory sliding-window stand-in: counts hits per identifier."""
+
+    enabled = True
+
+    def __init__(self, reset_at: float = 4_000_000_000.0, ping_ok: bool = True) -> None:
+        self.hits: list[tuple[str, RateLimitPolicy]] = []
+        self.pings = 0
+        self._counts: dict[str, int] = {}
+        self._reset_at = reset_at
+        self._ping_ok = ping_ok
+
+    async def hit(self, identifier: str, policy: RateLimitPolicy) -> RateLimitDecision:
+        self.hits.append((identifier, policy))
+        count = self._counts.get(identifier, 0) + 1
+        self._counts[identifier] = count
+        return RateLimitDecision(
+            allowed=count <= policy.limit,
+            limit=policy.limit,
+            remaining=max(policy.limit - count, 0),
+            reset_at=self._reset_at,
+        )
+
+    async def ping(self) -> bool:
+        self.pings += 1
+        return self._ping_ok
+
+
+class RaisingRateLimiter:
+    """Simulates a Redis outage."""
+
+    enabled = True
+
+    async def hit(self, identifier: str, policy: RateLimitPolicy) -> RateLimitDecision:
+        raise RateLimiterUnavailable("redis down")
+
+    async def ping(self) -> bool:
+        return False
+
+
+def as_limiter(limiter: FakeRateLimiter | RaisingRateLimiter) -> RateLimiter:
+    """Static proof that the fakes satisfy the protocol (checked by mypy)."""
+    return limiter

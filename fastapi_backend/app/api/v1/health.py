@@ -1,7 +1,10 @@
-from fastapi import APIRouter, Response, status
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Response, status
 from pydantic import BaseModel
 
-from app.api.deps import HealthServiceDep
+from app.api.deps import HealthServiceDep, get_rate_limiter
+from app.core.rate_limit import RateLimiter
 
 router = APIRouter(tags=["health"])
 
@@ -18,10 +21,12 @@ async def health_check() -> HealthResponse:
 
 @router.get("/health/ready", response_model=HealthResponse)
 async def readiness_check(
-    response: Response, service: HealthServiceDep
+    response: Response,
+    service: HealthServiceDep,
+    limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
 ) -> HealthResponse:
-    """Readiness check: 200 when the database answers, 503 otherwise."""
-    if await service.is_database_ready():
+    """Readiness: 200 when the database (and Redis, if configured) answer, else 503."""
+    if await service.is_database_ready() and await limiter.ping():
         return HealthResponse(status="ok")
     response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return HealthResponse(status="unavailable")
