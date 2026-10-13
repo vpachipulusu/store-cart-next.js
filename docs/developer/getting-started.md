@@ -109,6 +109,7 @@ Run commands from `fastapi_backend/`. `app/core/config.py` reads `.env` from the
 |---|---|---|
 | `DATABASE_URL` | Yes | Platform database. |
 | `APP_NAME`, `APP_VERSION`, `LOG_LEVEL`, `OPENAPI_URL`, `EXPIRE_ON_COMMIT` | No | Defaults: `StoreCart API`, `0.1.0`, `INFO`, `/openapi.json`, `false`. |
+| `SENTRY_DSN` | No | Backend error reporting (KAN-35). Unset locally and in tests: Sentry then stays off. Set in deployed environments. Environment comes from `VERCEL_ENV` (else `ENVIRONMENT`), release from `VERCEL_GIT_COMMIT_SHA`. See [`fastapi_backend/CLAUDE.md`](../../fastapi_backend/CLAUDE.md). |
 | `OPENAPI_OUTPUT_FILE` | No | Output path for `commands.generate_openapi_schema`. Default: `nextjs-frontend/openapi.json`. |
 
 The template's fastapi-users secrets (`ACCESS_SECRET_KEY` and the other two), `TEST_DATABASE_URL`, `FRONTEND_URL` and the `MAIL_*` settings were removed in KAN-30. Email will come back through Resend ([ADR-009](../adr/0009-email-with-resend.md)).

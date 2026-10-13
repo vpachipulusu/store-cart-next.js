@@ -8,6 +8,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.logging import request_id_var
+from app.core.sentry import tag_request_id
 
 REQUEST_ID_HEADER = "X-Request-ID"
 logger = logging.getLogger("storecart.request")
@@ -26,6 +27,7 @@ class RequestIdMiddleware:
         request_id = uuid.uuid4().hex
         scope.setdefault("state", {})["request_id"] = request_id
         token = request_id_var.set(request_id)
+        tag_request_id(request_id)
         started = time.perf_counter()
         status = 500
 

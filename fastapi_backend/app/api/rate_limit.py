@@ -24,6 +24,7 @@ from app.core.rate_limit import (
     RateLimiter,
     RateLimitPolicy,
 )
+from app.core.sentry import report_exception
 
 logger = logging.getLogger("storecart.rate_limit")
 
@@ -69,16 +70,6 @@ def _too_many_requests(decision: RateLimitDecision) -> HTTPException:
     )
 
 
-def _report_to_sentry(exc: Exception) -> None:
-    """Send the outage to Sentry when it is installed and initialised (KAN-35)."""
-    try:
-        import sentry_sdk
-    except ImportError:
-        return
-    if sentry_sdk.is_initialized():
-        sentry_sdk.capture_exception(exc)
-
-
 def _handle_outage(request: Request, policy: RateLimitPolicy, exc: Exception) -> None:
     """Redis could not answer. Fail closed (503) or open (log and let through)."""
     request_id = request.scope.get("state", {}).get("request_id")
@@ -98,7 +89,7 @@ def _handle_outage(request: Request, policy: RateLimitPolicy, exc: Exception) ->
         exc_info=exc,
         extra={"request_id": request_id},
     )
-    _report_to_sentry(exc)
+    report_exception(exc)
 
 
 async def enforce_rate_limit(

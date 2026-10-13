@@ -1,10 +1,6 @@
 import logging
 import math
-import sys
 import time
-import types
-from collections.abc import Iterator
-from typing import Any
 
 import pytest
 from fastapi import Depends, FastAPI
@@ -17,6 +13,7 @@ from app.api.rate_limit import (
     limit_auth_attempts,
     limit_by_subject,
 )
+from app.core import sentry as sentry_module
 from app.core.errors import register_error_handlers
 from app.core.rate_limit import (
     API_POLICY,
@@ -189,18 +186,11 @@ async def test_auth_fails_closed_with_503_and_retry_after_when_redis_is_down() -
 
 
 @pytest.fixture
-def fake_sentry() -> Iterator[list[Exception]]:
+def fake_sentry(monkeypatch: pytest.MonkeyPatch) -> list[Exception]:
     captured: list[Exception] = []
-    module: Any = types.ModuleType("sentry_sdk")
-    module.is_initialized = lambda: True
-    module.capture_exception = captured.append
-    previous = sys.modules.get("sentry_sdk")
-    sys.modules["sentry_sdk"] = module
-    yield captured
-    if previous is None:
-        del sys.modules["sentry_sdk"]
-    else:
-        sys.modules["sentry_sdk"] = previous
+    monkeypatch.setattr(sentry_module.sentry_sdk, "is_initialized", lambda: True)
+    monkeypatch.setattr(sentry_module.sentry_sdk, "capture_exception", captured.append)
+    return captured
 
 
 @pytest.mark.parametrize("path", ["/api", "/hook"])
@@ -219,23 +209,15 @@ async def test_api_and_webhook_fail_open_with_warning_and_sentry(
     assert len(fake_sentry) == 1
 
 
-async def test_fail_open_skips_sentry_when_it_is_not_installed(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setitem(sys.modules, "sentry_sdk", None)  # import raises ImportError
-    async with client_for(RaisingRateLimiter()) as client:
-        response = await client.get("/api")
-
-    assert response.status_code == 200
-
-
 async def test_fail_open_skips_sentry_when_it_is_not_initialised(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    module: Any = types.ModuleType("sentry_sdk")
-    module.is_initialized = lambda: False
-    module.capture_exception = lambda _exc: pytest.fail("must not capture")
-    monkeypatch.setitem(sys.modules, "sentry_sdk", module)
+    monkeypatch.setattr(sentry_module.sentry_sdk, "is_initialized", lambda: False)
+    monkeypatch.setattr(
+        sentry_module.sentry_sdk,
+        "capture_exception",
+        lambda _exc: pytest.fail("must not capture"),
+    )
     async with client_for(RaisingRateLimiter()) as client:
         response = await client.get("/api")
 

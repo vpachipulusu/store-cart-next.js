@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     UPSTASH_REDIS_REST_URL: str | None = None
     UPSTASH_REDIS_REST_TOKEN: SecretStr | None = None
 
+    # Error reporting (KAN-35). Sentry is initialised only when SENTRY_DSN is set;
+    # leave it unset locally and in tests. The release comes from Vercel.
+    SENTRY_DSN: SecretStr | None = None
+    VERCEL_GIT_COMMIT_SHA: str | None = None
+
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
