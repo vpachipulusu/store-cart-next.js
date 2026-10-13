@@ -39,9 +39,16 @@ test.describe('Admin Dashboard', () => {
       // Logged in as the regular test user (session saved by auth.setup.ts).
       await signInWithSavedSession(page.context(), 'user');
 
+      // KAN-141: the non-admin must land on /dashboard directly, never passing through /login.
+      const visitedPaths: string[] = [];
+      page.on('request', (request) => {
+        if (request.isNavigationRequest()) visitedPaths.push(new URL(request.url()).pathname);
+      });
+
       await page.goto('/admin');
-      // Non-admin users should be redirected away from admin
-      await page.waitForURL(/\/dashboard|\/login/, { timeout: 10_000 });
+      await page.waitForURL(/\/dashboard/, { timeout: 10_000 });
+
+      expect(visitedPaths).not.toContain('/login');
     });
   });
 

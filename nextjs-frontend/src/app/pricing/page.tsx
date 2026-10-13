@@ -1,10 +1,12 @@
 import Link from 'next/link';
 import { cookies } from 'next/headers';
+import { unstable_rethrow } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PricingCardsSection } from '@/components/pricing/pricing-cards-section';
 import { getAdminAuth } from '@/lib/firebase/admin';
 import { db } from '@/lib/db/client';
+import { isSessionVerificationError, logRouteError } from '@/lib/auth/session-errors';
 import { getSubscriptionPlans, getCurrencySymbol } from '@/config/subscriptions';
 
 /**
@@ -38,6 +40,7 @@ const TIER_UI_CONFIG: Record<
 };
 
 async function getUserSession() {
+  let uid: string | undefined;
   try {
     const cookieStore = await cookies();
     const sessionCookie = cookieStore.get('session')?.value;
@@ -47,6 +50,7 @@ async function getUserSession() {
     }
 
     const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, true);
+    uid = decodedClaims.uid;
     const user = await db.user.findUnique({
       where: { firebaseUid: decodedClaims.uid },
       select: {
@@ -60,7 +64,12 @@ async function getUserSession() {
       userTier: user?.subscriptionTier || 'free',
     };
   } catch (error) {
-    return { isAuthenticated: false };
+    unstable_rethrow(error);
+    if (isSessionVerificationError(error)) {
+      return { isAuthenticated: false };
+    }
+    logRouteError('/pricing', error, uid);
+    throw error;
   }
 }
 

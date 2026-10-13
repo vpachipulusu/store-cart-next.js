@@ -1,7 +1,8 @@
-import { redirect } from 'next/navigation';
+import { redirect, unstable_rethrow } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { getAdminAuth } from '@/lib/firebase/admin';
 import { db } from '@/lib/db/client';
+import { isSessionVerificationError, logRouteError } from '@/lib/auth/session-errors';
 import Link from 'next/link';
 import { LayoutDashboard } from 'lucide-react';
 import { SessionProvider } from '@/components/providers/session-provider';
@@ -18,6 +19,7 @@ export const metadata = {
 };
 
 async function getUser() {
+  let uid: string | undefined;
   try {
     const cookieStore = await cookies();
     const sessionCookie = cookieStore.get('session')?.value;
@@ -27,6 +29,7 @@ async function getUser() {
     }
 
     const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, true);
+    uid = decodedClaims.uid;
 
     // Get user from database for additional data
     const dbUser = await db.user.findUnique({
@@ -60,8 +63,14 @@ async function getUser() {
       })),
     };
   } catch (error) {
-    // Expired/invalid session — clear cookies via route handler and redirect to login
-    redirect('/api/auth/clear-session');
+    unstable_rethrow(error);
+    // Only a failed session verification clears the session. Database and other errors are logged
+    // and rethrown so error.tsx renders and the user stays signed in.
+    if (isSessionVerificationError(error)) {
+      redirect('/api/auth/clear-session');
+    }
+    logRouteError('/dashboard', error, uid);
+    throw error;
   }
 }
 
