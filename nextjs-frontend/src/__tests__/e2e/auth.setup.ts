@@ -22,7 +22,9 @@ setup('verify e2e environment', async ({ page }) => {
 
   const response = await page.goto('/');
   if (!response || !response.ok()) {
-    throw new Error(`App not reachable at http://localhost:3000. Status: ${response?.status()}`);
+    throw new Error(
+      `App not reachable at ${process.env.E2E_BASE_URL ?? 'http://localhost:3000'}. Status: ${response?.status()}`
+    );
   }
 });
 

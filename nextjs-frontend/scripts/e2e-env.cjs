@@ -101,9 +101,15 @@ function applyE2eEnv(cwd = process.cwd()) {
  * separate e2e folder.
  */
 function toNextProcessEnv(env) {
+  // Required here, not at the top: Playwright loads this file while ports.cjs is still being linked from the config.
+  const ports = require('./ports.cjs');
   return {
     ...env,
     ...blankMissingE2eOnlyVars(env),
+    // KAN-167: the e2e server listens on E2E_PORT and reaches the backend on BACKEND_PORT (an explicit
+    // BACKEND_API_URL wins). The dev PORT is not inherited, so a dev server's port never moves the e2e server.
+    PORT: String(ports.getE2ePort(env)),
+    BACKEND_API_URL: ports.getBackendApiUrl(env),
     NEXT_PUBLIC_SENTRY_DSN: '',
     NEXT_DIST_DIR: E2E_DIST_DIR,
     E2E_RATE_LIMIT_TEST_MODE: '1',

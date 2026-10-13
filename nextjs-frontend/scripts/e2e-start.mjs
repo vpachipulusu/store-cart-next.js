@@ -4,7 +4,7 @@
  *
  * Refuses to start, with a clear message, when:
  * - there is no e2e build in .next-e2e (run `npm run test:e2e:build` first), or
- * - the build was made for a different Firebase project than the current e2e env, or with Sentry on, or
+ * - the build was made for a different E2E_PORT (NEXT_PUBLIC_APP_URL is baked in), a different Firebase project than the current e2e env, or with Sentry on, or
  * - the e2e Firebase config (web config + FIREBASE_ADMIN_* service account) is incomplete, or
  * - DATABASE_URL is missing or equals the dev database in .env.local/.env (e2e has its own database).
  * Warns when the build is from a different commit than HEAD.
@@ -13,6 +13,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import e2eEnv from './e2e-env.cjs';
+import ports from './ports.cjs';
 
 const {
   E2E_DIST_DIR,
@@ -60,6 +61,13 @@ if (marker.firebaseProjectId !== env.NEXT_PUBLIC_FIREBASE_PROJECT_ID) {
       `"${env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}". Rebuild with \`npm run test:e2e:build\`.`
   );
 }
+const e2ePort = ports.getE2ePort(env);
+if (marker.port !== e2ePort) {
+  fail(
+    `The e2e build was made for port ${marker.port ?? 'unknown'} (NEXT_PUBLIC_APP_URL is baked in) but E2E_PORT is ` +
+      `${e2ePort}. Rebuild with \`npm run test:e2e:build\`.`
+  );
+}
 if (marker.sentryDisabled !== true) {
   fail('The e2e build was made with Sentry enabled. Rebuild with `npm run test:e2e:build`.');
 }
@@ -72,7 +80,7 @@ if (head.status === 0 && marker.commit !== head.stdout.trim()) {
   );
 }
 
-const server = spawn('npx', ['next', 'start'], {
+const server = spawn('npx', ['next', 'start', '-p', String(e2ePort)], {
   stdio: 'inherit',
   env: toNextProcessEnv(env),
   shell: process.platform === 'win32',

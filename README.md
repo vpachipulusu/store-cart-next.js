@@ -20,7 +20,8 @@ npx prisma db push
 npm run dev
 ```
 
-Visit `http://localhost:3000`
+Visit `http://localhost:3000` (the default; set `PORT` to change it, see
+[Running in parallel](docs/developer/getting-started.md#running-in-parallel))
 
 📖 **[Read the developer docs](docs/developer/README.md)** for setup, architecture, testing and troubleshooting.
 
@@ -135,6 +136,9 @@ Notes:
 - All credentials are fake and local. To change ports or passwords, copy [`.env.example`](.env.example) to `.env`
   (git-ignored). Real secrets (Firebase, Stripe, Resend and so on) are not part of the compose file; put them in
   `nextjs-frontend/.env.local` only if you need those features.
+- To run a second checkout in parallel, set `COMPOSE_PROJECT_NAME` and the host ports in `.env`, and `PORT`,
+  `E2E_PORT` and `BACKEND_PORT` for the apps; see
+  [Running in parallel](docs/developer/getting-started.md#running-in-parallel).
 - The backend runs with `ENVIRONMENT=local`, which disables rate limiting. Production rate limiting talks to Upstash
   over HTTP (ADR-007); the local Redis speaks the Redis protocol only and does not provide an Upstash REST endpoint,
   so it backs local Redis use and future features, not the rate limiter.
@@ -154,14 +158,14 @@ cd fastapi_backend
 cp .env.example .env        # points DATABASE_URL at localhost:5432
 uv sync
 uv run alembic upgrade head
-./start.sh                  # FastAPI with reload plus the watcher, on :8000
+./start.sh                  # FastAPI with reload plus the watcher, on :8000 (BACKEND_PORT to change)
 
 # Frontend (terminal 2)
 cd nextjs-frontend
 cp .env.example .env.local  # BACKEND_API_URL=http://127.0.0.1:8000
 npm ci
 npm run db:generate
-npm run dev                 # :3000
+npm run dev                 # :3000 (PORT to change)
 ```
 
 ## 🪝 Pre-commit hooks

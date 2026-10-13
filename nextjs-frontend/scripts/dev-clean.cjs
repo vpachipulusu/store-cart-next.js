@@ -9,6 +9,9 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { getDevPort } = require('./ports.cjs');
+
+const port = getDevPort();
 
 const lockFile = path.join(process.cwd(), '.next', 'dev', 'lock');
 const nextDir = path.join(process.cwd(), '.next');
@@ -31,7 +34,7 @@ try {
     // Windows: Check for Node processes running Next.js
     const processes = execSync('tasklist /FI "IMAGENAME eq node.exe" /FO CSV /NH', {
       encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'ignore']
+      stdio: ['pipe', 'pipe', 'ignore'],
     });
 
     if (processes.includes('node.exe')) {
@@ -39,10 +42,13 @@ try {
       console.log('  Run "npm run dev:kill" to terminate them if needed');
     }
   } else {
-    // Unix-like: Check for processes on port 3000
+    // Unix-like: Check for processes on the dev port (PORT, default 3000)
     try {
-      execSync('lsof -ti:3000', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] });
-      console.log('⚠ Port 3000 is in use');
+      execSync(`lsof -ti tcp:${port} -sTCP:LISTEN`, {
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
+      console.log(`⚠ Port ${port} is in use`);
       console.log('  Run "npm run dev:kill" to free it');
     } catch {
       // Port is free

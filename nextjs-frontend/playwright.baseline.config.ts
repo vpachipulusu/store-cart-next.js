@@ -27,7 +27,7 @@ const GATED_SPEC_PATTERN = new RegExp(`[\\\\/](${GATED_SPECS.join('|')})\\.spec\
  * e2e build once (separate .next-e2e folder, test Firebase project, Sentry off) and scripts/e2e-start.mjs refuses to
  * serve a missing or mismatched build. `npm run test:e2e:baseline:build` does both.
  *
- * A server already running on :3000 is reused only when E2E_REUSE_SERVER=1, so a normal dev server (dev Firebase
+ * A server already running on the e2e port (E2E_PORT, default 3000) is reused only when E2E_REUSE_SERVER=1, so a normal dev server (dev Firebase
  * project) is never tested by accident. Start a reusable one with `node scripts/e2e-start.mjs`.
  */
 /**
@@ -48,7 +48,7 @@ export default defineConfig({
     ),
   webServer: {
     command: 'node scripts/e2e-start.mjs',
-    url: 'http://localhost:3000',
+    url: process.env.E2E_BASE_URL ?? 'http://localhost:3000',
     reuseExistingServer: !process.env.CI && process.env.E2E_REUSE_SERVER === '1',
     timeout: SERVER_START_TIMEOUT_MS,
   },

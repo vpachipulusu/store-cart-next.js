@@ -10,7 +10,7 @@ Guidance for agents working on the StoreCart FastAPI service. Repo-wide rules (J
 
 ```bash
 uv sync                                          # install (Python 3.12, uv only; no pip)
-uv run fastapi dev app/main.py --host 127.0.0.1 --port 8000 --reload
+uv run fastapi dev app/main.py --host 127.0.0.1 --port 8000 --reload   # or --port $BACKEND_PORT (KAN-167)
 uv run ruff check .                              # lint (add --fix to apply)
 uv run ruff format .                             # format (CI runs --check)
 uv run mypy                                      # strict; checks app/ and commands/
@@ -32,6 +32,7 @@ uv run alembic upgrade head                      # only against a database you o
 
   Commit `openapi.json` and `src/lib/api/generated/`. `uv run python -m commands.check_openapi_schema` fails when
   the committed schema is stale.
+
 - **Dependencies.** Edit `pyproject.toml` (pin exact versions for risky or fast-moving packages), then
   `uv lock` and `uv export --frozen --no-dev --no-hashes --quiet -o requirements.txt`. The pre-commit hook fails
   when `requirements.txt` is out of sync.
