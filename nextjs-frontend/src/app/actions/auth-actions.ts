@@ -154,6 +154,8 @@ export async function refreshSessionAction(idToken: string): Promise<AuthActionR
   return establishSession(idToken, { isExplicitSignIn: false });
 }
 
+const GENERIC_SIGN_IN_ERROR = 'Token verification failed';
+
 async function hasMatchingActiveSession(uid: string): Promise<boolean> {
   const existing = (await cookies()).get('session')?.value;
   if (!existing) return false;
@@ -171,8 +173,15 @@ async function establishSession(
   { isExplicitSignIn: requestedExplicit }: { isExplicitSignIn: boolean }
 ): Promise<AuthActionResponse> {
   try {
-    // Verify Firebase ID token
-    const decodedToken = await getAdminAuth().verifyIdToken(idToken);
+    // Verify Firebase ID token, rejecting revoked tokens (KAN-168). A revoked or invalid token gets the
+    // generic failure only: no Firebase error detail reaches the client.
+    let decodedToken;
+    try {
+      decodedToken = await getAdminAuth().verifyIdToken(idToken, true);
+    } catch (verifyError) {
+      logger.error('ID token verification failed:', verifyError);
+      return { success: false, error: GENERIC_SIGN_IN_ERROR };
+    }
     const { uid, email, email_verified } = decodedToken;
     const isExplicitSignIn = requestedExplicit || !(await hasMatchingActiveSession(uid));
 
@@ -318,7 +327,7 @@ async function establishSession(
     logger.error('Verify token error:', error);
     return {
       success: false,
-      error: error.message || 'Token verification failed',
+      error: GENERIC_SIGN_IN_ERROR,
     };
   }
 }

@@ -18,11 +18,12 @@ const mocks = vi.hoisted(() => ({
   createSessionCookie: vi.fn(),
   verifySessionCookie: vi.fn(),
   cookieGet: vi.fn(),
+  cookieSet: vi.fn(),
 }));
 
 vi.mock('next/headers', () => ({
   headers: async () => new Headers({ 'user-agent': 'vitest' }),
-  cookies: async () => ({ set: vi.fn(), get: mocks.cookieGet, delete: vi.fn() }),
+  cookies: async () => ({ set: mocks.cookieSet, get: mocks.cookieGet, delete: vi.fn() }),
 }));
 vi.mock('@/lib/firebase/admin', () => ({
   getAdminAuth: () => ({
@@ -199,6 +200,46 @@ describe('KAN-122: auth server actions', () => {
       expect(result.success).toBe(false);
       expect(mocks.createSessionCookie).not.toHaveBeenCalled();
       expect(mocks.historyCreate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('KAN-168: revoked ID tokens are rejected at sign-in and refresh', () => {
+    const revokedError = Object.assign(new Error('The Firebase ID token has been revoked.'), {
+      code: 'auth/id-token-revoked',
+    });
+
+    beforeEach(() => {
+      mocks.verifyIdToken.mockRejectedValue(revokedError);
+    });
+
+    it.each(['verifyTokenAction', 'refreshSessionAction'] as const)(
+      '%s checks revocation, returns the generic error, sets no cookie and records no history',
+      async (action) => {
+        const result = await authActions[action]('revoked-token');
+
+        expect(mocks.verifyIdToken).toHaveBeenCalledWith('revoked-token', true);
+        expect(result).toEqual({ success: false, error: 'Token verification failed' });
+        expect(JSON.stringify(result)).not.toContain('revoked');
+        expect(mocks.createSessionCookie).not.toHaveBeenCalled();
+        expect(mocks.cookieSet).not.toHaveBeenCalled();
+        expect(mocks.historyCreate).not.toHaveBeenCalled();
+        expect(mocks.userCreate).not.toHaveBeenCalled();
+        expect(mocks.userUpdate).not.toHaveBeenCalled();
+        expect(mocks.notifyNewDeviceLogin).not.toHaveBeenCalled();
+      }
+    );
+
+    it('passes checkRevoked=true on a successful sign-in too', async () => {
+      mocks.verifyIdToken.mockResolvedValue({
+        uid: 'uid-1',
+        email: 'new@example.com',
+        email_verified: true,
+      });
+
+      const result = await authActions.verifyTokenAction('good-token');
+
+      expect(result.success).toBe(true);
+      expect(mocks.verifyIdToken).toHaveBeenCalledWith('good-token', true);
     });
   });
 });
