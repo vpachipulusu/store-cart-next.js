@@ -152,14 +152,40 @@ export async function createThrowawayAccount({ auth, prisma }) {
   return { email, password, uid: firebaseUser.uid };
 }
 
-/** Delete a throwaway account from Firebase and Postgres (related rows cascade). */
-export async function deleteThrowawayAccount({ auth, prisma }, account) {
+function assertThrowawayAccount(account) {
   if (!/^e2e-temp-/.test(account.email)) {
     throw new Error(`Refusing to delete "${account.email}": only e2e-temp accounts are throwaway.`);
   }
   assertE2eEmail(account.email);
+}
+
+/** Verify browser deletion before fixture cleanup can hide a residual account. */
+export async function assertThrowawayAccountDeleted({ auth, prisma }, account) {
+  assertThrowawayAccount(account);
+  let missing = false;
+  try {
+    await auth.getUser(account.uid);
+  } catch (error) {
+    if (error?.code !== 'auth/user-not-found') throw error;
+    missing = true;
+  }
+  if (!missing)
+    throw new Error('The throwaway Firebase account still exists after browser deletion.');
+  const remaining = await prisma.user.count({ where: { firebaseUid: account.uid } });
+  if (remaining !== 0)
+    throw new Error('The throwaway database account still exists after browser deletion.');
+}
+
+/** Delete a throwaway account from Firebase and Postgres (related rows cascade). */
+export async function deleteThrowawayAccount({ auth, prisma }, account) {
+  assertThrowawayAccount(account);
   await prisma.user.deleteMany({ where: { firebaseUid: account.uid } });
-  await auth.deleteUser(account.uid);
+  try {
+    await auth.deleteUser(account.uid);
+  } catch (error) {
+    // Account-deletion journeys remove Firebase first; fixture cleanup is idempotent.
+    if (error?.code !== 'auth/user-not-found') throw error;
+  }
 }
 
 /**

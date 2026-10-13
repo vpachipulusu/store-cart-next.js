@@ -39,6 +39,10 @@ type AccountsModule = {
   openE2eAccountClients: (env: NodeJS.ProcessEnv) => AccountClients;
   createThrowawayAccount: (clients: AccountClients) => Promise<ThrowawayAccount>;
   deleteThrowawayAccount: (clients: AccountClients, account: ThrowawayAccount) => Promise<void>;
+  assertThrowawayAccountDeleted: (
+    clients: AccountClients,
+    account: ThrowawayAccount
+  ) => Promise<void>;
 };
 
 // Loaded only by tests that use a throwaway account, so other specs do not load firebase-admin and Prisma.
@@ -56,7 +60,10 @@ const loadAccountsModule = (): Promise<AccountsModule> =>
  *   so the shared role sessions saved by auth.setup.ts are never affected. Log in with `loginAsThrowawayAccount`.
  */
 export const test = base.extend<
-  { throwawayAccount: ThrowawayAccount },
+  {
+    throwawayAccount: ThrowawayAccount;
+    expectThrowawayAccountDeleted: (account: ThrowawayAccount) => Promise<void>;
+  },
   { accountClients: AccountClients }
 >({
   // The fixture callback is named `provide` (not Playwright's usual `use`) so the React hooks lint rule ignores it.
@@ -85,6 +92,10 @@ export const test = base.extend<
     } finally {
       await accounts.deleteThrowawayAccount(accountClients, account);
     }
+  },
+  expectThrowawayAccountDeleted: async ({ accountClients }, provide) => {
+    const accounts = await loadAccountsModule();
+    await provide((account) => accounts.assertThrowawayAccountDeleted(accountClients, account));
   },
 });
 
