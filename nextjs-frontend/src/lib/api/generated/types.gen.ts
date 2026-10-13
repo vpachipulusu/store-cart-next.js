@@ -35,6 +35,55 @@ export type DeletedResponse = {
 };
 
 /**
+ * DisableRequest
+ */
+export type DisableRequest = {
+    /**
+     * Token
+     */
+    token: string;
+    /**
+     * Id Token
+     */
+    id_token: string;
+};
+
+/**
+ * EnrollmentData
+ */
+export type EnrollmentData = {
+    /**
+     * Secret
+     */
+    secret: string;
+    /**
+     * Uri
+     */
+    uri: string;
+};
+
+/**
+ * EnrollmentRequest
+ */
+export type EnrollmentRequest = {
+    /**
+     * Id Token
+     */
+    id_token: string;
+};
+
+/**
+ * EnrollmentResponse
+ */
+export type EnrollmentResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: EnrollmentData;
+};
+
+/**
  * ErrorResponse
  *
  * Body of every error response (documents the runtime envelope in OpenAPI).
@@ -325,6 +374,26 @@ export type SettingsResponse = {
      */
     success?: true;
     data: SettingsData;
+};
+
+/**
+ * TotpChangedResponse
+ */
+export type TotpChangedResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+};
+
+/**
+ * VerificationRequest
+ */
+export type VerificationRequest = {
+    /**
+     * Token
+     */
+    token: string;
 };
 
 export type HealthCheckData = {
@@ -951,3 +1020,204 @@ export type ReadHistoryResponses = {
 };
 
 export type ReadHistoryResponse = ReadHistoryResponses[keyof ReadHistoryResponses];
+
+export type EnrollData = {
+    body: EnrollmentRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/me/totp/enroll';
+};
+
+export type EnrollErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorResponse;
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type EnrollError = EnrollErrors[keyof EnrollErrors];
+
+export type EnrollResponses = {
+    /**
+     * Successful Response
+     */
+    200: EnrollmentResponse;
+};
+
+export type EnrollResponse = EnrollResponses[keyof EnrollResponses];
+
+export type VerifyData = {
+    body: VerificationRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/me/totp/verify';
+};
+
+export type VerifyErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorResponse;
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type VerifyError = VerifyErrors[keyof VerifyErrors];
+
+export type VerifyResponses = {
+    /**
+     * Successful Response
+     */
+    200: TotpChangedResponse;
+};
+
+export type VerifyResponse = VerifyResponses[keyof VerifyResponses];
+
+export type DisableData = {
+    body: DisableRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/me/totp/disable';
+};
+
+export type DisableErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorResponse;
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type DisableError = DisableErrors[keyof DisableErrors];
+
+export type DisableResponses = {
+    /**
+     * Successful Response
+     */
+    200: TotpChangedResponse;
+};
+
+export type DisableResponse = DisableResponses[keyof DisableResponses];

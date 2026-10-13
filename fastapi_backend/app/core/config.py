@@ -1,6 +1,8 @@
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.totp import TotpCodec, TotpUnavailable
+
 LOCAL_ENVIRONMENTS = frozenset({"local", "test"})
 VERCEL_NON_PRODUCTION = frozenset({"preview", "development"})
 
@@ -42,6 +44,7 @@ class Settings(BaseSettings):
     FIREBASE_ADMIN_PROJECT_ID: str | None = None
     FIREBASE_ADMIN_CLIENT_EMAIL: str | None = None
     FIREBASE_ADMIN_PRIVATE_KEY: SecretStr | None = None
+    TOTP_ENCRYPTION_KEY: SecretStr | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
@@ -61,6 +64,17 @@ class Settings(BaseSettings):
                 f"VERCEL_ENV='{self.VERCEL_ENV}'); rate limiting can only be disabled "
                 "for local, test, Vercel preview and Vercel development"
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_totp_config(self) -> "Settings":
+        if self.TOTP_ENCRYPTION_KEY is not None:
+            try:
+                TotpCodec(self.TOTP_ENCRYPTION_KEY.get_secret_value())
+            except TotpUnavailable:
+                raise ValueError(
+                    "TOTP_ENCRYPTION_KEY must be a valid Fernet key"
+                ) from None
         return self
 
     @model_validator(mode="after")
