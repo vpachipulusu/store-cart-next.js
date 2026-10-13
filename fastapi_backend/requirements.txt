@@ -126,7 +126,7 @@ pydantic-settings==2.15.0
     #   storecart-backend
 pygments==2.19.0
     # via rich
-python-dotenv==1.0.1
+python-dotenv==1.2.4
     # via
     #   pydantic-settings
     #   uvicorn
