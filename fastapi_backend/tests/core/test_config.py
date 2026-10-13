@@ -70,3 +70,48 @@ def test_production_starts_with_both_upstash_settings(
     monkeypatch.setenv("UPSTASH_REDIS_REST_TOKEN", "t")
 
     assert Settings(_env_file=None).ENVIRONMENT == "production"  # type: ignore[call-arg]
+
+
+@pytest.fixture
+def no_upstash(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
+    monkeypatch.delenv("UPSTASH_REDIS_REST_URL", raising=False)
+    monkeypatch.delenv("UPSTASH_REDIS_REST_TOKEN", raising=False)
+    return monkeypatch
+
+
+@pytest.mark.parametrize("vercel_env", ["preview", "development"])
+def test_vercel_preview_and_development_start_without_upstash(
+    no_upstash: pytest.MonkeyPatch, vercel_env: str
+) -> None:
+    no_upstash.setenv("VERCEL_ENV", vercel_env)
+    no_upstash.delenv("ENVIRONMENT", raising=False)  # defaults to production
+
+    assert Settings(_env_file=None).UPSTASH_REDIS_REST_URL is None  # type: ignore[call-arg]
+
+
+def test_vercel_production_without_upstash_fails_even_if_environment_is_local(
+    no_upstash: pytest.MonkeyPatch,
+) -> None:
+    no_upstash.setenv("VERCEL_ENV", "production")
+    no_upstash.setenv("ENVIRONMENT", "local")
+
+    with pytest.raises(ValidationError, match="UPSTASH_REDIS_REST_URL"):
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_vercel_production_starts_with_upstash(no_upstash: pytest.MonkeyPatch) -> None:
+    no_upstash.setenv("VERCEL_ENV", "production")
+    no_upstash.setenv("UPSTASH_REDIS_REST_URL", "https://x.upstash.io")
+    no_upstash.setenv("UPSTASH_REDIS_REST_TOKEN", "t")
+
+    assert Settings(_env_file=None).VERCEL_ENV == "production"  # type: ignore[call-arg]
+
+
+def test_outside_vercel_the_default_environment_is_strict(
+    no_upstash: pytest.MonkeyPatch,
+) -> None:
+    no_upstash.delenv("VERCEL_ENV", raising=False)
+    no_upstash.delenv("ENVIRONMENT", raising=False)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)  # type: ignore[call-arg]

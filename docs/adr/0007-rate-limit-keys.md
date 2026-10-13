@@ -51,6 +51,8 @@ many IPs.
   routes fail open** (warning log with request ID, and a Sentry event once Sentry is configured).
 - Until the internal service key exists (KAN-51, KAN-37), `X-Client-IP` is trusted only because the backend is
   internal (ADR-003); it is not yet gated on `X-Internal-Key`. If the Upstash settings are unset, limiting is
-  disabled only when `ENVIRONMENT` is `local` or `test`. `ENVIRONMENT` defaults to `production`, so any other
+  disabled only when `ENVIRONMENT` is `local` or `test`, or on Vercel when `VERCEL_ENV` (set by the platform, and
+  preferred over `ENVIRONMENT`) is `preview` or `development`. **Production needs `UPSTASH_REDIS_REST_URL` and
+  `UPSTASH_REDIS_REST_TOKEN` set before the next release.** `ENVIRONMENT` defaults to `production`, so any other
   environment without both Upstash settings fails at startup. `/health/ready` does not check Redis: limiting fails
   open, so a Redis blip must not pull the service out of rotation.
