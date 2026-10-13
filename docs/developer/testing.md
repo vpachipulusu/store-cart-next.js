@@ -134,7 +134,15 @@ cd fastapi_backend
 uv run python -m commands.generate_openapi_schema
 ```
 
-CI runs the pre-commit `openapi-schema-check` hook on changed backend files. Failing on a stale generated client (ADR-008) arrives with KAN-33, which commits the schema and client.
+The command writes `nextjs-frontend/openapi.json` by default (`OPENAPI_OUTPUT_FILE` overrides it). Then regenerate the typed client from `nextjs-frontend/`:
+
+```bash
+cd nextjs-frontend
+npm run generate:client   # writes src/lib/api/generated (committed, excluded from eslint, prettier and coverage)
+npm run check:client      # fails if the committed client differs from a fresh generation
+```
+
+Staleness is checked twice (ADR-008): the pre-commit `openapi-schema-check` hook (run by CI on changed backend files) compares the committed schema with the backend, and `openapi-client-check` plus the `OpenAPI client is up to date` step in `frontend.yml` compare the committed client with the schema. Server code calls the backend only through `src/lib/api/server.ts` (`callBackend`), which forwards the session cookie as `X-Session-Token` to `BACKEND_API_URL`.
 
 ## Continuous integration (KAN-27)
 

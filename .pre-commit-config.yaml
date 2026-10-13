@@ -3,8 +3,8 @@
 #   - paths point at nextjs-frontend/ (npm) and fastapi_backend/ (uv);
 #   - ruff is pinned to the version in fastapi_backend/uv.lock so the hook and
 #     `uv run ruff` agree; mypy and the requirements.txt sync were added;
-#   - the OpenAPI client generation is replaced by a freshness check of
-#     nextjs-frontend/openapi.json (placeholder until KAN-33, see below).
+#   - the OpenAPI client generation is replaced by freshness checks of
+#     nextjs-frontend/openapi.json and the generated client (KAN-33).
 #
 # Install once per clone:  uvx pre-commit install   (see README "Pre-commit hooks")
 # Hooks only run on the files staged in a commit. `pre-commit run --all-files`
@@ -65,17 +65,23 @@ repos:
 
       - id: openapi-schema-check
         name: check nextjs-frontend/openapi.json is up to date
-        # TODO(KAN-33): placeholder until KAN-33 commits openapi.json and the
-        # generated TypeScript client. Passes (with a notice) while
-        # nextjs-frontend/openapi.json does not exist; afterwards it fails when
-        # the committed schema differs from the backend. KAN-33 should also add
-        # the client-generation hook here.
+        # Fails when the committed schema differs from what the backend generates.
+        # Fix: cd fastapi_backend && uv run python -m commands.generate_openapi_schema
         entry: sh -c 'cd fastapi_backend && uv run python -m commands.check_openapi_schema'
         language: system
         files: ^(fastapi_backend/(app|commands)/.*\.py|fastapi_backend/pyproject\.toml|nextjs-frontend/openapi\.json)$
         pass_filenames: false
 
       # ------------------------------------------------------------ frontend
+      - id: openapi-client-check
+        name: check generated TypeScript client is up to date (nextjs-frontend)
+        # Regenerates the client from openapi.json into a temp dir and compares it with
+        # src/lib/api/generated. Fix: cd nextjs-frontend && npm run generate:client
+        entry: sh -c 'cd nextjs-frontend && npm run --silent check:client'
+        language: system
+        files: ^nextjs-frontend/(openapi\.json|openapi-ts\.config\.ts|package(-lock)?\.json|src/lib/api/generated/.*)$
+        pass_filenames: false
+
       - id: frontend-eslint
         name: eslint (nextjs-frontend)
         entry: sh -c 'cd nextjs-frontend && for f in "$@"; do set -- "$@" "${f#nextjs-frontend/}"; shift; done; npx --no-install eslint --no-warn-ignored "$@"' --
