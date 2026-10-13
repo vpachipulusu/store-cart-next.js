@@ -1,8 +1,9 @@
 import { cookies } from 'next/headers';
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
+import { redirect, unstable_rethrow } from 'next/navigation';
 import { getAdminAuth } from '@/lib/firebase/admin';
 import { db } from '@/lib/db/client';
+import { isSessionVerificationError, logRouteError } from '@/lib/auth/session-errors';
 import {
   LayoutDashboard,
   Users,
@@ -22,35 +23,47 @@ import { AdminHeader } from '@/components/admin/admin-header';
  */
 export const dynamic = 'force-dynamic';
 
-async function checkAdminAccess() {
+async function loadUserBySession(sessionCookie: string) {
+  let uid: string | undefined;
   try {
-    const cookieStore = await cookies();
-    const sessionCookie = cookieStore.get('session')?.value;
-
-    if (!sessionCookie) {
-      redirect('/login');
-    }
-
     const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, true);
+    uid = decodedClaims.uid;
 
-    const user = await db.user.findUnique({
-      where: { firebaseUid: decodedClaims.uid },
+    return await db.user.findUnique({
+      where: { firebaseUid: uid },
       include: {
         adminUser: true,
       },
     });
-
-    if (!user || !user.adminUser) {
-      redirect('/dashboard');
-    }
-
-    return {
-      user,
-      adminUser: user.adminUser,
-    };
   } catch (error) {
+    unstable_rethrow(error);
+    if (isSessionVerificationError(error)) {
+      redirect('/login');
+    }
+    logRouteError('/admin', error, uid);
+    throw error;
+  }
+}
+
+async function checkAdminAccess() {
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get('session')?.value;
+
+  if (!sessionCookie) {
     redirect('/login');
   }
+
+  const user = await loadUserBySession(sessionCookie);
+
+  // Outside the try so a non-admin goes straight to /dashboard and is never mistaken for a failed session.
+  if (!user || !user.adminUser) {
+    redirect('/dashboard');
+  }
+
+  return {
+    user,
+    adminUser: user.adminUser,
+  };
 }
 
 const navItems = [
@@ -124,7 +137,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               <Link
                 key={item.href}
                 href={item.href}
-                className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground hover:border-l-2 hover:border-theme-accent/30 nav-link-accent"
+                className="nav-link-accent flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:border-l-2 hover:border-theme-accent/30 hover:bg-accent hover:text-accent-foreground"
               >
                 <item.icon className="h-5 w-5" />
                 {item.title}
