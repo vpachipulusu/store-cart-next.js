@@ -27,93 +27,9 @@ function getStripeClient(): Stripe {
   return stripeInstance;
 }
 
-export interface CreateSubscriptionParams {
-  userId: string;
-  priceId: string;
-  email: string;
-}
-
 export interface UpdateSubscriptionParams {
   userId: string;
   newPriceId: string;
-}
-
-/**
- * Create a Stripe customer and checkout session
- */
-export async function createCheckoutSession(
-  params: CreateSubscriptionParams
-): Promise<Stripe.Checkout.Session> {
-  const { userId, priceId, email } = params;
-
-  // Get or create Stripe customer
-  let stripeCustomerId: string;
-
-  const user = await db.user.findUnique({
-    where: { id: userId },
-    select: { stripeCustomerId: true },
-  });
-
-  if (user?.stripeCustomerId) {
-    stripeCustomerId = user.stripeCustomerId;
-  } else {
-    // Create new Stripe customer
-    const customer = await getStripeClient().customers.create({
-      email,
-      metadata: { userId },
-    });
-
-    stripeCustomerId = customer.id;
-
-    // Update user with Stripe customer ID
-    await db.user.update({
-      where: { id: userId },
-      data: { stripeCustomerId },
-    });
-  }
-
-  // Create checkout session
-  const session = await getStripeClient().checkout.sessions.create({
-    customer: stripeCustomerId,
-    mode: 'subscription',
-    payment_method_types: ['card'],
-    line_items: [
-      {
-        price: priceId,
-        quantity: 1,
-      },
-    ],
-    success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?success=true&session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/pricing?canceled=true`,
-    metadata: {
-      userId,
-    },
-  });
-
-  return session;
-}
-
-/**
- * Create a billing portal session for managing subscriptions
- */
-export async function createBillingPortalSession(
-  userId: string
-): Promise<Stripe.BillingPortal.Session> {
-  const user = await db.user.findUnique({
-    where: { id: userId },
-    select: { stripeCustomerId: true },
-  });
-
-  if (!user?.stripeCustomerId) {
-    throw new Error('No Stripe customer found for user');
-  }
-
-  const session = await getStripeClient().billingPortal.sessions.create({
-    customer: user.stripeCustomerId,
-    return_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/settings/billing`,
-  });
-
-  return session;
 }
 
 /**

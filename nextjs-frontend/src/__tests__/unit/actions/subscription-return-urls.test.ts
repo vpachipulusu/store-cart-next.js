@@ -122,6 +122,48 @@ describe('KAN-127: Stripe return URLs are server-built', () => {
     );
   });
 
+  describe('origin resolution by environment', () => {
+    it('throws in production when NEXT_PUBLIC_APP_URL is unset', async () => {
+      vi.stubEnv('NODE_ENV', 'production');
+      vi.stubEnv('VERCEL_ENV', 'production');
+      vi.stubEnv('NEXT_PUBLIC_APP_URL', '');
+      const { buildBillingPortalReturnUrl } = await import('@/lib/stripe/return-urls');
+
+      expect(() => buildBillingPortalReturnUrl()).toThrow(/NEXT_PUBLIC_APP_URL must be set/);
+    });
+
+    it('throws in production when NEXT_PUBLIC_APP_URL is malformed', async () => {
+      vi.stubEnv('NODE_ENV', 'production');
+      vi.stubEnv('NEXT_PUBLIC_APP_URL', 'not a url');
+      const { buildCheckoutReturnUrls } = await import('@/lib/stripe/return-urls');
+
+      expect(() => buildCheckoutReturnUrls()).toThrow(/not a valid URL/);
+    });
+
+    it('uses VERCEL_URL on a preview deployment when NEXT_PUBLIC_APP_URL is unset', async () => {
+      vi.stubEnv('NODE_ENV', 'production');
+      vi.stubEnv('VERCEL_ENV', 'preview');
+      vi.stubEnv('VERCEL_URL', 'storecart-git-x.vercel.app');
+      vi.stubEnv('NEXT_PUBLIC_APP_URL', '');
+      const { buildBillingPortalReturnUrl } = await import('@/lib/stripe/return-urls');
+
+      expect(buildBillingPortalReturnUrl()).toBe(
+        'https://storecart-git-x.vercel.app/dashboard/settings/billing'
+      );
+    });
+
+    it('defaults to localhost locally when nothing is set', async () => {
+      vi.stubEnv('NODE_ENV', 'development');
+      vi.stubEnv('VERCEL_URL', '');
+      vi.stubEnv('NEXT_PUBLIC_APP_URL', '');
+      const { buildBillingPortalReturnUrl } = await import('@/lib/stripe/return-urls');
+
+      expect(buildBillingPortalReturnUrl()).toBe(
+        'http://localhost:3000/dashboard/settings/billing'
+      );
+    });
+  });
+
   describe.each(HOSTILE_URLS)('hostile client input %s', (hostile) => {
     it('never reaches Stripe for checkout, even if extra arguments are smuggled in', async () => {
       const { createCheckoutSessionAction } = await loadActions();

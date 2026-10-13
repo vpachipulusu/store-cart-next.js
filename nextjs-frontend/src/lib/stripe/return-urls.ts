@@ -11,10 +11,32 @@ export const CHECKOUT_RETURN_PATHS = {
 
 export const BILLING_PORTAL_RETURN_PATH = '/dashboard/settings/billing';
 
-/** The app's own origin (scheme and host only); reads the env at call time. */
+/**
+ * The app's own origin (scheme and host only); reads the env at call time.
+ * - Production (not a Vercel preview): NEXT_PUBLIC_APP_URL is required and must be a valid URL, else this throws.
+ * - Vercel preview/development with it unset: https://${VERCEL_URL}.
+ * - Local and test: falls back to the site config (localhost).
+ */
 function getAppOrigin(): string {
-  const configured = process.env.NEXT_PUBLIC_APP_URL || siteConfig.url;
-  return new URL(configured).origin;
+  const configured = process.env.NEXT_PUBLIC_APP_URL;
+  const isProduction =
+    process.env.NODE_ENV === 'production' && process.env.VERCEL_ENV !== 'preview';
+
+  if (isProduction) {
+    if (!configured) {
+      throw new Error('NEXT_PUBLIC_APP_URL must be set in production to build Stripe return URLs.');
+    }
+    try {
+      return new URL(configured).origin;
+    } catch {
+      throw new Error('NEXT_PUBLIC_APP_URL is not a valid URL; cannot build Stripe return URLs.');
+    }
+  }
+
+  if (!configured && process.env.VERCEL_URL) {
+    return new URL(`https://${process.env.VERCEL_URL}`).origin;
+  }
+  return new URL(configured || siteConfig.url).origin;
 }
 
 export function buildCheckoutReturnUrls(): { successUrl: string; cancelUrl: string } {
