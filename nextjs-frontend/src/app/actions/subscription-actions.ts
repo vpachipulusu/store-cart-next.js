@@ -4,10 +4,10 @@ import { cookies } from 'next/headers';
 import { z } from 'zod';
 import Stripe from 'stripe';
 import { getStripeServerClient } from '@/lib/stripe/server';
-import { getAdminAuth } from '@/lib/firebase/admin';
 import { db } from '@/lib/db/client';
 import crypto from 'crypto';
 import { logger } from '@/lib/logger';
+import { getVerifiedUserId } from '@/lib/auth/verified-session';
 
 /**
  * Initialize Stripe
@@ -21,31 +21,6 @@ type SubscriptionActionResponse<T = any> = {
   data?: T;
   error?: string;
 };
-
-/**
- * Get authenticated user ID from session
- */
-async function getAuthenticatedUserId(): Promise<string | null> {
-  try {
-    const cookieStore = await cookies();
-    const sessionCookie = cookieStore.get('session')?.value;
-
-    if (!sessionCookie) {
-      return null;
-    }
-
-    const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, true);
-    const user = await db.user.findUnique({
-      where: { firebaseUid: decodedClaims.uid },
-      select: { id: true },
-    });
-
-    return user?.id || null;
-  } catch (error) {
-    logger.error('Authentication error:', error);
-    return null;
-  }
-}
 
 /**
  * Server-side price ID mapping (env vars are only available on the server)
@@ -103,7 +78,7 @@ const createCheckoutSessionSchema = z.object({
  */
 export async function getSubscriptionStatusAction(): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -134,7 +109,9 @@ export async function getSubscriptionStatusAction(): Promise<SubscriptionActionR
     // Get detailed subscription info from Stripe if exists
     if (user.stripeSubscriptionId) {
       try {
-        const subscription = await getStripeServerClient().subscriptions.retrieve(user.stripeSubscriptionId);
+        const subscription = await getStripeServerClient().subscriptions.retrieve(
+          user.stripeSubscriptionId
+        );
         subscriptionDetails = {
           id: subscription.id,
           status: subscription.status,
@@ -177,7 +154,7 @@ export async function createCheckoutSessionAction(
   cancelUrl: string
 ): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -308,7 +285,7 @@ export async function verifyUpgradeSessionAction(): Promise<
   }>
 > {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -383,7 +360,7 @@ export async function createBillingPortalSessionAction(
   returnUrl: string
 ): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -429,7 +406,7 @@ export async function createBillingPortalSessionAction(
  */
 export async function cancelSubscriptionAction(): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -450,9 +427,12 @@ export async function cancelSubscriptionAction(): Promise<SubscriptionActionResp
     }
 
     // Cancel subscription at period end
-    const subscription = await getStripeServerClient().subscriptions.update(user.stripeSubscriptionId, {
-      cancel_at_period_end: true,
-    });
+    const subscription = await getStripeServerClient().subscriptions.update(
+      user.stripeSubscriptionId,
+      {
+        cancel_at_period_end: true,
+      }
+    );
 
     return {
       success: true,
@@ -475,7 +455,7 @@ export async function cancelSubscriptionAction(): Promise<SubscriptionActionResp
  */
 export async function resumeSubscriptionAction(): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -496,7 +476,9 @@ export async function resumeSubscriptionAction(): Promise<SubscriptionActionResp
     }
 
     // First check current subscription state
-    const currentSub = await getStripeServerClient().subscriptions.retrieve(user.stripeSubscriptionId);
+    const currentSub = await getStripeServerClient().subscriptions.retrieve(
+      user.stripeSubscriptionId
+    );
 
     // Can only resume if subscription is in a valid state
     if (currentSub.status === 'canceled') {
@@ -557,7 +539,7 @@ export async function updateSubscriptionAction(
   newPriceId: string
 ): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -578,18 +560,23 @@ export async function updateSubscriptionAction(
     }
 
     // Get current subscription
-    const subscription = await getStripeServerClient().subscriptions.retrieve(user.stripeSubscriptionId);
+    const subscription = await getStripeServerClient().subscriptions.retrieve(
+      user.stripeSubscriptionId
+    );
 
     // Update subscription with new price
-    const updatedSubscription = await getStripeServerClient().subscriptions.update(user.stripeSubscriptionId, {
-      items: [
-        {
-          id: subscription.items.data[0].id,
-          price: newPriceId,
-        },
-      ],
-      proration_behavior: 'create_prorations',
-    });
+    const updatedSubscription = await getStripeServerClient().subscriptions.update(
+      user.stripeSubscriptionId,
+      {
+        items: [
+          {
+            id: subscription.items.data[0].id,
+            price: newPriceId,
+          },
+        ],
+        proration_behavior: 'create_prorations',
+      }
+    );
 
     return {
       success: true,
@@ -617,7 +604,7 @@ export async function getSubscriptionInvoicesAction(
   limit = 10
 ): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -674,7 +661,7 @@ export async function getSubscriptionInvoicesAction(
  */
 export async function getUpcomingInvoiceAction(): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -722,7 +709,7 @@ export async function getUpcomingInvoiceAction(): Promise<SubscriptionActionResp
  */
 export async function hasActiveSubscriptionAction(): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -770,7 +757,7 @@ export async function hasActiveSubscriptionAction(): Promise<SubscriptionActionR
  */
 export async function getSubscriptionDetailsAction(): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return { success: false, error: 'Unauthorized' };
     }
@@ -798,9 +785,12 @@ export async function getSubscriptionDetailsAction(): Promise<SubscriptionAction
 
     if (user.stripeSubscriptionId) {
       try {
-        const subscription = await getStripeServerClient().subscriptions.retrieve(user.stripeSubscriptionId, {
-          expand: ['items.data.price'],
-        });
+        const subscription = await getStripeServerClient().subscriptions.retrieve(
+          user.stripeSubscriptionId,
+          {
+            expand: ['items.data.price'],
+          }
+        );
         autoRenewal = !subscription.cancel_at_period_end;
         stripeStatus = subscription.status;
 
@@ -845,7 +835,7 @@ export async function getSubscriptionDetailsAction(): Promise<SubscriptionAction
  */
 export async function getPaymentMethodsAction(): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return { success: false, error: 'Unauthorized' };
     }
@@ -901,7 +891,7 @@ export async function deletePaymentMethodAction(
   paymentMethodId: string
 ): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return { success: false, error: 'Unauthorized' };
     }
@@ -921,7 +911,9 @@ export async function deletePaymentMethodAction(
 
     // Check if auto-renewal is active - block deletion if so
     if (user.stripeSubscriptionId) {
-      const subscription = await getStripeServerClient().subscriptions.retrieve(user.stripeSubscriptionId);
+      const subscription = await getStripeServerClient().subscriptions.retrieve(
+        user.stripeSubscriptionId
+      );
       if (!subscription.cancel_at_period_end && subscription.status === 'active') {
         return {
           success: false,
@@ -962,7 +954,7 @@ export async function setDefaultPaymentMethodAction(
   paymentMethodId: string
 ): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return { success: false, error: 'Unauthorized' };
     }

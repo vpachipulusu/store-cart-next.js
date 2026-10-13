@@ -1,6 +1,6 @@
 import { redirect, unstable_rethrow } from 'next/navigation';
 import { cookies } from 'next/headers';
-import { getAdminAuth } from '@/lib/firebase/admin';
+import { isEmailNotVerifiedError, verifyVerifiedSessionCookie } from '@/lib/auth/verified-session';
 import { db } from '@/lib/db/client';
 import { isSessionVerificationError, logRouteError } from '@/lib/auth/session-errors';
 import Link from 'next/link';
@@ -28,7 +28,7 @@ async function getUser() {
       return null;
     }
 
-    const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, true);
+    const decodedClaims = await verifyVerifiedSessionCookie(sessionCookie);
     uid = decodedClaims.uid;
 
     // Get user from database for additional data
@@ -66,6 +66,10 @@ async function getUser() {
     unstable_rethrow(error);
     // Only a failed session verification clears the session. Database and other errors are logged
     // and rethrown so error.tsx renders and the user stays signed in.
+    // A verified session is required; an unverified (or stale-claim) user keeps the session and verifies first.
+    if (isEmailNotVerifiedError(error)) {
+      redirect('/verify-email');
+    }
     if (isSessionVerificationError(error)) {
       redirect('/api/auth/clear-session');
     }

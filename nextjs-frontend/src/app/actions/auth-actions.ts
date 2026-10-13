@@ -10,6 +10,7 @@ import { emailSchema, passwordSchema } from '@/lib/utils/validation';
 import { getLocationFromIP } from '@/lib/utils/geo-ip';
 import { notifyNewDeviceLogin, notifyEmailVerified } from '@/lib/utils/notifications';
 import { logger } from '@/lib/logger';
+import { isEmailNotVerifiedError, verifyVerifiedSessionCookie } from '@/lib/auth/verified-session';
 
 /**
  * Response type for auth actions
@@ -257,18 +258,16 @@ export async function verifyTokenAction(idToken: string): Promise<AuthActionResp
       path: '/',
     });
 
-    // Set email verification status cookie (readable by proxy for enforcement)
-    cookieStore.set('email-verified', email_verified ? 'true' : 'false', {
-      maxAge: maxAgeSeconds,
-      httpOnly: false,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-    });
+    // The email-verified decision lives in the signed claim inside the session cookie, enforced by
+    // `@/lib/auth/verified-session` (KAN-123). No client-readable verification cookie is issued any more;
+    // clear any left over from an older deployment.
+    cookieStore.delete('email-verified');
 
     return {
       success: true,
       data: {
+        // From the verified ID token that minted the session cookie (not the database row).
+        claimsEmailVerified: email_verified === true,
         user: {
           id: user.id,
           firebaseUid: user.firebaseUid,
@@ -307,7 +306,7 @@ export async function getCurrentSessionAction(): Promise<AuthActionResponse> {
     }
 
     // Verify session cookie
-    const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, true);
+    const decodedClaims = await verifyVerifiedSessionCookie(sessionCookie);
 
     // Get user from database
     const user = await db.user.findUnique({
@@ -344,13 +343,16 @@ export async function getCurrentSessionAction(): Promise<AuthActionResponse> {
     };
   } catch (error: any) {
     logger.error('Get session error:', error);
-    // Clear stale cookie on verification failure
-    const cookieStore = await cookies();
-    cookieStore.delete('session');
-    cookieStore.delete('email-verified');
+    // Clear stale cookie on verification failure. An unverified user keeps the session so they can
+    // finish verifying their email.
+    if (!isEmailNotVerifiedError(error)) {
+      const cookieStore = await cookies();
+      cookieStore.delete('session');
+      cookieStore.delete('email-verified');
+    }
     return {
       success: false,
-      error: error.message || 'Session retrieval failed',
+      error: 'Session retrieval failed',
     };
   }
 }

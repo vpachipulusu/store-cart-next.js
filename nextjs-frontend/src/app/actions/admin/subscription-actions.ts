@@ -4,9 +4,9 @@ import { cookies } from 'next/headers';
 import { z } from 'zod';
 import Stripe from 'stripe';
 import { getStripeServerClient } from '@/lib/stripe/server';
-import { getAdminAuth } from '@/lib/firebase/admin';
 import { db } from '@/lib/db/client';
 import { logger } from '@/lib/logger';
+import { verifyVerifiedSessionCookie } from '@/lib/auth/verified-session';
 
 /**
  * Initialize Stripe
@@ -33,7 +33,7 @@ async function getAuthenticatedAdmin() {
       return null;
     }
 
-    const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, true);
+    const decodedClaims = await verifyVerifiedSessionCookie(sessionCookie);
     const user = await db.user.findUnique({
       where: { firebaseUid: decodedClaims.uid },
       include: {
@@ -254,7 +254,9 @@ export async function getUserSubscriptionDetailsAction(
     // Get Stripe subscription details if exists
     if (user.stripeSubscriptionId) {
       try {
-        stripeSubscription = await getStripeServerClient().subscriptions.retrieve(user.stripeSubscriptionId);
+        stripeSubscription = await getStripeServerClient().subscriptions.retrieve(
+          user.stripeSubscriptionId
+        );
       } catch (error) {
         logger.error('Failed to retrieve Stripe subscription:', error);
       }
@@ -679,7 +681,9 @@ export async function syncStripeSubscriptionsAction(): Promise<AdminSubscription
 
     for (const user of users) {
       try {
-        const subscription = await getStripeServerClient().subscriptions.retrieve(user.stripeSubscriptionId!);
+        const subscription = await getStripeServerClient().subscriptions.retrieve(
+          user.stripeSubscriptionId!
+        );
 
         await db.user.update({
           where: { id: user.id },

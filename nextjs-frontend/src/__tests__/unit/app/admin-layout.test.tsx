@@ -30,7 +30,7 @@ describe('AdminLayout access check', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.cookieGet.mockReturnValue({ value: 'cookie-value' });
-    mocks.verifySessionCookie.mockResolvedValue({ uid: 'uid-1' });
+    mocks.verifySessionCookie.mockResolvedValue({ uid: 'uid-1', email_verified: true });
   });
 
   it('sends a logged-in non-admin straight to /dashboard, never /login', async () => {
@@ -41,6 +41,15 @@ describe('AdminLayout access check', () => {
     expect(redirectTarget(error)).toBe('/dashboard');
     expect(navigationMock.redirect).toHaveBeenCalledTimes(1);
     expect(navigationMock.redirect).not.toHaveBeenCalledWith('/login');
+  });
+
+  it('sends an unverified admin to /verify-email without touching the database (KAN-123)', async () => {
+    mocks.verifySessionCookie.mockResolvedValue({ uid: 'uid-1', email_verified: false });
+
+    const error = await rejection(AdminLayout({ children: null }));
+
+    expect(redirectTarget(error)).toBe('/verify-email');
+    expect(mocks.userFindUnique).not.toHaveBeenCalled();
   });
 
   it('redirects to /login when the session cookie has expired', async () => {

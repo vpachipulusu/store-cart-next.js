@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { redirect, unstable_rethrow } from 'next/navigation';
-import { getAdminAuth } from '@/lib/firebase/admin';
+import { isEmailNotVerifiedError, verifyVerifiedSessionCookie } from '@/lib/auth/verified-session';
 import { db } from '@/lib/db/client';
 import { isSessionVerificationError, logRouteError } from '@/lib/auth/session-errors';
 import {
@@ -26,7 +26,7 @@ export const dynamic = 'force-dynamic';
 async function loadUserBySession(sessionCookie: string) {
   let uid: string | undefined;
   try {
-    const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, true);
+    const decodedClaims = await verifyVerifiedSessionCookie(sessionCookie);
     uid = decodedClaims.uid;
 
     return await db.user.findUnique({
@@ -37,6 +37,9 @@ async function loadUserBySession(sessionCookie: string) {
     });
   } catch (error) {
     unstable_rethrow(error);
+    if (isEmailNotVerifiedError(error)) {
+      redirect('/verify-email');
+    }
     if (isSessionVerificationError(error)) {
       redirect('/login');
     }
