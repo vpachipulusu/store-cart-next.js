@@ -30,13 +30,10 @@ Focused test for the critical happy path:
 
 ### 1. Environment Variables
 
-Required in `.env.local`:
+The e2e user credentials (`TEST_USER_EMAIL`, `TEST_USER_PASSWORD`) are written to `.env.e2e.local` by
+`npm run test:setup`; do not hand-edit them. Required in `.env.local`:
 
 ```env
-# Test user credentials
-TEST_USER_EMAIL=testuser@example.com
-TEST_USER_PASSWORD=TestPass123!
-
 # Stripe keys (test mode)
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
 STRIPE_SECRET_KEY=sk_test_...

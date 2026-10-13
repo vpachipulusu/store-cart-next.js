@@ -11,13 +11,21 @@
  */
 
 import { PrismaClient } from '@prisma/client';
-import dotenv from 'dotenv';
+import e2eEnv from './e2e-env.cjs';
 
-// Load environment variables
-dotenv.config({ path: '.env.local' });
-dotenv.config();
-
-const TEST_USER_EMAIL = process.env.TEST_USER_EMAIL || 'testuser@example.com';
+// The e2e user and database come only from .env.e2e.local (written by `npm run test:setup`) or the environment.
+e2eEnv.applyE2eEnv();
+const TEST_USER_EMAIL = process.env.TEST_USER_EMAIL;
+if (!TEST_USER_EMAIL) {
+  console.error('TEST_USER_EMAIL is not set. Run `npm run test:setup` (writes .env.e2e.local).');
+  process.exit(1);
+}
+try {
+  e2eEnv.assertE2eDatabaseEnv(process.env);
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
 
 const prisma = new PrismaClient();
 
