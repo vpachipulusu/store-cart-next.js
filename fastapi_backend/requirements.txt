@@ -120,7 +120,7 @@ pydantic-core==2.27.2
     # via pydantic
 pydantic-extra-types==2.11.1
     # via fastapi
-pydantic-settings==2.7.1
+pydantic-settings==2.15.0
     # via
     #   fastapi
     #   storecart-backend
@@ -178,7 +178,9 @@ typing-extensions==4.12.2
     #   starlette
     #   typing-inspection
 typing-inspection==0.4.2
-    # via fastapi
+    # via
+    #   fastapi
+    #   pydantic-settings
 urllib3==2.3.0
     # via
     #   requests
