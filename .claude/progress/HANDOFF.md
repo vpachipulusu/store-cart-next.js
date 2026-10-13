@@ -1,75 +1,147 @@
 # HANDOFF: baton between Claude and Codex
 
-Rules for using this file are in [`AGENTS.md`](../../AGENTS.md). Read the table first. Update it in your own commit at every handoff.
+Read `AGENTS.md` and [agent-handover.md](../../docs/developer/agent-handover.md) first.
+This baton is the durable communication record; neither agent can read the other's chat.
 
-| Field              | Value                                                                                                     |
-| ------------------ | --------------------------------------------------------------------------------------------------------- |
-| owner              | **codex** (claude → codex at the owner's request, Claude usage limit; effective when this PR merges)      |
-| ticket             | none active; next candidates in "Next steps"                                                              |
-| branch             | start from updated `main`                                                                                 |
-| last completed SHA | `13a3af7358ca1a969a7846d148a58c83adec825b` (PR #41, KAN-26)                                               |
-| handover revision  | resolve from the latest merged change to this file; a commit cannot contain its own SHA                   |
-| open PRs           | none at this update; recheck GitHub                                                                       |
-| status             | tracked tree clean; no partial feature or migration; untracked scratch under `.claude/` preserved         |
-| blockers           | KAN-145 held (owner go needed); owner actions below; KAN-115 spike only when the owner says ready         |
-| updated            | 2026-10-13 by claude (Europe/London)                                                                      |
+| Field              | Value                                                                                                 |
+| ------------------ | ----------------------------------------------------------------------------------------------------- |
+| owner              | **claude**, at the owner's request; effective once this handover is merged                            |
+| ticket             | none active; next bug priorities KAN-154 and KAN-123                                                  |
+| branch             | start from safely updated `main` in `C:\MainData\AI-Projects\store-cart-next.js`                      |
+| last completed SHA | `df0acfeee87baf74d7793f243da2e1ac9b9f9495` (PR #46, KAN-162)                                          |
+| handover revision  | resolve using Git history for this file; do not embed a self-referential SHA                          |
+| open PRs           | no feature PR at this checkpoint; recheck GitHub and ensure this handover is on main                  |
+| status             | primary tracked tree clean; completed code/tests committed and published; unrelated scratch preserved |
+| blockers           | KAN-145 held; KAN-115 only when owner is ready; production configuration actions below                |
+| updated            | 2026-10-13 by codex (Europe/London)                                                                   |
 
-**Owner actions pending:** create an Upstash Redis DB and set `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN` in Vercel Production before the next release (production refuses to start without them); optionally set `SENTRY_DSN`. `E2E_ENABLED` is now `false` (owner set it); the owner said not to wait on e2e, so merge on a green CI gate plus the reviews for the PR type.
+Codex stops developer mutations after publishing this transfer. A usage-limit reset
+does not transfer ownership. When the owner requests return to Codex, finish a clean,
+published checkpoint, record exact ticket/branch/SHA/PR/checks/blockers here and in
+Jira, transfer the baton to `codex`, and give the owner a startup prompt.
 
-## Done so far
+## Work completed since Claude's latest handback
 
-KAN-25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 111, 112, 161, 113, 121, 122, 132 to 136, 138, 140, 141, 144, 146, 147, 148, 153, 159.
+Claude's handback was PR #42 (`e440dd4afaa43e5d388c1d0396922610f5315063`).
+Do not repeat already completed foundation work; Jira wins if an older plan differs.
 
-Claude completed after taking the baton (PRs #26 to #38): KAN-148, KAN-141 (session errors reach the error boundary), KAN-31 (config, JSON logs with request id, error envelope), KAN-32 (hardened Dockerfile), KAN-112 (`/api/health` proxy and post-deploy smoke workflow; production Neon stays empty until the migrate path exists), KAN-33 (OpenAPI schema and server-only client, drift check in CI and pre-commit), KAN-34 (Upstash rate limiter, auth routes fail closed, API/webhook fail open), KAN-35 (Sentry with scrubbing, `fastapi_backend/CLAUDE.md`), KAN-36 (platform models and Alembic baseline in `storecart_platform`, CI migrations job), KAN-161 (runtime DB connection keeps TLS settings), KAN-26 (Docker Compose for local development). Decisions are recorded in the Jira comments on each ticket.
+- **KAN-37:** PR [#43](https://github.com/vpachipulusu/store-cart-next.js/pull/43),
+  merge `0a7748f629e46877cacc98b51995578c4a914347`. Firebase backend session
+  create/verify/revoke, internal-key rotation, verified claims, HMAC email limiting,
+  trusted client-IP forwarding, generated contracts and corrected SDK envelope typing.
+  144 backend tests passed (98.78% coverage), 149 frontend unit tests passed.
+- **KAN-38:** PR [#44](https://github.com/vpachipulusu/store-cart-next.js/pull/44),
+  merge `430de9fc543b03f2ad0ca49f057df2da39654b94`. Seven `/v1/me` operations:
+  profile GET/PATCH, avatar PATCH, settings GET/PATCH, history GET and account DELETE.
+  Safe fields, partial updates, bounded history, fresh same-UID reauthentication and
+  OWNER deletion rejection. 239 backend tests passed (98.87% coverage).
+- **KAN-39:** PR [#45](https://github.com/vpachipulusu/store-cart-next.js/pull/45),
+  merge `f6c16dbfafc4655293da6bcc31fb081000563fb0`. Encrypted backend TOTP
+  enrollment/verification/disablement, optional backend-only Fernet configuration,
+  authenticated wiring and generated client. 283 combined backend tests passed
+  (98.63% coverage). **This does not enforce TOTP during sign-in**; KAN-125 remains open.
+- **KAN-162:** PR [#46](https://github.com/vpachipulusu/store-cart-next.js/pull/46).
+  Eight new real legacy Playwright journeys plus three setup checks: **11 passed in
+  44.2 seconds**, no skips. Ten cleanup/verification unit tests passed. Account
+  deletion checks Firebase/database absence before teardown, so cleanup cannot hide
+  an incomplete deletion. Specs join the existing baseline selection.
+- **KAN-130:** reconciled as already fixed by `4a303da` (KAN-146); the unauthenticated
+  logging route was removed, with no replacement. Jira evidence/status updated;
+  no invented implementation patch.
 
-Codex completed:
+Required CI gates and appropriate reviews passed before merging. Coverage floors
+remain unchanged (backend 84.13%; frontend ratchet unchanged). Ordinary frontend
+lint still has existing warnings; no new errors were accepted. No production Neon
+operation or production release was performed.
 
-- **KAN-111:** checked merged acceptance criteria and moved Jira to Done.
-- **KAN-153:** [PR #28](https://github.com/vpachipulusu/store-cart-next.js/pull/28), merged `a24dd5c8468883b1d7cadd8f4d7ba3247b3250f1`. Removed false trial/2FA sign-in promises, unsupported contact details and plan features; contact form is explicitly unavailable. 83 unit tests and 20 focused E2E tests passed, with one existing Stripe-dependent skip; required CI passed.
-- **KAN-144:** [PR #29](https://github.com/vpachipulusu/store-cart-next.js/pull/29), merged `fc51831aa8ed14b070e5b7b0ec8c5a280ad740ba`. Rate-limit identity trusts validated `x-vercel-forwarded-for` only under `VERCEL=1`; elsewhere it uses a shared safe fallback. Test identities use an explicit local E2E override compiled off in ordinary artifacts and rejected in deployed Vercel. Durable counters remain KAN-34. 111 unit tests, unchanged coverage ratchet, 36 focused auth/session Chromium tests (22.8 seconds), both builds, types, lint and formatting passed. PM, Architect, Code and TypeScript/Security reviews passed. Required CI gate and pre-commit passed; Vercel preview completed successfully.
+Earlier completed work includes KAN-25–36, 111–113, 121–122, 132–136, 138, 140–141,
+144, 146–148, 153, 159 and 161. See live Jira rather than this abbreviated history.
 
-The original KAN-148 brand-source/manifest/dependency changes remain merged. Capacitor stays; the CLI 6 / accepted dev-only tar issue is unchanged.
+## Next bugs: PM and Architect decision
 
-## Next steps for the next owner, in order
+The owner requested bugs after E2E completion, then requested this Claude handover.
+PM and Architect agree on the following queue; no bug implementation is half-done.
 
-1. Read this baton, `AGENTS.md`, `.claude/CLAUDE.md`, `docs/developer/agent-handover.md`, workflow, plan and ADR index. Check Git status, open PRs and live Jira. KAN-3 is the only stale In Progress item at snapshot; do not close it without the owner. No feature work is half-done.
-2. **Next candidate** (PM and Architect agreed; confirm it is still To-do): KAN-37 (Firebase session auth in the backend; PM and Architect reviews plus a security pass; must apply the rate-limit dependency and gate `X-Client-IP` on a service key; Prisma stays source of truth until KAN-41), then KAN-38 onward in the plan's start order. KAN-160 (KAN-30 follow-ups) needs its five items collected before anyone takes it. Carried follow-ups: second `upgrade head` after downgrade in the CI migrations job, unique `lower(email)` index, ESLint restriction on `@/lib/api/generated` (KAN-41), removing the frontend in-memory limiter once KAN-34 limits are applied to routes.
-3. **Deployment:** backend deploys as an internal Vercel service; production deploys only via the release workflow; no build runs migrations. Never run anything against production Neon. Alembic owns `storecart_platform` (to be created in StoreCart-Test first); the frontend stays on Prisma until KAN-41.
-4. **KAN-145 stays on explicit hold.** This handover and the request to continue work do not authorize the public template export or first push. The owner must say go and see the file list first.
-5. Follow the plan's Foundation dependency order for later backend work; do not infer key order or skip the deployment/spike checkpoints. KAN-149 follows its template/foundation prerequisites.
+1. **KAN-154:** fix the profile Email label association and preserve readonly behavior.
+   Check all profile field names; run the existing two failing baseline tests without
+   changing their assertions. This is a confirmed accessibility defect with no
+   backend prerequisite.
+2. **KAN-123:** enforce verified Firebase claims at the **actual legacy protected
+   server boundary**, including revocation checks. A forged, stale or missing
+   `email-verified` cookie must not authorize an unverified user. Only remove the
+   proxy cookie gate after authoritative protection and negative tests exist.
+   Backend KAN-37 guards alone do not prove legacy frontend protection. Keep this
+   independent of KAN-41 migration; require PM, Architect and Security review.
+3. **KAN-155:** website native URL validation blocks the application's message.
+   It touches the same profile file as KAN-154, so sequence it afterward.
+4. **KAN-163:** duplicate login-history rows from legacy token refresh. Real browser
+   evidence showed three rows after two explicit sign-ins. `onIdTokenChanged` in
+   `use-session-refresh.ts` calls `verifyTokenAction`, which records history each time.
+   Investigate with KAN-41; KAN-162 asserts growth/persistence, not deduplication.
 
-## Pending observations and E2E investigation
+KAN-124 depends on backend admin work. KAN-125 needs a sign-in challenge, not another
+setup endpoint. KAN-126/129/137 require evidence reconciliation between already-fixed
+backend code and remaining legacy paths. KAN-160 needs its five review items collected
+before pickup. Keep stale KAN-3 open unless the owner explicitly decides otherwise.
 
-- PR #29 full baseline run [38396038622](https://github.com/vpachipulusu/store-cart-next.js/actions/runs/38396038622), job `115291374142`, was still in **Run Chromium e2e baseline** when checked for handover. Setup, dependency install, DB preparation, browser install, build and account setup succeeded. Fetch the final status/report; do not describe this as a passing full suite.
-- The ECC council agreed to measure install/build/startup/tests/teardown separately before tuning workers or reducing coverage. One local run finished assertions but stalled during managed-server teardown; the cause is unproven. Separately started E2E server plus `E2E_REUSE_SERVER=1` completed the focused runs. A focused 22.8-second run is not comparable to the full baseline. Keep investigation separate from KAN-141.
-- Existing baseline issues KAN-154–158 remain tracked. Do not silently skip failures or change assertions to claim green. The required CI gate excludes baseline E2E under current repo policy.
-- KAN-144 E2E build once failed with Windows `mkdir EPERM` during prerendering, then passed on retry. No persistent ACL problem was found; no source workaround was added.
-- All Codex-owned verification servers were stopped. No migrations were run during these changes.
+The owner authorized **two developer agents with separate file/branch ownership**.
+One coordinator owns the baton; Claude and Codex must not develop concurrently.
+Use read-only PM/Architect/Security reviewers. Retain the owner's Claude model
+preferences (Sonnet developers, Haiku PM where configured). Pick only eligible To-do
+tickets; update Jira before coding and keep one ticket per branch.
 
-## Communication and return to Codex
+## E2E decision and limitations
 
-The repo baton and Jira comments are the cross-agent communication record, not direct chat access. Detailed protocol and copy/paste prompts are in [agent-handover.md](../../docs/developer/agent-handover.md).
+The owner explicitly said **legacy browser only** and rejected an emulator plan.
+No emulator or backend HTTP harness was added. KAN-162 uses the dedicated
+`storecart-test` Firebase project and dedicated test PostgreSQL configuration in
+gitignored `.env.e2e.local`, with isolated throwaway accounts and finally cleanup.
+See [legacy-browser-regressions.md](../../docs/developer/legacy-browser-regressions.md).
 
-- Claude is the sole developer after this handover is merged. Codex stops feature work. Read-only PM/Architect reviewers do not acquire the baton.
-- A Codex usage-limit reset does **not** transfer ownership. When the owner explicitly requests a return, Claude stops new work, commits/pushes all authorized work, records the ticket/branch/SHA/PR, test outcomes and blockers, updates this baton to `codex`, and mirrors it to Jira. Leave unresolved work accurately In Progress/In Review; do not falsely mark it Done.
-- Codex then reads the latest committed baton and live Jira/PR state before continuing. If Claude still owns the baton, Codex must not begin concurrent edits.
+These browser tests exercise the **legacy frontend**, not KAN-37–39 FastAPI paths
+until KAN-41 cutover. Avatar upload is still a placeholder. TOTP setup does not
+protect sign-in. The full baseline was not claimed green from this focused run.
+KAN-154–158 retain their separate issues; KAN-157 needs test-mode webhook routing,
+and KAN-158's discounted yearly price is an owner action.
 
-## Context an agent cannot get from the code
+`E2E_ENABLED` remains **false**, as set by the owner. Do not enable it automatically.
+Merge on the green **CI gate** plus required reviews; do not wait for the disabled
+browser CI job. All Codex-owned verification servers are stopped at this handoff.
 
-- E2E: the prior handover reported about 2 minutes locally using the dedicated `storecart-test` Firebase project and test database in `nextjs-frontend/.env.e2e.local` (local, not committed). The CI job is enabled by `E2E_ENABLED` and sits outside the gate. Historical baseline failures are tracked as KAN-154 (profile Email accessible name), 155 (website URL validation message), 156 (intermittent lost navigation), 157 (Stripe webhook routing for the upgrade test), 158 (admin dropdown test, yearly savings badge needs a discounted yearly test price). The latest full run was pending above; inspect its result rather than assuming it fails only for those reasons.
-- Branch protection on `main` is set. Vercel Preview vars point at test services.
-- Owner's optional to-dos: delete the leftover `-yem8` GitHub environments; create a Stripe discounted yearly test price for KAN-158.
-- KAN-145 ticket holds the classification and Capacitor decision (public repo `https://github.com/vpachipulusu/boiler-plate-fastapi-nextjs.git`, fresh single commit, secret scan, show the file list before pushing). Substitution points the export must handle beyond `site.ts`: `.env.example`, the CI env in `.github/workflows/e2e.yml` and `frontend.yml`, and the `layout.tsx` placeholders (`Your Name`, `@yourusername`).
-- The previous Claude setup used Sonnet developers and Haiku PM reviews; retain the owner's configured preferences. Keep reviewer reports concise.
-- Codex's Git credential-manager shell failed in its Windows sandbox. Connected GitHub tools worked; the PR trees were verified byte-for-byte against local Git trees. Do not ask the owner to repeat `gh auth login` solely because Codex's sandbox had this issue. Claude should check its own tools/authentication without printing credentials.
-- Local `fix/KAN-144-trusted-rate-limit-key` preserves Codex commit `ae5eae47af6109cdab741f9a828654dc0c36376f`; the published equivalent is `5c70a2cfd882baac8479b0322d09608f93674504`. Their trees match; GitHub connector generated distinct commit metadata. Both changes are represented on main by PR #29. Do not reset/rewrite/delete old branches to reconcile metadata; begin new work from main.
-- ECC agent-sort was an inventory/classification exercise only; no plugin/config changes were applied. The Architect/PM recommendation here is from actual read-only subagents. Do not claim inventory agents were working developers.
-- Untracked files in the working tree (`.claude/worktrees/`, `kan113-runs.md`, `PRPs/`, `KAN-138-e2e.md`, `KAN-147.md`) are not part of any PR. Leave them.
+## Owner actions and architectural boundaries
 
-## Log
+- **KAN-145 remains held:** no public template export/first push without explicit go;
+  show the file list before any authorized first push. Capacitor remains in StoreCart.
+- **KAN-115** latency spike only when the owner says ready.
+- Never operate on production Neon. Alembic owns `storecart_platform`; no build runs
+  migrations. Production deploys only through the release workflow. Frontend Prisma
+  remains source of truth until KAN-41; backend is an internal Vercel service (ADR-011).
+- Owner must provision Upstash Redis production URL/token before release; production
+  startup requires them. Optional Sentry project/DSN remains an owner action.
+- Backend auth also requires `BACKEND_INTERNAL_KEY`, independent `RATE_LIMIT_EMAIL_KEY`
+  and Firebase Admin project/client email/private key. Frontend and backend share the
+  internal service key; current/next rotation is supported. See `backend-auth.md`.
+- `TOTP_ENCRYPTION_KEY` must be a separate securely stored Fernet key for TOTP use.
+  Missing key returns 503; invalid configured key prevents startup. Preserve it across
+  deployments: replacing it without ciphertext migration breaks enrollments.
+- Account deletion is not atomic across Firebase and SQL. SQL failure after Firebase
+  deletion leaves a residual row requiring controlled operator repair. See `backend-profile.md`.
+- No secrets or real env files in commits; no force push/history rewrite/`--no-verify`;
+  do not lower coverage thresholds or silently skip failing tests.
 
-| Date       | From → to      | Note                                                                                                                                                                |
-| ---------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-10-13 | claude → codex | Usage limit. KAN-148 merged; state clean.                                                                                                                           |
-| 2026-10-13 | codex → claude | Owner requested continuation while Codex limit approaches. KAN-111, KAN-153 and KAN-144 Done; PRs #28/#29 merged. Architect and PM recommend KAN-141. KAN-145 held. |
-| 2026-10-13 | claude → codex | Claude usage limit. KAN-141, 31 to 36, 112, 26 and 161 merged (PRs #30 to #41); no open PRs; next candidate KAN-37. KAN-145 held. |
+## Local state and operational notes
+
+Use the primary repository, not the projectless Codex workspace. Preserve untracked
+`.agents/`, `.claude/PRPs/`, `.claude/plans/kan113-runs.md`,
+`.claude/progress/KAN-138-e2e.md`, `.claude/progress/KAN-147.md` and `.claude/worktrees/`.
+Never commit the generated ignored frontend `AGENTS.md`.
+
+Codex-created manual worktrees under the chat's `work/kan39` and `work/kan162` are
+implementation/checking checkouts, not independent active tickets. Published commits
+and primary main are authoritative. No unfinished feature is assigned to those paths.
+
+Codex's Windows sandbox sometimes blocked Git's shell, uv cache locks, Node temp files
+or async test sockets. Connected GitHub tools published exact trees verified against
+local `git write-tree`; do not ask the owner to repeat `gh auth login` for that sandbox
+issue. Claude should check its own auth/tools without printing credentials. Local
+checks used workspace caches/temp directories and approved execution when needed.
