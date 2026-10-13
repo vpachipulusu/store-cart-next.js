@@ -5,7 +5,8 @@
  */
 export const siteConfig = {
   name: process.env.NEXT_PUBLIC_APP_NAME || 'StoreCart',
-  description: 'Your online store: products, cart, checkout and subscriptions in one place.',
+  description: 'A modern Next.js 16 boilerplate with TypeScript, React 19, Tailwind CSS, and more',
+  keywords: ['Next.js', 'React', 'TypeScript', 'Tailwind CSS', 'Boilerplate', 'Starter'],
   url: process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
   supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL || 'support@example.com',
   ogImage: '/og-image.png',
