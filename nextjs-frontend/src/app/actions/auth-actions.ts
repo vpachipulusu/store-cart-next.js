@@ -147,19 +147,34 @@ export async function verifyTokenAction(idToken: string): Promise<AuthActionResp
 /**
  * Session refresh (Firebase token refresh, /verify-email re-check): same verification, user sync and
  * cookie as a sign-in, but records no login history and sends no new-device notice (KAN-163).
+ * It only counts as a refresh when a current, unrevoked session cookie for the same uid exists;
+ * otherwise it is treated as an explicit sign-in so a bare ID token can never mint a session silently.
  */
 export async function refreshSessionAction(idToken: string): Promise<AuthActionResponse> {
   return establishSession(idToken, { isExplicitSignIn: false });
 }
 
+async function hasMatchingActiveSession(uid: string): Promise<boolean> {
+  const existing = (await cookies()).get('session')?.value;
+  if (!existing) return false;
+  try {
+    // checkRevoked = true; email_verified is deliberately not required (/verify-email runs unverified).
+    const claims = await getAdminAuth().verifySessionCookie(existing, true);
+    return claims.uid === uid;
+  } catch {
+    return false;
+  }
+}
+
 async function establishSession(
   idToken: string,
-  { isExplicitSignIn }: { isExplicitSignIn: boolean }
+  { isExplicitSignIn: requestedExplicit }: { isExplicitSignIn: boolean }
 ): Promise<AuthActionResponse> {
   try {
     // Verify Firebase ID token
     const decodedToken = await getAdminAuth().verifyIdToken(idToken);
     const { uid, email, email_verified } = decodedToken;
+    const isExplicitSignIn = requestedExplicit || !(await hasMatchingActiveSession(uid));
 
     if (!email) {
       return {

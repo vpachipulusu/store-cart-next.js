@@ -16,17 +16,20 @@ const mocks = vi.hoisted(() => ({
   historyCreate: vi.fn(),
   notifyNewDeviceLogin: vi.fn(),
   createSessionCookie: vi.fn(),
+  verifySessionCookie: vi.fn(),
+  cookieGet: vi.fn(),
 }));
 
 vi.mock('next/headers', () => ({
   headers: async () => new Headers({ 'user-agent': 'vitest' }),
-  cookies: async () => ({ set: vi.fn(), get: vi.fn(), delete: vi.fn() }),
+  cookies: async () => ({ set: vi.fn(), get: mocks.cookieGet, delete: vi.fn() }),
 }));
 vi.mock('@/lib/firebase/admin', () => ({
   getAdminAuth: () => ({
     verifyIdToken: mocks.verifyIdToken,
     getUser: mocks.getUser,
     createSessionCookie: mocks.createSessionCookie,
+    verifySessionCookie: mocks.verifySessionCookie,
   }),
 }));
 vi.mock('@/lib/firebase/client', () => ({ auth: {} }));
@@ -69,6 +72,7 @@ describe('KAN-122: auth server actions', () => {
     });
     mocks.historyFindFirst.mockResolvedValue(null);
     mocks.createSessionCookie.mockResolvedValue('session-cookie');
+    mocks.cookieGet.mockReturnValue(undefined);
   });
 
   it('no longer exports the unauthenticated password-reset action that leaked the reset link', () => {
@@ -134,6 +138,8 @@ describe('KAN-122: auth server actions', () => {
     });
 
     it('records no history and sends no notice on session refresh, but still mints the cookie', async () => {
+      mocks.cookieGet.mockReturnValue({ value: 'old-session' });
+      mocks.verifySessionCookie.mockResolvedValue({ uid: 'uid-1' });
       const result = await authActions.refreshSessionAction('id-token');
 
       expect(result.success).toBe(true);
@@ -143,6 +149,46 @@ describe('KAN-122: auth server actions', () => {
       expect(mocks.historyFindFirst).not.toHaveBeenCalled();
       expect(mocks.notifyNewDeviceLogin).not.toHaveBeenCalled();
       expect(mocks.userUpdate.mock.calls[0][0].data).not.toHaveProperty('lastLoginAt');
+    });
+
+    it('verifies the existing session with revocation checking and does not require email_verified', async () => {
+      mocks.verifyIdToken.mockResolvedValue({
+        uid: 'uid-1',
+        email: 'new@example.com',
+        email_verified: false,
+      });
+      mocks.cookieGet.mockReturnValue({ value: 'old-session' });
+      mocks.verifySessionCookie.mockResolvedValue({ uid: 'uid-1' });
+
+      await authActions.refreshSessionAction('id-token');
+
+      expect(mocks.verifySessionCookie).toHaveBeenCalledWith('old-session', true);
+      expect(mocks.historyCreate).not.toHaveBeenCalled();
+    });
+
+    it('records once like a sign-in when refresh has no existing session', async () => {
+      await authActions.refreshSessionAction('id-token');
+
+      expect(mocks.historyCreate).toHaveBeenCalledTimes(1);
+      expect(mocks.notifyNewDeviceLogin).toHaveBeenCalledTimes(1);
+    });
+
+    it('records once when the existing session belongs to another user', async () => {
+      mocks.cookieGet.mockReturnValue({ value: 'other-session' });
+      mocks.verifySessionCookie.mockResolvedValue({ uid: 'uid-2' });
+
+      await authActions.refreshSessionAction('id-token');
+
+      expect(mocks.historyCreate).toHaveBeenCalledTimes(1);
+    });
+
+    it('records once when the existing session is revoked or invalid', async () => {
+      mocks.cookieGet.mockReturnValue({ value: 'revoked-session' });
+      mocks.verifySessionCookie.mockRejectedValue(new Error('auth/session-cookie-revoked'));
+
+      await authActions.refreshSessionAction('id-token');
+
+      expect(mocks.historyCreate).toHaveBeenCalledTimes(1);
     });
 
     it('still rejects an invalid token on refresh without recording anything', async () => {
