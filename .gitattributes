@@ -1,0 +1,2 @@
+*.sh text eol=lf
+fastapi_backend/Dockerfile text eol=lf
