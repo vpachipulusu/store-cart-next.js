@@ -51,7 +51,7 @@ grep -rl "@/lib/db/client" src | sort                                           
 | KAN-48 Admin subscriptions API | 6 | — | — |
 | KAN-49 Audit log API | 1 | — | — |
 | KAN-50 Admin/dashboard pages | — | — | 12 (all, switch-offs included) |
-| KAN-51 Remove Prisma/secrets | font/theme fallbacks | test-logging (delete) | — |
+| KAN-51 Remove Prisma/secrets | font/theme fallbacks | ~~test-logging~~ (deleted, KAN-146) | — |
 | **E22 switch off** KAN-40 notifications | 9 | — | dropdown and panels |
 | **E22 switch off** KAN-116 SEO/redirects | 11 | — | admin/seo |
 | **E22 switch off** KAN-117 email templates | 4 | — | admin/settings (part) |
@@ -230,7 +230,7 @@ Auth is `admin:settings.*`, except where marked.
 | ~~`POST /api/auth/login` (+ `OPTIONS`, CORS `*`)~~ (removed, KAN-122) | Firebase ID token in the body | `{idToken}` (Zod `loginSchema`) | 200 `{success, user:{id, email, emailVerified, displayName, avatarUrl, subscriptionTier, subscriptionStatus, isAdmin}}` | 400 `'Invalid request'` + details; 401 `'Invalid or expired token'`; 400 `'Email not found in token'`; 500 `'Internal server error'` | Creates or updates `users`; creates `user_settings`; audit `user.created`; `login_history`; audit `user.login_failed` on error. Sets cookie **`auth-token` = the raw ID token** (7 days), which nothing else reads. Not called by the app | KAN-37 (`POST /v1/auth/session`). ✅ Route deleted (KAN-122, PR #4) |
 | ~~`POST /api/auth/logout` (+ `OPTIONS`, CORS `*`)~~ (removed, KAN-122) | Bearer ID token or `session` cookie (unverified ok) | — | 200 `{success, message}` (always) | 500 `'Logout failed, but session cleared'` | Firebase `verifyIdToken`/`verifySessionCookie`, `revokeRefreshTokens`; audit `user.logout`; deletes cookies. Not called (logoutAction is used) | KAN-37 (`DELETE /v1/auth/session`). ✅ Route deleted (KAN-122, PR #4) |
 | ~~`POST /api/auth/signup` (+ `OPTIONS`, CORS `*`)~~ (removed, KAN-122) | none | `{email, password (min 8), displayName? (min 2)}` (Zod `signupSchema`) | 201 `{success, message, user:{id, email, displayName, emailVerified}, customToken}` | 400 `'Invalid request'`; 409 `'User with this email already exists'`; 409 `'Email already registered in authentication system'`; 400 `'Password does not meet requirements'`; 500 `'Failed to create user account'`; 500 `'Internal server error'` | Firebase `createUser`, `createCustomToken`, and a compensating `deleteUser`; creates `users` and `user_settings`; audit `user.signup`; welcome `notifications` row. No rate limit; 409 reveals which emails exist. Not called | KAN-37 (client Firebase signup + session). ✅ Route deleted (KAN-122, PR #4). Welcome notification: KAN-40 |
-| `GET /api/test-logging` | **none** | — | `{success, message, info, timestamp}` | 500 `'Logging test failed'` | Writes info, debug, warn and error log lines (and `console.log`). Test-only | Dead: delete (no port). At the latest in KAN-51 |
+| ~~`GET /api/test-logging`~~ (removed, KAN-146) | **none** | — | `{success, message, info, timestamp}` | 500 `'Logging test failed'` | Writes info, debug, warn and error log lines (and `console.log`). Test-only | Dead: delete (no port). At the latest in KAN-51 ✅ Route deleted (KAN-146, PR #20) |
 | `POST /api/webhooks/stripe` (+ `OPTIONS`, CORS `*`) | Stripe signature (`stripe-signature` header, raw body) | Stripe `Event` | 200 `{received, eventId, eventType}` | 400 `'Missing signature header'`; 401 `'Invalid signature'`; **200** `{received, error:'Event processing failed', eventId}` when the handler fails (Stripe will not retry ⚠); 500 `'Webhook processing failed'` | `lib/stripe/webhooks.handleWebhookEvent` handles `checkout.session.completed`, `customer.subscription.created/updated/deleted`, `invoice.payment_succeeded/failed` and `customer.subscription.trial_will_end`. It updates `users`, writes `audit_logs`, creates `notifications` and calls `revalidatePath`. **No idempotency** | KAN-44 (raw-body signature check, process each event at most once, org status sync) |
 
 ---
@@ -280,7 +280,7 @@ There are 12 page and layout files. The plan says "10 pages" because it counts t
 5. Admin auth is implemented four times: a `getAuthenticatedAdmin`/`hasPermission` copy in each admin action file, plus `admin-helpers.ts` and `admin-auth.ts` (both dead). The admin pages ignore permissions entirely. KAN-46 should be the single source.
 
 **Dead or test-only**
-6. `GET /api/test-logging`: unauthenticated and test-only. Delete it rather than port it.
+6. ✅ **Resolved in KAN-146 (PR #20): removed.** `GET /api/test-logging` was unauthenticated and test-only.
 7. 58 of the 92 actions (60 of 94 before KAN-122) are not called from the UI. All admin user and admin subscription actions, most SEO and settings actions, `loginAction`, `signUpAction`, `getCurrentSessionAction`, `verifyEmailAction`, `updateSubscriptionAction`, `getUpcomingInvoiceAction` and `hasActiveSubscriptionAction` are unused. The admin pages read Prisma directly instead. Port by behaviour (the story AC), not by action.
 8. `loginAction`, `signUpAction` and `verifyEmailAction` are no-ops or misuse the client SDK. Delete them; they have no porting story.
 9. `getUpcomingInvoiceAction` calls `invoices.retrieveUpcoming`, which the pinned API version `2025-08-27.basil` removed. It is probably broken.
