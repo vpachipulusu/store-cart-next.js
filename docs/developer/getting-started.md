@@ -4,13 +4,13 @@
 
 ## Prerequisites
 
-| Tool | Version | Notes |
-|---|---|---|
-| Node.js | 22.12 or later (22 or 24) | Team standard. `nextjs-frontend/package.json` declares `engines.node ^22.12.0 || ^24.0.0`. |
-| npm | 10 or later | npm only. Do not use pnpm or yarn. |
-| Python | 3.12 | Required by `fastapi_backend/pyproject.toml` (`>=3.12,<3.13`). |
-| uv | current (CI uses 0.8.12) | Manages the backend environment and dependencies. |
-| PostgreSQL | reachable instance | A local server on port 5432, or a development database. See [Local databases](#local-databases). |
+| Tool       | Version                   | Notes                                                                                            |
+| ---------- | ------------------------- | ------------------------------------------------------------------------------------------------ | --- | --------- |
+| Node.js    | 22.12 or later (22 or 24) | Team standard. `nextjs-frontend/package.json` declares `engines.node ^22.12.0                    |     | ^24.0.0`. |
+| npm        | 10 or later               | npm only. Do not use pnpm or yarn.                                                               |
+| Python     | 3.12                      | Required by `fastapi_backend/pyproject.toml` (`>=3.12,<3.13`).                                   |
+| uv         | current (CI uses 0.8.12)  | Manages the backend environment and dependencies.                                                |
+| PostgreSQL | reachable instance        | A local server on port 5432, or a development database. See [Local databases](#local-databases). |
 
 Docker is optional. `fastapi_backend/Dockerfile` exists, but there is no `docker-compose.yml` yet (it arrives with KAN-26).
 
@@ -59,19 +59,20 @@ cp .env.example .env
 
 Fill in the values from the team's secret store. Never commit `.env`. The list below gives names only. `nextjs-frontend/.env.example` is the reference for the variables `main` uses today; rows marked "not yet in `.env.example`" are planned.
 
-| Group | Variable names | Notes |
-|---|---|---|
-| Database | `DATABASE_URL` | Server-only. Must leave the frontend in KAN-51 (E6). |
-| Firebase client | `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID` | Public by design. |
-| Firebase Admin | `FIREBASE_ADMIN_PROJECT_ID`, `FIREBASE_ADMIN_CLIENT_EMAIL`, `FIREBASE_ADMIN_PRIVATE_KEY` | Server-only. Must leave the frontend in KAN-51. |
-| Stripe | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID_FREE`, `STRIPE_PRICE_ID_PRO`, `STRIPE_PRICE_ID_ENTERPRISE` | Secret keys are server-only. |
-| Email | `RESEND_API_KEY` | Server-only. Email moves to the backend ([ADR-009](../adr/0009-email-with-resend.md)). |
-| Auth | `NEXTAUTH_SECRET` | Server-only. |
-| App | `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_APP_NAME`, `APP_ID`, `APP_NAME`, `NODE_ENV`, `LOG_LEVEL` | |
-| Monitoring | `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_AUTH_TOKEN` | The Sentry token is optional and used at build time only. |
-| FastAPI base URL *(lands with KAN-113)* | `BACKEND_API_URL` | Not yet in `.env.example`; lands with the FastAPI integration work. Read by `npm run foundation:check`. The server-only API client (KAN-33) reads the same name. |
-| FastAPI service key | `BACKEND_INTERNAL_KEY` | Not yet in `.env.example`; lands with the FastAPI integration work. Server-only. Will be sent to FastAPI as the `X-Internal-Key` header (ADR-003). |
-| E2E test accounts *(lands with KAN-113)* | `TEST_USER_EMAIL`, `TEST_USER_PASSWORD`, `TEST_ADMIN_EMAIL`, `TEST_ADMIN_PASSWORD` | Written to `.env.e2e.local` by `npm run test:setup`. Do not edit these by hand. The same file also holds the Firebase TEST project config and its `FIREBASE_ADMIN_*` service account; see [testing.md](testing.md#dedicated-firebase-test-project). |
+| Group                                    | Variable names                                                                                                                                                                                                          | Notes                                                                                                                                                                                                                                               |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Database                                 | `DATABASE_URL`                                                                                                                                                                                                          | Server-only. Must leave the frontend in KAN-51 (E6).                                                                                                                                                                                                |
+| Firebase client                          | `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID` | Public by design.                                                                                                                                                                                                                                   |
+| Firebase Admin                           | `FIREBASE_ADMIN_PROJECT_ID`, `FIREBASE_ADMIN_CLIENT_EMAIL`, `FIREBASE_ADMIN_PRIVATE_KEY`                                                                                                                                | Server-only. Must leave the frontend in KAN-51.                                                                                                                                                                                                     |
+| Stripe                                   | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID_FREE`, `STRIPE_PRICE_ID_PRO`, `STRIPE_PRICE_ID_ENTERPRISE`                                                         | Secret keys are server-only.                                                                                                                                                                                                                        |
+| Email                                    | `RESEND_API_KEY`                                                                                                                                                                                                        | Server-only. Email moves to the backend ([ADR-009](../adr/0009-email-with-resend.md)).                                                                                                                                                              |
+| Auth                                     | `NEXTAUTH_SECRET`                                                                                                                                                                                                       | Server-only.                                                                                                                                                                                                                                        |
+| App                                      | `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_APP_NAME`, `APP_ID`, `APP_NAME`, `NODE_ENV`, `LOG_LEVEL`                                                                                                                            |                                                                                                                                                                                                                                                     |
+| Monitoring                               | `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_AUTH_TOKEN`                                                                                                                                                                           | The Sentry token is optional and used at build time only.                                                                                                                                                                                           |
+| FastAPI base URL _(lands with KAN-113)_  | `BACKEND_API_URL`                                                                                                                                                                                                       | Not yet in `.env.example`; lands with the FastAPI integration work. Read by `npm run foundation:check`. The server-only API client (KAN-33) reads the same name.                                                                                    |
+| FastAPI service key                      | `BACKEND_INTERNAL_KEY`                                                                                                                                                                                                  | Not yet in `.env.example`; lands with the FastAPI integration work. Server-only. Will be sent to FastAPI as the `X-Internal-Key` header (ADR-003).                                                                                                  |
+| Backend TOTP encryption                  | `TOTP_ENCRYPTION_KEY`                                                                                                                                                                                                   | Optional backend-only Fernet key. TOTP routes fail closed with 503 when unset; invalid configured keys prevent startup. Preserve the key across deployments; see [backend TOTP](backend-totp.md).                                                   |
+| E2E test accounts _(lands with KAN-113)_ | `TEST_USER_EMAIL`, `TEST_USER_PASSWORD`, `TEST_ADMIN_EMAIL`, `TEST_ADMIN_PASSWORD`                                                                                                                                      | Written to `.env.e2e.local` by `npm run test:setup`. Do not edit these by hand. The same file also holds the Firebase TEST project config and its `FIREBASE_ADMIN_*` service account; see [testing.md](testing.md#dedicated-firebase-test-project). |
 
 ### Build the frontend
 
@@ -105,13 +106,13 @@ Run commands from `fastapi_backend/`. `app/core/config.py` reads `.env` from the
 
 ### Backend environment
 
-| Variable names | Required | Notes |
-|---|---|---|
-| `DATABASE_URL` | Yes | Platform database. |
-| `DATABASE_URL_DIRECT` | No | Neon unpooled endpoint. `alembic` uses it when set, else `DATABASE_URL` (ADR-005). `sslmode` is passed to asyncpg as `ssl`. |
-| `APP_NAME`, `APP_VERSION`, `LOG_LEVEL`, `OPENAPI_URL`, `EXPIRE_ON_COMMIT` | No | Defaults: `StoreCart API`, `0.1.0`, `INFO`, `/openapi.json`, `false`. |
-| `SENTRY_DSN` | No | Backend error reporting (KAN-35). Unset locally and in tests: Sentry then stays off. Set in deployed environments. Environment comes from `VERCEL_ENV` (else `ENVIRONMENT`), release from `VERCEL_GIT_COMMIT_SHA`. See [`fastapi_backend/CLAUDE.md`](../../fastapi_backend/CLAUDE.md). |
-| `OPENAPI_OUTPUT_FILE` | No | Output path for `commands.generate_openapi_schema`. Default: `nextjs-frontend/openapi.json`. |
+| Variable names                                                            | Required | Notes                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                                            | Yes      | Platform database.                                                                                                                                                                                                                                                                     |
+| `DATABASE_URL_DIRECT`                                                     | No       | Neon unpooled endpoint. `alembic` uses it when set, else `DATABASE_URL` (ADR-005). `sslmode` is passed to asyncpg as `ssl`.                                                                                                                                                            |
+| `APP_NAME`, `APP_VERSION`, `LOG_LEVEL`, `OPENAPI_URL`, `EXPIRE_ON_COMMIT` | No       | Defaults: `StoreCart API`, `0.1.0`, `INFO`, `/openapi.json`, `false`.                                                                                                                                                                                                                  |
+| `SENTRY_DSN`                                                              | No       | Backend error reporting (KAN-35). Unset locally and in tests: Sentry then stays off. Set in deployed environments. Environment comes from `VERCEL_ENV` (else `ENVIRONMENT`), release from `VERCEL_GIT_COMMIT_SHA`. See [`fastapi_backend/CLAUDE.md`](../../fastapi_backend/CLAUDE.md). |
+| `OPENAPI_OUTPUT_FILE`                                                     | No       | Output path for `commands.generate_openapi_schema`. Default: `nextjs-frontend/openapi.json`.                                                                                                                                                                                           |
 
 The template's fastapi-users secrets (`ACCESS_SECRET_KEY` and the other two), `TEST_DATABASE_URL`, `FRONTEND_URL` and the `MAIL_*` settings were removed in KAN-30. Email will come back through Resend ([ADR-009](../adr/0009-email-with-resend.md)).
 

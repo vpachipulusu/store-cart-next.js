@@ -37,6 +37,7 @@ cryptography==50.0.2
     # via
     #   google-auth
     #   pyjwt
+    #   storecart-backend
 cuid2==2.0.1
     # via storecart-backend
 detect-installer==0.2.1

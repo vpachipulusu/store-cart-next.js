@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { CreateSessionData, CreateSessionErrors, CreateSessionResponses, DeleteAccountData, DeleteAccountErrors, DeleteAccountResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, HealthCheckData, HealthCheckErrors, HealthCheckResponses, ReadHistoryData, ReadHistoryErrors, ReadHistoryResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, ReadProfileData, ReadProfileErrors, ReadProfileResponses, ReadSessionData, ReadSessionErrors, ReadSessionResponses, ReadSettingsData, ReadSettingsErrors, ReadSettingsResponses, UpdateAvatarData, UpdateAvatarErrors, UpdateAvatarResponses, UpdateProfileData, UpdateProfileErrors, UpdateProfileResponses, UpdateSettingsData, UpdateSettingsErrors, UpdateSettingsResponses } from './types.gen';
+import type { CreateSessionData, CreateSessionErrors, CreateSessionResponses, DeleteAccountData, DeleteAccountErrors, DeleteAccountResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DisableData, DisableErrors, DisableResponses, EnrollData, EnrollErrors, EnrollResponses, HealthCheckData, HealthCheckErrors, HealthCheckResponses, ReadHistoryData, ReadHistoryErrors, ReadHistoryResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, ReadProfileData, ReadProfileErrors, ReadProfileResponses, ReadSessionData, ReadSessionErrors, ReadSessionResponses, ReadSettingsData, ReadSettingsErrors, ReadSettingsResponses, UpdateAvatarData, UpdateAvatarErrors, UpdateAvatarResponses, UpdateProfileData, UpdateProfileErrors, UpdateProfileResponses, UpdateSettingsData, UpdateSettingsErrors, UpdateSettingsResponses, VerifyData, VerifyErrors, VerifyResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -119,3 +119,39 @@ export const updateSettings = <ThrowOnError extends boolean = false>(options: Op
  * Read History
  */
 export const readHistory = <ThrowOnError extends boolean = false>(options?: Options<ReadHistoryData, ThrowOnError>) => (options?.client ?? client).get<ReadHistoryResponses, ReadHistoryErrors, ThrowOnError>({ url: '/v1/me/login-history', ...options });
+
+/**
+ * Enroll
+ */
+export const enroll = <ThrowOnError extends boolean = false>(options: Options<EnrollData, ThrowOnError>) => (options.client ?? client).post<EnrollResponses, EnrollErrors, ThrowOnError>({
+    url: '/v1/me/totp/enroll',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Verify
+ */
+export const verify = <ThrowOnError extends boolean = false>(options: Options<VerifyData, ThrowOnError>) => (options.client ?? client).post<VerifyResponses, VerifyErrors, ThrowOnError>({
+    url: '/v1/me/totp/verify',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Disable
+ */
+export const disable = <ThrowOnError extends boolean = false>(options: Options<DisableData, ThrowOnError>) => (options.client ?? client).post<DisableResponses, DisableErrors, ThrowOnError>({
+    url: '/v1/me/totp/disable',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
