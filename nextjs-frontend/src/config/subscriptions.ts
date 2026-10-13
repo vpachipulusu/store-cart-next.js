@@ -41,8 +41,14 @@ const FALLBACK_PRICES: StripePrices = {
 export const subscriptionPlans: SubscriptionPlan[] = [
   {
     name: 'Free',
-    description: 'Perfect for getting started',
-    features: ['Up to 3 projects', 'Basic analytics', 'Community support', '1 GB storage'],
+    description:
+      'Perfect for getting started. Features below are placeholders, not included or enforced.',
+    features: [
+      'Example: Up to 3 projects',
+      'Example: Basic analytics',
+      'Example: Community support',
+      'Example: 1 GB storage',
+    ],
     price: {
       monthly: 0,
       yearly: 0,
@@ -55,14 +61,15 @@ export const subscriptionPlans: SubscriptionPlan[] = [
   },
   {
     name: 'Pro',
-    description: 'For professionals and growing teams',
+    description:
+      'For professionals and growing teams. Features below are placeholders, not included or enforced.',
     features: [
-      'Unlimited projects',
-      'Advanced analytics',
-      'Priority support',
-      '50 GB storage',
-      'Custom domains',
-      'API access',
+      'Example: Unlimited projects',
+      'Example: Advanced analytics',
+      'Example: Priority support',
+      'Example: 50 GB storage',
+      'Example: Custom domains',
+      'Example: API access',
     ],
     price: {
       monthly: 0, // Resolved at runtime via getStripePrices()
@@ -77,15 +84,16 @@ export const subscriptionPlans: SubscriptionPlan[] = [
   },
   {
     name: 'Enterprise',
-    description: 'For large organizations',
+    description:
+      'For large organizations. Features below are placeholders, not included or enforced.',
     features: [
-      'Everything in Pro',
-      'Dedicated account manager',
-      '24/7 phone support',
-      'Unlimited storage',
-      'Advanced security',
-      'SLA guarantee',
-      'Custom integrations',
+      'Example: Everything in Pro',
+      'Example: Dedicated account manager',
+      'Example: 24/7 phone support',
+      'Example: Unlimited storage',
+      'Example: Advanced security',
+      'Example: SLA guarantee',
+      'Example: Custom integrations',
     ],
     price: {
       monthly: 0, // Resolved at runtime via getStripePrices()

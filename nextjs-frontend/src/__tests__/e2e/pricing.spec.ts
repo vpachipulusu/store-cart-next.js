@@ -30,7 +30,9 @@ test.describe('Pricing Page', () => {
 
     test('should display pricing page description', async ({ page }) => {
       await expect(page.getByText(/choose the plan that.*right for you/i)).toBeVisible();
-      await expect(page.getByText(/14-day free trial/i).first()).toBeVisible();
+      await expect(page.getByText(/start on Free or subscribe to Pro/i)).toBeVisible();
+      await expect(page.getByText(/14-day free trial|no credit card required/i)).toHaveCount(0);
+      await expect(page.getByRole('link', { name: /start free trial/i })).toHaveCount(0);
     });
   });
 
@@ -64,42 +66,49 @@ test.describe('Pricing Page', () => {
       await expect(page.getByText(/perfect for getting started/i)).toBeVisible();
       await expect(page.getByText(/for professionals and growing teams/i)).toBeVisible();
       await expect(page.getByText(/for large organizations/i)).toBeVisible();
+      await expect(
+        page.getByText(/features below are placeholders, not included or enforced/i)
+      ).toHaveCount(3);
     });
 
     test('should display feature lists for each tier', async ({ page }) => {
       // Free tier features
-      await expect(page.getByText('Up to 3 projects', { exact: true })).toBeVisible();
-      await expect(page.getByText('Basic analytics', { exact: true })).toBeVisible();
-      await expect(page.getByText('Community support', { exact: true })).toBeVisible();
+      await expect(page.getByText('Example: Up to 3 projects', { exact: true })).toBeVisible();
+      await expect(page.getByText('Example: Basic analytics', { exact: true })).toBeVisible();
+      await expect(page.getByText('Example: Community support', { exact: true })).toBeVisible();
 
-      // Pro tier features - use exact match to avoid matching "No team collaboration"
-      await expect(page.getByText('Unlimited projects', { exact: true })).toBeVisible();
-      await expect(page.getByText('Advanced analytics', { exact: true })).toBeVisible();
-      await expect(page.getByText('Priority support', { exact: true })).toBeVisible();
-      await expect(page.getByText('Custom domains', { exact: true })).toBeVisible();
-      await expect(page.getByText('API access', { exact: true })).toBeVisible();
+      // Pro tier examples
+      await expect(page.getByText('Example: Unlimited projects', { exact: true })).toBeVisible();
+      await expect(page.getByText('Example: Advanced analytics', { exact: true })).toBeVisible();
+      await expect(page.getByText('Example: Priority support', { exact: true })).toBeVisible();
+      await expect(page.getByText('Example: Custom domains', { exact: true })).toBeVisible();
+      await expect(page.getByText('Example: API access', { exact: true })).toBeVisible();
 
       // Enterprise tier features
-      await expect(page.getByText('Everything in Pro', { exact: true })).toBeVisible();
-      await expect(page.getByText('Unlimited storage', { exact: true })).toBeVisible();
-      await expect(page.getByText('24/7 phone support', { exact: true })).toBeVisible();
-      await expect(page.getByText('Dedicated account manager', { exact: true })).toBeVisible();
+      await expect(page.getByText('Example: Everything in Pro', { exact: true })).toBeVisible();
+      await expect(page.getByText('Example: Unlimited storage', { exact: true })).toBeVisible();
+      await expect(page.getByText('Example: 24/7 phone support', { exact: true })).toBeVisible();
+      await expect(
+        page.getByText('Example: Dedicated account manager', { exact: true })
+      ).toBeVisible();
     });
 
     test('should display CTA buttons for each tier', async ({ page }) => {
-      await expect(page.getByRole('link', { name: /get started/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: /start free trial/i }).first()).toBeVisible();
+      await expect(
+        page.getByRole('link', { name: 'Get Started', exact: true }).first()
+      ).toBeVisible();
+      await expect(page.getByRole('link', { name: /get started with pro/i }).first()).toBeVisible();
       await expect(page.getByRole('link', { name: /contact sales/i }).first()).toBeVisible();
     });
 
     test('should link Free tier to signup page', async ({ page }) => {
-      const getStartedLink = page.getByRole('link', { name: /get started/i });
+      const getStartedLink = page.getByRole('link', { name: 'Get Started', exact: true }).first();
       await expect(getStartedLink).toHaveAttribute('href', '/signup');
     });
 
     test('should link Pro tier to signup with plan param', async ({ page }) => {
-      const startTrialLink = page.getByRole('link', { name: /start free trial/i }).first();
-      await expect(startTrialLink).toHaveAttribute('href', '/signup?plan=pro');
+      const proSignupLink = page.getByRole('link', { name: /get started with pro/i }).first();
+      await expect(proSignupLink).toHaveAttribute('href', '/signup?plan=pro');
     });
   });
 
@@ -121,6 +130,7 @@ test.describe('Pricing Page', () => {
       await expect(page.getByText(/upgrade or downgrade/i)).toBeVisible();
       await expect(page.getByText(/visa.*mastercard/i)).toBeVisible();
       await expect(page.getByText(/30-day money-back/i)).toBeVisible();
+      await expect(page.getByText(/paid plans do not include a free trial/i)).toBeVisible();
     });
   });
 
@@ -131,9 +141,9 @@ test.describe('Pricing Page', () => {
     });
 
     test('should display CTA buttons', async ({ page }) => {
-      // There should be a "Start Free Trial" and "Contact Sales" in the CTA
-      const startTrialButtons = page.getByRole('link', { name: /start free trial/i });
-      await expect(startTrialButtons.last()).toBeVisible();
+      // The bottom CTA offers signup and the contact page.
+      const signupButtons = page.getByRole('link', { name: 'Get Started', exact: true });
+      await expect(signupButtons.last()).toBeVisible();
 
       const contactButtons = page.getByRole('link', { name: /contact sales/i });
       await expect(contactButtons.last()).toBeVisible();

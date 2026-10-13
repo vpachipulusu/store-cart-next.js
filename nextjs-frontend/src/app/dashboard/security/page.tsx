@@ -454,7 +454,9 @@ export default function SecurityPage() {
             <Smartphone className="h-5 w-5 text-theme-accent" />
             Two-Factor Authentication
           </CardTitle>
-          <CardDescription>Add an extra layer of security to your account</CardDescription>
+          <CardDescription>
+            Set up an authenticator app. Sign-in code checks are coming soon.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between rounded-lg border p-4">
@@ -471,9 +473,9 @@ export default function SecurityPage() {
             </Badge>
           </div>
           <p className="text-sm text-muted-foreground">
-            Two-factor authentication (2FA) adds an additional layer of protection to your account.
-            Once enabled, you&apos;ll need to enter both your password and an authentication code from
-            your mobile device to sign in.
+            You can set up an authenticator app here, but sign-in does not check its codes yet.
+            Enabling 2FA currently saves your setup without adding protection at sign-in. Keep a
+            strong, unique password until sign-in code checks are available.
           </p>
 
           {!twoFactorEnabled ? (

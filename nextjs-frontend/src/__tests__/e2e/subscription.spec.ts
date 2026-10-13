@@ -59,11 +59,11 @@ test.describe('Subscription Upgrade Flow', () => {
     test('should redirect to signup when clicking pricing CTA without auth', async ({ page }) => {
       await navigateAndWait(page, '/pricing');
 
-      // Click on "Start Free Trial" for Pro tier
+      // Click on "Get Started with Pro" for Pro tier
       const proCard = page
         .locator('[class*="card"]')
         .filter({ has: page.getByRole('heading', { name: 'Pro', exact: true }) });
-      const ctaButton = proCard.getByRole('link', { name: /start free trial/i });
+      const ctaButton = proCard.getByRole('link', { name: /get started with pro/i });
       await ctaButton.click();
 
       // Should redirect to signup with plan parameter
@@ -131,9 +131,9 @@ test.describe('Subscription Upgrade Flow', () => {
       // For authenticated users on free tier, Pro tier should show upgrade button
       const proCard = page.locator('[class*="card"]').filter({ hasText: /^Pro$/i });
 
-      // Button text might be "Upgrade to Pro" or "Start Free Trial"
+      // Button text might be "Upgrade to Pro" or "Get Started with Pro"
       const upgradeButton = proCard.getByRole('button', {
-        name: /upgrade to pro|start free trial/i,
+        name: /upgrade to pro|get started with pro/i,
       });
       const ctaExists = await upgradeButton.count().then((count) => count > 0);
 

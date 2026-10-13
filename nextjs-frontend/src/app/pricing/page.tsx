@@ -12,24 +12,22 @@ import { getSubscriptionPlans, getCurrencySymbol } from '@/config/subscriptions'
  */
 export const dynamic = 'force-dynamic';
 
-const TIER_UI_CONFIG: Record<string, {
-  limitations: string[];
-  cta: string;
-  href: string;
-}> = {
+const TIER_UI_CONFIG: Record<
+  string,
+  {
+    limitations: string[];
+    cta: string;
+    href: string;
+  }
+> = {
   free: {
-    limitations: [
-      'No priority support',
-      'No advanced features',
-      'No team collaboration',
-      'Limited API access',
-    ],
+    limitations: [],
     cta: 'Get Started',
     href: '/signup',
   },
   pro: {
     limitations: [],
-    cta: 'Start Free Trial',
+    cta: 'Get Started with Pro',
     href: '/signup?plan=pro',
   },
   enterprise: {
@@ -68,10 +66,7 @@ async function getUserSession() {
 
 export default async function PricingPage() {
   const session = await getUserSession();
-  const [plans, currencySymbol] = await Promise.all([
-    getSubscriptionPlans(),
-    getCurrencySymbol(),
-  ]);
+  const [plans, currencySymbol] = await Promise.all([getSubscriptionPlans(), getCurrencySymbol()]);
 
   const tiers = plans.map((plan) => {
     const uiConfig = TIER_UI_CONFIG[plan.tier] ?? TIER_UI_CONFIG.free;
@@ -95,7 +90,7 @@ export default async function PricingPage() {
         <div className="mb-12 text-center">
           <h1 className="mb-4 text-4xl tracking-tight">Simple, Transparent Pricing</h1>
           <p className="mx-auto max-w-2xl text-xl text-muted-foreground">
-            Choose the plan that&apos;s right for you. All plans include a 14-day free trial.
+            Choose the plan that&apos;s right for you. Start on Free or subscribe to Pro.
           </p>
         </div>
 
@@ -152,7 +147,9 @@ export default async function PricingPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">What&apos;s the difference between monthly and yearly?</CardTitle>
+                <CardTitle className="text-lg">
+                  What&apos;s the difference between monthly and yearly?
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-muted-foreground">
@@ -169,8 +166,8 @@ export default async function PricingPage() {
               </CardHeader>
               <CardContent>
                 <p className="text-muted-foreground">
-                  Yes! All paid plans come with a 14-day free trial. No credit card required to
-                  start.
+                  Paid plans do not include a free trial. You can start with a Free account or
+                  subscribe to Pro through Stripe checkout.
                 </p>
               </CardContent>
             </Card>
@@ -186,10 +183,19 @@ export default async function PricingPage() {
                 Join thousands of satisfied customers today.
               </p>
               <div className="flex justify-center gap-4">
-                <Button asChild size="lg" className="bg-theme-accent text-white hover:bg-theme-accent-dark">
-                  <Link href="/signup">Start Free Trial</Link>
+                <Button
+                  asChild
+                  size="lg"
+                  className="bg-theme-accent text-white hover:bg-theme-accent-dark"
+                >
+                  <Link href="/signup">Get Started</Link>
                 </Button>
-                <Button asChild size="lg" variant="outline" className="bg-transparent border-white/30 text-white hover:bg-white/10">
+                <Button
+                  asChild
+                  size="lg"
+                  variant="outline"
+                  className="border-white/30 bg-transparent text-white hover:bg-white/10"
+                >
                   <Link href="/contact">Contact Sales</Link>
                 </Button>
               </div>
