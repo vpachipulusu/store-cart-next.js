@@ -1,0 +1,109 @@
+# Local development stack (KAN-26, ADR-006): Docker is for local dev and CI only; Vercel
+# does not use these images. Adapted from vintasoftware/nextjs-fastapi-template.
+# All credentials below are fake and local. Override them through a root .env (see .env.example).
+name: storecart
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-storecart}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-storecart}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  test_db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: test
+    ports:
+      - "${TEST_POSTGRES_PORT:-5434}:5432"
+    # Throwaway data: kept in memory so every restart starts clean.
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ./fastapi_backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-storecart}
+      # Rate limiting (Upstash over HTTP) is disabled when ENVIRONMENT=local.
+      ENVIRONMENT: local
+      LOG_LEVEL: DEBUG
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./fastapi_backend:/app
+      # Keep the image's virtualenv; the bind mount would otherwise hide it.
+      - backend_venv:/app/.venv
+      # The watcher regenerates the frontend's openapi.json and client (see watcher.py).
+      - ./nextjs-frontend:/nextjs-frontend
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./nextjs-frontend
+    environment:
+      BACKEND_API_URL: http://backend:8000
+      NEXT_PUBLIC_APP_URL: http://localhost:${FRONTEND_PORT:-3000}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-storecart}?schema=public
+      WATCHPACK_POLLING: "true"
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    volumes:
+      - ./nextjs-frontend:/app
+      - frontend_node_modules:/app/node_modules
+      - frontend_next:/app/.next
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 40s
+
+volumes:
+  postgres_data:
+  redis_data:
+  backend_venv:
+  frontend_node_modules:
+  frontend_next:

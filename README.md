@@ -107,6 +107,63 @@ npm run test:e2e         # Run E2E tests
 npm run prisma:studio    # Open Prisma Studio
 ```
 
+## 🐳 Local development: Docker Compose or plain uv/npm
+
+Docker is for local development and CI only (ADR-006); Vercel never runs these images.
+
+### Option A: Docker Compose (one command)
+
+Requires Docker with Compose v2. From the repo root:
+
+```bash
+docker compose up -d --build     # first run builds the images
+docker compose ps                # wait until every service is "healthy"
+docker compose exec backend alembic upgrade head   # apply migrations (never run automatically)
+docker compose down -v           # stop and delete containers and volumes
+```
+
+| Service | URL / port | Healthcheck |
+| --- | --- | --- |
+| `db` (Postgres 16) | `localhost:5432`, user `postgres`, password `password`, db `storecart` | `pg_isready` |
+| `test_db` (Postgres 16, in-memory) | `localhost:5434`, `test` / `test` / `test` | `pg_isready` |
+| `redis` | `localhost:6379` | `redis-cli ping` |
+| `backend` (FastAPI, `start.sh` with watcher) | http://localhost:8000 (`/health`, `/docs`) | `GET /health` |
+| `frontend` (Next.js dev) | http://localhost:3000 | `GET /api/health` |
+
+Notes:
+
+- All credentials are fake and local. To change ports or passwords, copy [`.env.example`](.env.example) to `.env`
+  (git-ignored). Real secrets (Firebase, Stripe, Resend and so on) are not part of the compose file; put them in
+  `nextjs-frontend/.env.local` only if you need those features.
+- The backend runs with `ENVIRONMENT=local`, which disables rate limiting. Production rate limiting talks to Upstash
+  over HTTP (ADR-007); the local Redis speaks the Redis protocol only and does not provide an Upstash REST endpoint,
+  so it backs local Redis use and future features, not the rate limiter.
+- Backend tests can use the test database from the host: set `DATABASE_URL=postgresql+asyncpg://test:test@localhost:5434/test` and run `uv run pytest` in `fastapi_backend/`.
+- Source is bind-mounted, so edits hot-reload. Dependencies live in the images and named volumes; after changing `package.json` or `pyproject.toml`, run `docker compose down -v` and then `docker compose up -d --build`.
+- In the backend container the watcher cannot regenerate the TypeScript client (no Node there); run
+  `npm run generate:client` on the host after API changes.
+
+### Option B: plain uv and npm
+
+Requires Node 22.12+, [uv](https://docs.astral.sh/uv/) and a Postgres you run yourself (for example
+`docker compose up -d db`).
+
+```bash
+# Backend (terminal 1)
+cd fastapi_backend
+cp .env.example .env        # points DATABASE_URL at localhost:5432
+uv sync
+uv run alembic upgrade head
+./start.sh                  # FastAPI with reload plus the watcher, on :8000
+
+# Frontend (terminal 2)
+cd nextjs-frontend
+cp .env.example .env.local  # BACKEND_API_URL=http://127.0.0.1:8000
+npm ci
+npm run db:generate
+npm run dev                 # :3000
+```
+
 ## 🪝 Pre-commit hooks
 
 The repo root has a [`.pre-commit-config.yaml`](.pre-commit-config.yaml) (adapted from the
