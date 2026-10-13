@@ -91,6 +91,7 @@ async def test_minting_and_revocation_use_worker_threads(monkeypatch, sdk_app):
         "verify_session_cookie",
         "create_session_cookie",
         "revoke_refresh_tokens",
+        "delete_user",
     ],
 )
 async def test_sdk_outages_are_sanitized(monkeypatch, sdk_app, method):
@@ -125,3 +126,17 @@ def test_initialization_is_named_and_idempotent(monkeypatch):
     initialize.assert_called_once()
     assert initialize.call_args.kwargs["name"] == "storecart-auth"
     module.firebase_app.cache_clear()
+
+
+async def test_user_deletion_is_off_loop_and_idempotent_for_missing_users(
+    monkeypatch, sdk_app
+):
+    event_thread = threading.get_ident()
+
+    def delete(uid, *, app):
+        assert threading.get_ident() != event_thread
+        assert uid == "user" and app is sdk_app
+        raise module.auth.UserNotFoundError("private")
+
+    monkeypatch.setattr(module.auth, "delete_user", delete)
+    await FirebaseIdentityProvider().delete_user("user")

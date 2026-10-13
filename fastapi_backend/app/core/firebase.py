@@ -139,3 +139,15 @@ class FirebaseIdentityProvider:
                 raise IdentityProviderUnavailable() from None
 
         await asyncio.to_thread(revoke)
+
+    async def delete_user(self, uid: str) -> None:
+        def delete() -> None:
+            try:
+                auth.delete_user(uid, app=firebase_app())
+            except auth.UserNotFoundError:
+                # Idempotent across a Firebase success followed by a database failure.
+                return
+            except (exceptions.FirebaseError, ValueError):
+                raise IdentityProviderUnavailable() from None
+
+        await asyncio.to_thread(delete)
