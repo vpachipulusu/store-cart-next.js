@@ -180,10 +180,7 @@ test.describe('Performance & Accessibility', () => {
 
     // Filter out known non-critical errors (e.g., Firebase config warnings)
     const criticalErrors = consoleErrors.filter(
-      (err) =>
-        !err.includes('Firebase') &&
-        !err.includes('analytics') &&
-        !err.includes('favicon')
+      (err) => !err.includes('Firebase') && !err.includes('analytics') && !err.includes('favicon')
     );
 
     expect(criticalErrors).toHaveLength(0);

@@ -275,7 +275,11 @@ test.describe('Subscription Upgrade Flow', () => {
       }
     });
 
-    test('should handle Stripe checkout cancellation', async ({ page, context, throwawayAccount }) => {
+    test('should handle Stripe checkout cancellation', async ({
+      page,
+      context,
+      throwawayAccount,
+    }) => {
       await loginAsThrowawayAccount(page, throwawayAccount);
       await navigateAndWait(page, '/pricing');
 

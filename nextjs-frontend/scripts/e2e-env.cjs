@@ -37,7 +37,9 @@ const FILE_IGNORED_VARS = new Set(['NODE_ENV']);
 function parseEnvFile(cwd, file) {
   const fullPath = path.join(cwd, file);
   const parsed = fs.existsSync(fullPath) ? dotenv.parse(fs.readFileSync(fullPath)) : {};
-  return Object.fromEntries(Object.entries(parsed).filter(([name]) => !FILE_IGNORED_VARS.has(name)));
+  return Object.fromEntries(
+    Object.entries(parsed).filter(([name]) => !FILE_IGNORED_VARS.has(name))
+  );
 }
 
 function definedOnly(env) {
@@ -75,7 +77,9 @@ function loadE2eEnv(cwd = process.cwd()) {
 
 /** Every e2e-only variable the e2e env lacks, set to '' so nothing loaded later can fill in a dev value. */
 function blankMissingE2eOnlyVars(env) {
-  return Object.fromEntries([...E2E_ONLY_VARS].filter((name) => !env[name]).map((name) => [name, '']));
+  return Object.fromEntries(
+    [...E2E_ONLY_VARS].filter((name) => !env[name]).map((name) => [name, ''])
+  );
 }
 
 /**
@@ -97,7 +101,12 @@ function applyE2eEnv(cwd = process.cwd()) {
  * separate e2e folder.
  */
 function toNextProcessEnv(env) {
-  return { ...env, ...blankMissingE2eOnlyVars(env), NEXT_PUBLIC_SENTRY_DSN: '', NEXT_DIST_DIR: E2E_DIST_DIR };
+  return {
+    ...env,
+    ...blankMissingE2eOnlyVars(env),
+    NEXT_PUBLIC_SENTRY_DSN: '',
+    NEXT_DIST_DIR: E2E_DIST_DIR,
+  };
 }
 
 /** Variables from `names` that are unset or empty in `env`. */
@@ -110,7 +119,9 @@ function missingVars(env, names) {
  * project. `requireAdmin` also checks the FIREBASE_ADMIN_* service account (needed by the server and account setup).
  */
 function assertE2eFirebaseEnv(env, { requireAdmin = true, cwd = process.cwd() } = {}) {
-  const required = requireAdmin ? [...FIREBASE_WEB_VARS, ...FIREBASE_ADMIN_VARS] : FIREBASE_WEB_VARS;
+  const required = requireAdmin
+    ? [...FIREBASE_WEB_VARS, ...FIREBASE_ADMIN_VARS]
+    : FIREBASE_WEB_VARS;
   const missing = missingVars(env, required);
   if (missing.length > 0) {
     throw new Error(
@@ -162,12 +173,18 @@ function assertE2eDatabaseEnv(env, { cwd = process.cwd() } = {}) {
   try {
     parsed = new URL(url);
   } catch {
-    throw new Error(`The e2e DATABASE_URL is not a valid URL. Check DATABASE_URL in ${E2E_ENV_FILE}.`);
+    throw new Error(
+      `The e2e DATABASE_URL is not a valid URL. Check DATABASE_URL in ${E2E_ENV_FILE}.`
+    );
   }
   if (!/^postgres(ql)?:$/.test(parsed.protocol)) {
-    throw new Error(`The e2e DATABASE_URL must be a postgres:// URL. Check DATABASE_URL in ${E2E_ENV_FILE}.`);
+    throw new Error(
+      `The e2e DATABASE_URL must be a postgres:// URL. Check DATABASE_URL in ${E2E_ENV_FILE}.`
+    );
   }
-  const devUrls = ['.env.local', '.env'].map((file) => parseEnvFile(cwd, file).DATABASE_URL).filter(Boolean);
+  const devUrls = ['.env.local', '.env']
+    .map((file) => parseEnvFile(cwd, file).DATABASE_URL)
+    .filter(Boolean);
   if (devUrls.includes(url)) {
     throw new Error(
       `The e2e DATABASE_URL is the same as the dev database in .env.local/.env. e2e needs its own database: set ` +

@@ -13,7 +13,8 @@ import { rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import e2eEnv from './e2e-env.cjs';
 
-const { E2E_DIST_DIR, E2E_BUILD_MARKER, loadE2eEnv, toNextProcessEnv, assertE2eFirebaseEnv } = e2eEnv;
+const { E2E_DIST_DIR, E2E_BUILD_MARKER, loadE2eEnv, toNextProcessEnv, assertE2eFirebaseEnv } =
+  e2eEnv;
 
 function gitHead() {
   const result = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' });
@@ -48,4 +49,6 @@ const marker = {
   builtAt: new Date().toISOString(),
 };
 writeFileSync(path.join(E2E_DIST_DIR, E2E_BUILD_MARKER), `${JSON.stringify(marker, null, 2)}\n`);
-console.log(`e2e build ready in ${E2E_DIST_DIR} (Firebase project ${marker.firebaseProjectId}, Sentry off).`);
+console.log(
+  `e2e build ready in ${E2E_DIST_DIR} (Firebase project ${marker.firebaseProjectId}, Sentry off).`
+);

@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { type Page, type BrowserContext, type Locator, type Response, expect } from '@playwright/test';
+import {
+  type Page,
+  type BrowserContext,
+  type Locator,
+  type Response,
+  expect,
+} from '@playwright/test';
 
 /**
  * Test credentials for E2E tests.
@@ -34,7 +40,10 @@ export const STORAGE_STATE: Record<SavedRole, string> = {
  * Add a saved role's session cookies to this context. For a single test inside a describe whose other tests run
  * logged out, where `test.use({ storageState })` would apply to all of them.
  */
-export async function signInWithSavedSession(context: BrowserContext, role: SavedRole): Promise<void> {
+export async function signInWithSavedSession(
+  context: BrowserContext,
+  role: SavedRole
+): Promise<void> {
   const state = JSON.parse(readFileSync(STORAGE_STATE[role], 'utf8')) as {
     cookies: Parameters<BrowserContext['addCookies']>[0];
   };
@@ -59,7 +68,8 @@ export async function waitForHydration(page: Page): Promise<void> {
       );
       return;
     } catch (error) {
-      const navigated = error instanceof Error && /context was destroyed|navigation/i.test(error.message);
+      const navigated =
+        error instanceof Error && /context was destroyed|navigation/i.test(error.message);
       if (!navigated || attempt >= HYDRATION_ATTEMPTS) throw error;
       await page.waitForLoadState('load');
     }
@@ -214,13 +224,12 @@ const ROUTER_QUIET_MS = 500;
  * following click is not lost to a prefetch for the same route that is still running (see helpers/fixtures.ts).
  */
 export async function waitForRouterIdle(page: Page): Promise<void> {
-  await page.waitForFunction(
-    (quietMs) => {
-      const state = (window as unknown as { __rscFetches?: { inflight: number; lastActivity: number } }).__rscFetches;
-      return !state || (state.inflight === 0 && performance.now() - state.lastActivity > quietMs);
-    },
-    ROUTER_QUIET_MS
-  );
+  await page.waitForFunction((quietMs) => {
+    const state = (
+      window as unknown as { __rscFetches?: { inflight: number; lastActivity: number } }
+    ).__rscFetches;
+    return !state || (state.inflight === 0 && performance.now() - state.lastActivity > quietMs);
+  }, ROUTER_QUIET_MS);
 }
 
 /**

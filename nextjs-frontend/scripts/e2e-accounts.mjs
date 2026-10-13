@@ -108,7 +108,11 @@ export async function ensureDbUser(prisma, firebaseUser, displayName) {
       subscriptionStatus: 'active',
     },
   });
-  await prisma.userSettings.upsert({ where: { userId: user.id }, update: {}, create: { userId: user.id } });
+  await prisma.userSettings.upsert({
+    where: { userId: user.id },
+    update: {},
+    create: { userId: user.id },
+  });
   return user;
 }
 

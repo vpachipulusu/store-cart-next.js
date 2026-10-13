@@ -14,7 +14,9 @@ const TRACK_RSC_FETCHES = () => {
   (window as unknown as { __rscFetches: typeof state }).__rscFetches = state;
   const originalFetch = window.fetch.bind(window);
   window.fetch = (input, init) => {
-    const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+    const headers = new Headers(
+      init?.headers ?? (input instanceof Request ? input.headers : undefined)
+    );
     if (!headers.has('rsc')) return originalFetch(input, init);
     state.inflight += 1;
     state.lastActivity = performance.now();

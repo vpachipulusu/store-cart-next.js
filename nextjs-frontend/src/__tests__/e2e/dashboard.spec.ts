@@ -24,10 +24,7 @@ test.describe('Customer Dashboard', () => {
     });
 
     test.describe('When authenticated', () => {
-      test.skip(
-        !process.env.TEST_USER_EMAIL,
-        'Skipped: TEST_USER_EMAIL not configured'
-      );
+      test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
       test.use({ storageState: STORAGE_STATE.user });
 
       test.beforeEach(async ({ page }) => {
@@ -48,10 +45,14 @@ test.describe('Customer Dashboard', () => {
         await expect(page.getByText('Subscription Plan')).toBeVisible();
 
         // Notifications card
-        await expect(page.getByRole('heading', { name: 'Notifications', exact: true })).toBeVisible();
+        await expect(
+          page.getByRole('heading', { name: 'Notifications', exact: true })
+        ).toBeVisible();
 
         // Total Logins card
-        await expect(page.getByRole('heading', { name: 'Total Logins', exact: true })).toBeVisible();
+        await expect(
+          page.getByRole('heading', { name: 'Total Logins', exact: true })
+        ).toBeVisible();
       });
 
       test('should display quick action cards', async ({ page }) => {
@@ -98,12 +99,18 @@ test.describe('Customer Dashboard', () => {
       });
 
       test('should navigate to settings via quick action', async ({ page }) => {
-        await page.getByRole('link', { name: /settings/i }).first().click();
+        await page
+          .getByRole('link', { name: /settings/i })
+          .first()
+          .click();
         await expect(page).toHaveURL(/\/dashboard\/settings/);
       });
 
       test('should navigate to security via quick action', async ({ page }) => {
-        await page.getByRole('link', { name: /security/i }).first().click();
+        await page
+          .getByRole('link', { name: /security/i })
+          .first()
+          .click();
         await expect(page).toHaveURL(/\/dashboard\/security/);
       });
 
@@ -115,10 +122,7 @@ test.describe('Customer Dashboard', () => {
   });
 
   test.describe('Dashboard Layout & Navigation', () => {
-    test.skip(
-      !process.env.TEST_USER_EMAIL,
-      'Skipped: TEST_USER_EMAIL not configured'
-    );
+    test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
     test.use({ storageState: STORAGE_STATE.user });
 
     test.beforeEach(async ({ page }) => {
@@ -167,10 +171,7 @@ test.describe('Customer Dashboard', () => {
     });
 
     test.describe('When authenticated', () => {
-      test.skip(
-        !process.env.TEST_USER_EMAIL,
-        'Skipped: TEST_USER_EMAIL not configured'
-      );
+      test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
       test.use({ storageState: STORAGE_STATE.user });
 
       test.beforeEach(async ({ page }) => {
@@ -216,9 +217,7 @@ test.describe('Customer Dashboard', () => {
         await page.getByLabel(/display name/i).fill('A');
         await page.getByRole('button', { name: /save changes/i }).click();
 
-        await expect(
-          page.getByText(/at least 2 characters/i)
-        ).toBeVisible({ timeout: 5_000 });
+        await expect(page.getByText(/at least 2 characters/i)).toBeVisible({ timeout: 5_000 });
       });
 
       test('should validate website URL format', async ({ page }) => {
@@ -233,9 +232,9 @@ test.describe('Customer Dashboard', () => {
         await page.getByLabel(/bio/i).fill(longBio);
         await page.getByRole('button', { name: /save changes/i }).click();
 
-        await expect(
-          page.getByText(/must not exceed 500 characters/i)
-        ).toBeVisible({ timeout: 5_000 });
+        await expect(page.getByText(/must not exceed 500 characters/i)).toBeVisible({
+          timeout: 5_000,
+        });
       });
     });
   });
@@ -248,10 +247,7 @@ test.describe('Customer Dashboard', () => {
     });
 
     test.describe('When authenticated', () => {
-      test.skip(
-        !process.env.TEST_USER_EMAIL,
-        'Skipped: TEST_USER_EMAIL not configured'
-      );
+      test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
       test.use({ storageState: STORAGE_STATE.user });
 
       test.beforeEach(async ({ page }) => {
@@ -301,10 +297,7 @@ test.describe('Customer Dashboard', () => {
     });
 
     test.describe('When authenticated', () => {
-      test.skip(
-        !process.env.TEST_USER_EMAIL,
-        'Skipped: TEST_USER_EMAIL not configured'
-      );
+      test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
       test.use({ storageState: STORAGE_STATE.user });
 
       test.beforeEach(async ({ page }) => {
@@ -354,7 +347,9 @@ test.describe('Customer Dashboard', () => {
         await page.getByRole('button', { name: /change password/i }).click();
 
         // Dialog should appear
-        await expect(page.getByText(/enter your current password/i)).toBeVisible({ timeout: 5_000 });
+        await expect(page.getByText(/enter your current password/i)).toBeVisible({
+          timeout: 5_000,
+        });
         await expect(page.getByLabel(/current password/i)).toBeVisible();
         await expect(page.getByLabel('New Password', { exact: true })).toBeVisible();
         await expect(page.getByLabel(/confirm.*password/i)).toBeVisible();
@@ -372,9 +367,9 @@ test.describe('Customer Dashboard', () => {
         await page.getByRole('button', { name: /delete account/i }).click();
 
         // Dialog should appear
-        await expect(
-          page.getByText(/this action cannot be undone/i)
-        ).toBeVisible({ timeout: 5_000 });
+        await expect(page.getByText(/this action cannot be undone/i)).toBeVisible({
+          timeout: 5_000,
+        });
         await expect(page.getByLabel(/type.*delete.*confirm/i)).toBeVisible();
       });
 
@@ -383,7 +378,9 @@ test.describe('Customer Dashboard', () => {
         await expect(page.getByLabel(/type.*delete.*confirm/i)).toBeVisible({ timeout: 5_000 });
 
         // Delete button in dialog should be disabled initially
-        const dialogDeleteBtn = page.locator('[role="dialog"]').getByRole('button', { name: /delete account/i });
+        const dialogDeleteBtn = page
+          .locator('[role="dialog"]')
+          .getByRole('button', { name: /delete account/i });
         await expect(dialogDeleteBtn).toBeDisabled();
 
         // Type DELETE to enable it

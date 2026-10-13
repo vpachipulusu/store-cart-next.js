@@ -35,7 +35,11 @@ function loadOrCreateCredentials() {
     TEST_ADMIN_EMAIL: stored.TEST_ADMIN_EMAIL || `e2e-admin-${randomSuffix()}@example.com`,
     TEST_ADMIN_PASSWORD: stored.TEST_ADMIN_PASSWORD || randomPassword(),
   };
-  updateEnvFileKeys(E2E_ENV_FILE, credentials, '# e2e test accounts (KAN-113). Generated; do not commit.');
+  updateEnvFileKeys(
+    E2E_ENV_FILE,
+    credentials,
+    '# e2e test accounts (KAN-113). Generated; do not commit.'
+  );
   return credentials;
 }
 

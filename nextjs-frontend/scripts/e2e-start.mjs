@@ -31,7 +31,9 @@ function fail(message) {
 function readMarker() {
   const markerPath = path.join(E2E_DIST_DIR, E2E_BUILD_MARKER);
   if (!existsSync(path.join(E2E_DIST_DIR, 'BUILD_ID')) || !existsSync(markerPath)) {
-    fail(`No e2e build in ${E2E_DIST_DIR}. Run \`npm run test:e2e:build\` (or \`npm run test:e2e:baseline:build\`).`);
+    fail(
+      `No e2e build in ${E2E_DIST_DIR}. Run \`npm run test:e2e:build\` (or \`npm run test:e2e:baseline:build\`).`
+    );
   }
   try {
     return JSON.parse(readFileSync(markerPath, 'utf8'));
@@ -44,7 +46,9 @@ const env = loadE2eEnv();
 try {
   assertE2eFirebaseEnv(env, { requireAdmin: true });
   const database = assertE2eDatabaseEnv(env);
-  console.log(`[e2e-start] Firebase project ${env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}, database ${database} (not the dev one).`);
+  console.log(
+    `[e2e-start] Firebase project ${env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}, database ${database} (not the dev one).`
+  );
 } catch (error) {
   fail(error.message);
 }

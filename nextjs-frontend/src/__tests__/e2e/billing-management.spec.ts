@@ -100,16 +100,16 @@ test.describe('Billing Settings Page - Access', () => {
   });
 
   test('should be accessible from dashboard billing quick action', async ({ page }) => {
-    test.skip(
-      !process.env.TEST_USER_EMAIL,
-      'Skipped: TEST_USER_EMAIL not configured'
-    );
+    test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
 
     await signInWithSavedSession(page.context(), 'user');
     await navigateAndWait(page, '/dashboard');
 
     // Click on Billing quick action card
-    const billingCard = page.locator('[class*="card"]').filter({ hasText: /billing/i }).filter({ hasText: /manage subscription/i });
+    const billingCard = page
+      .locator('[class*="card"]')
+      .filter({ hasText: /billing/i })
+      .filter({ hasText: /manage subscription/i });
     await billingCard.click();
 
     // Should navigate to billing page
@@ -118,10 +118,7 @@ test.describe('Billing Settings Page - Access', () => {
   });
 
   test('should be accessible from navigation bar', async ({ page }) => {
-    test.skip(
-      !process.env.TEST_USER_EMAIL,
-      'Skipped: TEST_USER_EMAIL not configured'
-    );
+    test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
 
     await signInWithSavedSession(page.context(), 'user');
     await navigateAndWait(page, '/dashboard');
@@ -136,10 +133,7 @@ test.describe('Billing Settings Page - Access', () => {
 });
 
 test.describe('Billing Settings Page - Content', () => {
-  test.skip(
-    !process.env.TEST_USER_EMAIL,
-    'Skipped: TEST_USER_EMAIL not configured'
-  );
+  test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
   test.use({ storageState: STORAGE_STATE.user });
 
   test('should display current plan card', async ({ page }) => {
@@ -157,7 +151,9 @@ test.describe('Billing Settings Page - Content', () => {
     await navigateToBilling(page);
 
     // Payment Methods card should be visible
-    const paymentMethodsCard = page.locator('[class*="card"]').filter({ hasText: /payment methods/i });
+    const paymentMethodsCard = page
+      .locator('[class*="card"]')
+      .filter({ hasText: /payment methods/i });
     await expect(paymentMethodsCard).toBeVisible();
   });
 
@@ -165,7 +161,9 @@ test.describe('Billing Settings Page - Content', () => {
     await navigateToBilling(page);
 
     // Billing History card should be visible
-    const billingHistoryCard = page.locator('[class*="card"]').filter({ hasText: /billing history/i });
+    const billingHistoryCard = page
+      .locator('[class*="card"]')
+      .filter({ hasText: /billing history/i });
     await expect(billingHistoryCard).toBeVisible();
   });
 
@@ -174,7 +172,10 @@ test.describe('Billing Settings Page - Content', () => {
 
     // Check if user is on free tier - upgrade button should be visible
     const currentPlanCard = page.locator('[class*="card"]').filter({ hasText: /current plan/i });
-    const hasFree = await currentPlanCard.getByText(/free/i).isVisible().catch(() => false);
+    const hasFree = await currentPlanCard
+      .getByText(/free/i)
+      .isVisible()
+      .catch(() => false);
 
     if (hasFree) {
       const upgradeButton = currentPlanCard.getByRole('link', { name: /upgrade plan/i });
@@ -281,7 +282,11 @@ test.describe('Billing Settings - Payment Methods', () => {
     await expect(paymentCard).toBeVisible();
 
     // Check if there are saved payment methods
-    const hasPaymentMethods = await paymentCard.getByText(/ending in/i).first().isVisible().catch(() => false);
+    const hasPaymentMethods = await paymentCard
+      .getByText(/ending in/i)
+      .first()
+      .isVisible()
+      .catch(() => false);
 
     if (hasPaymentMethods) {
       // Should show card brand and last 4 digits
@@ -299,7 +304,11 @@ test.describe('Billing Settings - Payment Methods', () => {
     await navigateToBilling(page);
 
     const paymentCard = page.locator('[class*="card"]').filter({ hasText: /payment methods/i });
-    const hasPaymentMethods = await paymentCard.getByText(/ending in/i).first().isVisible().catch(() => false);
+    const hasPaymentMethods = await paymentCard
+      .getByText(/ending in/i)
+      .first()
+      .isVisible()
+      .catch(() => false);
 
     if (hasPaymentMethods) {
       // At least one should be marked as default
@@ -320,10 +329,14 @@ test.describe('Billing Settings - Payment Methods', () => {
     }
 
     const toggle = autoRenewalCard.locator('button[role="switch"]');
-    const isRenewalActive = await toggle.getAttribute('aria-checked') === 'true';
+    const isRenewalActive = (await toggle.getAttribute('aria-checked')) === 'true';
 
     const paymentCard = page.locator('[class*="card"]').filter({ hasText: /payment methods/i });
-    const hasPaymentMethods = await paymentCard.getByText(/ending in/i).first().isVisible().catch(() => false);
+    const hasPaymentMethods = await paymentCard
+      .getByText(/ending in/i)
+      .first()
+      .isVisible()
+      .catch(() => false);
 
     if (isRenewalActive && hasPaymentMethods) {
       // Remove buttons should be disabled
@@ -335,7 +348,9 @@ test.describe('Billing Settings - Payment Methods', () => {
       }
 
       // Should show warning message
-      await expect(paymentCard.getByText(/cannot be removed while auto-renewal is active/i)).toBeVisible();
+      await expect(
+        paymentCard.getByText(/cannot be removed while auto-renewal is active/i)
+      ).toBeVisible();
     }
   });
 
@@ -355,20 +370,23 @@ test.describe('Billing Settings - Payment Methods', () => {
 });
 
 test.describe('Billing Settings - Billing History', () => {
-  test.skip(
-    !process.env.TEST_USER_EMAIL,
-    'Skipped: TEST_USER_EMAIL not configured'
-  );
+  test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
   test.use({ storageState: STORAGE_STATE.user });
 
   test('should display invoices or empty state', async ({ page }) => {
     await navigateToBilling(page);
 
-    const billingHistoryCard = page.locator('[class*="card"]').filter({ hasText: /billing history/i });
+    const billingHistoryCard = page
+      .locator('[class*="card"]')
+      .filter({ hasText: /billing history/i });
     await expect(billingHistoryCard).toBeVisible();
 
     // Either shows invoices or empty state
-    const hasInvoices = await billingHistoryCard.getByText(/\$|paid/i).first().isVisible().catch(() => false);
+    const hasInvoices = await billingHistoryCard
+      .getByText(/\$|paid/i)
+      .first()
+      .isVisible()
+      .catch(() => false);
 
     if (hasInvoices) {
       // Should show amount and status

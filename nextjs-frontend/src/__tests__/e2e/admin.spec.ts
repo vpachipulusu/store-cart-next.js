@@ -46,10 +46,7 @@ test.describe('Admin Dashboard', () => {
   });
 
   test.describe('Admin Layout & Navigation', () => {
-    test.skip(
-      !process.env.TEST_ADMIN_EMAIL,
-      'Skipped: TEST_ADMIN_EMAIL not configured'
-    );
+    test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
     test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
@@ -107,10 +104,7 @@ test.describe('Admin Dashboard', () => {
   });
 
   test.describe('Dashboard Overview Page', () => {
-    test.skip(
-      !process.env.TEST_ADMIN_EMAIL,
-      'Skipped: TEST_ADMIN_EMAIL not configured'
-    );
+    test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
     test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
@@ -181,10 +175,7 @@ test.describe('Admin Dashboard', () => {
   });
 
   test.describe('User Management Page', () => {
-    test.skip(
-      !process.env.TEST_ADMIN_EMAIL,
-      'Skipped: TEST_ADMIN_EMAIL not configured'
-    );
+    test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
     test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
@@ -198,9 +189,7 @@ test.describe('Admin Dashboard', () => {
     });
 
     test('should display search bar', async ({ page }) => {
-      await expect(
-        page.getByPlaceholder(/search users by email or name/i)
-      ).toBeVisible();
+      await expect(page.getByPlaceholder(/search users by email or name/i)).toBeVisible();
     });
 
     test('should display export button', async ({ page }) => {
@@ -245,23 +234,26 @@ test.describe('Admin Dashboard', () => {
       // Users should have either "Verified" or "Unverified" badge
       const table = page.locator('table tbody');
       const verifiedBadge = table.getByText(/verified|unverified/i);
-      const hasBadge = await verifiedBadge.first().isVisible().catch(() => false);
+      const hasBadge = await verifiedBadge
+        .first()
+        .isVisible()
+        .catch(() => false);
       expect(hasBadge || true).toBeTruthy();
     });
 
     test('should show subscription tier badges', async ({ page }) => {
       const table = page.locator('table tbody');
       const tierBadge = table.getByText(/free|pro|enterprise/i);
-      const hasBadge = await tierBadge.first().isVisible().catch(() => false);
+      const hasBadge = await tierBadge
+        .first()
+        .isVisible()
+        .catch(() => false);
       expect(hasBadge || true).toBeTruthy();
     });
   });
 
   test.describe('User Detail Page', () => {
-    test.skip(
-      !process.env.TEST_ADMIN_EMAIL,
-      'Skipped: TEST_ADMIN_EMAIL not configured'
-    );
+    test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
     test.use({ storageState: STORAGE_STATE.admin });
 
     test('should display 404 for non-existent user', async ({ page }) => {
@@ -277,10 +269,7 @@ test.describe('Admin Dashboard', () => {
   });
 
   test.describe('Subscription Management Page', () => {
-    test.skip(
-      !process.env.TEST_ADMIN_EMAIL,
-      'Skipped: TEST_ADMIN_EMAIL not configured'
-    );
+    test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
     test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
@@ -289,9 +278,7 @@ test.describe('Admin Dashboard', () => {
     });
 
     test('should display subscription management heading', async ({ page }) => {
-      await expect(
-        page.getByRole('heading', { name: /subscription management/i })
-      ).toBeVisible();
+      await expect(page.getByRole('heading', { name: /subscription management/i })).toBeVisible();
       await expect(page.getByText(/monitor and manage all subscriptions/i)).toBeVisible();
     });
 
@@ -306,7 +293,9 @@ test.describe('Admin Dashboard', () => {
       const proCard = page.locator('[class*="card"]').filter({ hasText: 'Pro Plans' });
       await expect(proCard.getByText(/[$£€]\d+\/month/i)).toBeVisible();
 
-      const enterpriseCard = page.locator('[class*="card"]').filter({ hasText: 'Enterprise Plans' });
+      const enterpriseCard = page
+        .locator('[class*="card"]')
+        .filter({ hasText: 'Enterprise Plans' });
       await expect(enterpriseCard.getByText(/[$£€]\d+\/month/i)).toBeVisible();
     });
 
@@ -326,17 +315,17 @@ test.describe('Admin Dashboard', () => {
 
     test('should display manage buttons for subscriptions', async ({ page }) => {
       const manageBtn = page.getByRole('button', { name: /manage/i });
-      const hasManage = await manageBtn.first().isVisible().catch(() => false);
+      const hasManage = await manageBtn
+        .first()
+        .isVisible()
+        .catch(() => false);
       // Manage buttons should exist if there are subscriptions
       expect(hasManage || true).toBeTruthy();
     });
   });
 
   test.describe('Analytics Page', () => {
-    test.skip(
-      !process.env.TEST_ADMIN_EMAIL,
-      'Skipped: TEST_ADMIN_EMAIL not configured'
-    );
+    test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
     test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
@@ -390,16 +379,15 @@ test.describe('Admin Dashboard', () => {
     });
 
     test('should display conversion rate as percentage', async ({ page }) => {
-      const activitySection = page.locator('[class*="card"]').filter({ hasText: 'Activity Overview' });
+      const activitySection = page
+        .locator('[class*="card"]')
+        .filter({ hasText: 'Activity Overview' });
       await expect(activitySection.getByText(/free to paid/i)).toBeVisible();
     });
   });
 
   test.describe('SEO Management Page', () => {
-    test.skip(
-      !process.env.TEST_ADMIN_EMAIL,
-      'Skipped: TEST_ADMIN_EMAIL not configured'
-    );
+    test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
     test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
@@ -479,10 +467,7 @@ test.describe('Admin Dashboard', () => {
   });
 
   test.describe('Settings Page', () => {
-    test.skip(
-      !process.env.TEST_ADMIN_EMAIL,
-      'Skipped: TEST_ADMIN_EMAIL not configured'
-    );
+    test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
     test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
@@ -556,10 +541,7 @@ test.describe('Admin Dashboard', () => {
   });
 
   test.describe('Audit Logs Page', () => {
-    test.skip(
-      !process.env.TEST_ADMIN_EMAIL,
-      'Skipped: TEST_ADMIN_EMAIL not configured'
-    );
+    test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
     test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
