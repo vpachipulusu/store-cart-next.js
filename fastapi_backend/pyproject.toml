@@ -1,10 +1,8 @@
 [project]
-name = "app"
-version = "0.0.6"
-description = ""
-authors = [{ name = "Anderson Resende", email = "anderson@vinta.com.br" }]
+name = "storecart-backend"
+version = "0.1.0"
+description = "StoreCart FastAPI backend (adapted from vintasoftware/nextjs-fastapi-template, see TEMPLATE_LICENSE.txt)"
 requires-python = ">=3.12,<3.13"
-readme = "README.md"
 dependencies = [
     "fastapi[standard]>=0.115.0,<0.116",
     "asyncpg>=0.29.0,<0.30",
