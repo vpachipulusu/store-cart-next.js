@@ -13,6 +13,8 @@ const GATED_SPECS = [
   'subscription-simple',
   'billing-management',
   'admin',
+  'account-lifecycle',
+  'settings-totp',
 ] as const;
 
 const GATED_SPEC_PATTERN = new RegExp(`[\\\\/](${GATED_SPECS.join('|')})\\.spec\\.ts$`);
