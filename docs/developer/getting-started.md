@@ -108,7 +108,6 @@ Run commands from `fastapi_backend/`. `app/core/config.py` reads `.env` from the
 | Variable names | Required | Notes |
 |---|---|---|
 | `DATABASE_URL` | Yes | Platform database. |
-| `CORS_ORIGINS` | Yes | Set it to `[]`. The browser never calls FastAPI, so no browser origin is allowed (ADR-003). |
 | `APP_NAME`, `APP_VERSION`, `LOG_LEVEL`, `OPENAPI_URL`, `EXPIRE_ON_COMMIT` | No | Defaults: `StoreCart API`, `0.1.0`, `INFO`, `/openapi.json`, `false`. |
 | `OPENAPI_OUTPUT_FILE` | No | Output path for `commands.generate_openapi_schema`. |
 

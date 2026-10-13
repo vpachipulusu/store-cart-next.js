@@ -63,3 +63,15 @@ def test_configure_logging_rejects_unknown_level() -> None:
             configure_logging("loud")
     finally:
         root.handlers = saved_handlers
+
+
+def test_formatter_includes_request_id_when_set() -> None:
+    from app.core.logging import request_id_var
+
+    token = request_id_var.set("req-123")
+    try:
+        payload = json.loads(JsonFormatter().format(make_record("hi")))
+    finally:
+        request_id_var.reset(token)
+
+    assert payload["request_id"] == "req-123"

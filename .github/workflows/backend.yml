@@ -21,7 +21,6 @@ jobs:
       # The unit tests use fake database sessions and never connect (KAN-30), so
       # no database service runs here.
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/unused
-      CORS_ORIGINS: '[]'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

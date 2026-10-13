@@ -25,7 +25,6 @@ SCHEMA_FILE = BACKEND_DIR.parent / "nextjs-frontend" / "openapi.json"
 # enough; values already set in the environment still take precedence.
 PLACEHOLDER_SETTINGS = {
     "DATABASE_URL": "postgresql+asyncpg://openapi:openapi@localhost:5432/openapi",
-    "CORS_ORIGINS": "[]",
 }
 
 
