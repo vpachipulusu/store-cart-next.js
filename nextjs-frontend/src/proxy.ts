@@ -53,8 +53,8 @@ function applyRateLimit(request: NextRequest, pathname: string): NextResponse | 
 export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
-  // Apply rate limiting to API routes
-  if (pathname.startsWith('/api/')) {
+  // Apply rate limiting to API routes (/api/health is exempt so deploy smoke checks never get 429)
+  if (pathname.startsWith('/api/') && pathname !== '/api/health') {
     const rateLimitResponse = applyRateLimit(request, pathname);
     if (rateLimitResponse) {
       return rateLimitResponse;
