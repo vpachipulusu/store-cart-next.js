@@ -4,19 +4,23 @@ Rules for using this file are in [`AGENTS.md`](../../AGENTS.md). Read the table 
 
 | Field              | Value                                                                                                     |
 | ------------------ | --------------------------------------------------------------------------------------------------------- |
-| owner              | **claude** (codex → claude at the owner's explicit request; effective after this handover PR merges)      |
-| ticket             | none active; KAN-111, KAN-153 and KAN-144 are Done in Jira                                                |
-| branch             | start from updated `main`; handover branch `docs/handover-codex-claude-20261013`                          |
-| last completed SHA | `fc51831aa8ed14b070e5b7b0ec8c5a280ad740ba` (PR #29, KAN-144)                                              |
+| owner              | **claude** (codex → claude at the owner's request; Claude is the sole developer)                          |
+| ticket             | none active; next candidates in "Next steps"                                                              |
+| branch             | start from updated `main`                                                                                 |
+| last completed SHA | `9fec98aa783700c6d4c16e5661e1df6a98d55c97` (PR #38, KAN-36)                                               |
 | handover revision  | resolve from the latest merged change to this file; a commit cannot contain its own SHA                   |
-| open PRs           | no feature PRs at handover; this documentation PR is merged before Claude starts; recheck GitHub          |
-| status             | tracked tree clean before handover; no partial feature or migration; existing untracked scratch preserved |
-| blockers           | KAN-145 held; KAN-112 needs verified Vercel/Neon access; full E2E result pending at snapshot              |
-| updated            | 2026-10-13 by codex (Europe/London)                                                                       |
+| open PRs           | none feature-wise at this update; recheck GitHub                                                          |
+| status             | tracked tree clean; no partial feature or migration; untracked scratch under `.claude/` preserved         |
+| blockers           | KAN-145 held (owner go needed); owner actions below; KAN-115 spike only when the owner says ready         |
+| updated            | 2026-10-13 by claude (Europe/London)                                                                      |
+
+**Owner actions pending:** set `E2E_ENABLED` to `false` if e2e should stop (it was still `true` at last check); create an Upstash Redis DB and set `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN` in Vercel Production before the next release (production refuses to start without them); optionally set `SENTRY_DSN`.
 
 ## Done so far
 
-KAN-25, 27, 28, 29, 30, 111, 113, 121, 122, 132 to 136, 138, 140, 144, 146, 147, 148, 153, 159.
+KAN-25, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 111, 112, 113, 121, 122, 132 to 136, 138, 140, 141, 144, 146, 147, 148, 153, 159.
+
+Claude completed after taking the baton (PRs #26 to #38): KAN-148, KAN-141 (session errors reach the error boundary), KAN-31 (config, JSON logs with request id, error envelope), KAN-32 (hardened Dockerfile), KAN-112 (`/api/health` proxy and post-deploy smoke workflow; production Neon stays empty until the migrate path exists), KAN-33 (OpenAPI schema and server-only client, drift check in CI and pre-commit), KAN-34 (Upstash rate limiter, auth routes fail closed, API/webhook fail open), KAN-35 (Sentry with scrubbing, `fastapi_backend/CLAUDE.md`), KAN-36 (platform models and Alembic baseline in `storecart_platform`, CI migrations job). Decisions are recorded in the Jira comments on each ticket.
 
 Codex completed:
 
@@ -29,8 +33,8 @@ The original KAN-148 brand-source/manifest/dependency changes remain merged. Cap
 ## Next steps for the next owner, in order
 
 1. Read this baton, `AGENTS.md`, `.claude/CLAUDE.md`, `docs/developer/agent-handover.md`, workflow, plan and ADR index. Check Git status, open PRs and live Jira. KAN-3 is the only stale In Progress item at snapshot; do not close it without the owner. No feature work is half-done.
-2. **KAN-141 is the next recommended candidate**, agreed by Architect and Product Manager for this handover: fix swallowed redirects/session/database errors in admin layout, dashboard layout and pricing. Reread its current acceptance criteria; take it only if still To-do and unclaimed. Move to In Progress and comment a fresh `fix/KAN-141-...` branch before coding. Use PM and Architect reviews plus security review for session behavior. Do not merely log-and-swallow DB errors: they must reach the error boundary; only verification failures trigger login/session clearing.
-3. **KAN-112** needs Vercel and Neon access. Claude may have tools Codex lacked; verify access and the deployment/health prerequisites (including KAN-32) against the Foundation plan before reprioritizing. Do not guess deployment settings or run migrations as part of a build. KAN-115 remains subject to owner readiness.
+2. **Next candidates** (PM and Architect agreed; confirm each is still To-do): KAN-161 (runtime DB connection keeps TLS params, small), KAN-26 (Docker Compose), KAN-37 (Firebase session auth in the backend; Architect review; must apply the rate-limit dependency and gate `X-Client-IP` on a service key), then KAN-38 onward. KAN-160 (KAN-30 follow-ups) needs its five items collected before anyone takes it. Carried follow-ups: second `upgrade head` after downgrade in the CI migrations job, unique `lower(email)` index, ESLint restriction on `@/lib/api/generated` (KAN-41), removing the frontend in-memory limiter once KAN-34 limits are applied to routes.
+3. **Deployment:** backend deploys as an internal Vercel service; production deploys only via the release workflow; no build runs migrations. Never run anything against production Neon. Alembic owns `storecart_platform` (to be created in StoreCart-Test first); the frontend stays on Prisma until KAN-41.
 4. **KAN-145 stays on explicit hold.** This handover and the request to continue work do not authorize the public template export or first push. The owner must say go and see the file list first.
 5. Follow the plan's Foundation dependency order for later backend work; do not infer key order or skip the deployment/spike checkpoints. KAN-149 follows its template/foundation prerequisites.
 
