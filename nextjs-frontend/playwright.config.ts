@@ -1,4 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
+import e2eEnv from './scripts/e2e-env.cjs';
+
+// e2e uses the Firebase TEST project from .env.e2e.local (plus the e2e accounts written by `npm run test:setup`),
+// never the dev project in .env.local. Real env vars take precedence. See scripts/e2e-env.cjs.
+const testEnv = e2eEnv.applyE2eEnv();
 
 export default defineConfig({
   testDir: './src/__tests__/e2e',
@@ -61,5 +66,7 @@ export default defineConfig({
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    // The dev server gets the e2e env (test Firebase project, Sentry off) and its own output folder.
+    env: { ...e2eEnv.toNextProcessEnv(testEnv), NEXT_DIST_DIR: '.next-e2e-dev' },
   },
 });

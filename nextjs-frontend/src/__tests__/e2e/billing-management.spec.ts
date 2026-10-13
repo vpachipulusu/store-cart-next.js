@@ -1,7 +1,8 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import {
-  loginViaUI,
-  TEST_USER,
+  STORAGE_STATE,
+  loginAsThrowawayAccount,
+  signInWithSavedSession,
   navigateAndWait,
   navigateToBilling,
   toggleAutoRenewal,
@@ -55,11 +56,10 @@ test.describe('Pricing Page - Billing Period Toggle', () => {
     const yearlyButton = page.getByRole('button', { name: /yearly/i });
     await yearlyButton.click();
 
-    // Should show /year label on pricing cards
-    const yearLabel = page.getByText('/year').first();
-    await expect(yearLabel).toBeVisible();
+    // Yearly shows the monthly equivalent ("/month") plus "<price> billed annually"; there is no "/year" label.
+    await expect(page.getByText('/month').first()).toBeVisible();
 
-    // Should show monthly equivalent text
+    // Should show the annual total
     const billedAnnually = page.getByText(/billed annually/i).first();
     await expect(billedAnnually).toBeVisible();
   });
@@ -85,11 +85,12 @@ test.describe('Pricing Page - Billing Period Toggle', () => {
 
     // Switch to yearly
     await page.getByRole('button', { name: /yearly/i }).click();
-    await expect(page.getByText('/year').first()).toBeVisible();
+    await expect(page.getByText(/billed annually/i).first()).toBeVisible();
 
     // Switch back to monthly
     await page.getByRole('button', { name: /monthly/i }).click();
     await expect(page.getByText('/month').first()).toBeVisible();
+    await expect(page.getByText(/billed annually/i)).toHaveCount(0);
   });
 });
 
@@ -99,15 +100,16 @@ test.describe('Billing Settings Page - Access', () => {
   });
 
   test('should be accessible from dashboard billing quick action', async ({ page }) => {
-    test.skip(
-      !process.env.TEST_USER_EMAIL,
-      'Skipped: TEST_USER_EMAIL not configured'
-    );
+    test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
 
-    await loginViaUI(page, TEST_USER.email, TEST_USER.password);
+    await signInWithSavedSession(page.context(), 'user');
+    await navigateAndWait(page, '/dashboard');
 
     // Click on Billing quick action card
-    const billingCard = page.locator('[class*="card"]').filter({ hasText: /billing/i }).filter({ hasText: /manage subscription/i });
+    const billingCard = page
+      .locator('[class*="card"]')
+      .filter({ hasText: /billing/i })
+      .filter({ hasText: /manage subscription/i });
     await billingCard.click();
 
     // Should navigate to billing page
@@ -116,12 +118,10 @@ test.describe('Billing Settings Page - Access', () => {
   });
 
   test('should be accessible from navigation bar', async ({ page }) => {
-    test.skip(
-      !process.env.TEST_USER_EMAIL,
-      'Skipped: TEST_USER_EMAIL not configured'
-    );
+    test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
 
-    await loginViaUI(page, TEST_USER.email, TEST_USER.password);
+    await signInWithSavedSession(page.context(), 'user');
+    await navigateAndWait(page, '/dashboard');
 
     // Click Billing in nav
     const billingNavLink = page.getByRole('link', { name: /billing/i }).first();
@@ -133,13 +133,10 @@ test.describe('Billing Settings Page - Access', () => {
 });
 
 test.describe('Billing Settings Page - Content', () => {
-  test.skip(
-    !process.env.TEST_USER_EMAIL,
-    'Skipped: TEST_USER_EMAIL not configured'
-  );
+  test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
+  test.use({ storageState: STORAGE_STATE.user });
 
   test('should display current plan card', async ({ page }) => {
-    await loginViaUI(page, TEST_USER.email, TEST_USER.password);
     await navigateToBilling(page);
 
     // Current Plan card should be visible
@@ -151,30 +148,34 @@ test.describe('Billing Settings Page - Content', () => {
   });
 
   test('should display payment methods section', async ({ page }) => {
-    await loginViaUI(page, TEST_USER.email, TEST_USER.password);
     await navigateToBilling(page);
 
     // Payment Methods card should be visible
-    const paymentMethodsCard = page.locator('[class*="card"]').filter({ hasText: /payment methods/i });
+    const paymentMethodsCard = page
+      .locator('[class*="card"]')
+      .filter({ hasText: /payment methods/i });
     await expect(paymentMethodsCard).toBeVisible();
   });
 
   test('should display billing history section', async ({ page }) => {
-    await loginViaUI(page, TEST_USER.email, TEST_USER.password);
     await navigateToBilling(page);
 
     // Billing History card should be visible
-    const billingHistoryCard = page.locator('[class*="card"]').filter({ hasText: /billing history/i });
+    const billingHistoryCard = page
+      .locator('[class*="card"]')
+      .filter({ hasText: /billing history/i });
     await expect(billingHistoryCard).toBeVisible();
   });
 
   test('should show upgrade button for free tier users', async ({ page }) => {
-    await loginViaUI(page, TEST_USER.email, TEST_USER.password);
     await navigateToBilling(page);
 
     // Check if user is on free tier - upgrade button should be visible
     const currentPlanCard = page.locator('[class*="card"]').filter({ hasText: /current plan/i });
-    const hasFree = await currentPlanCard.getByText(/free/i).isVisible().catch(() => false);
+    const hasFree = await currentPlanCard
+      .getByText(/free/i)
+      .isVisible()
+      .catch(() => false);
 
     if (hasFree) {
       const upgradeButton = currentPlanCard.getByRole('link', { name: /upgrade plan/i });
@@ -188,9 +189,9 @@ test.describe('Billing Settings - Auto-Renewal', () => {
     !process.env.TEST_USER_EMAIL || !process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
     'Skipped: TEST_USER_EMAIL or STRIPE not configured'
   );
+  test.use({ storageState: STORAGE_STATE.user });
 
   test('should show auto-renewal toggle for active subscribers', async ({ page }) => {
-    await loginViaUI(page, TEST_USER.email, TEST_USER.password);
     await navigateToBilling(page);
 
     // Auto-renewal card only visible for active subscribers
@@ -210,8 +211,11 @@ test.describe('Billing Settings - Auto-Renewal', () => {
     }
   });
 
-  test('should toggle auto-renewal off and show expiration message', async ({ page }) => {
-    await loginViaUI(page, TEST_USER.email, TEST_USER.password);
+  test('should toggle auto-renewal off and show expiration message', async ({
+    page,
+    throwawayAccount,
+  }) => {
+    await loginAsThrowawayAccount(page, throwawayAccount);
     await navigateToBilling(page);
 
     const autoRenewalCard = page.locator('[class*="card"]').filter({ hasText: /auto-renewal/i });
@@ -235,8 +239,11 @@ test.describe('Billing Settings - Auto-Renewal', () => {
     }
   });
 
-  test('should toggle auto-renewal back on and show renewal message', async ({ page }) => {
-    await loginViaUI(page, TEST_USER.email, TEST_USER.password);
+  test('should toggle auto-renewal back on and show renewal message', async ({
+    page,
+    throwawayAccount,
+  }) => {
+    await loginAsThrowawayAccount(page, throwawayAccount);
     await navigateToBilling(page);
 
     const autoRenewalCard = page.locator('[class*="card"]').filter({ hasText: /auto-renewal/i });
@@ -266,16 +273,20 @@ test.describe('Billing Settings - Payment Methods', () => {
     !process.env.TEST_USER_EMAIL || !process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
     'Skipped: TEST_USER_EMAIL or STRIPE not configured'
   );
+  test.use({ storageState: STORAGE_STATE.user });
 
   test('should display saved payment methods with card details', async ({ page }) => {
-    await loginViaUI(page, TEST_USER.email, TEST_USER.password);
     await navigateToBilling(page);
 
     const paymentCard = page.locator('[class*="card"]').filter({ hasText: /payment methods/i });
     await expect(paymentCard).toBeVisible();
 
     // Check if there are saved payment methods
-    const hasPaymentMethods = await paymentCard.getByText(/ending in/i).first().isVisible().catch(() => false);
+    const hasPaymentMethods = await paymentCard
+      .getByText(/ending in/i)
+      .first()
+      .isVisible()
+      .catch(() => false);
 
     if (hasPaymentMethods) {
       // Should show card brand and last 4 digits
@@ -290,11 +301,14 @@ test.describe('Billing Settings - Payment Methods', () => {
   });
 
   test('should show default badge on default payment method', async ({ page }) => {
-    await loginViaUI(page, TEST_USER.email, TEST_USER.password);
     await navigateToBilling(page);
 
     const paymentCard = page.locator('[class*="card"]').filter({ hasText: /payment methods/i });
-    const hasPaymentMethods = await paymentCard.getByText(/ending in/i).first().isVisible().catch(() => false);
+    const hasPaymentMethods = await paymentCard
+      .getByText(/ending in/i)
+      .first()
+      .isVisible()
+      .catch(() => false);
 
     if (hasPaymentMethods) {
       // At least one should be marked as default
@@ -304,7 +318,6 @@ test.describe('Billing Settings - Payment Methods', () => {
   });
 
   test('should disable remove button when auto-renewal is active', async ({ page }) => {
-    await loginViaUI(page, TEST_USER.email, TEST_USER.password);
     await navigateToBilling(page);
 
     const autoRenewalCard = page.locator('[class*="card"]').filter({ hasText: /auto-renewal/i });
@@ -316,10 +329,14 @@ test.describe('Billing Settings - Payment Methods', () => {
     }
 
     const toggle = autoRenewalCard.locator('button[role="switch"]');
-    const isRenewalActive = await toggle.getAttribute('aria-checked') === 'true';
+    const isRenewalActive = (await toggle.getAttribute('aria-checked')) === 'true';
 
     const paymentCard = page.locator('[class*="card"]').filter({ hasText: /payment methods/i });
-    const hasPaymentMethods = await paymentCard.getByText(/ending in/i).first().isVisible().catch(() => false);
+    const hasPaymentMethods = await paymentCard
+      .getByText(/ending in/i)
+      .first()
+      .isVisible()
+      .catch(() => false);
 
     if (isRenewalActive && hasPaymentMethods) {
       // Remove buttons should be disabled
@@ -331,12 +348,13 @@ test.describe('Billing Settings - Payment Methods', () => {
       }
 
       // Should show warning message
-      await expect(paymentCard.getByText(/cannot be removed while auto-renewal is active/i)).toBeVisible();
+      await expect(
+        paymentCard.getByText(/cannot be removed while auto-renewal is active/i)
+      ).toBeVisible();
     }
   });
 
   test('should show Add Payment Method button for Stripe customers', async ({ page }) => {
-    await loginViaUI(page, TEST_USER.email, TEST_USER.password);
     await navigateToBilling(page);
 
     const paymentCard = page.locator('[class*="card"]').filter({ hasText: /payment methods/i });
@@ -352,20 +370,23 @@ test.describe('Billing Settings - Payment Methods', () => {
 });
 
 test.describe('Billing Settings - Billing History', () => {
-  test.skip(
-    !process.env.TEST_USER_EMAIL,
-    'Skipped: TEST_USER_EMAIL not configured'
-  );
+  test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
+  test.use({ storageState: STORAGE_STATE.user });
 
   test('should display invoices or empty state', async ({ page }) => {
-    await loginViaUI(page, TEST_USER.email, TEST_USER.password);
     await navigateToBilling(page);
 
-    const billingHistoryCard = page.locator('[class*="card"]').filter({ hasText: /billing history/i });
+    const billingHistoryCard = page
+      .locator('[class*="card"]')
+      .filter({ hasText: /billing history/i });
     await expect(billingHistoryCard).toBeVisible();
 
     // Either shows invoices or empty state
-    const hasInvoices = await billingHistoryCard.getByText(/\$|paid/i).first().isVisible().catch(() => false);
+    const hasInvoices = await billingHistoryCard
+      .getByText(/\$|paid/i)
+      .first()
+      .isVisible()
+      .catch(() => false);
 
     if (hasInvoices) {
       // Should show amount and status
@@ -386,16 +407,21 @@ test.describe('Pricing Page - Checkout with Billing Period', () => {
     'Skipped: TEST_USER_EMAIL or STRIPE not configured'
   );
 
-  test('should use selected billing period in checkout (yearly)', async ({ page, context }) => {
-    await loginViaUI(page, TEST_USER.email, TEST_USER.password);
+  test('should use selected billing period in checkout (yearly)', async ({
+    page,
+    throwawayAccount,
+  }) => {
+    await loginAsThrowawayAccount(page, throwawayAccount);
     await navigateAndWait(page, '/pricing');
 
     // Switch to yearly billing
     await page.getByRole('button', { name: /yearly/i }).click();
-    await expect(page.getByText('/year').first()).toBeVisible();
+    await expect(page.getByText(/billed annually/i).first()).toBeVisible();
 
     // Find and click Pro tier upgrade button
-    const proCard = page.locator('[class*="card"]').filter({ hasText: /^Pro$/i });
+    const proCard = page
+      .locator('[class*="card"]')
+      .filter({ has: page.getByRole('heading', { name: 'Pro', exact: true }) });
     const upgradeButton = proCard.getByRole('button', { name: /upgrade to pro/i });
 
     const buttonExists = await upgradeButton.count().then((count) => count > 0);
@@ -404,11 +430,10 @@ test.describe('Pricing Page - Checkout with Billing Period', () => {
       return;
     }
 
-    // Click upgrade and handle Stripe checkout
-    const checkoutPagePromise = context.waitForEvent('page');
+    // Click upgrade: the app sends this tab to Stripe Checkout (window.location.href), not a new tab.
     await upgradeButton.click();
-    const checkoutPage = await checkoutPagePromise;
-    await checkoutPage.waitForLoadState();
+    await page.waitForURL(/checkout\.stripe\.com/);
+    const checkoutPage = page;
 
     // Verify we're on Stripe checkout
     expect(checkoutPage.url()).toContain('checkout.stripe.com');
