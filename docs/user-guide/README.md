@@ -44,7 +44,7 @@ organisation, open several stores under it, and sell through each store's own st
 
 ## Getting help
 
-A support contact is coming soon. The **Contact** page's message form does not send messages yet,
-and its contact details are placeholders, so please don't use them.
+A support contact is coming soon. The **Contact** page explains that support channels are not
+available yet, and its message form is disabled because it does not send messages.
 
 *Last reviewed 2026-10-13.*

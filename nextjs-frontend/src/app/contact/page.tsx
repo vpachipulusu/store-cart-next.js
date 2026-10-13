@@ -3,8 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { siteConfig } from '@/config/site';
-import { Mail, Phone, MapPin, Send } from 'lucide-react';
+import { Send } from 'lucide-react';
 
 export const metadata = {
   title: 'Contact Us',
@@ -26,8 +25,7 @@ export default async function ContactPage({
         <div className="mb-12 text-center">
           <h1 className="mb-4 text-4xl tracking-tight">Contact Us</h1>
           <p className="mx-auto max-w-2xl text-xl text-muted-foreground">
-            Have questions? We&apos;d love to hear from you. Send us a message and we&apos;ll
-            respond as soon as possible.
+            A support contact is coming soon. Messages cannot be sent from this page yet.
           </p>
           {selectedPlan && (
             <p className="mt-4 text-sm text-primary">
@@ -43,11 +41,11 @@ export default async function ContactPage({
               <CardHeader>
                 <CardTitle>Send us a message</CardTitle>
                 <CardDescription>
-                  Fill out the form below and we&apos;ll get back to you within 24 hours.
+                  This form is unavailable and does not send messages.
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <form className="space-y-6">
+                <fieldset disabled aria-label="Contact form unavailable" className="space-y-6">
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
                       <Label htmlFor="firstName">First Name</Label>
@@ -61,7 +59,7 @@ export default async function ContactPage({
 
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
-                    <Input id="email" type="email" placeholder="john@example.com" required />
+                    <Input id="email" type="email" placeholder="Your email address" required />
                   </div>
 
                   <div className="space-y-2">
@@ -103,7 +101,8 @@ export default async function ContactPage({
                   </div>
 
                   <Button
-                    type="submit"
+                    type="button"
+                    disabled
                     size="lg"
                     className="w-full bg-theme-accent text-white hover:bg-theme-accent-dark"
                   >
@@ -112,89 +111,24 @@ export default async function ContactPage({
                   </Button>
 
                   <p className="text-center text-sm text-muted-foreground">
-                    We typically respond within 24 hours during business days.
+                    Message sending is coming soon.
                   </p>
-                </form>
+                </fieldset>
               </CardContent>
             </Card>
           </div>
 
-          {/* Contact Information */}
-          <div className="space-y-6">
+          {/* Support availability */}
+          <div>
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Contact Information</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-start gap-3">
-                  <div className="rounded-lg bg-theme-accent/[0.08] p-2">
-                    <Mail className="h-5 w-5 text-theme-accent" />
-                  </div>
-                  <div>
-                    <p className="font-medium">Email</p>
-                    <p className="text-sm text-muted-foreground">{siteConfig.supportEmail}</p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <div className="rounded-lg bg-theme-accent/[0.08] p-2">
-                    <Phone className="h-5 w-5 text-theme-accent" />
-                  </div>
-                  <div>
-                    <p className="font-medium">Phone</p>
-                    <p className="text-sm text-muted-foreground">+1 (555) 123-4567</p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <div className="rounded-lg bg-theme-accent/[0.08] p-2">
-                    <MapPin className="h-5 w-5 text-theme-accent" />
-                  </div>
-                  <div>
-                    <p className="font-medium">Office</p>
-                    <p className="text-sm text-muted-foreground">
-                      123 Business St.
-                      <br />
-                      Suite 100
-                      <br />
-                      San Francisco, CA 94107
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Business Hours</CardTitle>
+                <CardTitle className="text-lg">Support Contact</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Monday - Friday</span>
-                    <span className="font-medium">9am - 6pm PST</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Saturday</span>
-                    <span className="font-medium">10am - 4pm PST</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Sunday</span>
-                    <span className="font-medium">Closed</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-gradient-to-br from-theme-surface to-theme-surface-light text-white">
-              <CardContent className="pt-6">
-                <h3 className="mb-2 font-semibold">Enterprise Sales</h3>
-                <p className="mb-4 text-sm opacity-90">
-                  Looking for a custom enterprise solution? Our sales team is ready to help.
+                <p className="text-sm text-muted-foreground">
+                  A support contact is coming soon. Email, phone and sales channels are not
+                  available yet.
                 </p>
-                <Button asChild variant="secondary" className="w-full">
-                  <a href="mailto:sales@example.com">Contact Sales Team</a>
-                </Button>
               </CardContent>
             </Card>
           </div>

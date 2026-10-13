@@ -84,5 +84,5 @@ These work today but **may change**:
 - **Admin tools** for suspending users, managing admin roles and cancelling subscriptions are
   planned; the audit log gains filters by organisation, store, user and action.
 - **Profile photo upload** is not working yet.
-- The **Contact** page form does not send messages yet, and its contact details are placeholders.
-  Don't use them. A support contact is coming soon.
+- The **Contact** page form is disabled because it does not send messages yet. No placeholder
+  contact details are shown. A support contact is coming soon.

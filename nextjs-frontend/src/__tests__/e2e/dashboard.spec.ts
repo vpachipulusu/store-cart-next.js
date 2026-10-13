@@ -318,6 +318,8 @@ test.describe('Customer Dashboard', () => {
       test('should display two-factor authentication section', async ({ page }) => {
         await expect(page.getByText(/two-factor authentication/i).first()).toBeVisible();
         await expect(page.getByText(/2fa status/i)).toBeVisible();
+        await expect(page.getByText(/sign-in does not check its codes yet/i)).toBeVisible();
+        await expect(page.getByText(/need to enter both your password/i)).toHaveCount(0);
 
         // Either Enable or Disable button should be visible
         const enableBtn = page.getByRole('button', { name: /enable 2fa/i });

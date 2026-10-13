@@ -100,6 +100,16 @@ test.describe('Global Navigation', () => {
     await page.goto('/contact');
     await waitForPageReady(page);
     await expect(page).toHaveURL(/\/contact/);
+    await expect(page.getByText(/messages cannot be sent from this page yet/i)).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Contact form unavailable' })).toHaveAttribute(
+      'disabled',
+      ''
+    );
+    await expect(page.getByLabel('Email', { exact: true })).toBeDisabled();
+    await expect(page.getByLabel('Message', { exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Send Message' })).toBeDisabled();
+    await expect(page.getByText(/@example\.com|555|123 Business St/i)).toHaveCount(0);
+    await expect(page.locator('a[href^="mailto:"]')).toHaveCount(0);
   });
 });
 

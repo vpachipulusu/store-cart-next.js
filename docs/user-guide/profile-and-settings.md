@@ -58,9 +58,9 @@ Your new password must be at least 8 characters long.
 > **Coming soon: sign-in will ask for your code. Until then, turning 2FA on does not add a check
 > at sign-in.** You can set up two-factor authentication today, and it is a required StoreCart
 > feature, but it is not a top priority right now. Signing in still needs only your password (or
-> Google or GitHub). Some text on the Security page says you will need a code to sign in. That is
-> not true yet. Keep a strong, unique password. This page will be updated when sign-in checks the
-> code.
+> Google or GitHub). The Security page explains that enabling 2FA saves your setup without
+> adding protection at sign-in. Keep a strong, unique password. This page will be updated when
+> sign-in checks the code.
 
 Two-factor authentication uses a 6-digit code from an authenticator app on your phone (for example
 Google Authenticator, Microsoft Authenticator or 1Password).

@@ -21,12 +21,13 @@ number; you only see the card brand and last four digits.
 The **Pricing** page shows current prices, and a **Monthly** / **Yearly** switch. Yearly billing
 shows a "Save ...%" label when it costs less than paying monthly.
 
-> **Subject to change:** the feature lists on the Pricing page (projects, storage, analytics and so
-> on) are placeholders from an earlier version of the product. They will be replaced with
-> StoreCart's real plan limits, such as the number of stores. Don't rely on them.
+> **Example features:** plan descriptions mark the feature lists as placeholders, and each
+> example is labelled **Example:**. These features and limits are not included or enforced.
+> Do not rely on them when choosing a plan.
 >
-> **There is no free trial.** The Pricing page may mention a "14-day free trial" or a **Start Free
-> Trial** button. StoreCart does not offer a trial. Paid plans are charged when you check out.
+> **There is no free trial.** The Pricing page offers **Get Started** for Free and
+> **Get Started with Pro** for visitors who are not signed in. Paid plans are charged when
+> you check out.
 
 **Choosing a plan on the sign-up page does not upgrade you.** You always start on Free and upgrade
 after signing in.
@@ -43,8 +44,8 @@ after signing in.
 If you leave checkout without paying, you return to the Pricing page and are not charged.
 
 **Enterprise** is **coming soon / contact us**. There is no Enterprise checkout, and none is
-promised yet. The **Contact Sales** button opens the Contact page, which does not send messages
-yet. A support contact is coming soon.
+promised yet. The **Contact Sales** button opens the Contact page, where the message form is
+clearly disabled and does not send messages yet. A support contact is coming soon.
 
 ## See your current plan
 
