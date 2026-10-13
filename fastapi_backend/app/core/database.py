@@ -1,4 +1,6 @@
-from typing import AsyncGenerator
+from collections.abc import AsyncIterator
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from typing import Protocol
 from urllib.parse import urlparse
 
 from sqlalchemy import NullPool
@@ -28,6 +30,26 @@ async_session_maker = async_sessionmaker(
 )
 
 
-async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
-    async with async_session_maker() as session:
-        yield session
+class SessionProvider(Protocol):
+    """Hands out database sessions to repositories (ADR-004, ADR-005).
+
+    Repositories never create sessions: they receive one from a provider.
+    Per-store routing (E7) plugs in by supplying another implementation of this
+    interface (for example one that picks a store database from a grant), without
+    changing any repository.
+    """
+
+    def session(self) -> AbstractAsyncContextManager[AsyncSession]:
+        """Open a session; it is closed when the context exits."""
+
+
+class DefaultSessionProvider:
+    """Sessions on the platform database, one per request (NullPool, no reuse)."""
+
+    def __init__(self, maker: async_sessionmaker[AsyncSession]) -> None:
+        self._maker = maker
+
+    @asynccontextmanager
+    async def session(self) -> AsyncIterator[AsyncSession]:
+        async with self._maker() as session:
+            yield session
