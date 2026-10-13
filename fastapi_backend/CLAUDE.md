@@ -67,8 +67,9 @@ session makers: those live behind `app.core.database` (`SessionProvider`), and r
   module (JSON, no `print`); the ID is added to every record automatically.
 - **Sentry (KAN-35).** `app.core.sentry.init_sentry` runs in `create_app()` and does nothing unless `SENTRY_DSN`
   is set (leave it unset locally and in tests). Environment comes from `VERCEL_ENV`, else `ENVIRONMENT`; release
-  from `VERCEL_GIT_COMMIT_SHA`. Events are scrubbed in `scrub_event` (Authorization, Cookie, X-Session-Token,
-  X-Internal-Key, bodies, cookies; frame locals are off). The 500 handler only logs: the SDK reports the
+  from `VERCEL_GIT_COMMIT_SHA`. Events are scrubbed in `scrub_event`: header names, contexts and extra keys matching
+  the `SENSITIVE_NAME` denylist (auth, cookie, token, key, secret, session, password) are filtered; bodies,
+  cookies and query strings are dropped; log breadcrumbs are dropped; frame locals and tracing are off. The 500 handler only logs: the SDK reports the
   exception once. To report something you handle yourself, call `app.core.sentry.report_exception(exc)`.
 - **Rate limiting (ADR-007).** Per-route dependencies in `app/api/rate_limit.py`: `limit_by_subject` for
   authenticated routes, `limit_auth_attempts` for sign-in, sign-up and password reset. Policies live in

@@ -13,6 +13,7 @@ from app.core.sentry import (
     FILTERED,
     init_sentry,
     report_exception,
+    scrub_breadcrumb,
     scrub_event,
     tag_request_id,
 )
@@ -114,6 +115,77 @@ def test_scrub_removes_sensitive_headers_cookies_and_body() -> None:
     assert "secret" not in str(scrubbed)
 
 
+def test_scrub_filters_any_header_matching_the_denylist() -> None:
+    event = {
+        "request": {
+            "headers": {
+                "X-Api-Key": "v",
+                "X-Auth-Foo": "v",
+                "Proxy-Authorization": "v",
+                "X-My-Secret": "v",
+                "Accept": "json",
+            }
+        }
+    }
+
+    headers = scrub_event(event)["request"]["headers"]
+
+    assert [k for k, v in headers.items() if v == FILTERED] == [
+        "X-Api-Key",
+        "X-Auth-Foo",
+        "Proxy-Authorization",
+        "X-My-Secret",
+    ]
+    assert headers["Accept"] == "json"
+
+
+def test_scrub_drops_query_string_from_request_and_url() -> None:
+    event = {
+        "request": {
+            "url": "http://test/x?token=abc&a=1#frag",
+            "query_string": "token=abc&a=1",
+        }
+    }
+
+    request = scrub_event(event)["request"]
+
+    assert request["url"] == "http://test/x"
+    assert "query_string" not in request
+
+
+def test_scrub_sanitizes_contexts_and_extra() -> None:
+    event = {
+        "contexts": {"app": {"api_key": "v", "name": "n"}},
+        "extra": {"password": "v", "items": [{"session_id": "v", "ok": 1}]},
+    }
+
+    scrubbed = scrub_event(event)
+
+    assert scrubbed["contexts"] == {"app": {"api_key": FILTERED, "name": "n"}}
+    assert scrubbed["extra"] == {
+        "password": FILTERED,
+        "items": [{"session_id": FILTERED, "ok": 1}],
+    }
+
+
+def test_breadcrumbs_drop_log_messages_and_scrub_data() -> None:
+    assert scrub_breadcrumb({"category": "logging", "message": "email a@b.c"}) is None
+
+    crumb = scrub_breadcrumb(
+        {"category": "httplib", "data": {"url": "http://x/y?token=1", "auth": "v"}}
+    )
+
+    assert crumb["data"] == {"url": "http://x/y", "auth": FILTERED}
+
+
+def test_server_name_is_fixed_and_tracing_is_off() -> None:
+    init_sentry(make_settings(SENTRY_DSN=DSN), transport=RecordingTransport())
+
+    options = sentry_sdk.get_client().options
+    assert options["server_name"] == "storecart-api"
+    assert options["traces_sample_rate"] is None
+
+
 def test_scrub_tolerates_events_without_a_request() -> None:
     assert scrub_event({"message": "x"}) == {"message": "x"}
 
@@ -164,3 +236,4 @@ async def test_unhandled_exception_is_captured_once_with_context() -> None:
     assert "secret" not in str(event)
     assert "hunter2" not in str(event)
     assert "tok" not in event["request"]["headers"].values()
+    assert event["server_name"] == "storecart-api"
