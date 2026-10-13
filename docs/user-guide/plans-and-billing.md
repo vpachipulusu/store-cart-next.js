@@ -16,15 +16,17 @@ number; you only see the card brand and last four digits.
 |---|---|---|
 | **Free** | No charge | Every new account starts here. |
 | **Pro** | Monthly or yearly | Paid through Stripe checkout. |
-| **Enterprise** | Monthly or yearly | Paid plan. On the Pricing page today, **Contact Sales** sends you to the Contact page. |
+| **Enterprise** | Not available to buy | **Coming soon / contact us.** The Pricing page shows **Contact Sales**, which opens the Contact page. There is no checkout for Enterprise. |
 
 The **Pricing** page shows current prices, and a **Monthly** / **Yearly** switch. Yearly billing
 shows a "Save ...%" label when it costs less than paying monthly.
 
-> **May change:** the feature lists on the Pricing page (projects, storage, analytics and so on)
-> are placeholders from an earlier version of the product. They will be replaced with StoreCart's
-> real plan limits, such as the number of stores. The "14-day free trial" message on the Pricing
-> page is also not confirmed. Don't rely on either yet.
+> **Subject to change:** the feature lists on the Pricing page (projects, storage, analytics and so
+> on) are placeholders from an earlier version of the product. They will be replaced with
+> StoreCart's real plan limits, such as the number of stores. Don't rely on them.
+>
+> **There is no free trial.** The Pricing page may mention a "14-day free trial" or a **Start Free
+> Trial** button. StoreCart does not offer a trial. Paid plans are charged when you check out.
 
 **Choosing a plan on the sign-up page does not upgrade you.** You always start on Free and upgrade
 after signing in.
@@ -40,8 +42,9 @@ after signing in.
 
 If you leave checkout without paying, you return to the Pricing page and are not charged.
 
-For **Enterprise**, select **Contact Sales** on the Enterprise card and send your request.
-Enterprise checkout through Stripe **may change** to work the same way as Pro.
+**Enterprise** is **coming soon / contact us**. There is no Enterprise checkout, and none is
+promised yet. The **Contact Sales** button opens the Contact page, which does not send messages
+yet. A support contact is coming soon.
 
 ## See your current plan
 
@@ -56,12 +59,12 @@ Enterprise checkout through Stripe **may change** to work the same way as Pro.
 1. Select **Billing**, then **Change Plan**. The Pricing page opens and marks your
    **Current Plan**.
 2. Choose what you want:
-   - **Pro to Enterprise:** select **Contact Sales** on the Enterprise card.
+   - **Pro to Enterprise:** not available yet (coming soon / contact us).
    - **Back to Free:** select **Downgrade** on the Free card. This takes you back to Billing.
      Follow [Cancel your subscription](#cancel-your-subscription); you move to Free when your
      paid period ends.
 
-> **May change:** switching directly between paid plans, or between monthly and yearly billing,
+> **Coming soon:** switching directly between paid plans, or between monthly and yearly billing,
 > from inside StoreCart is not available yet.
 
 ## Cancel your subscription

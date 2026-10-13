@@ -44,5 +44,7 @@ organisation, open several stores under it, and sell through each store's own st
 
 ## Getting help
 
-The **Contact** page's message form may not send messages yet, and its contact details are
-placeholders (**may change**). A support channel will be announced before launch.
+A support contact is coming soon. The **Contact** page's message form does not send messages yet,
+and its contact details are placeholders, so please don't use them.
+
+*Last reviewed 2026-10-13.*

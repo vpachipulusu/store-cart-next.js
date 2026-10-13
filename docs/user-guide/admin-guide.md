@@ -13,9 +13,10 @@ staff) are a different thing and are not covered here. See [What's coming](roadm
 
 ## Open the admin area
 
-1. Sign in with your administrator account.
-2. Go to the `/admin` address of the StoreCart site. There is no link to it from the merchant
-   dashboard.
+1. Sign in with your administrator account. An account becomes an administrator only when an
+   engineer grants it (the person must have signed up first). There is no admin sign-up screen.
+2. Open `/admin` directly: add `/admin` to the end of the StoreCart site address. **There is no link
+   to the admin area in the dashboard yet**, so bookmark it.
 3. Use the left-hand menu to move between sections.
 
 To leave, select **Back to Dashboard**. To sign out, select **Logout**.
