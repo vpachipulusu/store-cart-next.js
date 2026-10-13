@@ -1,8 +1,10 @@
 # Chromium end-to-end tests for nextjs-frontend/ (KAN-27).
 #
-# Opt-in (KAN-113 e2e baseline: `npm run test:e2e:baseline`). ci.yml calls this workflow only
-# when the frontend changed AND the repository variable E2E_ENABLED is "true",
-# and it is NOT part of the "CI gate" job yet.
+# Opt-in (KAN-113 e2e baseline: `npm run test:e2e:baseline`). A standalone workflow (KAN-159), not
+# called from ci.yml: it runs when the frontend or shared config changed AND the repository variable
+# E2E_ENABLED is "true". It is NOT part of the "CI gate" job yet.
+# Why standalone: as a reusable workflow (`workflow_call`) the called job received none of the
+# environment `e2e-test` secrets (all E2E_* were empty), so the guard step always failed.
 #
 # Secrets come from the GitHub environment `e2e-test`, which must hold TEST
 # credentials only: the dedicated Firebase test project `storecart-test` and
@@ -13,14 +15,34 @@
 name: E2E
 
 on:
-  workflow_call:
+  pull_request:
+    paths: &paths
+      - 'nextjs-frontend/**'
+      - '.github/**'
+      - '.pre-commit-config.yaml'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vercel.json'
+  push:
+    branches: [main]
+    paths: *paths
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: e2e-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   chromium:
     name: Playwright (Chromium)
+    # Skips fork PRs (no environment secrets there) and Dependabot.
+    if: >-
+      vars.E2E_ENABLED == 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+      github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: e2e-test

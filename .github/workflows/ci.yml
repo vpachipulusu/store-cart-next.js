@@ -7,7 +7,6 @@
 #   changes ──┬─> pre-commit (PRs only)  ─┐
 #             ├─> frontend.yml            ├─> CI gate  (the required check)
 #             ├─> backend.yml            ─┘
-#             └─> e2e.yml (opt-in, NOT part of the gate until KAN-113 lands)
 #
 # Path rules (KAN-27 AC1):
 #   nextjs-frontend/**  -> frontend
@@ -17,8 +16,8 @@
 #                          nextjs-frontend/openapi.json, which links the apps)
 #   manual dispatch     -> both
 #
-# E2E_* secrets must be secrets of the GitHub ENVIRONMENT `e2e-test`, not
-# repository secrets: the e2e job is the only one that is bound to that environment.
+# e2e.yml is a separate workflow (KAN-159), triggered on its own: a reusable workflow called
+# from here did not receive the environment `e2e-test` secrets. It is not part of the gate.
 name: CI
 
 on:
@@ -137,18 +136,6 @@ jobs:
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     uses: ./.github/workflows/backend.yml
-
-  # Opt-in until KAN-113 (e2e baseline) is merged: set the repository variable
-  # E2E_ENABLED=true to run it. It is deliberately NOT in the gate's `needs`.
-  # To make it required after KAN-113, add `e2e` to the gate's `needs` below.
-  e2e:
-    name: E2E
-    needs: changes
-    if: >-
-      needs.changes.outputs.frontend == 'true' && vars.E2E_ENABLED == 'true' &&
-      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
-      github.actor != 'dependabot[bot]'
-    uses: ./.github/workflows/e2e.yml
 
   gate:
     # Branch protection: require exactly this check ("CI gate").
