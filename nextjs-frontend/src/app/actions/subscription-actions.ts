@@ -8,6 +8,7 @@ import { db } from '@/lib/db/client';
 import crypto from 'crypto';
 import { logger } from '@/lib/logger';
 import { getVerifiedUserId } from '@/lib/auth/verified-session';
+import { buildBillingPortalReturnUrl, buildCheckoutReturnUrls } from '@/lib/stripe/return-urls';
 
 /**
  * Initialize Stripe
@@ -69,8 +70,6 @@ function extractCustomerId(customer: string | { id: string } | null | undefined)
 const createCheckoutSessionSchema = z.object({
   tier: z.enum(['pro', 'enterprise']),
   billingPeriod: z.enum(['monthly', 'yearly']),
-  successUrl: z.string().url(),
-  cancelUrl: z.string().url(),
 });
 
 /**
@@ -149,9 +148,7 @@ export async function getSubscriptionStatusAction(): Promise<SubscriptionActionR
  */
 export async function createCheckoutSessionAction(
   tier: 'pro' | 'enterprise',
-  billingPeriod: 'monthly' | 'yearly',
-  successUrl: string,
-  cancelUrl: string
+  billingPeriod: 'monthly' | 'yearly'
 ): Promise<SubscriptionActionResponse> {
   try {
     const userId = await getVerifiedUserId();
@@ -166,8 +163,6 @@ export async function createCheckoutSessionAction(
     const validation = createCheckoutSessionSchema.safeParse({
       tier,
       billingPeriod,
-      successUrl,
-      cancelUrl,
     });
 
     if (!validation.success) {
@@ -217,6 +212,9 @@ export async function createCheckoutSessionAction(
         data: { stripeCustomerId: customerId },
       });
     }
+
+    // Return URLs are built on the server; clients cannot supply them (KAN-127)
+    const { successUrl, cancelUrl } = buildCheckoutReturnUrls();
 
     // Create checkout session
     const session = await getStripeServerClient().checkout.sessions.create({
@@ -356,9 +354,7 @@ export async function verifyUpgradeSessionAction(): Promise<
 /**
  * Create billing portal session
  */
-export async function createBillingPortalSessionAction(
-  returnUrl: string
-): Promise<SubscriptionActionResponse> {
+export async function createBillingPortalSessionAction(): Promise<SubscriptionActionResponse> {
   try {
     const userId = await getVerifiedUserId();
     if (!userId) {
@@ -383,7 +379,7 @@ export async function createBillingPortalSessionAction(
     // Create billing portal session
     const session = await getStripeServerClient().billingPortal.sessions.create({
       customer: user.stripeCustomerId,
-      return_url: returnUrl,
+      return_url: buildBillingPortalReturnUrl(),
     });
 
     return {

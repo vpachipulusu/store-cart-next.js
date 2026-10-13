@@ -204,9 +204,7 @@ export default function BillingPage() {
 
   const handleAddPaymentMethod = async () => {
     try {
-      const result = await createBillingPortalSessionAction(
-        `${window.location.origin}/dashboard/settings/billing`
-      );
+      const result = await createBillingPortalSessionAction();
       if (result.success && result.data?.url) {
         window.location.href = result.data.url;
       } else {
@@ -289,7 +287,11 @@ export default function BillingPage() {
                 </p>
               )}
             </div>
-            <Button asChild variant={isFreeTier ? 'default' : 'outline'} className={isFreeTier ? 'bg-theme-accent text-white hover:bg-theme-accent-dark' : ''}>
+            <Button
+              asChild
+              variant={isFreeTier ? 'default' : 'outline'}
+              className={isFreeTier ? 'bg-theme-accent text-white hover:bg-theme-accent-dark' : ''}
+            >
               <Link href="/pricing">{isFreeTier ? 'Upgrade Plan' : 'Change Plan'}</Link>
             </Button>
           </div>

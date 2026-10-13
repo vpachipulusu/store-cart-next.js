@@ -74,6 +74,8 @@ Fill in the values from the team's secret store. Never commit `.env`. The list b
 | Backend TOTP encryption                  | `TOTP_ENCRYPTION_KEY`                                                                                                                                                                                                   | Optional backend-only Fernet key. TOTP routes fail closed with 503 when unset; invalid configured keys prevent startup. Preserve the key across deployments; see [backend TOTP](backend-totp.md).                                                   |
 | E2E test accounts _(lands with KAN-113)_ | `TEST_USER_EMAIL`, `TEST_USER_PASSWORD`, `TEST_ADMIN_EMAIL`, `TEST_ADMIN_PASSWORD`                                                                                                                                      | Written to `.env.e2e.local` by `npm run test:setup`. Do not edit these by hand. The same file also holds the Firebase TEST project config and its `FIREBASE_ADMIN_*` service account; see [testing.md](testing.md#dedicated-firebase-test-project). |
 
+Stripe checkout and billing-portal return URLs are built on the server from `NEXT_PUBLIC_APP_URL` (KAN-127): in production it is required (a missing or malformed value throws), on Vercel previews it falls back to `https://$VERCEL_URL`, and locally to `http://localhost:3000`. It must match the real deployment host (`www` vs apex, previews), otherwise users return to the wrong host and the host-scoped `checkout_token` cookie check fails.
+
 ### Build the frontend
 
 ```bash
