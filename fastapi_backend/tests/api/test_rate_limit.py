@@ -127,7 +127,7 @@ async def test_authenticated_keys_are_scope_kind_id_not_ip() -> None:
     ]
 
 
-async def test_auth_keys_use_forwarded_ip_and_hashed_lowercase_email() -> None:
+async def test_untrusted_auth_keys_use_peer_ip_and_keyed_lowercase_email() -> None:
     limiter = FakeRateLimiter()
     async with client_for(limiter) as client:
         response = await client.post("/signin", headers={"X-Client-IP": "203.0.113.7"})
@@ -135,7 +135,7 @@ async def test_auth_keys_use_forwarded_ip_and_hashed_lowercase_email() -> None:
     assert response.status_code == 200
     identifiers = [identifier for identifier, _ in limiter.hits]
     assert identifiers == [
-        "auth:ip:203.0.113.7",
+        "auth:ip:127.0.0.1",
         f"auth:email:{email_digest('ada@example.com')}",
     ]
     assert "ada" not in "".join(identifiers)
@@ -147,7 +147,7 @@ async def test_auth_without_email_only_limits_by_ip() -> None:
     async with client_for(limiter) as client:
         await client.post("/reset", headers={"X-Client-IP": "2001:db8::1"})
 
-    assert [identifier for identifier, _ in limiter.hits] == ["auth:ip:2001:db8::1"]
+    assert [identifier for identifier, _ in limiter.hits] == ["auth:ip:127.0.0.1"]
 
 
 async def test_auth_sixth_attempt_from_one_ip_is_429() -> None:

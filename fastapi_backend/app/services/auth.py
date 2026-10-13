@@ -1,0 +1,87 @@
+import time
+from collections.abc import Mapping
+from datetime import UTC, datetime
+from typing import Any, Protocol
+
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.firebase import AuthenticationFailed, IdentityProvider, VerifiedIdentity
+
+SESSION_EXPIRES_SECONDS = 5 * 24 * 60 * 60
+
+
+class AccountConflict(Exception):
+    """A unique identity conflict, with no database or account details exposed."""
+
+
+class AuthUserRepository(Protocol):
+    async def sync_user(
+        self, identity: VerifiedIdentity, logged_in_at: datetime
+    ) -> str: ...
+    async def record_login(
+        self, user_id: str, ip: str, user_agent: str | None
+    ) -> None: ...
+
+
+def identity_from_claims(claims: Mapping[str, Any]) -> VerifiedIdentity:
+    uid, email, authenticated_at = (
+        claims.get("uid"),
+        claims.get("email"),
+        claims.get("auth_time"),
+    )
+    if not isinstance(uid, str) or not uid or len(uid) > 128:
+        raise AuthenticationFailed()
+    if not isinstance(email, str) or not email or len(email) > 320:
+        raise AuthenticationFailed()
+    if type(authenticated_at) is not int:
+        raise AuthenticationFailed()
+    name = claims.get("name")
+    return VerifiedIdentity(
+        uid,
+        email,
+        claims.get("email_verified") is True,
+        authenticated_at,
+        name if isinstance(name, str) else None,
+    )
+
+
+class AuthService:
+    def __init__(
+        self,
+        identity: IdentityProvider,
+        repository: AuthUserRepository,
+        session: AsyncSession,
+    ) -> None:
+        self.identity = identity
+        self.repository = repository
+        self.session = session
+
+    async def prepare_login(self, token: str) -> VerifiedIdentity:
+        identity = identity_from_claims(await self.identity.verify_id_token(token))
+        age = time.time() - identity.auth_time
+        if not 0 <= age <= 300:
+            raise AuthenticationFailed()
+        return identity
+
+    async def create_session(
+        self, token: str, identity: VerifiedIdentity, ip: str, user_agent: str | None
+    ) -> str:
+        cookie = await self.identity.create_session_cookie(
+            token, SESSION_EXPIRES_SECONDS
+        )
+        # Never deliver the credential before both sync and login history commit.
+        try:
+            async with self.session.begin():
+                user_id = await self.repository.sync_user(identity, datetime.now(UTC))
+                await self.repository.record_login(user_id, ip, user_agent)
+        except IntegrityError:
+            raise AccountConflict() from None
+        return cookie
+
+    async def authenticate(self, token: str) -> VerifiedIdentity:
+        return identity_from_claims(await self.identity.verify_session_cookie(token))
+
+    async def revoke(self, identity: VerifiedIdentity) -> None:
+        # Firebase revocation invalidates every refresh token/session for this UID.
+        await self.identity.revoke_refresh_tokens(identity.uid)

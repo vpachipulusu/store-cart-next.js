@@ -1,18 +1,21 @@
 // @vitest-environment node
-import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
 const cookieGet = vi.fn();
+const headerGet = vi.fn();
 vi.mock('next/headers', () => ({
   cookies: vi.fn(async () => ({ get: cookieGet })),
+  headers: vi.fn(async () => ({ get: headerGet })),
 }));
 
-import { healthCheck } from '@/lib/api/generated';
+import { healthCheck, createSession, readSession } from '@/lib/api/generated';
 import {
   BACKEND_ERROR_MESSAGE,
   BACKEND_UNAVAILABLE_MESSAGE,
   SESSION_HEADER,
+  INTERNAL_KEY_HEADER,
   callBackend,
 } from '@/lib/api/server';
 
@@ -35,13 +38,46 @@ describe('callBackend', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     fetchMock.mockReset();
     cookieGet.mockReset();
+    headerGet.mockReset();
     delete process.env.BACKEND_API_URL;
   });
 
   describe('Given a signed-in request', () => {
+    it('forwards the trusted Vercel IP only alongside the internal key', async () => {
+      vi.stubEnv('BACKEND_INTERNAL_KEY', 'server-key');
+      vi.stubEnv('VERCEL', '1');
+      headerGet.mockReturnValue('192.0.2.1');
+      fetchMock.mockResolvedValue(jsonResponse({ status: 'ok' }));
+      await callBackend((client) => healthCheck({ client }));
+      expect(headerGet).toHaveBeenCalledWith('x-vercel-forwarded-for');
+      expect(fetchMock.mock.calls[0][0].headers.get('X-Client-IP')).toBe('192.0.2.1');
+    });
+
+    it('ignores forwarded IPs outside Vercel and rejects malformed Vercel IPs', async () => {
+      vi.stubEnv('BACKEND_INTERNAL_KEY', 'server-key');
+      vi.stubEnv('VERCEL', '');
+      headerGet.mockReturnValue('192.0.2.1');
+      fetchMock.mockResolvedValue(jsonResponse({ status: 'ok' }));
+      await callBackend((client) => healthCheck({ client }));
+      expect(fetchMock.mock.calls[0][0].headers.has('X-Client-IP')).toBe(false);
+      expect(headerGet).not.toHaveBeenCalled();
+      vi.stubEnv('VERCEL', '1');
+      headerGet.mockReturnValue('192.0.2.1, 192.0.2.2');
+      await callBackend((client) => healthCheck({ client }));
+      expect(fetchMock.mock.calls[1][0].headers.has('X-Client-IP')).toBe(false);
+    });
+    it('forwards only the current server-only internal key', async () => {
+      vi.stubEnv('BACKEND_INTERNAL_KEY', 'server-only-key');
+      vi.stubEnv('BACKEND_INTERNAL_KEY_NEXT', 'next-key');
+      fetchMock.mockResolvedValue(jsonResponse({ status: 'ok' }));
+      await callBackend((client) => healthCheck({ client }));
+      expect(fetchMock.mock.calls[0][0].headers.get(INTERNAL_KEY_HEADER)).toBe('server-only-key');
+      expect(fetchMock.mock.calls[0][0].headers.get('X-Internal-Key-Next')).toBeNull();
+    });
     it('forwards the session cookie in X-Session-Token and calls BACKEND_API_URL', async () => {
       fetchMock.mockResolvedValue(jsonResponse({ status: 'ok' }));
 
@@ -67,6 +103,47 @@ describe('callBackend', () => {
   });
 
   describe('Given a backend body wrapped in the success envelope', () => {
+    it('unwraps the generated session response with the matching inferred payload type', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          success: true,
+          data: {
+            session_cookie: 'returned-cookie',
+            expires_in: 432000,
+          },
+        })
+      );
+      const result = await callBackend((client) =>
+        createSession({ client, body: { id_token: 'id-token' } })
+      );
+      expect(result).toEqual({
+        success: true,
+        data: { session_cookie: 'returned-cookie', expires_in: 432000 },
+      });
+      if (result.success) {
+        expectTypeOf(result.data.session_cookie).toEqualTypeOf<string>();
+        expectTypeOf(result.data.expires_in).toEqualTypeOf<number>();
+      }
+    });
+
+    it('unwraps the generated identity response with its inferred payload type', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          success: true,
+          data: {
+            uid: 'uid',
+            email: 'ada@example.com',
+            email_verified: true,
+          },
+        })
+      );
+      const result = await callBackend((client) => readSession({ client }));
+      if (result.success) expectTypeOf(result.data.uid).toEqualTypeOf<string>();
+      expect(result).toEqual({
+        success: true,
+        data: { uid: 'uid', email: 'ada@example.com', email_verified: true },
+      });
+    });
     it('unwraps data', async () => {
       fetchMock.mockResolvedValue(jsonResponse({ success: true, data: { status: 'ok' } }));
 

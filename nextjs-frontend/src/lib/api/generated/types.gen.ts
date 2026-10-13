@@ -30,6 +30,80 @@ export type HealthResponse = {
     status: string;
 };
 
+/**
+ * IdentityData
+ */
+export type IdentityData = {
+    /**
+     * Uid
+     */
+    uid: string;
+    /**
+     * Email
+     */
+    email: string;
+    /**
+     * Email Verified
+     */
+    email_verified: boolean;
+};
+
+/**
+ * IdentityResponse
+ */
+export type IdentityResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: IdentityData;
+};
+
+/**
+ * RevokedResponse
+ */
+export type RevokedResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+};
+
+/**
+ * SessionData
+ */
+export type SessionData = {
+    /**
+     * Session Cookie
+     */
+    session_cookie: string;
+    /**
+     * Expires In
+     */
+    expires_in: number;
+};
+
+/**
+ * SessionRequest
+ */
+export type SessionRequest = {
+    /**
+     * Id Token
+     */
+    id_token: string;
+};
+
+/**
+ * SessionResponse
+ */
+export type SessionResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: SessionData;
+};
+
 export type HealthCheckData = {
     body?: never;
     path?: never;
@@ -87,3 +161,168 @@ export type ReadinessCheckResponses = {
 };
 
 export type ReadinessCheckResponse = ReadinessCheckResponses[keyof ReadinessCheckResponses];
+
+export type DeleteSessionData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/auth/session';
+};
+
+export type DeleteSessionErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type DeleteSessionError = DeleteSessionErrors[keyof DeleteSessionErrors];
+
+export type DeleteSessionResponses = {
+    /**
+     * Successful Response
+     */
+    200: RevokedResponse;
+};
+
+export type DeleteSessionResponse = DeleteSessionResponses[keyof DeleteSessionResponses];
+
+export type ReadSessionData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/auth/session';
+};
+
+export type ReadSessionErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ReadSessionError = ReadSessionErrors[keyof ReadSessionErrors];
+
+export type ReadSessionResponses = {
+    /**
+     * Successful Response
+     */
+    200: IdentityResponse;
+};
+
+export type ReadSessionResponse = ReadSessionResponses[keyof ReadSessionResponses];
+
+export type CreateSessionData = {
+    body: SessionRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/auth/session';
+};
+
+export type CreateSessionErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Account conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type CreateSessionError = CreateSessionErrors[keyof CreateSessionErrors];
+
+export type CreateSessionResponses = {
+    /**
+     * Successful Response
+     */
+    200: SessionResponse;
+};
+
+export type CreateSessionResponse = CreateSessionResponses[keyof CreateSessionResponses];

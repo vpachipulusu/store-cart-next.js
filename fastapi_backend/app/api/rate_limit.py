@@ -6,6 +6,7 @@ password reset use ``limit_auth_attempts``.
 """
 
 import hashlib
+import hmac
 import ipaddress
 import logging
 import math
@@ -17,6 +18,7 @@ from typing import Annotated, Any, Literal
 from fastapi import Depends, HTTPException, Request, Response, status
 
 from app.api.deps import get_rate_limiter
+from app.core.config import settings
 from app.core.errors import ErrorResponse
 from app.core.rate_limit import (
     AUTH_POLICY,
@@ -136,13 +138,14 @@ def limit_by_subject(
 def client_ip(request: Request) -> str:
     """The end-user IP forwarded by Next.js in ``X-Client-IP``.
 
-    Trusted only because the backend is internal (ADR-003): only the Next.js
-    server calls it. There is no internal service key yet, so a direct caller
-    could spoof this header.
-    TODO(KAN-51, KAN-37): accept the header only on requests carrying a valid
-    X-Internal-Key. Inbound X-Forwarded-For is ignored on purpose.
+    Only a validated internal service key may establish the forwarding trust
+    boundary. Otherwise use the direct peer; ignore inbound X-Forwarded-For.
     """
-    forwarded = request.headers.get(CLIENT_IP_HEADER, "").strip()
+    forwarded = (
+        request.headers.get(CLIENT_IP_HEADER, "").strip()
+        if getattr(request.state, "internal_authenticated", False)
+        else ""
+    )
     try:
         return str(ipaddress.ip_address(forwarded))
     except ValueError:
@@ -151,7 +154,12 @@ def client_ip(request: Request) -> str:
 
 
 def email_digest(email: str) -> str:
-    return hashlib.sha256(email.strip().lower().encode()).hexdigest()
+    key = settings.RATE_LIMIT_EMAIL_KEY
+    if not key:
+        raise HTTPException(503, UNAVAILABLE_MESSAGE, {"Retry-After": "5"})
+    return hmac.new(
+        key.get_secret_value().encode(), email.strip().lower().encode(), hashlib.sha256
+    ).hexdigest()
 
 
 async def _no_email() -> None:
@@ -164,7 +172,7 @@ def limit_auth_attempts(
     """Dependency factory for sign-in, sign-up and password reset (``AUTH_POLICY``).
 
     Limits by client IP and, when ``email_dependency`` yields an email, by the
-    SHA-256 of that email too. Fails closed when Redis is down.
+    keyed HMAC of that email too. Fails closed when Redis is down.
     """
 
     async def dependency(
