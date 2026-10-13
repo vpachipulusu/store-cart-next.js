@@ -41,7 +41,9 @@ export function GeneralSettingsForm({ initialSettings }: GeneralSettingsFormProp
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [appName, setAppName] = useState(initialSettings.app_name || siteConfig.name);
-  const [supportEmail, setSupportEmail] = useState(initialSettings.support_email || siteConfig.supportEmail);
+  const [supportEmail, setSupportEmail] = useState(
+    initialSettings.support_email || siteConfig.supportEmail
+  );
   const [defaultTimezone, setDefaultTimezone] = useState(initialSettings.default_timezone || 'UTC');
   const [currency, setCurrency] = useState(initialSettings.currency || 'USD');
   const [language, setLanguage] = useState(initialSettings.language || 'en');
