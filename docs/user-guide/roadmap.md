@@ -67,16 +67,22 @@ you can still see them on screen.
 | **Feature flags and app settings** | Admin **Settings** (General, Theme, Feature Flags) | Redesigned platform settings |
 | **Analytics and system statistics** | Admin **Analytics**, stat cards in the admin area | Redesigned platform analytics |
 
+## Coming soon: smaller gaps
+
+- **Two-factor authentication at sign-in.** Sign-in will ask for your code. Until then, turning
+  2FA on does not add a check at sign-in. It is a required feature, but not a top priority right
+  now. Account recovery for a lost phone is also not available yet.
+- **A support contact.** A support contact is coming soon.
+
 ## Changing during the rebuild
 
 These work today but **may change**:
 
 - **Billing** moves from your personal account to your organisation.
 - **Plan features and prices** on the Pricing page will be replaced with real StoreCart limits.
-- **Two-factor authentication** at sign-in, and account recovery, may work differently.
 - **Deleting your account** will take organisations and stores into account.
 - **Admin tools** for suspending users, managing admin roles and cancelling subscriptions are
   planned; the audit log gains filters by organisation, store, user and action.
 - **Profile photo upload** is not working yet.
-- The **Contact** page form may not send messages yet, and its contact details are placeholders. A
-  support channel will be announced before launch.
+- The **Contact** page form does not send messages yet, and its contact details are placeholders.
+  Don't use them. A support contact is coming soon.
