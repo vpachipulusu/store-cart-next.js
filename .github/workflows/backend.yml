@@ -59,3 +59,54 @@ jobs:
             rate=$(grep -o 'line-rate="[0-9.]*"' coverage.xml | head -1 | grep -o '[0-9.]*')
             echo "### Backend coverage: $(awk "BEGIN { printf \"%.2f\", ${rate} * 100 }")% lines" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  migrations:
+    # KAN-36: the Alembic tree must apply to an empty database, match the models
+    # (no drift) and reverse cleanly. The database is a throwaway service
+    # container; nothing here touches Neon or any deployed database (ADR-011).
+    name: Alembic upgrade, check, downgrade
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: fastapi_backend
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: storecart
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # CI-only values, not secrets: the service container above is the only database.
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/storecart
+      ENVIRONMENT: test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: '0.8.12'
+          enable-cache: true
+          cache-dependency-glob: fastapi_backend/uv.lock
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: alembic upgrade head
+        run: uv run alembic upgrade head
+
+      - name: alembic check (models match the migrations)
+        run: uv run alembic check
+
+      - name: alembic downgrade base
+        run: uv run alembic downgrade base

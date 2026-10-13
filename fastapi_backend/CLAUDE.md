@@ -35,8 +35,13 @@ uv run alembic upgrade head                      # only against a database you o
 - **Dependencies.** Edit `pyproject.toml` (pin exact versions for risky or fast-moving packages), then
   `uv lock` and `uv export --frozen --no-dev --no-hashes --quiet -o requirements.txt`. The pre-commit hook fails
   when `requirements.txt` is out of sync.
-- **Alembic.** `alembic_migrations/` holds an empty baseline (ADR-011). No build runs `upgrade head`; create a
-  revision with `uv run alembic revision --autogenerate -m "<msg>"` and run it only against a database you own.
+- **Alembic and models (KAN-36).** Platform models are in `app/models/platform/` (one aggregate per file, ids from
+  `app.core.ids.new_id`, snake_case, timezone-aware timestamps); register new ones in its `__init__.py`. No store
+  data here (ADR-005). `alembic_migrations/` has the platform baseline `0001`; `env.py` uses `DATABASE_URL_DIRECT`
+  else `DATABASE_URL`. No deploy runs `upgrade head` (ADR-011). Create a revision with
+  `uv run alembic revision --autogenerate -m "<msg>"`, run `upgrade head`, `alembic check` and `downgrade base`
+  only against a database you own (CI does it on a Postgres 17 container). See
+  [`../docs/developer/platform-models.md`](../docs/developer/platform-models.md).
 - **Pre-commit.** `uvx pre-commit run --from-ref origin/main --to-ref HEAD` before opening a PR.
 - Keep LF line endings in committed files.
 
