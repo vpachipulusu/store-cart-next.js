@@ -85,7 +85,7 @@ e2e runs against the Firebase TEST project **`storecart-test`** and a **dedicate
 - Re-running `npm run test:setup` reuses the stored credentials and resets the Firebase passwords to match.
 - `npm run test:reset` (`scripts/reset-test-user.mjs`) is not part of the e2e flow and does not use the e2e env.
 - Accounts created before KAN-113 moved e2e to `storecart-test` still exist in the dev project. KAN-131 deletes them.
-- CI e2e uses only the dedicated Firebase test project `storecart-test` (GitHub environment `e2e-test`) and Stripe test-mode keys. It must never use the development or production projects: the e2e job refuses live Stripe keys and refuses to run when `E2E_FIREBASE_PROJECT_ID` equals the repository variable `PROD_FIREBASE_PROJECT_ID`.
+- CI e2e uses only the dedicated Firebase test project `storecart-test` (GitHub environment `e2e-test`) and Stripe test-mode keys. It must never use the development or production projects: the e2e job refuses live Stripe keys and refuses to run when `E2E_NEXT_PUBLIC_FIREBASE_PROJECT_ID` equals the repository variable `PROD_FIREBASE_PROJECT_ID`.
 
 ### Assertion rule
 
