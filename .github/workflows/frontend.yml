@@ -40,6 +40,18 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
+      # Runtime dependencies only (KAN-138). Dev-only findings are tracked in
+      # docs/developer/known-issues.md and do not block.
+      - name: Audit runtime dependencies
+        run: |
+          # One retry when the registry call itself failed (no vulnerability
+          # summary came back). Real findings still fail the step.
+          if ! npm audit --omit=dev --json 2>/dev/null | jq -e '.metadata.vulnerabilities' > /dev/null; then
+            echo 'npm audit returned no result; retrying once in 15s'
+            sleep 15
+          fi
+          npm audit --omit=dev --audit-level=high
+
       - name: Generate Prisma client
         run: npm run db:generate
 

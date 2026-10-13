@@ -6,7 +6,7 @@
 
 | Tool | Version | Notes |
 |---|---|---|
-| Node.js | 22 | Team standard. `nextjs-frontend/package.json` declares `engines.node >=22`. |
+| Node.js | 22.12 or later (22 or 24) | Team standard. `nextjs-frontend/package.json` declares `engines.node ^22.12.0 || ^24.0.0`. |
 | npm | 10 or later | npm only. Do not use pnpm or yarn. |
 | Python | 3.12 | Required by `fastapi_backend/pyproject.toml` (`>=3.12,<3.13`). |
 | uv | current (CI uses 0.8.12) | Manages the backend environment and dependencies. |
