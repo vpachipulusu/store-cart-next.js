@@ -5,7 +5,7 @@ description = "StoreCart FastAPI backend (adapted from vintasoftware/nextjs-fast
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi[standard]>=0.143.0,<0.144",
-    "asyncpg>=0.29.0,<0.30",
+    "asyncpg>=0.32.0,<0.33",
     "sqlalchemy>=2.0.36,<3",
     "pydantic-settings>=2.5.2,<3",
 ]
