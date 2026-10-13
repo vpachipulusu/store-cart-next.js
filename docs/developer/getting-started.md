@@ -27,10 +27,9 @@ psql -h localhost -p 5432 -U postgres -c "CREATE DATABASE <test_db> OWNER <user>
 The URLs then have this shape:
 
 - Backend `DATABASE_URL`: `postgresql+asyncpg://<user>:<password>@localhost:5432/<db>`
-- Backend `TEST_DATABASE_URL`: `postgresql+asyncpg://<user>:<password>@localhost:5432/<test_db>`
 - Frontend `DATABASE_URL` (Prisma): `postgresql://<user>:<password>@localhost:5432/<db>`
 
-`fastapi_backend/.env.example` sets `TEST_DATABASE_URL` to port **5433**. That is a leftover from the template's docker-compose, which does not exist in this repo. Use 5432, or the port of your own Postgres.
+The backend tests need no database (they use fake sessions), so there is no backend `TEST_DATABASE_URL` any more.
 
 ## Clone
 
@@ -98,11 +97,11 @@ The app serves at `http://localhost:3000`. The `predev` hook runs `scripts/dev-c
 ```bash
 cd fastapi_backend
 uv sync
-cp .env.example .env   # then set DATABASE_URL and TEST_DATABASE_URL (see Local databases)
+cp .env.example .env   # then set DATABASE_URL (see Local databases)
 uv run fastapi dev app/main.py --host 127.0.0.1 --port 8000 --reload
 ```
 
-Run commands from `fastapi_backend/`. `app/config.py` reads `.env` from the working directory.
+Run commands from `fastapi_backend/`. `app/core/config.py` reads `.env` from the working directory. Check it with `curl http://localhost:8000/health` (`{"status":"ok"}`); `/health/ready` also queries the database and returns 503 when it is unreachable.
 
 ### Backend environment
 
@@ -110,10 +109,10 @@ Run commands from `fastapi_backend/`. `app/config.py` reads `.env` from the work
 |---|---|---|
 | `DATABASE_URL` | Yes | Platform database. |
 | `CORS_ORIGINS` | Yes | Set it to `[]`. The browser never calls FastAPI, so no browser origin is allowed (ADR-003). |
-| `ACCESS_SECRET_KEY`, `RESET_PASSWORD_SECRET_KEY`, `VERIFICATION_SECRET_KEY` | Yes | Template fastapi-users secrets. Removed in KAN-30 (template adaptation). |
-| `TEST_DATABASE_URL` | For `pytest` | Used by `tests/conftest.py`. |
-| `FRONTEND_URL`, `OPENAPI_OUTPUT_FILE` | No | `FRONTEND_URL` defaults to `http://localhost:3000`. |
-| `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM`, `MAIL_SERVER`, `MAIL_PORT`, `MAIL_STARTTLS`, `MAIL_SSL_TLS`, `USE_CREDENTIALS` | No | Template fastapi-mail settings. Replaced by Resend ([ADR-009](../adr/0009-email-with-resend.md)). |
+| `APP_NAME`, `APP_VERSION`, `LOG_LEVEL`, `OPENAPI_URL`, `EXPIRE_ON_COMMIT` | No | Defaults: `StoreCart API`, `0.1.0`, `INFO`, `/openapi.json`, `false`. |
+| `OPENAPI_OUTPUT_FILE` | No | Output path for `commands.generate_openapi_schema`. |
+
+The template's fastapi-users secrets (`ACCESS_SECRET_KEY` and the other two), `TEST_DATABASE_URL`, `FRONTEND_URL` and the `MAIL_*` settings were removed in KAN-30. Email will come back through Resend ([ADR-009](../adr/0009-email-with-resend.md)).
 
 ### Run the backend
 
