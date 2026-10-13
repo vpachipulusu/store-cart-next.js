@@ -150,10 +150,10 @@ CI runs the pre-commit `openapi-schema-check` hook on changed backend files. Fai
 | Pre-commit (changed files) | pull requests | `pre-commit run --from-ref origin/<base> --to-ref HEAD` |
 | Frontend (`frontend.yml`) | `nextjs-frontend/**` or shared config | lint, typecheck, Vitest with coverage ratchet, `npm run build` with placeholder `NEXT_PUBLIC_*` only |
 | Backend (`backend.yml`) | `fastapi_backend/**` or shared config | ruff lint and format, blocking mypy, pytest with coverage ratchet (no database service; tests use fakes) |
-| E2E (`e2e.yml`) | frontend changed and repo variable `E2E_ENABLED=true` | Chromium Playwright, secrets from environment `e2e-test`. Not in the gate until KAN-113 |
+| E2E (`e2e.yml`, its own workflow) | frontend or shared config changed and repo variable `E2E_ENABLED=true` | Chromium Playwright, secrets from environment `e2e-test`. Not in the gate until KAN-113 |
 | **CI gate** | always | passes when every job above (except E2E) succeeded or was skipped |
 
-Shared config is `.github/**`, `.pre-commit-config.yaml`, root `package.json` / `package-lock.json`, `vercel.json` and the OpenAPI schema `nextjs-frontend/openapi.json`; it triggers both apps. A manual run (`workflow_dispatch`) runs both apps. The E2E job also runs only for pull requests from this repository, not from forks. Actions are SHA-pinned and kept current by Dependabot (`.github/dependabot.yml`, weekly). Branch protection requires only **CI gate**.
+Shared config is `.github/**`, `.pre-commit-config.yaml`, root `package.json` / `package-lock.json`, `vercel.json` and the OpenAPI schema `nextjs-frontend/openapi.json`; it triggers both apps. A manual run (`workflow_dispatch`) runs both apps. `e2e.yml` is triggered on its own (`pull_request`, `push` to main, manual) with the same path filter, not called from `ci.yml`: a reusable workflow called from `ci.yml` received none of the `e2e-test` environment secrets (every `E2E_*` value was empty, KAN-159). The E2E job runs only for pull requests from this repository (not forks) and not for Dependabot. Its job declares `environment: e2e-test`, runs a guard step that fails naming any empty value (never printing it), then `npm run test:e2e:build` and `npm run test:e2e:baseline` against the e2e database. Known state: the baseline still has failing specs (KAN-154 to KAN-158), so the job can be red for those reasons while it is not in the gate. Actions are SHA-pinned and kept current by Dependabot (`.github/dependabot.yml`, weekly). Branch protection requires only **CI gate**.
 
 ## Before you open a PR
 
