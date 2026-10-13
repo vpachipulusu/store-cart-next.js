@@ -106,6 +106,7 @@ function toNextProcessEnv(env) {
     ...blankMissingE2eOnlyVars(env),
     NEXT_PUBLIC_SENTRY_DSN: '',
     NEXT_DIST_DIR: E2E_DIST_DIR,
+    E2E_RATE_LIMIT_TEST_MODE: '1',
   };
 }
 
