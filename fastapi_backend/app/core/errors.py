@@ -2,14 +2,31 @@
 
 import logging
 from collections.abc import Mapping
+from typing import Any, Literal
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.status import HTTP_422_UNPROCESSABLE_CONTENT
 
 logger = logging.getLogger("storecart.errors")
+
+
+class ErrorResponse(BaseModel):
+    """Body of every error response (documents the runtime envelope in OpenAPI)."""
+
+    success: Literal[False] = False
+    error: str
+
+
+# Declared on the app so the generated client types match the runtime body
+# (this also replaces FastAPI's default HTTPValidationError for 422).
+ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    422: {"model": ErrorResponse, "description": "Invalid request"},
+    500: {"model": ErrorResponse, "description": "Internal server error"},
+}
 
 INTERNAL_ERROR_MESSAGE = "Internal server error"
 INVALID_REQUEST_MESSAGE = "Invalid request"

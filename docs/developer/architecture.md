@@ -26,9 +26,9 @@ KAN-30 adapted the template. The example `Item` model and routes, fastapi-users,
 
 ```
 fastapi_backend/app/
-├── main.py              create_app(): title "StoreCart API", CORS, logging, mounts the v1 router; `app` is the Vercel entrypoint
+├── main.py              create_app(): title "StoreCart API", request ID and error envelope, JSON logging, mounts the v1 router; `app` is the Vercel entrypoint
 ├── core/
-│   ├── config.py        pydantic-settings (DATABASE_URL and CORS_ORIGINS required, checked at startup)
+│   ├── config.py        pydantic-settings (DATABASE_URL required, checked at startup)
 │   ├── base.py          SQLAlchemy declarative Base (no settings import, so Alembic can load it)
 │   ├── database.py      NullPool engine, session maker, SessionProvider protocol, DefaultSessionProvider
 │   └── logging.py       JSON logging to stdout

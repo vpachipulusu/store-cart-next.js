@@ -128,3 +128,13 @@ async def test_request_log_is_json_with_request_id(
     assert request_logs
     assert request_logs[-1]["request_id"] == response.headers["x-request-id"]
     assert request_logs[-1]["status"] == 200
+
+
+def test_openapi_documents_the_error_envelope_for_422() -> None:
+    schema = app.openapi()
+
+    body = schema["paths"]["/_test/item"]["post"]["responses"]["422"]
+    ref = body["content"]["application/json"]["schema"]["$ref"]
+    assert ref.endswith("/ErrorResponse")
+    assert "HTTPValidationError" not in schema["components"]["schemas"]
+    assert schema["components"]["schemas"]["ErrorResponse"]["required"] == ["error"]
