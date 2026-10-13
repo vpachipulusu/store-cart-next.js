@@ -29,5 +29,8 @@ export const healthCheck = <ThrowOnError extends boolean = false>(options?: Opti
  * Readiness Check
  *
  * Readiness check: 200 when the database answers, 503 otherwise.
+ *
+ * Redis is deliberately not checked: rate limiting fails open, so a Redis blip
+ * must not take the service out of rotation.
  */
 export const readinessCheck = <ThrowOnError extends boolean = false>(options?: Options<ReadinessCheckData, ThrowOnError>) => (options?.client ?? client).get<ReadinessCheckResponses, ReadinessCheckErrors, ThrowOnError>({ url: '/health/ready', ...options });
