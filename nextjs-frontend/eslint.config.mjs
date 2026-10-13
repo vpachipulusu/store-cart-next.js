@@ -10,6 +10,8 @@ export default defineConfig([
   ...nextTs,
   globalIgnores([
     '.next/**',
+    '.next-e2e/**',
+    '.next-e2e-dev/**',
     'out/**',
     'build/**',
     'node_modules/**',
