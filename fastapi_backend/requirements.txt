@@ -38,7 +38,9 @@ email-validator==2.3.0
     #   fastapi
     #   pydantic
 fastapi==0.143.0
-    # via storecart-backend
+    # via
+    #   sentry-sdk
+    #   storecart-backend
 fastapi-cli==0.0.32
     # via fastapi
 fastapi-cloud-cli==0.26.0
@@ -147,7 +149,9 @@ rich-toolkit==0.20.6
 rignore==0.8.1
     # via fastapi-cloud-cli
 sentry-sdk==2.72.0
-    # via fastapi-cloud-cli
+    # via
+    #   fastapi-cloud-cli
+    #   storecart-backend
 shellingham==1.5.4
     # via typer
 sqlalchemy==2.1.4

@@ -6,10 +6,13 @@ from app.core.config import settings
 from app.core.errors import ERROR_RESPONSES, register_error_handlers
 from app.core.logging import configure_logging
 from app.core.request_id import RequestIdMiddleware
+from app.core.sentry import init_sentry
 
 
 def create_app() -> FastAPI:
     configure_logging(settings.LOG_LEVEL)
+    # Before the app is built so the SDK can instrument Starlette. No-op without a DSN.
+    init_sentry(settings)
 
     application = FastAPI(
         title=settings.APP_NAME,
