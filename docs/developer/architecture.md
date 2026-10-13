@@ -56,6 +56,7 @@ The repo is still the boilerplate with the target not yet built:
 - **The backend is the adapted template (KAN-30).** It has only a health route, the layered `app/` structure and the session seam; there is no auth, no models and no email yet. The frontend does not call it yet.
 - **Root `vercel.json`** deploys one Vercel project with two services (ADR-011): `nextjs-frontend` is public, `fastapi_backend` is internal and reached through the `BACKEND_API_URL` binding. Migrations no longer run during the build.
 - **`app/core/database.py`** uses `NullPool`, which suits serverless.
+- **Deployment health (KAN-112).** The backend has no public route. `GET /api/health` on the frontend (`src/app/api/health/route.ts`) fetches `${BACKEND_API_URL}/health` server-side (3 s timeout, no cache) and returns `200 {"status":"ok"}`, or `503 {"status":"unavailable"}` with no detail when `BACKEND_API_URL` is unset, the backend is unreachable or it returns non-200; the cause is logged server-side. `src/proxy.ts` leaves it unauthenticated and exempt from rate limiting. No internal key header is sent because the backend defines none. `.github/workflows/post-deploy-smoke.yml` curls it after each successful Production deployment. **Migrations never run in a build or deploy step**; run `alembic upgrade head` deliberately and separately (ADR-011).
 
 ### Current auth flow (`main`)
 

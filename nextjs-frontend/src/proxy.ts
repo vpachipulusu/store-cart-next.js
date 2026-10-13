@@ -110,8 +110,11 @@ export async function proxy(request: NextRequest) {
   }
 
   // Public API routes (no auth required)
-  const publicApiRoutes = ['/api/webhooks/', '/api/health'];
-  const isPublicApiRoute = publicApiRoutes.some((route) => pathname.startsWith(route));
+  const publicApiPrefixes = ['/api/webhooks/'];
+  const publicApiExact = ['/api/health'];
+  const isPublicApiRoute =
+    publicApiPrefixes.some((route) => pathname.startsWith(route)) ||
+    publicApiExact.includes(pathname);
 
   // Protected API routes (require authentication)
   if (pathname.startsWith('/api/') && !isPublicApiRoute) {
