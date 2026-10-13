@@ -11,6 +11,10 @@ StoreCart is a monorepo:
 
 Plan and decisions: `.claude/plans/storecart-plan.md`. Backlog: `.claude/plans/backlog/` (Jira key map in `jira-map.md`).
 
+## Shared with Codex — read the baton first
+
+Claude and OpenAI Codex alternate on this repo. At the start of every session read `.claude/progress/HANDOFF.md` (the baton) and root `AGENTS.md` (hard rules, review routing, handback steps). Work only if the baton owner is `claude` or `none`; otherwise stop and tell the user. At the end of a session, or when a usage limit is near, update the baton at a clean committed state and mirror it as a Jira comment.
+
 ## Work tracking (Jira) — REQUIRED
 
 All work is tracked in Jira project **Store Cart** (key `KAN`, https://storecart.atlassian.net/browse/KAN). Workflow (exact Jira status names): **To-do → In Progress → In Review → Done**.
