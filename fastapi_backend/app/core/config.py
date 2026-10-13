@@ -14,14 +14,11 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     EXPIRE_ON_COMMIT: bool = False
 
-    # CORS
-    CORS_ORIGINS: set[str]
-
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
 
-# Required fields (DATABASE_URL, CORS_ORIGINS) come from the environment, so the
+# Required field (DATABASE_URL) comes from the environment, so the
 # app fails at startup when they are missing.
 settings = Settings()  # type: ignore[call-arg]

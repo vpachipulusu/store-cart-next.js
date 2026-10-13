@@ -3,7 +3,13 @@
 import json
 import logging
 import sys
+from contextvars import ContextVar
 from datetime import UTC, datetime
+
+request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
+
+# Extra fields copied from a log record into the JSON payload when present.
+_EXTRA_FIELDS = ("request_id", "method", "path", "status", "duration_ms")
 
 
 class JsonFormatter(logging.Formatter):
@@ -16,6 +22,12 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
         }
+        request_id = request_id_var.get()
+        if request_id:
+            payload["request_id"] = request_id
+        for field in _EXTRA_FIELDS:
+            if hasattr(record, field):
+                payload[field] = getattr(record, field)
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
         return json.dumps(payload)
