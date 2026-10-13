@@ -1,23 +1,29 @@
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Protocol
-from urllib.parse import urlparse
 
 from sqlalchemy import NullPool
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-
-from app.core.config import settings
-
-parsed_db_url = urlparse(settings.DATABASE_URL)
-
-async_db_connection_url = (
-    f"postgresql+asyncpg://{parsed_db_url.username}:{parsed_db_url.password}@"
-    f"{parsed_db_url.hostname}{':' + str(parsed_db_url.port) if parsed_db_url.port else ''}"
-    f"{parsed_db_url.path}"
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
 )
 
-# Disable connection pooling for serverless environments like Vercel
-engine = create_async_engine(async_db_connection_url, poolclass=NullPool)
+from app.core.config import settings
+from app.core.db_url import to_async_target
+
+
+def build_engine(database_url: str) -> AsyncEngine:
+    """Create the async engine, keeping the TLS mode from the URL (e.g. sslmode=require)."""
+    target = to_async_target(database_url)
+    # Disable connection pooling for serverless environments like Vercel
+    return create_async_engine(
+        target.url, poolclass=NullPool, connect_args=target.connect_args
+    )
+
+
+engine = build_engine(settings.DATABASE_URL)
 
 async_session_maker = async_sessionmaker(
     engine, expire_on_commit=settings.EXPIRE_ON_COMMIT
