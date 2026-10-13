@@ -1,4 +1,5 @@
 import logging
+import math
 import sys
 import time
 import types
@@ -239,3 +240,26 @@ async def test_fail_open_skips_sentry_when_it_is_not_initialised(
         response = await client.get("/api")
 
     assert response.status_code == 200
+
+
+async def test_upstash_seconds_reset_drives_retry_after_and_reset_header() -> None:
+    from types import SimpleNamespace
+
+    from tests.core.test_rate_limit import FakeSlidingWindow, limiter_with
+
+    reset = time.time() + 42.2  # Upstash reports epoch seconds, as a float
+    fake = FakeSlidingWindow(
+        SimpleNamespace(allowed=False, limit=2, remaining=0, reset=reset)
+    )
+    limiter = limiter_with(fake)
+    limiter._limiters[SMALL_OPEN] = limiter._limiters.pop(API_POLICY)
+    app = build_app(FakeRateLimiter())
+    app.dependency_overrides[get_rate_limiter] = lambda: limiter
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get("/api")
+
+    assert response.status_code == 429
+    assert response.headers["X-RateLimit-Reset"] == str(math.ceil(reset))
+    assert 42 <= int(response.headers["Retry-After"]) <= 44

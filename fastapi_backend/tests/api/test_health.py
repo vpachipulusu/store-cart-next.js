@@ -3,17 +3,9 @@ from collections.abc import Iterator
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.api.deps import get_rate_limiter, get_session_provider
-from app.core.rate_limit import DisabledRateLimiter
+from app.api.deps import get_session_provider
 from app.main import app
-from tests.fakes import (
-    FakeRateLimiter,
-    FakeSession,
-    FakeSessionProvider,
-    RaisingRateLimiter,
-    as_limiter,
-    failing_session,
-)
+from tests.fakes import FakeSession, FakeSessionProvider, failing_session
 
 
 @pytest.fixture
@@ -63,50 +55,6 @@ async def test_ready_is_503_when_the_database_is_down(client: AsyncClient) -> No
     assert response.status_code == 503
     assert response.json() == {"status": "unavailable"}
     assert provider.closed == 1
-
-
-@pytest.mark.usefixtures("override_provider")
-async def test_ready_pings_redis_and_is_ok_when_it_answers(client: AsyncClient) -> None:
-    limiter = FakeRateLimiter()
-    app.dependency_overrides[get_session_provider] = lambda: FakeSessionProvider(
-        FakeSession(value=1)
-    )
-    app.dependency_overrides[get_rate_limiter] = lambda: as_limiter(limiter)
-
-    async with client:
-        response = await client.get("/health/ready")
-
-    assert response.status_code == 200
-    assert limiter.pings == 1
-
-
-@pytest.mark.usefixtures("override_provider")
-async def test_ready_is_generic_503_when_redis_ping_fails(client: AsyncClient) -> None:
-    app.dependency_overrides[get_session_provider] = lambda: FakeSessionProvider(
-        FakeSession(value=1)
-    )
-    app.dependency_overrides[get_rate_limiter] = lambda: as_limiter(
-        RaisingRateLimiter()
-    )
-
-    async with client:
-        response = await client.get("/health/ready")
-
-    assert response.status_code == 503
-    assert response.json() == {"status": "unavailable"}
-
-
-@pytest.mark.usefixtures("override_provider")
-async def test_ready_is_ok_when_redis_is_not_configured(client: AsyncClient) -> None:
-    app.dependency_overrides[get_session_provider] = lambda: FakeSessionProvider(
-        FakeSession(value=1)
-    )
-    app.dependency_overrides[get_rate_limiter] = lambda: DisabledRateLimiter()
-
-    async with client:
-        response = await client.get("/health/ready")
-
-    assert response.status_code == 200
 
 
 def test_openapi_identifies_storecart() -> None:

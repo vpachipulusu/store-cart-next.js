@@ -54,8 +54,6 @@ class RateLimiter(Protocol):
         self, identifier: str, policy: RateLimitPolicy
     ) -> RateLimitDecision: ...
 
-    async def ping(self) -> bool: ...
-
 
 class DisabledRateLimiter:
     """Used when Upstash is not configured (local dev and tests): allows everything."""
@@ -64,9 +62,6 @@ class DisabledRateLimiter:
 
     async def hit(self, identifier: str, policy: RateLimitPolicy) -> RateLimitDecision:
         return RateLimitDecision(True, policy.limit, policy.limit, 0.0)
-
-    async def ping(self) -> bool:
-        return True
 
 
 class UpstashRateLimiter:
@@ -111,10 +106,3 @@ class UpstashRateLimiter:
             remaining=max(response.remaining, 0),
             reset_at=float(response.reset),
         )
-
-    async def ping(self) -> bool:
-        try:
-            await asyncio.wait_for(self._redis.ping(), self._timeout)
-        except Exception:  # noqa: BLE001 - any failure means not ready
-            return False
-        return True

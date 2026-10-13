@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 from pydantic import SecretStr
+from upstash_ratelimit.utils import ms_to_s
 
 from app.api import deps
 from app.core.rate_limit import (
@@ -16,15 +17,7 @@ from app.core.rate_limit import (
 
 
 class FakeRedis:
-    def __init__(self, delay: float = 0, error: Exception | None = None) -> None:
-        self._delay = delay
-        self._error = error
-
-    async def ping(self) -> bool:
-        await asyncio.sleep(self._delay)
-        if self._error:
-            raise self._error
-        return True
+    """The adapter only hands the client to upstash-ratelimit; no calls are made."""
 
 
 class FakeSlidingWindow:
@@ -89,13 +82,6 @@ async def test_hit_raises_unavailable_on_redis_error() -> None:
         await limiter_with(fake).hit("x", API_POLICY)
 
 
-async def test_ping_is_false_on_error_or_timeout_and_true_otherwise() -> None:
-    fake = FakeSlidingWindow()
-    assert await limiter_with(fake, FakeRedis()).ping() is True
-    assert await limiter_with(fake, FakeRedis(error=OSError("x"))).ping() is False
-    assert await limiter_with(fake, FakeRedis(delay=1), timeout=0.01).ping() is False
-
-
 def test_limiter_is_built_once_per_policy_with_the_rl_prefix() -> None:
     limiter = UpstashRateLimiter.from_credentials("https://x.upstash.io", "token")
 
@@ -105,11 +91,10 @@ def test_limiter_is_built_once_per_policy_with_the_rl_prefix() -> None:
     assert first._prefix == "rl"
 
 
-async def test_disabled_limiter_allows_and_pings_ok() -> None:
+async def test_disabled_limiter_allows_everything() -> None:
     limiter = DisabledRateLimiter()
 
     assert (await limiter.hit("x", API_POLICY)).allowed is True
-    assert await limiter.ping() is True
 
 
 def test_get_rate_limiter_is_disabled_without_upstash_settings(
@@ -132,3 +117,20 @@ def test_get_rate_limiter_builds_upstash_and_caches_when_configured(
 
     assert isinstance(limiter, UpstashRateLimiter)
     assert deps.get_rate_limiter() is limiter
+
+
+def test_upstash_reset_is_unix_seconds_not_milliseconds() -> None:
+    # upstash-ratelimit 1.2.0 documents Response.reset as "Unix timestamp in
+    # seconds" and builds it with ms_to_s. If that ever changes, the
+    # X-RateLimit-Reset / Retry-After conversion would be wrong: fail loudly.
+    assert ms_to_s(1_700_000_000_500) == 1_700_000_000.5
+
+
+async def test_decision_reset_at_keeps_upstash_seconds_unchanged() -> None:
+    fake = FakeSlidingWindow(
+        SimpleNamespace(allowed=True, limit=5, remaining=4, reset=1_700_000_000.5)
+    )
+
+    decision = await limiter_with(fake).hit("x", API_POLICY)
+
+    assert decision.reset_at == 1_700_000_000.5

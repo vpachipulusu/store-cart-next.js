@@ -69,12 +69,10 @@ class FakeRateLimiter:
 
     enabled = True
 
-    def __init__(self, reset_at: float = 4_000_000_000.0, ping_ok: bool = True) -> None:
+    def __init__(self, reset_at: float = 4_000_000_000.0) -> None:
         self.hits: list[tuple[str, RateLimitPolicy]] = []
-        self.pings = 0
         self._counts: dict[str, int] = {}
         self._reset_at = reset_at
-        self._ping_ok = ping_ok
 
     async def hit(self, identifier: str, policy: RateLimitPolicy) -> RateLimitDecision:
         self.hits.append((identifier, policy))
@@ -87,10 +85,6 @@ class FakeRateLimiter:
             reset_at=self._reset_at,
         )
 
-    async def ping(self) -> bool:
-        self.pings += 1
-        return self._ping_ok
-
 
 class RaisingRateLimiter:
     """Simulates a Redis outage."""
@@ -99,9 +93,6 @@ class RaisingRateLimiter:
 
     async def hit(self, identifier: str, policy: RateLimitPolicy) -> RateLimitDecision:
         raise RateLimiterUnavailable("redis down")
-
-    async def ping(self) -> bool:
-        return False
 
 
 def as_limiter(limiter: FakeRateLimiter | RaisingRateLimiter) -> RateLimiter:

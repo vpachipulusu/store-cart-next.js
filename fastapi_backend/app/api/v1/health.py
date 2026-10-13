@@ -1,10 +1,7 @@
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Response, status
 from pydantic import BaseModel
 
-from app.api.deps import HealthServiceDep, get_rate_limiter
-from app.core.rate_limit import RateLimiter
+from app.api.deps import HealthServiceDep
 
 router = APIRouter(tags=["health"])
 
@@ -21,12 +18,14 @@ async def health_check() -> HealthResponse:
 
 @router.get("/health/ready", response_model=HealthResponse)
 async def readiness_check(
-    response: Response,
-    service: HealthServiceDep,
-    limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
+    response: Response, service: HealthServiceDep
 ) -> HealthResponse:
-    """Readiness: 200 when the database (and Redis, if configured) answer, else 503."""
-    if await service.is_database_ready() and await limiter.ping():
+    """Readiness check: 200 when the database answers, 503 otherwise.
+
+    Redis is deliberately not checked: rate limiting fails open, so a Redis blip
+    must not take the service out of rotation.
+    """
+    if await service.is_database_ready():
         return HealthResponse(status="ok")
     response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return HealthResponse(status="unavailable")
