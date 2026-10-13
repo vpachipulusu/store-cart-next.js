@@ -20,7 +20,11 @@ async def health_check() -> HealthResponse:
 async def readiness_check(
     response: Response, service: HealthServiceDep
 ) -> HealthResponse:
-    """Readiness check: 200 when the database answers, 503 otherwise."""
+    """Readiness check: 200 when the database answers, 503 otherwise.
+
+    Redis is deliberately not checked: rate limiting fails open, so a Redis blip
+    must not take the service out of rotation.
+    """
     if await service.is_database_ready():
         return HealthResponse(status="ok")
     response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

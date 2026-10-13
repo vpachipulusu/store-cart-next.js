@@ -8,6 +8,8 @@ dependencies = [
     "asyncpg>=0.32.0,<0.33",
     "sqlalchemy[asyncio]>=2.1.4,<3",
     "pydantic-settings>=2.15.0,<3",
+    "upstash-ratelimit==1.2.0",
+    "upstash-redis==1.8.0",
 ]
 
 [dependency-groups]

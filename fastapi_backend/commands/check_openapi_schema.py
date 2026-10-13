@@ -21,6 +21,7 @@ SCHEMA_FILE = BACKEND_DIR.parent / "nextjs-frontend" / "openapi.json"
 # never connects to the database or signs tokens, so harmless placeholders are
 # enough; values already set in the environment still take precedence.
 PLACEHOLDER_SETTINGS = {
+    "ENVIRONMENT": "test",
     "DATABASE_URL": "postgresql+asyncpg://openapi:openapi@localhost:5432/openapi",
 }
 

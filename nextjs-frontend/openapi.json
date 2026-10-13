@@ -53,7 +53,7 @@
           "health"
         ],
         "summary": "Readiness Check",
-        "description": "Readiness check: 200 when the database answers, 503 otherwise.",
+        "description": "Readiness check: 200 when the database answers, 503 otherwise.\n\nRedis is deliberately not checked: rate limiting fails open, so a Redis blip\nmust not take the service out of rotation.",
         "operationId": "readiness_check",
         "responses": {
           "200": {
