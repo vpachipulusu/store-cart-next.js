@@ -254,7 +254,9 @@ export async function getUserSubscriptionDetailsAction(
     // Get Stripe subscription details if exists
     if (user.stripeSubscriptionId) {
       try {
-        stripeSubscription = await getStripeServerClient().subscriptions.retrieve(user.stripeSubscriptionId);
+        stripeSubscription = await getStripeServerClient().subscriptions.retrieve(
+          user.stripeSubscriptionId
+        );
       } catch (error) {
         logger.error('Failed to retrieve Stripe subscription:', error);
       }
@@ -679,7 +681,9 @@ export async function syncStripeSubscriptionsAction(): Promise<AdminSubscription
 
     for (const user of users) {
       try {
-        const subscription = await getStripeServerClient().subscriptions.retrieve(user.stripeSubscriptionId!);
+        const subscription = await getStripeServerClient().subscriptions.retrieve(
+          user.stripeSubscriptionId!
+        );
 
         await db.user.update({
           where: { id: user.id },

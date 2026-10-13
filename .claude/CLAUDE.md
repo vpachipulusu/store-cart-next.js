@@ -76,8 +76,8 @@ Firebase handles authentication on both client and server:
 1. **Client**: Firebase client SDK (`src/lib/firebase/client.ts`) authenticates the user and returns an ID token.
 2. **Server**: `verifyTokenAction` in `src/app/actions/auth-actions.ts` verifies the token via Firebase Admin SDK, syncs the user to PostgreSQL, records login history, and sets two cookies:
    - `session` (httpOnly) — Firebase session cookie, 5-day expiry
-   - `email-verified` (readable by proxy) — enforced by `src/proxy.ts` to gate protected routes
-3. **Proxy** (`src/proxy.ts`) — handles route protection, rate limiting, CORS, and security headers at the edge.
+   - The client-writable `email-verified` cookie is no longer issued or trusted (KAN-123). Verified email is enforced server-side from the signed `email_verified` claim in the session cookie, with revocation checking, by `src/lib/auth/verified-session.ts` (layouts, server actions, admin helpers).
+3. **Proxy** (`src/proxy.ts`) — handles session-presence route protection, rate limiting, CORS, and security headers at the edge.
 
 Admin role verification cannot be done in the proxy (Firebase token verification requires Node.js runtime). Admin access is verified server-side in each admin API route/page.
 

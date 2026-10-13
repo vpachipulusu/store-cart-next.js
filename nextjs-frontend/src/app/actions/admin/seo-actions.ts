@@ -50,7 +50,7 @@ async function getAuthenticatedAdmin() {
  * Check if user has admin permission
  */
 function hasPermission(admin: any, permission: string): boolean {
-  const permissions = admin.adminUser?.permissions as string[] || [];
+  const permissions = (admin.adminUser?.permissions as string[]) || [];
   return permissions.includes(permission) || permissions.includes('*');
 }
 

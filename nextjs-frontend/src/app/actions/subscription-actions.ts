@@ -109,7 +109,9 @@ export async function getSubscriptionStatusAction(): Promise<SubscriptionActionR
     // Get detailed subscription info from Stripe if exists
     if (user.stripeSubscriptionId) {
       try {
-        const subscription = await getStripeServerClient().subscriptions.retrieve(user.stripeSubscriptionId);
+        const subscription = await getStripeServerClient().subscriptions.retrieve(
+          user.stripeSubscriptionId
+        );
         subscriptionDetails = {
           id: subscription.id,
           status: subscription.status,
@@ -425,9 +427,12 @@ export async function cancelSubscriptionAction(): Promise<SubscriptionActionResp
     }
 
     // Cancel subscription at period end
-    const subscription = await getStripeServerClient().subscriptions.update(user.stripeSubscriptionId, {
-      cancel_at_period_end: true,
-    });
+    const subscription = await getStripeServerClient().subscriptions.update(
+      user.stripeSubscriptionId,
+      {
+        cancel_at_period_end: true,
+      }
+    );
 
     return {
       success: true,
@@ -471,7 +476,9 @@ export async function resumeSubscriptionAction(): Promise<SubscriptionActionResp
     }
 
     // First check current subscription state
-    const currentSub = await getStripeServerClient().subscriptions.retrieve(user.stripeSubscriptionId);
+    const currentSub = await getStripeServerClient().subscriptions.retrieve(
+      user.stripeSubscriptionId
+    );
 
     // Can only resume if subscription is in a valid state
     if (currentSub.status === 'canceled') {
@@ -553,18 +560,23 @@ export async function updateSubscriptionAction(
     }
 
     // Get current subscription
-    const subscription = await getStripeServerClient().subscriptions.retrieve(user.stripeSubscriptionId);
+    const subscription = await getStripeServerClient().subscriptions.retrieve(
+      user.stripeSubscriptionId
+    );
 
     // Update subscription with new price
-    const updatedSubscription = await getStripeServerClient().subscriptions.update(user.stripeSubscriptionId, {
-      items: [
-        {
-          id: subscription.items.data[0].id,
-          price: newPriceId,
-        },
-      ],
-      proration_behavior: 'create_prorations',
-    });
+    const updatedSubscription = await getStripeServerClient().subscriptions.update(
+      user.stripeSubscriptionId,
+      {
+        items: [
+          {
+            id: subscription.items.data[0].id,
+            price: newPriceId,
+          },
+        ],
+        proration_behavior: 'create_prorations',
+      }
+    );
 
     return {
       success: true,
@@ -773,9 +785,12 @@ export async function getSubscriptionDetailsAction(): Promise<SubscriptionAction
 
     if (user.stripeSubscriptionId) {
       try {
-        const subscription = await getStripeServerClient().subscriptions.retrieve(user.stripeSubscriptionId, {
-          expand: ['items.data.price'],
-        });
+        const subscription = await getStripeServerClient().subscriptions.retrieve(
+          user.stripeSubscriptionId,
+          {
+            expand: ['items.data.price'],
+          }
+        );
         autoRenewal = !subscription.cancel_at_period_end;
         stripeStatus = subscription.status;
 
@@ -896,7 +911,9 @@ export async function deletePaymentMethodAction(
 
     // Check if auto-renewal is active - block deletion if so
     if (user.stripeSubscriptionId) {
-      const subscription = await getStripeServerClient().subscriptions.retrieve(user.stripeSubscriptionId);
+      const subscription = await getStripeServerClient().subscriptions.retrieve(
+        user.stripeSubscriptionId
+      );
       if (!subscription.cancel_at_period_end && subscription.status === 'active') {
         return {
           success: false,

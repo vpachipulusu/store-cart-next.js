@@ -51,7 +51,7 @@ async function getAuthenticatedAdmin() {
  * Check if user has admin permission
  */
 function hasPermission(admin: any, permission: string): boolean {
-  const permissions = admin.adminUser?.permissions as string[] || [];
+  const permissions = (admin.adminUser?.permissions as string[]) || [];
   return permissions.includes(permission) || permissions.includes('*');
 }
 
@@ -464,25 +464,20 @@ export async function getUserStatsAction(): Promise<AdminUserActionResponse> {
       };
     }
 
-    const [
-      totalUsers,
-      verifiedUsers,
-      adminUsers,
-      activeSubscriptions,
-      newUsersThisMonth,
-    ] = await Promise.all([
-      db.user.count(),
-      db.user.count({ where: { emailVerified: true } }),
-      db.adminUser.count(),
-      db.user.count({ where: { subscriptionStatus: 'active' } }),
-      db.user.count({
-        where: {
-          createdAt: {
-            gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+    const [totalUsers, verifiedUsers, adminUsers, activeSubscriptions, newUsersThisMonth] =
+      await Promise.all([
+        db.user.count(),
+        db.user.count({ where: { emailVerified: true } }),
+        db.adminUser.count(),
+        db.user.count({ where: { subscriptionStatus: 'active' } }),
+        db.user.count({
+          where: {
+            createdAt: {
+              gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+            },
           },
-        },
-      }),
-    ]);
+        }),
+      ]);
 
     return {
       success: true,
@@ -506,7 +501,10 @@ export async function getUserStatsAction(): Promise<AdminUserActionResponse> {
 /**
  * Ban user (disable Firebase account)
  */
-export async function banUserAction(userId: string, reason?: string): Promise<AdminUserActionResponse> {
+export async function banUserAction(
+  userId: string,
+  reason?: string
+): Promise<AdminUserActionResponse> {
   try {
     const admin = await getAuthenticatedAdmin();
     if (!admin || !hasPermission(admin, 'users.update')) {

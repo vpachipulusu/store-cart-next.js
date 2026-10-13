@@ -110,6 +110,14 @@ describe('KAN-123: protected server actions require a verified session', () => {
     });
   });
 
+  it('getCurrentSessionAction returns a generic error, never the raw error message', async () => {
+    mocks.verifySessionCookie.mockRejectedValue(new Error('internal: key abc123 leaked'));
+
+    const result = await getCurrentSessionAction();
+
+    expect(result).toEqual({ success: false, error: 'Session retrieval failed' });
+  });
+
   it('rejects a revoked session', async () => {
     mocks.verifySessionCookie.mockRejectedValue(
       Object.assign(new Error('revoked'), { code: 'auth/session-cookie-revoked' })

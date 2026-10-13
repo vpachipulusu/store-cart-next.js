@@ -352,7 +352,7 @@ export async function getCurrentSessionAction(): Promise<AuthActionResponse> {
     }
     return {
       success: false,
-      error: error.message || 'Session retrieval failed',
+      error: 'Session retrieval failed',
     };
   }
 }
