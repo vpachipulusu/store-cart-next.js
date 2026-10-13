@@ -4,6 +4,24 @@ from pydantic import ValidationError
 from app.core.config import Settings
 
 
+def test_production_requires_auth_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("VERCEL_ENV", raising=False)
+    monkeypatch.setenv("UPSTASH_REDIS_REST_URL", "https://example.upstash.io")
+    monkeypatch.setenv("UPSTASH_REDIS_REST_TOKEN", "test-token")
+    monkeypatch.delenv("BACKEND_INTERNAL_KEY", raising=False)
+    with pytest.raises(ValidationError, match="Production authentication requires"):
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_short_internal_key_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BACKEND_INTERNAL_KEY", "short")
+    with pytest.raises(ValidationError, match="at least 32 characters"):
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+
 def test_missing_database_url_fails_at_startup(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DATABASE_URL", raising=False)
 

@@ -35,6 +35,14 @@ class Settings(BaseSettings):
     SENTRY_DSN: SecretStr | None = None
     VERCEL_GIT_COMMIT_SHA: str | None = None
 
+    # ADR-003: separate server-only keys per environment; never NEXT_PUBLIC_*.
+    BACKEND_INTERNAL_KEY: SecretStr | None = None
+    BACKEND_INTERNAL_KEY_NEXT: SecretStr | None = None
+    RATE_LIMIT_EMAIL_KEY: SecretStr | None = None
+    FIREBASE_ADMIN_PROJECT_ID: str | None = None
+    FIREBASE_ADMIN_CLIENT_EMAIL: str | None = None
+    FIREBASE_ADMIN_PRIVATE_KEY: SecretStr | None = None
+
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
@@ -52,6 +60,34 @@ class Settings(BaseSettings):
                 f"in production (ENVIRONMENT='{self.ENVIRONMENT}', "
                 f"VERCEL_ENV='{self.VERCEL_ENV}'); rate limiting can only be disabled "
                 "for local, test, Vercel preview and Vercel development"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_auth_config(self) -> "Settings":
+        for name in (
+            "BACKEND_INTERNAL_KEY",
+            "BACKEND_INTERNAL_KEY_NEXT",
+            "RATE_LIMIT_EMAIL_KEY",
+        ):
+            key = getattr(self, name)
+            if key is not None and len(key.get_secret_value()) < 32:
+                raise ValueError(f"{name} must have at least 32 characters")
+        relaxed = (
+            self.VERCEL_ENV in VERCEL_NON_PRODUCTION
+            if self.VERCEL_ENV
+            else self.ENVIRONMENT in LOCAL_ENVIRONMENTS
+        )
+        required = (
+            "BACKEND_INTERNAL_KEY",
+            "RATE_LIMIT_EMAIL_KEY",
+            "FIREBASE_ADMIN_PROJECT_ID",
+            "FIREBASE_ADMIN_CLIENT_EMAIL",
+            "FIREBASE_ADMIN_PRIVATE_KEY",
+        )
+        if not relaxed and any(not getattr(self, name) for name in required):
+            raise ValueError(
+                "Production authentication requires internal key, email HMAC key and Firebase Admin credentials"
             )
         return self
 

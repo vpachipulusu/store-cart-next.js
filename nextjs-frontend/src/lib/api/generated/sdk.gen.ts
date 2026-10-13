@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { HealthCheckData, HealthCheckErrors, HealthCheckResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses } from './types.gen';
+import type { CreateSessionData, CreateSessionErrors, CreateSessionResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, HealthCheckData, HealthCheckErrors, HealthCheckResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, ReadSessionData, ReadSessionErrors, ReadSessionResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -34,3 +34,25 @@ export const healthCheck = <ThrowOnError extends boolean = false>(options?: Opti
  * must not take the service out of rotation.
  */
 export const readinessCheck = <ThrowOnError extends boolean = false>(options?: Options<ReadinessCheckData, ThrowOnError>) => (options?.client ?? client).get<ReadinessCheckResponses, ReadinessCheckErrors, ThrowOnError>({ url: '/health/ready', ...options });
+
+/**
+ * Delete Session
+ */
+export const deleteSession = <ThrowOnError extends boolean = false>(options?: Options<DeleteSessionData, ThrowOnError>) => (options?.client ?? client).delete<DeleteSessionResponses, DeleteSessionErrors, ThrowOnError>({ url: '/v1/auth/session', ...options });
+
+/**
+ * Read Session
+ */
+export const readSession = <ThrowOnError extends boolean = false>(options?: Options<ReadSessionData, ThrowOnError>) => (options?.client ?? client).get<ReadSessionResponses, ReadSessionErrors, ThrowOnError>({ url: '/v1/auth/session', ...options });
+
+/**
+ * Create Session
+ */
+export const createSession = <ThrowOnError extends boolean = false>(options: Options<CreateSessionData, ThrowOnError>) => (options.client ?? client).post<CreateSessionResponses, CreateSessionErrors, ThrowOnError>({
+    url: '/v1/auth/session',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
