@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { CreateSessionData, CreateSessionErrors, CreateSessionResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, HealthCheckData, HealthCheckErrors, HealthCheckResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, ReadSessionData, ReadSessionErrors, ReadSessionResponses } from './types.gen';
+import type { CreateSessionData, CreateSessionErrors, CreateSessionResponses, DeleteAccountData, DeleteAccountErrors, DeleteAccountResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, HealthCheckData, HealthCheckErrors, HealthCheckResponses, ReadHistoryData, ReadHistoryErrors, ReadHistoryResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, ReadProfileData, ReadProfileErrors, ReadProfileResponses, ReadSessionData, ReadSessionErrors, ReadSessionResponses, ReadSettingsData, ReadSettingsErrors, ReadSettingsResponses, UpdateAvatarData, UpdateAvatarErrors, UpdateAvatarResponses, UpdateProfileData, UpdateProfileErrors, UpdateProfileResponses, UpdateSettingsData, UpdateSettingsErrors, UpdateSettingsResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -56,3 +56,66 @@ export const createSession = <ThrowOnError extends boolean = false>(options: Opt
         ...options.headers
     }
 });
+
+/**
+ * Delete Account
+ */
+export const deleteAccount = <ThrowOnError extends boolean = false>(options: Options<DeleteAccountData, ThrowOnError>) => (options.client ?? client).delete<DeleteAccountResponses, DeleteAccountErrors, ThrowOnError>({
+    url: '/v1/me',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Read Profile
+ */
+export const readProfile = <ThrowOnError extends boolean = false>(options?: Options<ReadProfileData, ThrowOnError>) => (options?.client ?? client).get<ReadProfileResponses, ReadProfileErrors, ThrowOnError>({ url: '/v1/me', ...options });
+
+/**
+ * Update Profile
+ */
+export const updateProfile = <ThrowOnError extends boolean = false>(options: Options<UpdateProfileData, ThrowOnError>) => (options.client ?? client).patch<UpdateProfileResponses, UpdateProfileErrors, ThrowOnError>({
+    url: '/v1/me',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Update Avatar
+ */
+export const updateAvatar = <ThrowOnError extends boolean = false>(options: Options<UpdateAvatarData, ThrowOnError>) => (options.client ?? client).patch<UpdateAvatarResponses, UpdateAvatarErrors, ThrowOnError>({
+    url: '/v1/me/avatar',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Read Settings
+ */
+export const readSettings = <ThrowOnError extends boolean = false>(options?: Options<ReadSettingsData, ThrowOnError>) => (options?.client ?? client).get<ReadSettingsResponses, ReadSettingsErrors, ThrowOnError>({ url: '/v1/me/settings', ...options });
+
+/**
+ * Update Settings
+ */
+export const updateSettings = <ThrowOnError extends boolean = false>(options: Options<UpdateSettingsData, ThrowOnError>) => (options.client ?? client).patch<UpdateSettingsResponses, UpdateSettingsErrors, ThrowOnError>({
+    url: '/v1/me/settings',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Read History
+ */
+export const readHistory = <ThrowOnError extends boolean = false>(options?: Options<ReadHistoryData, ThrowOnError>) => (options?.client ?? client).get<ReadHistoryResponses, ReadHistoryErrors, ThrowOnError>({ url: '/v1/me/login-history', ...options });

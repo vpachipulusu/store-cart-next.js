@@ -5,6 +5,36 @@ export type ClientOptions = {
 };
 
 /**
+ * AvatarRequest
+ */
+export type AvatarRequest = {
+    /**
+     * Avatar Url
+     */
+    avatar_url?: string | null;
+};
+
+/**
+ * DeleteRequest
+ */
+export type DeleteRequest = {
+    /**
+     * Id Token
+     */
+    id_token: string;
+};
+
+/**
+ * DeletedResponse
+ */
+export type DeletedResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+};
+
+/**
  * ErrorResponse
  *
  * Body of every error response (documents the runtime envelope in OpenAPI).
@@ -28,6 +58,61 @@ export type HealthResponse = {
      * Status
      */
     status: string;
+};
+
+/**
+ * HistoryData
+ */
+export type HistoryData = {
+    /**
+     * Login History
+     */
+    login_history: Array<HistoryEntry>;
+    /**
+     * Total Count
+     */
+    total_count: number;
+};
+
+/**
+ * HistoryEntry
+ */
+export type HistoryEntry = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Ip Address
+     */
+    ip_address: string | null;
+    /**
+     * User Agent
+     */
+    user_agent: string | null;
+    /**
+     * Location
+     */
+    location: string | null;
+    /**
+     * Login At
+     */
+    login_at: string;
+    /**
+     * Successful
+     */
+    successful: boolean;
+};
+
+/**
+ * HistoryResponse
+ */
+export type HistoryResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: HistoryData;
 };
 
 /**
@@ -57,6 +142,89 @@ export type IdentityResponse = {
      */
     success?: true;
     data: IdentityData;
+};
+
+/**
+ * ProfileData
+ */
+export type ProfileData = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Email
+     */
+    email: string;
+    /**
+     * Email Verified
+     */
+    email_verified: boolean;
+    /**
+     * Display Name
+     */
+    display_name: string | null;
+    /**
+     * Bio
+     */
+    bio: string | null;
+    /**
+     * Avatar Url
+     */
+    avatar_url: string | null;
+    /**
+     * Location
+     */
+    location: string | null;
+    /**
+     * Website
+     */
+    website: string | null;
+    /**
+     * Phone Number
+     */
+    phone_number: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * ProfileRequest
+ */
+export type ProfileRequest = {
+    /**
+     * Display Name
+     */
+    display_name?: string | null;
+    /**
+     * Bio
+     */
+    bio?: string | null;
+    /**
+     * Location
+     */
+    location?: string | null;
+    /**
+     * Website
+     */
+    website?: string | null;
+    /**
+     * Phone Number
+     */
+    phone_number?: string | null;
+};
+
+/**
+ * ProfileResponse
+ */
+export type ProfileResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: ProfileData;
 };
 
 /**
@@ -102,6 +270,61 @@ export type SessionResponse = {
      */
     success?: true;
     data: SessionData;
+};
+
+/**
+ * SettingsData
+ */
+export type SettingsData = {
+    /**
+     * Theme
+     */
+    theme: string;
+    /**
+     * Email Notifications
+     */
+    email_notifications: boolean;
+    /**
+     * Language
+     */
+    language: string;
+    /**
+     * Timezone
+     */
+    timezone: string;
+};
+
+/**
+ * SettingsRequest
+ */
+export type SettingsRequest = {
+    /**
+     * Theme
+     */
+    theme?: 'light' | 'dark' | 'system';
+    /**
+     * Email Notifications
+     */
+    email_notifications?: boolean;
+    /**
+     * Language
+     */
+    language?: string;
+    /**
+     * Timezone
+     */
+    timezone?: string;
+};
+
+/**
+ * SettingsResponse
+ */
+export type SettingsResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: SettingsData;
 };
 
 export type HealthCheckData = {
@@ -326,3 +549,405 @@ export type CreateSessionResponses = {
 };
 
 export type CreateSessionResponse = CreateSessionResponses[keyof CreateSessionResponses];
+
+export type DeleteAccountData = {
+    body: DeleteRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/me';
+};
+
+export type DeleteAccountErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type DeleteAccountError = DeleteAccountErrors[keyof DeleteAccountErrors];
+
+export type DeleteAccountResponses = {
+    /**
+     * Successful Response
+     */
+    200: DeletedResponse;
+};
+
+export type DeleteAccountResponse = DeleteAccountResponses[keyof DeleteAccountResponses];
+
+export type ReadProfileData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/me';
+};
+
+export type ReadProfileErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ReadProfileError = ReadProfileErrors[keyof ReadProfileErrors];
+
+export type ReadProfileResponses = {
+    /**
+     * Successful Response
+     */
+    200: ProfileResponse;
+};
+
+export type ReadProfileResponse = ReadProfileResponses[keyof ReadProfileResponses];
+
+export type UpdateProfileData = {
+    body: ProfileRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/me';
+};
+
+export type UpdateProfileErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type UpdateProfileError = UpdateProfileErrors[keyof UpdateProfileErrors];
+
+export type UpdateProfileResponses = {
+    /**
+     * Successful Response
+     */
+    200: ProfileResponse;
+};
+
+export type UpdateProfileResponse = UpdateProfileResponses[keyof UpdateProfileResponses];
+
+export type UpdateAvatarData = {
+    body: AvatarRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/me/avatar';
+};
+
+export type UpdateAvatarErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type UpdateAvatarError = UpdateAvatarErrors[keyof UpdateAvatarErrors];
+
+export type UpdateAvatarResponses = {
+    /**
+     * Successful Response
+     */
+    200: ProfileResponse;
+};
+
+export type UpdateAvatarResponse = UpdateAvatarResponses[keyof UpdateAvatarResponses];
+
+export type ReadSettingsData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/me/settings';
+};
+
+export type ReadSettingsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ReadSettingsError = ReadSettingsErrors[keyof ReadSettingsErrors];
+
+export type ReadSettingsResponses = {
+    /**
+     * Successful Response
+     */
+    200: SettingsResponse;
+};
+
+export type ReadSettingsResponse = ReadSettingsResponses[keyof ReadSettingsResponses];
+
+export type UpdateSettingsData = {
+    body: SettingsRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/me/settings';
+};
+
+export type UpdateSettingsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type UpdateSettingsError = UpdateSettingsErrors[keyof UpdateSettingsErrors];
+
+export type UpdateSettingsResponses = {
+    /**
+     * Successful Response
+     */
+    200: SettingsResponse;
+};
+
+export type UpdateSettingsResponse = UpdateSettingsResponses[keyof UpdateSettingsResponses];
+
+export type ReadHistoryData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Offset
+         */
+        offset?: number;
+    };
+    url: '/v1/me/login-history';
+};
+
+export type ReadHistoryErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ReadHistoryError = ReadHistoryErrors[keyof ReadHistoryErrors];
+
+export type ReadHistoryResponses = {
+    /**
+     * Successful Response
+     */
+    200: HistoryResponse;
+};
+
+export type ReadHistoryResponse = ReadHistoryResponses[keyof ReadHistoryResponses];
