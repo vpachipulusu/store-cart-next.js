@@ -20,14 +20,11 @@ from typing import Callable
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 SCHEMA_FILE = BACKEND_DIR.parent / "nextjs-frontend" / "openapi.json"
 
-# Importing the app requires these settings (app/config.py). Schema generation
+# Importing the app requires these settings (app/core/config.py). Schema generation
 # never connects to the database or signs tokens, so harmless placeholders are
 # enough; values already set in the environment still take precedence.
 PLACEHOLDER_SETTINGS = {
     "DATABASE_URL": "postgresql+asyncpg://openapi:openapi@localhost:5432/openapi",
-    "ACCESS_SECRET_KEY": "openapi-schema-check",
-    "RESET_PASSWORD_SECRET_KEY": "openapi-schema-check",
-    "VERIFICATION_SECRET_KEY": "openapi-schema-check",
     "CORS_ORIGINS": "[]",
 }
 

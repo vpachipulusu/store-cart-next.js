@@ -16,29 +16,11 @@ jobs:
     defaults:
       run:
         working-directory: fastapi_backend
-    services:
-      # Throwaway test database that exists only for this job.
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: testdatabase
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     env:
-      # CI-only values, not secrets: app.config requires them at import time and
-      # the tests use the throwaway service database above.
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/testdatabase
-      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/testdatabase
-      ACCESS_SECRET_KEY: ci-only-not-a-secret
-      RESET_PASSWORD_SECRET_KEY: ci-only-not-a-secret
-      VERIFICATION_SECRET_KEY: ci-only-not-a-secret
+      # CI-only values, not secrets: app.core.config requires them at import time.
+      # The unit tests use fake database sessions and never connect (KAN-30), so
+      # no database service runs here.
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/unused
       CORS_ORIGINS: '[]'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -60,41 +42,10 @@ jobs:
       - name: Ruff format
         run: uv run ruff format --check .
 
-      # mypy has known errors in template code (KAN-30). The committed count in
-      # fastapi_backend/mypy-baseline.txt is a ratchet: this step fails if the
-      # error count goes UP or DOWN. When you fix errors, lower the baseline in
-      # the same PR. At 0, replace this step with a plain `uv run mypy`.
-      - name: mypy (error count must equal the baseline)
-        run: |
-          if ! grep -qxE '[0-9]+' mypy-baseline.txt; then
-            echo "::error::mypy-baseline.txt must contain a single non-negative integer."
-            exit 1
-          fi
-          baseline=$(grep -xE '[0-9]+' mypy-baseline.txt | head -n 1)
-          set +e
-          uv run mypy > mypy-report.txt 2>&1
-          rc=$?
-          set -e
-          cat mypy-report.txt
-          count=$(grep -c ': error:' mypy-report.txt || true)
-          echo "mypy exit code ${rc}, errors ${count}, baseline ${baseline}"
-          echo "### mypy: ${count} errors (baseline ${baseline}, exit code ${rc})" >> "$GITHUB_STEP_SUMMARY"
-          if [ "$rc" -gt 1 ]; then
-            echo "::error::mypy did not complete (exit code ${rc}); the error count cannot be trusted."
-            exit 1
-          fi
-          if [ "$rc" -eq 1 ] && [ "$count" -eq 0 ]; then
-            echo "::error::mypy exited 1 but reported no errors; its output could not be parsed."
-            exit 1
-          fi
-          if [ "$count" -gt "$baseline" ]; then
-            echo "::error::mypy reports ${count} errors, more than the baseline of ${baseline}. Fix the new errors."
-            exit 1
-          fi
-          if [ "$count" -lt "$baseline" ]; then
-            echo "::error::mypy errors fell to ${count}: lower mypy-baseline.txt to ${count}."
-            exit 1
-          fi
+      # mypy is blocking (KAN-30 removed the template code behind the old
+      # error-count baseline).
+      - name: mypy
+        run: uv run mypy
 
       # fail_under in pyproject.toml ([tool.coverage.report]) is the coverage
       # ratchet: this step fails if coverage drops below it.
