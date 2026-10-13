@@ -35,16 +35,21 @@ jobs:
       NEXT_PUBLIC_APP_URL: http://localhost:3000
       NEXT_PUBLIC_APP_NAME: StoreCart
       # Firebase test project `storecart-test` (environment e2e-test).
-      NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.E2E_FIREBASE_API_KEY }}
-      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.E2E_FIREBASE_AUTH_DOMAIN }}
-      NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.E2E_FIREBASE_PROJECT_ID }}
-      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.E2E_FIREBASE_STORAGE_BUCKET }}
-      NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.E2E_FIREBASE_MESSAGING_SENDER_ID }}
-      NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.E2E_FIREBASE_APP_ID }}
+      NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.E2E_NEXT_PUBLIC_FIREBASE_API_KEY }}
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.E2E_NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.E2E_NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
+      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.E2E_NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}
+      NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.E2E_NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
+      NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.E2E_NEXT_PUBLIC_FIREBASE_APP_ID }}
       FIREBASE_ADMIN_PROJECT_ID: ${{ secrets.E2E_FIREBASE_ADMIN_PROJECT_ID }}
       FIREBASE_ADMIN_CLIENT_EMAIL: ${{ secrets.E2E_FIREBASE_ADMIN_CLIENT_EMAIL }}
       # Stripe TEST mode publishable key (environment e2e-test).
-      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.E2E_STRIPE_PUBLISHABLE_KEY }}
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.E2E_NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+      # Stripe TEST-mode price ids the pricing and billing specs read (environment e2e-test).
+      STRIPE_PRICE_ID_PRO_MONTHLY: ${{ secrets.E2E_STRIPE_PRICE_ID_PRO_MONTHLY }}
+      STRIPE_PRICE_ID_PRO_YEARLY: ${{ secrets.E2E_STRIPE_PRICE_ID_PRO_YEARLY }}
+      STRIPE_PRICE_ID_ENTERPRISE_MONTHLY: ${{ secrets.E2E_STRIPE_PRICE_ID_ENTERPRISE_MONTHLY }}
+      STRIPE_PRICE_ID_ENTERPRISE_YEARLY: ${{ secrets.E2E_STRIPE_PRICE_ID_ENTERPRISE_YEARLY }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -91,12 +96,12 @@ jobs:
           esac
           case "${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}" in
             pk_test_*) ;;
-            *) echo "::error::E2E_STRIPE_PUBLISHABLE_KEY must be a test-mode key (pk_test_)."; exit 1 ;;
+            *) echo "::error::E2E_NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY must be a test-mode key (pk_test_)."; exit 1 ;;
           esac
           if [ -z "${PROD_FIREBASE_PROJECT_ID}" ]; then
             echo "::warning::Repository variable PROD_FIREBASE_PROJECT_ID is not set, so the check that e2e is not using the production Firebase project is skipped."
           elif [ "${NEXT_PUBLIC_FIREBASE_PROJECT_ID}" = "${PROD_FIREBASE_PROJECT_ID}" ]; then
-            echo "::error::E2E_FIREBASE_PROJECT_ID equals PROD_FIREBASE_PROJECT_ID. e2e must use the dedicated test project, never production."
+            echo "::error::E2E_NEXT_PUBLIC_FIREBASE_PROJECT_ID equals PROD_FIREBASE_PROJECT_ID. e2e must use the dedicated test project, never production."
             exit 1
           fi
           if [ "${FIREBASE_ADMIN_PROJECT_ID}" != "${NEXT_PUBLIC_FIREBASE_PROJECT_ID}" ]; then
