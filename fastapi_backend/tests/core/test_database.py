@@ -2,7 +2,8 @@ from sqlalchemy import NullPool
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 
-from app.core.database import Base, DefaultSessionProvider, async_session_maker, engine
+from app.core.base import Base
+from app.core.database import DefaultSessionProvider, async_session_maker, engine
 
 
 def test_engine_keeps_null_pool_for_serverless() -> None:

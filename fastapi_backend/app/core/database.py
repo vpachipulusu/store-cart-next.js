@@ -5,14 +5,8 @@ from urllib.parse import urlparse
 
 from sqlalchemy import NullPool
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import settings
-
-
-class Base(DeclarativeBase):
-    pass
-
 
 parsed_db_url = urlparse(settings.DATABASE_URL)
 
