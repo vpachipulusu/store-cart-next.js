@@ -54,12 +54,7 @@ export function PricingCard({
 
       try {
         // Create checkout session - price ID is resolved server-side
-        const result = await createCheckoutSessionAction(
-          'pro',
-          billingPeriod,
-          `${window.location.origin}/dashboard?upgrade=success`,
-          `${window.location.origin}/pricing?upgrade=cancelled`
-        );
+        const result = await createCheckoutSessionAction('pro', billingPeriod);
 
         if (result.success && result.data?.url) {
           // Redirect to Stripe Checkout
@@ -121,12 +116,18 @@ export function PricingCard({
   const priceLabel = tier.price > 0 ? '/month' : '';
 
   return (
-    <Card className={`theme-card ${tier.popular ? 'relative overflow-hidden scale-105 border-theme-accent/40 shadow-xl shadow-theme-accent/10' : ''}`}>
-      {tier.popular && <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-theme-accent-dark via-theme-accent to-theme-accent-dark" />}
+    <Card
+      className={`theme-card ${tier.popular ? 'relative scale-105 overflow-hidden border-theme-accent/40 shadow-xl shadow-theme-accent/10' : ''}`}
+    >
+      {tier.popular && (
+        <div className="absolute left-0 right-0 top-0 h-1 bg-gradient-to-r from-theme-accent-dark via-theme-accent to-theme-accent-dark" />
+      )}
       <CardHeader>
         <div className="mb-4 flex items-center justify-between">
           <CardTitle className="text-2xl">{tier.name}</CardTitle>
-          {tier.popular && <Badge className="bg-theme-accent text-white border-0">Most Popular</Badge>}
+          {tier.popular && (
+            <Badge className="border-0 bg-theme-accent text-white">Most Popular</Badge>
+          )}
           {isAuthenticated && userTier === tier.name.toLowerCase() && (
             <Badge variant="secondary">Active</Badge>
           )}
