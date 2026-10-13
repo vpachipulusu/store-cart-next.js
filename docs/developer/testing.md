@@ -17,15 +17,10 @@ npm run test:coverage      # enforces the coverage ratchet (see below)
 - **Coverage ratchet (KAN-27, PO decision on KAN-139).** The thresholds in `vitest.config.ts` are the measured baseline (re-measured on Vitest 5, KAN-138: 5.34% statements, 5.35% lines, 2.15% functions, 3.2% branches). Vitest 5 counts every function and branch in a file, not only those that ran, so the functions and branches figures are lower than the Vitest 2 baseline (6.33% and 29.87%) for the same 50 tests. CI fails if coverage drops below them. Raise them towards 80% as tests are added and never lower them. The only exception is a tool change that alters how coverage is measured (a Vitest or coverage-provider major): the thresholds may then be re-baselined to the new measurement, with the PO sign-off recorded on the PR. Example: KAN-138 (Vitest 2 to 5, PR #19), where the PO accepted the re-baseline to 5.35% lines, 5.34% statements, 2.15% functions and 3.2% branches under the KAN-139 ratchet decision. To set them to the current values in one step, run `COVERAGE_RATCHET=1 npm run test:coverage`, then run `npx prettier --write vitest.config.ts` (Vitest rewrites the file without Prettier formatting) and commit the config.
 - Coverage counts `src/lib/**`, `src/components/**` and `src/app/actions/**`.
 - Vitest excludes `e2e/` and `*.spec.ts`.
-- MSW is available for mocking HTTP.
 
 ## Frontend integration tests (Vitest)
 
-```bash
-npm run test:integration   # src/__tests__/integration
-```
-
-There are currently no integration tests, and the `src/__tests__/integration` folder does not exist (KAN-146 removed the only placeholder, which asserted on a local object). Running the script now finds no directory. Add the folder with the first real test that exercises an API endpoint or a database.
+There is no `test:integration` script yet (KAN-148 removed it, because no integration tests exist). Add the script and a `src/__tests__/integration` folder together with the first real test that exercises an API endpoint or a database.
 
 ## Frontend end-to-end tests (Playwright)
 

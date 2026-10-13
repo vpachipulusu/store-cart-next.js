@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
+import { siteConfig } from '@/config/site';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -39,8 +40,8 @@ const LANGUAGES = [
 export function GeneralSettingsForm({ initialSettings }: GeneralSettingsFormProps) {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  const [appName, setAppName] = useState(initialSettings.app_name || 'SaaS Boilerplate');
-  const [supportEmail, setSupportEmail] = useState(initialSettings.support_email || '');
+  const [appName, setAppName] = useState(initialSettings.app_name || siteConfig.name);
+  const [supportEmail, setSupportEmail] = useState(initialSettings.support_email || siteConfig.supportEmail);
   const [defaultTimezone, setDefaultTimezone] = useState(initialSettings.default_timezone || 'UTC');
   const [currency, setCurrency] = useState(initialSettings.currency || 'USD');
   const [language, setLanguage] = useState(initialSettings.language || 'en');
@@ -128,7 +129,7 @@ export function GeneralSettingsForm({ initialSettings }: GeneralSettingsFormProp
           </Label>
           <Input
             id="app-name"
-            placeholder="SaaS Boilerplate"
+            placeholder={siteConfig.name}
             value={appName}
             onChange={(e) => setAppName(e.target.value)}
           />

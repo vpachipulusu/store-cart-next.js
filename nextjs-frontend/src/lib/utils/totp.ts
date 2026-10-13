@@ -1,6 +1,8 @@
 import * as OTPAuth from 'otpauth';
 
-const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || 'SaaS Boilerplate';
+import { siteConfig } from '@/config/site';
+
+const APP_NAME = siteConfig.name;
 
 /**
  * Generate a new TOTP secret for a user

@@ -8,19 +8,19 @@ import { getActiveTheme } from '@/app/actions/theme-actions';
 import { getActiveFont } from '@/app/actions/font-actions';
 import { generateThemeCSS } from '@/config/themes';
 import { getFontById } from '@/config/fonts';
+import { siteConfig } from '@/config/site';
 
 /**
  * Metadata Configuration
  * SEO and social media optimization
  */
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'),
+  metadataBase: new URL(siteConfig.url),
   title: {
-    default: 'Next.js Boilerplate',
-    template: '%s | Next.js Boilerplate',
+    default: siteConfig.name,
+    template: `%s | ${siteConfig.name}`,
   },
-  description: 'A modern Next.js 16 boilerplate with TypeScript, React 19, Tailwind CSS, and more',
-  keywords: ['Next.js', 'React', 'TypeScript', 'Tailwind CSS', 'Boilerplate', 'Starter'],
+  description: siteConfig.description,
   authors: [
     {
       name: 'Your Name',
@@ -31,26 +31,24 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     locale: 'en_US',
-    url: 'https://yourwebsite.com',
-    title: 'Next.js Boilerplate',
-    description:
-      'A modern Next.js 16 boilerplate with TypeScript, React 19, Tailwind CSS, and more',
-    siteName: 'Next.js Boilerplate',
+    url: siteConfig.url,
+    title: siteConfig.name,
+    description: siteConfig.description,
+    siteName: siteConfig.name,
     images: [
       {
-        url: '/og-image.png',
+        url: siteConfig.ogImage,
         width: 1200,
         height: 630,
-        alt: 'Next.js Boilerplate',
+        alt: siteConfig.name,
       },
     ],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Next.js Boilerplate',
-    description:
-      'A modern Next.js 16 boilerplate with TypeScript, React 19, Tailwind CSS, and more',
-    images: ['/og-image.png'],
+    title: siteConfig.name,
+    description: siteConfig.description,
+    images: [siteConfig.ogImage],
     creator: '@yourusername',
   },
   robots: {
@@ -72,7 +70,6 @@ export const metadata: Metadata = {
     ],
     apple: [{ url: '/apple-touch-icon.png' }],
   },
-  manifest: '/site.webmanifest',
 };
 
 /**

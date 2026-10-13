@@ -35,7 +35,6 @@ npm run typecheck        # TypeScript type check without emitting
 
 # Testing
 npm run test:unit        # Vitest unit tests only (src/__tests__/unit)
-npm run test:integration # Vitest integration tests (src/__tests__/integration)
 npm run test:e2e         # Playwright E2E tests (requires dev server running)
 npm run test:e2e:ui      # Playwright with interactive UI
 npm run test:coverage    # Vitest with coverage (80% threshold)
@@ -147,7 +146,6 @@ SENTRY_AUTH_TOKEN                     # Optional; disables source maps if absent
 - **playwright.config.ts** starts `npm run dev` in `nextjs-frontend/` as its `webServer` (reused if one is already running).
 - After a clean install (`npm ci`), run `npm run db:generate` before `npm run typecheck` — the Prisma client is not generated automatically.
 - Vitest coverage thresholds are 80% for branches, functions, lines, and statements.
-- MSW (`msw`) is available for mocking HTTP in Vitest tests.
 
 ## Package Manager
 
