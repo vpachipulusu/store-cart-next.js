@@ -16,6 +16,7 @@ import { handleWebhookEvent } from './webhooks';
 
 export type WebhookProcessingResult = 'processed' | 'duplicate';
 
+// The webhook route's maxDuration (30 s) must stay below this lease.
 export const WEBHOOK_LEASE_MS = 60_000;
 
 const UNIQUE_CONSTRAINT_CODE = 'P2002';
@@ -34,7 +35,10 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 /** Returns 'duplicate' if already processed; throws if another delivery holds the claim. */
-async function claimExistingEvent(eventId: string): Promise<'claimed' | 'duplicate'> {
+async function claimExistingEvent(
+  eventId: string,
+  claimedAt: Date
+): Promise<'claimed' | 'duplicate'> {
   const existing = await db.processedStripeEvent.findUnique({ where: { id: eventId } });
   if (!existing) {
     // Released between our insert and read: let Stripe retry.
@@ -50,7 +54,7 @@ async function claimExistingEvent(eventId: string): Promise<'claimed' | 'duplica
 
   const takeover = await db.processedStripeEvent.updateMany({
     where: { id: eventId, processedAt: null, claimedAt: existing.claimedAt },
-    data: { claimedAt: new Date() },
+    data: { claimedAt },
   });
   if (takeover.count !== 1) {
     throw new WebhookInProgressError(eventId);
@@ -59,9 +63,12 @@ async function claimExistingEvent(eventId: string): Promise<'claimed' | 'duplica
   return 'claimed';
 }
 
-async function releaseClaim(eventId: string): Promise<void> {
+/** Releases only our own claim: a new owner after lease expiry has a different claimedAt. */
+async function releaseClaim(eventId: string, claimedAt: Date): Promise<void> {
   try {
-    await db.processedStripeEvent.deleteMany({ where: { id: eventId, processedAt: null } });
+    await db.processedStripeEvent.deleteMany({
+      where: { id: eventId, processedAt: null, claimedAt },
+    });
   } catch (error) {
     logger.error(`Failed to release claim on Stripe event ${eventId}:`, error);
   }
@@ -72,13 +79,14 @@ async function releaseClaim(eventId: string): Promise<void> {
  * another delivery is processing it, so the caller asks Stripe to retry.
  */
 export async function processWebhookEvent(event: Stripe.Event): Promise<WebhookProcessingResult> {
+  const claimedAt = new Date();
   try {
-    await db.processedStripeEvent.create({ data: { id: event.id, type: event.type } });
+    await db.processedStripeEvent.create({ data: { id: event.id, type: event.type, claimedAt } });
   } catch (error) {
     if (!isUniqueViolation(error)) {
       throw error;
     }
-    if ((await claimExistingEvent(event.id)) === 'duplicate') {
+    if ((await claimExistingEvent(event.id, claimedAt)) === 'duplicate') {
       return 'duplicate';
     }
   }
@@ -86,7 +94,7 @@ export async function processWebhookEvent(event: Stripe.Event): Promise<WebhookP
   try {
     await handleWebhookEvent(event);
   } catch (error) {
-    await releaseClaim(event.id);
+    await releaseClaim(event.id, claimedAt);
     throw error;
   }
 

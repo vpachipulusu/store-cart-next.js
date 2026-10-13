@@ -88,3 +88,5 @@ export async function OPTIONS() {
  */
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+// Keep below WEBHOOK_LEASE_MS (60 s) so a handler cannot outlive its processing lease.
+export const maxDuration = 30;

@@ -51,7 +51,9 @@ describe('processWebhookEvent', () => {
     const result = await processWebhookEvent(EVENT);
 
     expect(result).toBe('processed');
-    expect(create).toHaveBeenCalledWith({ data: { id: 'evt_1', type: EVENT.type } });
+    expect(create).toHaveBeenCalledWith({
+      data: { id: 'evt_1', type: EVENT.type, claimedAt: expect.any(Date) },
+    });
     expect(handleWebhookEvent).toHaveBeenCalledWith(EVENT);
     expect(update).toHaveBeenCalledWith({
       where: { id: 'evt_1' },
@@ -116,7 +118,24 @@ describe('processWebhookEvent', () => {
 
     await expect(processWebhookEvent(EVENT)).rejects.toThrow('boom');
     expect(update).not.toHaveBeenCalled();
-    expect(deleteMany).toHaveBeenCalledWith({ where: { id: 'evt_1', processedAt: null } });
+    expect(deleteMany).toHaveBeenCalledWith({
+      where: { id: 'evt_1', processedAt: null, claimedAt: create.mock.calls[0][0].data.claimedAt },
+    });
+  });
+
+  it('releases only its own claim, scoped by the claimedAt it holds', async () => {
+    const claimedAt = new Date(Date.now() - WEBHOOK_LEASE_MS - 1000);
+    create.mockRejectedValue(uniqueViolation());
+    findUnique.mockResolvedValue({ id: 'evt_1', processedAt: null, claimedAt });
+    handleWebhookEvent.mockRejectedValue(new Error('boom'));
+
+    await expect(processWebhookEvent(EVENT)).rejects.toThrow('boom');
+
+    const takeoverClaim = updateMany.mock.calls[0][0].data.claimedAt;
+    expect(takeoverClaim.getTime()).not.toBe(claimedAt.getTime());
+    expect(deleteMany).toHaveBeenCalledWith({
+      where: { id: 'evt_1', processedAt: null, claimedAt: takeoverClaim },
+    });
   });
 
   it('still rethrows the handler error when releasing the claim fails', async () => {
