@@ -204,7 +204,7 @@ export default function ProfilePage() {
           </CardHeader>
           <CardContent>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+              <form noValidate onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                 {/* Email (Read-only) */}
                 <div className="space-y-2">
                   <Label htmlFor="profile-email">Email</Label>
