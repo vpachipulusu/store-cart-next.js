@@ -137,13 +137,44 @@ export async function logoutAction(): Promise<AuthActionResponse> {
 }
 
 /**
- * Verify token and sync user with database
+ * Explicit sign-in (login, signup, OAuth): verifies the token, syncs the user, mints the session
+ * cookie and records ONE login-history row (plus the new-device notice).
  */
 export async function verifyTokenAction(idToken: string): Promise<AuthActionResponse> {
+  return establishSession(idToken, { isExplicitSignIn: true });
+}
+
+/**
+ * Session refresh (Firebase token refresh, /verify-email re-check): same verification, user sync and
+ * cookie as a sign-in, but records no login history and sends no new-device notice (KAN-163).
+ * It only counts as a refresh when a current, unrevoked session cookie for the same uid exists;
+ * otherwise it is treated as an explicit sign-in so a bare ID token can never mint a session silently.
+ */
+export async function refreshSessionAction(idToken: string): Promise<AuthActionResponse> {
+  return establishSession(idToken, { isExplicitSignIn: false });
+}
+
+async function hasMatchingActiveSession(uid: string): Promise<boolean> {
+  const existing = (await cookies()).get('session')?.value;
+  if (!existing) return false;
+  try {
+    // checkRevoked = true; email_verified is deliberately not required (/verify-email runs unverified).
+    const claims = await getAdminAuth().verifySessionCookie(existing, true);
+    return claims.uid === uid;
+  } catch {
+    return false;
+  }
+}
+
+async function establishSession(
+  idToken: string,
+  { isExplicitSignIn: requestedExplicit }: { isExplicitSignIn: boolean }
+): Promise<AuthActionResponse> {
   try {
     // Verify Firebase ID token
     const decodedToken = await getAdminAuth().verifyIdToken(idToken);
     const { uid, email, email_verified } = decodedToken;
+    const isExplicitSignIn = requestedExplicit || !(await hasMatchingActiveSession(uid));
 
     if (!email) {
       return {
@@ -207,11 +238,11 @@ export async function verifyTokenAction(idToken: string): Promise<AuthActionResp
         await notifyEmailVerified(user.id);
       }
 
-      // Update last login and sync displayName/avatar from Firebase
+      // Update last login (explicit sign-ins only) and sync displayName/avatar from Firebase
       await db.user.update({
         where: { id: user.id },
         data: {
-          lastLoginAt: new Date(),
+          ...(isExplicitSignIn ? { lastLoginAt: new Date() } : {}),
           emailVerified: email_verified || user.emailVerified,
           displayName: firebaseUser.displayName || user.displayName,
           avatarUrl: firebaseUser.photoURL || user.avatarUrl,
@@ -219,30 +250,32 @@ export async function verifyTokenAction(idToken: string): Promise<AuthActionResp
       });
     }
 
-    // Get location from IP address
-    const location = await getLocationFromIP(ipAddress);
+    if (isExplicitSignIn) {
+      // Get location from IP address
+      const location = await getLocationFromIP(ipAddress);
 
-    // Check if this is a new device (no previous login with same userAgent)
-    if (userAgent) {
-      const previousLogin = await db.loginHistory.findFirst({
-        where: { userId: user.id, userAgent },
-      });
-      if (!previousLogin) {
-        await notifyNewDeviceLogin(user.id, ipAddress);
+      // Check if this is a new device (no previous login with same userAgent)
+      if (userAgent) {
+        const previousLogin = await db.loginHistory.findFirst({
+          where: { userId: user.id, userAgent },
+        });
+        if (!previousLogin) {
+          await notifyNewDeviceLogin(user.id, ipAddress);
+        }
       }
-    }
 
-    // Record login history
-    await db.loginHistory.create({
-      data: {
-        userId: user.id,
-        ipAddress,
-        userAgent,
-        location,
-        successful: true,
-        loginAt: new Date(),
-      },
-    });
+      // Record login history
+      await db.loginHistory.create({
+        data: {
+          userId: user.id,
+          ipAddress,
+          userAgent,
+          location,
+          successful: true,
+          loginAt: new Date(),
+        },
+      });
+    }
 
     // Set session cookie
     const expiresIn = 60 * 60 * 24 * 5 * 1000; // 5 days in ms (for Firebase)
