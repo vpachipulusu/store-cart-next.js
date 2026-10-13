@@ -1,22 +1,23 @@
 /**
  * Script to seed default app settings
- * Run with: node scripts/seed-settings.mjs
+ * Run with: tsx scripts/seed-settings.mjs
  */
 
 import { PrismaClient } from '@prisma/client';
+import { siteConfig } from '../src/config/site.ts';
 
 const prisma = new PrismaClient();
 
 const defaultSettings = [
   {
     key: 'app_name',
-    value: 'SaaS Boilerplate',
+    value: siteConfig.name,
     category: 'general',
     description: 'Application name displayed throughout the platform',
   },
   {
     key: 'support_email',
-    value: 'support@example.com',
+    value: siteConfig.supportEmail,
     category: 'general',
     description: 'Primary support contact email',
   },

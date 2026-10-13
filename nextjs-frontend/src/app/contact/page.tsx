@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { siteConfig } from '@/config/site';
 import { Mail, Phone, MapPin, Send } from 'lucide-react';
 
 export const metadata = {
@@ -25,8 +26,8 @@ export default async function ContactPage({
         <div className="mb-12 text-center">
           <h1 className="mb-4 text-4xl tracking-tight">Contact Us</h1>
           <p className="mx-auto max-w-2xl text-xl text-muted-foreground">
-            Have questions? We&apos;d love to hear from you. Send us a message and we&apos;ll respond as soon
-            as possible.
+            Have questions? We&apos;d love to hear from you. Send us a message and we&apos;ll
+            respond as soon as possible.
           </p>
           {selectedPlan && (
             <p className="mt-4 text-sm text-primary">
@@ -101,7 +102,11 @@ export default async function ContactPage({
                     />
                   </div>
 
-                  <Button type="submit" size="lg" className="w-full bg-theme-accent text-white hover:bg-theme-accent-dark">
+                  <Button
+                    type="submit"
+                    size="lg"
+                    className="w-full bg-theme-accent text-white hover:bg-theme-accent-dark"
+                  >
                     <Send className="mr-2 h-4 w-4" />
                     Send Message
                   </Button>
@@ -127,7 +132,7 @@ export default async function ContactPage({
                   </div>
                   <div>
                     <p className="font-medium">Email</p>
-                    <p className="text-sm text-muted-foreground">support@example.com</p>
+                    <p className="text-sm text-muted-foreground">{siteConfig.supportEmail}</p>
                   </div>
                 </div>
 

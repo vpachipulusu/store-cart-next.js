@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/nextjs';
+import { siteConfig } from '@/config/site';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,7 +67,12 @@ function getWinstonLogger(): WinstonLogger | null {
     // File transports run in all environments — Winston streams are async (non-blocking)
     const instance = winston.createLogger({
       level: LOG_LEVEL,
-      defaultMeta: { service: 'saas-boilerplate' },
+      defaultMeta: {
+        service: siteConfig.name
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-'),
+      },
       transports: [
         new winston.transports.DailyRotateFile({
           dirname: LOG_DIR,
