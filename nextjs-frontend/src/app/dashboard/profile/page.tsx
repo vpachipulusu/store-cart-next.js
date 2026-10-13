@@ -28,6 +28,7 @@ import {
   FormMessage,  
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Loader2, Upload, User as UserIcon } from "lucide-react";
@@ -220,8 +221,9 @@ export default function ProfilePage() {
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                 {/* Email (Read-only) */}
                 <div className="space-y-2">
-                  <FormLabel>Email</FormLabel>
+                  <Label htmlFor="profile-email">Email</Label>
                   <Input
+                    id="profile-email"
                     value={userData?.email || ""}
                     disabled
                     className="bg-muted"
