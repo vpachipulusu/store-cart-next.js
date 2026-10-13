@@ -1,5 +1,10 @@
 import { test, expect } from './helpers/fixtures';
-import { STORAGE_STATE, signInWithSavedSession, waitForPageReady } from './helpers/e2e-utils';
+import {
+  STORAGE_STATE,
+  clickNavLink,
+  signInWithSavedSession,
+  waitForPageReady,
+} from './helpers/e2e-utils';
 
 /**
  * Admin Dashboard E2E Tests
@@ -72,31 +77,31 @@ test.describe('Admin Dashboard', () => {
     test('should navigate to all admin sections via sidebar', async ({ page }) => {
       const sidebar = page.locator('aside');
       // Users
-      await sidebar.getByRole('link', { name: /^users$/i }).click();
+      await clickNavLink(page, sidebar.getByRole('link', { name: /^users$/i }));
       await expect(page).toHaveURL(/\/admin\/users/);
 
       // Subscriptions
-      await sidebar.getByRole('link', { name: /^subscriptions$/i }).click();
+      await clickNavLink(page, sidebar.getByRole('link', { name: /^subscriptions$/i }));
       await expect(page).toHaveURL(/\/admin\/subscriptions/);
 
       // Analytics
-      await sidebar.getByRole('link', { name: /^analytics$/i }).click();
+      await clickNavLink(page, sidebar.getByRole('link', { name: /^analytics$/i }));
       await expect(page).toHaveURL(/\/admin\/analytics/);
 
       // SEO
-      await sidebar.getByRole('link', { name: /^seo$/i }).click();
+      await clickNavLink(page, sidebar.getByRole('link', { name: /^seo$/i }));
       await expect(page).toHaveURL(/\/admin\/seo/);
 
       // Settings
-      await sidebar.getByRole('link', { name: /^settings$/i }).click();
+      await clickNavLink(page, sidebar.getByRole('link', { name: /^settings$/i }));
       await expect(page).toHaveURL(/\/admin\/settings/);
 
       // Audit Logs
-      await sidebar.getByRole('link', { name: /^audit logs$/i }).click();
+      await clickNavLink(page, sidebar.getByRole('link', { name: /^audit logs$/i }));
       await expect(page).toHaveURL(/\/admin\/audit-logs/);
 
       // Back to Dashboard
-      await sidebar.getByRole('link', { name: /^dashboard$/i }).click();
+      await clickNavLink(page, sidebar.getByRole('link', { name: /^dashboard$/i }));
       await expect(page).toHaveURL(/\/admin$/);
     });
   });
@@ -165,12 +170,12 @@ test.describe('Admin Dashboard', () => {
     });
 
     test('should navigate to users page from "View All Users"', async ({ page }) => {
-      await page.getByRole('link', { name: /view all users/i }).click();
+      await clickNavLink(page, page.getByRole('link', { name: /view all users/i }));
       await expect(page).toHaveURL(/\/admin\/users/);
     });
 
     test('should navigate to audit logs from "View All Logs"', async ({ page }) => {
-      await page.getByRole('link', { name: /view all logs/i }).click();
+      await clickNavLink(page, page.getByRole('link', { name: /view all logs/i }));
       await expect(page).toHaveURL(/\/admin\/audit-logs/);
     });
   });

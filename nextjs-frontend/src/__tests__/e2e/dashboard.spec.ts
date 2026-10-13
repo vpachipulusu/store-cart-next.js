@@ -1,5 +1,5 @@
 import { test, expect } from './helpers/fixtures';
-import { STORAGE_STATE, waitForPageReady } from './helpers/e2e-utils';
+import { STORAGE_STATE, clickNavLink, waitForPageReady } from './helpers/e2e-utils';
 
 /**
  * Customer Dashboard E2E Tests
@@ -142,19 +142,19 @@ test.describe('Customer Dashboard', () => {
 
     test('should navigate between dashboard pages', async ({ page }) => {
       // Navigate to Profile
-      await page.getByRole('link', { name: /profile/i }).first().click();
+      await clickNavLink(page, page.getByRole('link', { name: /profile/i }).first());
       await expect(page).toHaveURL(/\/dashboard\/profile/);
 
       // Navigate to Settings
-      await page.getByRole('link', { name: /settings/i }).first().click();
+      await clickNavLink(page, page.getByRole('link', { name: /settings/i }).first());
       await expect(page).toHaveURL(/\/dashboard\/settings/);
 
       // Navigate to Security
-      await page.getByRole('link', { name: /security/i }).first().click();
+      await clickNavLink(page, page.getByRole('link', { name: /security/i }).first());
       await expect(page).toHaveURL(/\/dashboard\/security/);
 
       // Navigate back to Home
-      await page.getByRole('link', { name: /^home$/i }).click();
+      await clickNavLink(page, page.getByRole('link', { name: /^home$/i }));
       await expect(page).toHaveURL(/\/dashboard$/);
     });
   });

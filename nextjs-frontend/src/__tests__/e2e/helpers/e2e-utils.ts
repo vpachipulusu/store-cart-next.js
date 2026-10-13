@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { type Page, type BrowserContext, type Response, expect } from '@playwright/test';
+import { type Page, type BrowserContext, type Locator, type Response, expect } from '@playwright/test';
 
 /**
  * Test credentials for E2E tests.
@@ -149,6 +149,17 @@ export async function useDistinctClientIp(page: Page): Promise<void> {
     (route) =>
       route.continue({ headers: { ...route.request().headers(), 'x-forwarded-for': clientIp } })
   );
+}
+
+/**
+ * Click a link the way a person does: point at it, let the route prefetch that the pointer starts finish, then
+ * click. Next.js starts a prefetch on hover; a click that lands while it is in flight can be lost (see
+ * helpers/fixtures.ts), which a person's slower hover-then-click never triggers.
+ */
+export async function clickNavLink(page: Page, link: Locator): Promise<void> {
+  await link.hover();
+  await waitForRouterIdle(page);
+  await link.click();
 }
 
 /**
