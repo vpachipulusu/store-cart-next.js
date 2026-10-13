@@ -9,7 +9,7 @@
  *   not match the current e2e env.
  */
 import { spawnSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import e2eEnv from './e2e-env.cjs';
 
@@ -28,6 +28,9 @@ try {
   console.error(error.message);
   process.exit(1);
 }
+
+// Start clean: stale generated types from deleted routes would fail the type check. This is our own output folder.
+rmSync(E2E_DIST_DIR, { recursive: true, force: true });
 
 const result = spawnSync('npx', ['next', 'build', '--webpack'], {
   stdio: 'inherit',
