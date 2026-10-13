@@ -1,23 +1,17 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
 import {
   getUserProfileAction,
   updateUserProfileAction,
   updateUserAvatarAction,
-} from "@/app/actions/user-actions";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+} from '@/app/actions/user-actions';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Form,
   FormControl,
@@ -25,20 +19,20 @@ import {
   FormField,
   FormItem,
   FormLabel,
-  FormMessage,  
-} from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Loader2, Upload, User as UserIcon } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+  FormMessage,
+} from '@/components/ui/form';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Loader2, Upload, User as UserIcon } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 const profileSchema = z.object({
-  displayName: z.string().min(2, "Display name must be at least 2 characters").optional(),
-  bio: z.string().max(500, "Bio must not exceed 500 characters").optional(),
+  displayName: z.string().min(2, 'Display name must be at least 2 characters').optional(),
+  bio: z.string().max(500, 'Bio must not exceed 500 characters').optional(),
   location: z.string().optional(),
-  website: z.string().url("Must be a valid URL").optional().or(z.literal("")),
+  website: z.string().url('Must be a valid URL').optional().or(z.literal('')),
   phoneNumber: z.string().optional(),
 });
 
@@ -50,16 +44,16 @@ export default function ProfilePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [userData, setUserData] = useState<any>(null);
-  const [avatarUrl, setAvatarUrl] = useState<string>("");
+  const [avatarUrl, setAvatarUrl] = useState<string>('');
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
     defaultValues: {
-      displayName: "",
-      bio: "",
-      location: "",
-      website: "",
-      phoneNumber: "",
+      displayName: '',
+      bio: '',
+      location: '',
+      website: '',
+      phoneNumber: '',
     },
   });
 
@@ -74,30 +68,30 @@ export default function ProfilePage() {
 
       if (!result.success || !result.data) {
         toast({
-          title: "Error",
-          description: result.error || "Failed to load profile",
-          variant: "destructive",
+          title: 'Error',
+          description: result.error || 'Failed to load profile',
+          variant: 'destructive',
         });
         return;
       }
 
       const user = result.data.user;
       setUserData(user);
-      setAvatarUrl(user.avatarUrl || "");
+      setAvatarUrl(user.avatarUrl || '');
 
       form.reset({
-        displayName: user.displayName || "",
-        bio: user.bio || "",
-        location: user.location || "",
-        website: user.website || "",
-        phoneNumber: user.phoneNumber || "",
+        displayName: user.displayName || '',
+        bio: user.bio || '',
+        location: user.location || '',
+        website: user.website || '',
+        phoneNumber: user.phoneNumber || '',
       });
     } catch (error) {
-      console.error("Load profile error:", error);
+      console.error('Load profile error:', error);
       toast({
-        title: "Error",
-        description: "An unexpected error occurred",
-        variant: "destructive",
+        title: 'Error',
+        description: 'An unexpected error occurred',
+        variant: 'destructive',
       });
     } finally {
       setIsLoading(false);
@@ -112,25 +106,25 @@ export default function ProfilePage() {
 
       if (!result.success) {
         toast({
-          title: "Error",
-          description: result.error || "Failed to update profile",
-          variant: "destructive",
+          title: 'Error',
+          description: result.error || 'Failed to update profile',
+          variant: 'destructive',
         });
         return;
       }
 
       toast({
-        title: "Success",
-        description: "Profile updated successfully",
+        title: 'Success',
+        description: 'Profile updated successfully',
       });
 
       router.refresh();
     } catch (error) {
-      console.error("Update profile error:", error);
+      console.error('Update profile error:', error);
       toast({
-        title: "Error",
-        description: "An unexpected error occurred",
-        variant: "destructive",
+        title: 'Error',
+        description: 'An unexpected error occurred',
+        variant: 'destructive',
       });
     } finally {
       setIsSaving(false);
@@ -144,8 +138,8 @@ export default function ProfilePage() {
     // In a real app, upload to a storage service (e.g., Firebase Storage, AWS S3)
     // For now, we'll use a placeholder
     toast({
-      title: "Info",
-      description: "Avatar upload would happen here. Integrate with your storage service.",
+      title: 'Info',
+      description: 'Avatar upload would happen here. Integrate with your storage service.',
     });
   }
 
@@ -161,9 +155,7 @@ export default function ProfilePage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl tracking-tight">Profile</h1>
-        <p className="text-muted-foreground">
-          Manage your public profile information
-        </p>
+        <p className="text-muted-foreground">Manage your public profile information</p>
       </div>
 
       <div className="grid gap-6">
@@ -171,13 +163,11 @@ export default function ProfilePage() {
         <Card>
           <CardHeader>
             <CardTitle>Profile Picture</CardTitle>
-            <CardDescription>
-              Upload a photo to personalize your account
-            </CardDescription>
+            <CardDescription>Upload a photo to personalize your account</CardDescription>
           </CardHeader>
           <CardContent className="flex items-center gap-6">
             <Avatar className="h-24 w-24">
-              <AvatarImage src={avatarUrl} alt={userData?.displayName || "User"} />
+              <AvatarImage src={avatarUrl} alt={userData?.displayName || 'User'} />
               <AvatarFallback className="text-2xl">
                 {userData?.email?.charAt(0).toUpperCase() || <UserIcon />}
               </AvatarFallback>
@@ -201,9 +191,7 @@ export default function ProfilePage() {
                   onChange={handleAvatarUpload}
                 />
               </div>
-              <p className="text-xs text-muted-foreground">
-                JPG, PNG or GIF. Max size 2MB.
-              </p>
+              <p className="text-xs text-muted-foreground">JPG, PNG or GIF. Max size 2MB.</p>
             </div>
           </CardContent>
         </Card>
@@ -212,9 +200,7 @@ export default function ProfilePage() {
         <Card>
           <CardHeader>
             <CardTitle>Personal Information</CardTitle>
-            <CardDescription>
-              Update your personal details and public profile
-            </CardDescription>
+            <CardDescription>Update your personal details and public profile</CardDescription>
           </CardHeader>
           <CardContent>
             <Form {...form}>
@@ -224,13 +210,11 @@ export default function ProfilePage() {
                   <Label htmlFor="profile-email">Email</Label>
                   <Input
                     id="profile-email"
-                    value={userData?.email || ""}
+                    value={userData?.email || ''}
                     disabled
                     className="bg-muted"
                   />
-                  <FormDescription>
-                    Your email address cannot be changed
-                  </FormDescription>
+                  <FormDescription>Your email address cannot be changed</FormDescription>
                 </div>
 
                 {/* Display Name */}
@@ -296,11 +280,7 @@ export default function ProfilePage() {
                     <FormItem>
                       <FormLabel>Website</FormLabel>
                       <FormControl>
-                        <Input
-                          type="url"
-                          placeholder="https://yourwebsite.com"
-                          {...field}
-                        />
+                        <Input type="url" placeholder="https://yourwebsite.com" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -315,11 +295,7 @@ export default function ProfilePage() {
                     <FormItem>
                       <FormLabel>Phone Number</FormLabel>
                       <FormControl>
-                        <Input
-                          type="tel"
-                          placeholder="+1 (555) 000-0000"
-                          {...field}
-                        />
+                        <Input type="tel" placeholder="+1 (555) 000-0000" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -327,10 +303,12 @@ export default function ProfilePage() {
                 />
 
                 <div className="flex gap-4">
-                  <Button type="submit" disabled={isSaving} className="bg-theme-accent text-white hover:bg-theme-accent-dark">
-                    {isSaving && (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    )}
+                  <Button
+                    type="submit"
+                    disabled={isSaving}
+                    className="bg-theme-accent text-white hover:bg-theme-accent-dark"
+                  >
+                    {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Save Changes
                   </Button>
                   <Button
