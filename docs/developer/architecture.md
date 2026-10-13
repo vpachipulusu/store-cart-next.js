@@ -63,7 +63,7 @@ The repo is still the boilerplate with the target not yet built:
 1. The Firebase client SDK signs the user in and sends the ID token to the `verifyTokenAction` server action (`src/app/actions/auth-actions.ts`).
 2. `verifyTokenAction` creates a Firebase session cookie with `createSessionCookie` (5 days) and sets it as the httpOnly `session` cookie. It no longer sets an `email-verified` cookie (KAN-123); it deletes any left over from an older deployment, and returns `claimsEmailVerified` from the verified ID token.
 3. `src/proxy.ts` (the Next.js 16 proxy; the exported function is `proxy`) only checks that a credential exists. The protected pages (`/dashboard`, `/settings`, `/profile`, `/security`) and `/admin` need a `session` cookie; `/api/*` (except `/api/webhooks/` and `/api/health`) needs a `session` cookie or any `Bearer` header. It does not verify either value (KAN-137) and no longer reads the `email-verified` cookie (KAN-123): the edge cannot verify Firebase tokens, and that cookie is client-writable.
-3a. Email verification is enforced server-side, from the signed `email_verified` claim in the session cookie, by `src/lib/auth/verified-session.ts` (`verifyVerifiedSessionCookie` always checks revocation; `getVerifiedUserId` is for server actions). The dashboard and admin layouts, the dashboard page, the user/notification/subscription actions, the admin actions and `admin-helpers` all go through it. An unverified user is sent to `/verify-email` (pages) or gets `Unauthorized` (actions). The verify-email page re-mints the session cookie once Firebase reports the email verified. This is the legacy Next.js boundary; the FastAPI guards (KAN-37) do not count for it.
+   3a. Email verification is enforced server-side, from the signed `email_verified` claim in the session cookie, by `src/lib/auth/verified-session.ts` (`verifyVerifiedSessionCookie` always checks revocation; `getVerifiedUserId` is for server actions). The dashboard and admin layouts, the dashboard page, the user/notification/subscription actions, the admin actions and `admin-helpers` all go through it. An unverified user is sent to `/verify-email` (pages) or gets `Unauthorized` (actions). The verify-email page re-mints the session cookie once Firebase reports the email verified. This is the legacy Next.js boundary; the FastAPI guards (KAN-37) do not count for it.
 4. The admin role is verified server-side: the admin layout (`src/app/(admin)/admin/layout.tsx`) and each admin server action (`src/app/actions/admin/*`) verify the session cookie with Firebase Admin and look up the `adminUser` record.
 5. Vercel service bindings such as `BACKEND_API_URL` are not available in the proxy ([ADR-011](../adr/0011-single-vercel-project-with-services.md)).
 
@@ -110,20 +110,30 @@ Rules:
 - **Store databases (E7):** one Postgres database per store ([ADR-005](../adr/0005-per-store-database-access.md)). This is provisional until the latency spike KAN-115 reports.
 - **Store migrations** run from CI and never inside a request. Store migrations must be backward compatible.
 
+## Stripe webhook idempotency and release step
+
+`POST /api/webhooks/stripe` (KAN-128) verifies the signature first, then claims the Stripe event id in the `processed_stripe_events` table (Prisma model `ProcessedStripeEvent`, primary key = event id). The claim is a 60 second lease (`claimedAt`). A duplicate of an already processed event returns 200 without running the handler. A concurrent delivery that finds a live lease, a handler failure, or any database error returns a generic 500 so Stripe retries; a failed handler releases its claim. An expired lease is taken over with a conditional update. `processedAt` is set only after the handler succeeds. Unknown event types are recorded and return 200.
+
+**Release step (required):** run `npm run db:push` against the Preview, Test and Production databases **before** deploying this code. The repo has no Prisma migrations folder, so there is no migration file. If the table is missing, the webhook returns 500; Stripe retries for up to 3 days, so nothing is lost once the table exists.
+
+**Post-deploy check:** send a Stripe test event (for example `stripe trigger invoice.payment_succeeded` or the dashboard "Send test webhook"); expect a 200 and a `processed_stripe_events` row with `processedAt` set.
+
+**Retention:** rows can be pruned after 30 days (`receivedAt` is indexed); Stripe stops retrying after 3 days.
+
 ## Architecture decision records
 
-| ADR | Topic | Plan decisions |
-|---|---|---|
-| [001](../adr/0001-adopt-nextjs-fastapi-template.md) | Adopt the nextjs-fastapi-template backend | D20, D23 |
-| [002](../adr/0002-hosting-on-vercel.md) | Hosting: two Vercel projects and serverless services (two-project part superseded by ADR-011) | D10, D13, D18, D19 |
-| [003](../adr/0003-nextjs-to-fastapi-authentication.md) | Authentication from the Next.js server to FastAPI | D14, D21 |
-| [004](../adr/0004-backend-layering.md) | Backend layering | D15 |
-| [005](../adr/0005-per-store-database-access.md) | Per-store database access | D1, D15 |
-| [006](../adr/0006-docker-role.md) | Docker for local development and CI only | D20 |
-| [007](../adr/0007-rate-limit-keys.md) | Rate limits keyed by user, organisation or store | new |
-| [008](../adr/0008-api-client-generation.md) | Typed API client generated from OpenAPI | D16, D17 |
-| [009](../adr/0009-email-with-resend.md) | Email through Resend from the backend | D22 |
-| [010](../adr/0010-accounts-and-payments-model.md) | Account structure, seller of record and platform revenue | D3, D4, D9 |
-| [011](../adr/0011-single-vercel-project-with-services.md) | One Vercel project with services | D10, D13, D14 |
+| ADR                                                       | Topic                                                                                         | Plan decisions     |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------ |
+| [001](../adr/0001-adopt-nextjs-fastapi-template.md)       | Adopt the nextjs-fastapi-template backend                                                     | D20, D23           |
+| [002](../adr/0002-hosting-on-vercel.md)                   | Hosting: two Vercel projects and serverless services (two-project part superseded by ADR-011) | D10, D13, D18, D19 |
+| [003](../adr/0003-nextjs-to-fastapi-authentication.md)    | Authentication from the Next.js server to FastAPI                                             | D14, D21           |
+| [004](../adr/0004-backend-layering.md)                    | Backend layering                                                                              | D15                |
+| [005](../adr/0005-per-store-database-access.md)           | Per-store database access                                                                     | D1, D15            |
+| [006](../adr/0006-docker-role.md)                         | Docker for local development and CI only                                                      | D20                |
+| [007](../adr/0007-rate-limit-keys.md)                     | Rate limits keyed by user, organisation or store                                              | new                |
+| [008](../adr/0008-api-client-generation.md)               | Typed API client generated from OpenAPI                                                       | D16, D17           |
+| [009](../adr/0009-email-with-resend.md)                   | Email through Resend from the backend                                                         | D22                |
+| [010](../adr/0010-accounts-and-payments-model.md)         | Account structure, seller of record and platform revenue                                      | D3, D4, D9         |
+| [011](../adr/0011-single-vercel-project-with-services.md) | One Vercel project with services                                                              | D10, D13, D14      |
 
 All eleven ADRs were accepted by the product owner on 2026-10-12 (KAN-29). ADR-005's one-database-per-store choice (D1) stays provisional until the KAN-115 spike, and the two-project part of ADR-002 is superseded by ADR-011. The architect's review fixes to ADR-001, ADR-003, ADR-004, ADR-005 and ADR-007 are merged.

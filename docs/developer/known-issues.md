@@ -48,7 +48,7 @@ Open bug tickets from the KAN-113 parity inventory (council triage, 2026-10-11).
 - KAN-125: 2FA is never checked at login (confirmed).
 - KAN-126: profile actions return the user row, including `twoFactorSecret` (partial: `updateUserProfileAction` leaks the full row).
 - KAN-127: open redirects in the checkout and billing-portal return URLs (confirmed).
-- KAN-128: the Stripe webhook acknowledges failed events and is not idempotent (confirmed).
+- KAN-128: the Stripe webhook acknowledged failed events and was not idempotent (fixed: failures return 500 so Stripe retries, and event ids are deduplicated; see [Stripe webhook idempotency and release step](architecture.md#stripe-webhook-idempotency-and-release-step)). Run `npm run db:push` on Preview, Test and Production before deploying.
 - KAN-129: raw error messages, open CORS and no real rate limiting in auth paths (partial: raw errors and missing rate limiting confirmed; open CORS not reproducible).
 - KAN-130: unauthenticated `/api/test-logging` route (confirmed; deleted in KAN-146).
 - KAN-131: move the e2e test accounts to a separate Firebase project and delete them before launch.

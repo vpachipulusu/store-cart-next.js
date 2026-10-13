@@ -1,9 +1,11 @@
 /**
  * Idempotent Stripe webhook processing (KAN-128)
  *
- * Records each Stripe event id (unique primary key) so a retried or duplicate
- * delivery is not applied twice. A row without processedAt means an earlier
- * attempt failed, so the event is processed again.
+ * Each Stripe event id is claimed by inserting a row (primary key). The claim
+ * is a lease (claimedAt): a concurrent delivery that finds a live lease fails
+ * so Stripe retries later, and only an expired lease can be taken over, with a
+ * conditional update that must affect exactly one row. processedAt is set only
+ * after the handler succeeds; on failure the claim is released.
  */
 
 import type Stripe from 'stripe';
@@ -14,7 +16,16 @@ import { handleWebhookEvent } from './webhooks';
 
 export type WebhookProcessingResult = 'processed' | 'duplicate';
 
+export const WEBHOOK_LEASE_MS = 60_000;
+
 const UNIQUE_CONSTRAINT_CODE = 'P2002';
+
+export class WebhookInProgressError extends Error {
+  constructor(eventId: string) {
+    super(`Stripe event ${eventId} is being processed by another delivery`);
+    this.name = 'WebhookInProgressError';
+  }
+}
 
 function isUniqueViolation(error: unknown): boolean {
   return (
@@ -22,9 +33,43 @@ function isUniqueViolation(error: unknown): boolean {
   );
 }
 
+/** Returns 'duplicate' if already processed; throws if another delivery holds the claim. */
+async function claimExistingEvent(eventId: string): Promise<'claimed' | 'duplicate'> {
+  const existing = await db.processedStripeEvent.findUnique({ where: { id: eventId } });
+  if (!existing) {
+    // Released between our insert and read: let Stripe retry.
+    throw new WebhookInProgressError(eventId);
+  }
+  if (existing.processedAt) {
+    logger.info(`Skipping duplicate Stripe event ${eventId}`);
+    return 'duplicate';
+  }
+  if (Date.now() - existing.claimedAt.getTime() < WEBHOOK_LEASE_MS) {
+    throw new WebhookInProgressError(eventId);
+  }
+
+  const takeover = await db.processedStripeEvent.updateMany({
+    where: { id: eventId, processedAt: null, claimedAt: existing.claimedAt },
+    data: { claimedAt: new Date() },
+  });
+  if (takeover.count !== 1) {
+    throw new WebhookInProgressError(eventId);
+  }
+  logger.warn(`Took over expired claim on Stripe event ${eventId}`);
+  return 'claimed';
+}
+
+async function releaseClaim(eventId: string): Promise<void> {
+  try {
+    await db.processedStripeEvent.deleteMany({ where: { id: eventId, processedAt: null } });
+  } catch (error) {
+    logger.error(`Failed to release claim on Stripe event ${eventId}:`, error);
+  }
+}
+
 /**
- * Process an event once. Throws if the handler or the bookkeeping fails, so the
- * caller can ask Stripe to retry.
+ * Process an event once. Throws if the handler or the bookkeeping fails, or if
+ * another delivery is processing it, so the caller asks Stripe to retry.
  */
 export async function processWebhookEvent(event: Stripe.Event): Promise<WebhookProcessingResult> {
   try {
@@ -33,15 +78,17 @@ export async function processWebhookEvent(event: Stripe.Event): Promise<WebhookP
     if (!isUniqueViolation(error)) {
       throw error;
     }
-    const existing = await db.processedStripeEvent.findUnique({ where: { id: event.id } });
-    if (existing?.processedAt) {
-      logger.info(`Skipping duplicate Stripe event ${event.id}`);
+    if ((await claimExistingEvent(event.id)) === 'duplicate') {
       return 'duplicate';
     }
-    logger.warn(`Reprocessing Stripe event ${event.id} after an earlier failed attempt`);
   }
 
-  await handleWebhookEvent(event);
+  try {
+    await handleWebhookEvent(event);
+  } catch (error) {
+    await releaseClaim(event.id);
+    throw error;
+  }
 
   await db.processedStripeEvent.update({
     where: { id: event.id },
