@@ -1,16 +1,18 @@
 import json
-from pathlib import Path
-from app.main import app
 import os
+from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
+
+from app.main import app
 
 load_dotenv()
 
 OUTPUT_FILE = os.getenv("OPENAPI_OUTPUT_FILE")
 
 
-def generate_openapi_schema(output_file):
+def generate_openapi_schema(output_file: str | Path) -> None:
     schema = app.openapi()
     output_path = Path(output_file)
 
@@ -20,7 +22,7 @@ def generate_openapi_schema(output_file):
     print(f"OpenAPI schema saved to {output_file}")
 
 
-def remove_operation_id_tag(schema):
+def remove_operation_id_tag(schema: dict[str, Any]) -> dict[str, Any]:
     """
     Removes the tag prefix from the operation IDs in the OpenAPI schema.
 
@@ -39,4 +41,6 @@ def remove_operation_id_tag(schema):
 
 
 if __name__ == "__main__":
+    if OUTPUT_FILE is None:
+        raise SystemExit("Set OPENAPI_OUTPUT_FILE to the schema output path.")
     generate_openapi_schema(OUTPUT_FILE)

@@ -27,9 +27,9 @@ Items are listed by area. Each one is either tracked by a Jira key or marked as 
 
 ## Backend
 
-- **mypy reports existing errors.** A bare `uv run mypy` (it checks `app` and `commands`) found 31 errors on 2026-10-12. Errors from template code go with KAN-30.
-- **No `/health` route.** The foundation check requires `GET /health`. Untracked.
-- **Template configuration remains.** `app/config.py` still requires fastapi-users secrets (`ACCESS_SECRET_KEY`, `RESET_PASSWORD_SECRET_KEY`, `VERIFICATION_SECRET_KEY`), and the `Item` example model and routes are still present. Removed in KAN-30.
+- **The backend has almost no features.** KAN-30 removed the template's auth, `Item` example and email. Only `GET /health` and `GET /health/ready` exist; auth (ADR-003), the platform and store models, error types, Sentry and rate limiting come in later stories.
+- **asyncpg and SQLAlchemy are not exercised against a real database in CI.** The backend tests use fake sessions, so the upgrades to asyncpg 0.32 and SQLAlchemy 2.1 are checked only by import, type checks and the offline Alembic run. KAN-112 verifies behaviour against Neon.
+- **The Alembic tree is an empty baseline.** One no-op revision `0001`; `alembic upgrade head` is not run by any build (ADR-011).
 - **Store database migrations are not built yet.** Planned for E7.
 
 ## Docs drift

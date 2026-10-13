@@ -1,5 +1,6 @@
 from fastapi.routing import APIRoute
-from app.utils import simple_generate_unique_route_id
+
+from app.api.ids import simple_generate_unique_route_id
 
 
 def test_simple_generate_unique_route_id(mocker):

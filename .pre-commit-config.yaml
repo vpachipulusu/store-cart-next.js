@@ -32,7 +32,7 @@ repos:
   # ---------------------------------------------------------------- backend
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Keep in step with the ruff version locked in fastapi_backend/uv.lock.
-    rev: v0.1.15
+    rev: v0.17.0
     hooks:
       - id: ruff
         name: ruff lint (fastapi_backend)

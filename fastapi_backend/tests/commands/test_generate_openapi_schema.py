@@ -1,7 +1,8 @@
 import json
 import os
-import pytest
 from pathlib import Path
+
+import pytest
 
 from commands.generate_openapi_schema import (
     generate_openapi_schema,

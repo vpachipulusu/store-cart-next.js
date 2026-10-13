@@ -18,16 +18,44 @@ store-cart-next.js/
 Key folders on `main`:
 
 - `nextjs-frontend/src/`: `app/` (route groups `(admin)`, `(auth)`, plus `actions/`, `api/`, `dashboard/`, `pricing/`), `components/`, `lib/` (`db/`, `firebase/`, `stripe/`, `services/`, `middleware/`), `config/`, `__tests__/` (`unit/`, `integration/`, `e2e/`).
-- `fastapi_backend/`: `app/` (`main.py`, `config.py`, `database.py`, `models.py`, `schemas.py`, `users.py`, `email.py`, `routes/`), `api/index.py` (template file; the root `vercel.json` uses `app.main:app` instead), `commands/` (OpenAPI generation), `alembic_migrations/`, `tests/`, `watcher.py`, `start.sh`, `Dockerfile`.
+- `fastapi_backend/`: `app/` (layered, see [Backend layout](#backend-layout-adr-004)), `api/index.py` (template file; the root `vercel.json` uses `app.main:app` instead), `commands/` (OpenAPI generation and check), `alembic_migrations/`, `tests/`, `watcher.py`, `start.sh`, `Dockerfile`, `TEMPLATE_LICENSE.txt` (the template's licence, kept as required).
+
+### Backend layout (ADR-004)
+
+KAN-30 adapted the template. The example `Item` model and routes, fastapi-users, fastapi-mail, fastapi-pagination and the template migrations are removed. What is built so far:
+
+```
+fastapi_backend/app/
+├── main.py              create_app(): title "StoreCart API", CORS, logging, mounts the v1 router; `app` is the Vercel entrypoint
+├── core/
+│   ├── config.py        pydantic-settings (DATABASE_URL and CORS_ORIGINS required, checked at startup)
+│   ├── base.py          SQLAlchemy declarative Base (no settings import, so Alembic can load it)
+│   ├── database.py      NullPool engine, session maker, SessionProvider protocol, DefaultSessionProvider
+│   └── logging.py       JSON logging to stdout
+├── api/
+│   ├── deps.py          FastAPI dependencies: get_session_provider, get_session, service factories
+│   ├── ids.py           OpenAPI operation ids
+│   └── v1/              routers: health.py (GET /health, GET /health/ready), router.py
+├── services/            business logic, no FastAPI imports (health.py)
+└── repositories/        SQLAlchemy queries; receive an AsyncSession, never create one (base.py, health.py)
+```
+
+Not built yet (the ADR describes them): `db/platform`, `db/store`, `tenancy/`, `core/errors`, Firebase auth, rate limiting.
+
+**Session seam.** Repositories take an `AsyncSession` in their constructor. The session comes from a `SessionProvider` (a `Protocol` in `core/database.py` with `session()`, an async context manager). `api/deps.get_session_provider()` returns the default provider (the platform database, NullPool). Tests override that one dependency with a fake provider. Per-store routing (ADR-005, E7) will add another provider implementation; it is interface only today.
+
+**Alembic.** The tree is reset to a single empty baseline revision `0001` (`alembic_migrations/versions/0001_empty_baseline.py`). Model stories add revisions on top with `alembic revision --autogenerate`. No build or CI step runs `alembic upgrade head` (ADR-011).
+
+**OpenAPI check.** `commands/check_openapi_schema.py` (pre-commit hook `openapi-schema-check`) still passes while `nextjs-frontend/openapi.json` does not exist; KAN-33 owns the client generation and will commit that file.
 
 ## Current state (`main`)
 
 The repo is still the boilerplate with the target not yet built:
 
 - **The frontend reaches the database itself.** Server actions, route handlers and admin pages use the Prisma client (`src/lib/db/client.ts`, schema in `prisma/schema.prisma`). Firebase Admin, Stripe and Resend are also called from the frontend.
-- **The backend is the unmodified template structure.** It has fastapi-users auth, an `Item` example model and routes, and fastapi-mail. The frontend does not call it yet.
+- **The backend is the adapted template (KAN-30).** It has only a health route, the layered `app/` structure and the session seam; there is no auth, no models and no email yet. The frontend does not call it yet.
 - **Root `vercel.json`** deploys one Vercel project with two services (ADR-011): `nextjs-frontend` is public, `fastapi_backend` is internal and reached through the `BACKEND_API_URL` binding. Migrations no longer run during the build.
-- **`app/database.py`** uses `NullPool`, which suits serverless.
+- **`app/core/database.py`** uses `NullPool`, which suits serverless.
 
 ### Current auth flow (`main`)
 

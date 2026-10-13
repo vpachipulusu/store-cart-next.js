@@ -100,7 +100,7 @@ BACKEND_API_URL=http://localhost:8000 npm run foundation:check
 The check (`scripts/foundation-done-check.cli.ts`) does three things:
 
 1. Scans every git-tracked and untracked, non-ignored text file under `nextjs-frontend/`. It flags references to `DATABASE_URL`, Firebase Admin, Stripe and Resend secrets, Prisma and `firebase-admin` imports, dynamic `process.env` reads, committed env files other than `.env.example`, and server-only dependencies in `package.json`.
-2. Requires `BACKEND_API_URL`, then checks `GET {BACKEND_API_URL}/health` (the backend has no `/health` route yet).
+2. Requires `BACKEND_API_URL`, then checks `GET {BACKEND_API_URL}/health` (the backend has a trivial `GET /health` since KAN-30).
 3. Runs the Chromium e2e suite with `CI=1` against FastAPI.
 
 It fails until KAN-51 (E6.1) removes the last server secrets and database access. The failure is expected until then.
@@ -113,8 +113,8 @@ uv run pytest
 ```
 
 - Config: `pytest.ini` sets `asyncio_mode = auto`.
-- Tests live in `fastapi_backend/tests/`. `conftest.py` builds its engine from `TEST_DATABASE_URL`.
-- pytest imports `app.config`, so `.env` must set `DATABASE_URL`, `ACCESS_SECRET_KEY`, `RESET_PASSWORD_SECRET_KEY`, `VERIFICATION_SECRET_KEY` and `CORS_ORIGINS`, and `TEST_DATABASE_URL` must point at a reachable test database. Without them pytest exits with code 4 at import. Run `cp .env.example .env` and edit the two URLs (the example's test port 5433 is wrong here; see [getting-started](getting-started.md#local-databases)).
+- Tests live in `fastapi_backend/tests/`, mirroring `app/` (`api/`, `core/`, `services/`, `repositories/`, `commands/`). They need **no database**: `tests/fakes.py` has a `FakeSession` and a `FakeSessionProvider` that implements the `SessionProvider` protocol, and tests inject it with `app.dependency_overrides[get_session_provider]` (clear overrides after the test). A repository test shows a repository working with an injected fake provider (ADR-004, ADR-005).
+- `tests/conftest.py` sets placeholder `DATABASE_URL` and `CORS_ORIGINS` (`setdefault`) because `app.core.config` reads them at import. A value already in the environment wins.
 
 Lint and types, using the dev-group tools:
 
@@ -125,8 +125,8 @@ uv run mypy
 ```
 
 - A bare `uv run mypy` checks `app` and `commands` (`mypy.ini` sets `files = app, commands`), the same scope as the pre-commit hook.
-- It reports existing errors: 31 on 2026-10-12, from template code (KAN-30). Do not add new ones. `fastapi_backend/mypy-baseline.txt` holds the expected count and CI fails when the count differs from it: higher means new errors, lower means you must lower the baseline to the new count in the same PR. CI also fails if mypy crashes, exits 1 without reporting errors, or the baseline file is empty or not a number.
-- Coverage: `uv run pytest --cov`. `fail_under` in `[tool.coverage.report]` of `pyproject.toml` is the backend ratchet (baseline 84.13% lines of `app` and `commands` on 2026-10-12): raise it, never lower it.
+- mypy is blocking and runs in strict mode with zero errors. KAN-30 removed the template code behind the old 31-error baseline, fixed the rest, dropped `follow_imports = skip` from `mypy.ini` and deleted `mypy-baseline.txt`. CI runs a plain `uv run mypy`.
+- Coverage: `uv run pytest --cov`. `fail_under` in `[tool.coverage.report]` of `pyproject.toml` is the backend ratchet (84.13% lines of `app` and `commands` when set on 2026-10-12; about 98% after KAN-30): raise it, never lower it.
 - Frontend lint: `npm run lint` runs `eslint .` with the flat config `eslint.config.mjs` (fixed in KAN-111).
 
 ## OpenAPI check
@@ -149,7 +149,7 @@ CI runs the pre-commit `openapi-schema-check` hook on changed backend files. Fai
 | Detect changed paths | always | `dorny/paths-filter` decides frontend / backend |
 | Pre-commit (changed files) | pull requests | `pre-commit run --from-ref origin/<base> --to-ref HEAD` |
 | Frontend (`frontend.yml`) | `nextjs-frontend/**` or shared config | lint, typecheck, Vitest with coverage ratchet, `npm run build` with placeholder `NEXT_PUBLIC_*` only |
-| Backend (`backend.yml`) | `fastapi_backend/**` or shared config | ruff lint and format, mypy against baseline, pytest with coverage ratchet (Postgres service) |
+| Backend (`backend.yml`) | `fastapi_backend/**` or shared config | ruff lint and format, blocking mypy, pytest with coverage ratchet (no database service; tests use fakes) |
 | E2E (`e2e.yml`) | frontend changed and repo variable `E2E_ENABLED=true` | Chromium Playwright, secrets from environment `e2e-test`. Not in the gate until KAN-113 |
 | **CI gate** | always | passes when every job above (except E2E) succeeded or was skipped |
 
@@ -159,5 +159,5 @@ Shared config is `.github/**`, `.pre-commit-config.yaml`, root `package.json` / 
 
 - Frontend: `npm run test:unit`, `npm run typecheck`, `npm run lint` and `npm run build`.
 - Coverage: do not let it drop below the ratchet; CI enforces it.
-- Backend: `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .`, and `uv run mypy` with no new errors.
+- Backend: `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .`, and `uv run mypy` (zero errors).
 - Chromium e2e when the change is user-facing.
