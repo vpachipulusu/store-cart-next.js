@@ -85,12 +85,10 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(loginUrl);
     }
 
-    // Enforce email verification for protected routes
-    const emailVerified = request.cookies.get('email-verified')?.value;
-    if (emailVerified === 'false') {
-      const verifyUrl = new URL('/verify-email', request.url);
-      return NextResponse.redirect(verifyUrl);
-    }
+    // Email verification is NOT decided here (KAN-123). The edge cannot verify Firebase tokens, and the
+    // `email-verified` cookie is client-writable, so it must never gate access. The signed
+    // `email_verified` claim is enforced server-side by `@/lib/auth/verified-session`, which the
+    // dashboard/admin layouts, server actions and admin helpers call.
   }
 
   // Admin routes

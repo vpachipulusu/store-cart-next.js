@@ -13,7 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { auth } from "@/lib/firebase/client";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, type User } from "firebase/auth";
 import { resendVerificationEmail } from "@/lib/firebase/auth-helpers";
 import { verifyTokenAction } from "@/app/actions/auth-actions";
 
@@ -34,9 +34,10 @@ export default function VerifyEmailPage() {
 
       setUserEmail(user.email || "");
 
-      // Check if email is already verified
+      // Already verified in Firebase: refresh the server session first. The dashboard checks the signed
+      // claim in the session cookie, so redirecting before it is re-minted would bounce straight back.
       if (user.emailVerified) {
-        router.push("/dashboard");
+        void refreshSessionAndContinue(user);
       }
     });
 
@@ -71,15 +72,22 @@ export default function VerifyEmailPage() {
     }
   };
 
+  const refreshSessionAndContinue = async (user: User) => {
+    const idToken = await user.getIdToken(true);
+    const result = await verifyTokenAction(idToken);
+    if (result.success && result.data?.claimsEmailVerified === true) {
+      router.push("/dashboard");
+    } else {
+      setError("Could not confirm your verified email yet. Please try again in a moment.");
+    }
+  };
+
   const handleRefresh = async () => {
     const user = auth.currentUser;
     if (user) {
       await user.reload();
       if (user.emailVerified) {
-        // Get fresh token and update session cookies (including email-verified)
-        const idToken = await user.getIdToken(true);
-        await verifyTokenAction(idToken);
-        router.push("/dashboard");
+        await refreshSessionAndContinue(user);
       } else {
         setError("Email not verified yet. Please check your inbox.");
       }

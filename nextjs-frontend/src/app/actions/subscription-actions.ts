@@ -4,10 +4,10 @@ import { cookies } from 'next/headers';
 import { z } from 'zod';
 import Stripe from 'stripe';
 import { getStripeServerClient } from '@/lib/stripe/server';
-import { getAdminAuth } from '@/lib/firebase/admin';
 import { db } from '@/lib/db/client';
 import crypto from 'crypto';
 import { logger } from '@/lib/logger';
+import { getVerifiedUserId } from '@/lib/auth/verified-session';
 
 /**
  * Initialize Stripe
@@ -21,31 +21,6 @@ type SubscriptionActionResponse<T = any> = {
   data?: T;
   error?: string;
 };
-
-/**
- * Get authenticated user ID from session
- */
-async function getAuthenticatedUserId(): Promise<string | null> {
-  try {
-    const cookieStore = await cookies();
-    const sessionCookie = cookieStore.get('session')?.value;
-
-    if (!sessionCookie) {
-      return null;
-    }
-
-    const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, true);
-    const user = await db.user.findUnique({
-      where: { firebaseUid: decodedClaims.uid },
-      select: { id: true },
-    });
-
-    return user?.id || null;
-  } catch (error) {
-    logger.error('Authentication error:', error);
-    return null;
-  }
-}
 
 /**
  * Server-side price ID mapping (env vars are only available on the server)
@@ -103,7 +78,7 @@ const createCheckoutSessionSchema = z.object({
  */
 export async function getSubscriptionStatusAction(): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -177,7 +152,7 @@ export async function createCheckoutSessionAction(
   cancelUrl: string
 ): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -308,7 +283,7 @@ export async function verifyUpgradeSessionAction(): Promise<
   }>
 > {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -383,7 +358,7 @@ export async function createBillingPortalSessionAction(
   returnUrl: string
 ): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -429,7 +404,7 @@ export async function createBillingPortalSessionAction(
  */
 export async function cancelSubscriptionAction(): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -475,7 +450,7 @@ export async function cancelSubscriptionAction(): Promise<SubscriptionActionResp
  */
 export async function resumeSubscriptionAction(): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -557,7 +532,7 @@ export async function updateSubscriptionAction(
   newPriceId: string
 ): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -617,7 +592,7 @@ export async function getSubscriptionInvoicesAction(
   limit = 10
 ): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -674,7 +649,7 @@ export async function getSubscriptionInvoicesAction(
  */
 export async function getUpcomingInvoiceAction(): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -722,7 +697,7 @@ export async function getUpcomingInvoiceAction(): Promise<SubscriptionActionResp
  */
 export async function hasActiveSubscriptionAction(): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -770,7 +745,7 @@ export async function hasActiveSubscriptionAction(): Promise<SubscriptionActionR
  */
 export async function getSubscriptionDetailsAction(): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return { success: false, error: 'Unauthorized' };
     }
@@ -845,7 +820,7 @@ export async function getSubscriptionDetailsAction(): Promise<SubscriptionAction
  */
 export async function getPaymentMethodsAction(): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return { success: false, error: 'Unauthorized' };
     }
@@ -901,7 +876,7 @@ export async function deletePaymentMethodAction(
   paymentMethodId: string
 ): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return { success: false, error: 'Unauthorized' };
     }
@@ -962,7 +937,7 @@ export async function setDefaultPaymentMethodAction(
   paymentMethodId: string
 ): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return { success: false, error: 'Unauthorized' };
     }

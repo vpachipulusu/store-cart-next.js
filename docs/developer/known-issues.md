@@ -43,7 +43,7 @@ Items are listed by area. Each one is either tracked by a Jira key or marked as 
 
 Open bug tickets from the KAN-113 parity inventory (council triage, 2026-10-11). Jira is the source of truth for their status.
 
-- KAN-123: the email-verified gate trusts a cookie the client can write (confirmed; fixed in the E3 port).
+- KAN-123: the email-verified gate trusted a cookie the client can write. Fixed on the legacy Next.js boundary: the signed `email_verified` claim is enforced server-side (`src/lib/auth/verified-session.ts`) and the proxy no longer reads the cookie. FastAPI enforcement (ADR-003) still lands with the E3 port.
 - KAN-124: admins can grant themselves the `*` permission (confirmed; fixed in the E5 port).
 - KAN-125: 2FA is never checked at login (confirmed).
 - KAN-126: profile actions return the user row, including `twoFactorSecret` (partial: `updateUserProfileAction` leaks the full row).

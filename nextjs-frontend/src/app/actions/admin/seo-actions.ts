@@ -2,9 +2,9 @@
 
 import { cookies } from 'next/headers';
 import { z } from 'zod';
-import { getAdminAuth } from '@/lib/firebase/admin';
 import { db } from '@/lib/db/client';
 import { logger } from '@/lib/logger';
+import { verifyVerifiedSessionCookie } from '@/lib/auth/verified-session';
 
 /**
  * Response type for admin SEO actions
@@ -27,7 +27,7 @@ async function getAuthenticatedAdmin() {
       return null;
     }
 
-    const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, true);
+    const decodedClaims = await verifyVerifiedSessionCookie(sessionCookie);
     const user = await db.user.findUnique({
       where: { firebaseUid: decodedClaims.uid },
       include: {

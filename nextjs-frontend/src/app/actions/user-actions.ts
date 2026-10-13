@@ -9,6 +9,7 @@ import { cancelSubscription } from '@/lib/stripe/subscriptions';
 import { notifyPasswordChanged } from '@/lib/utils/notifications';
 import { generateTOTPSecret, verifyTOTPToken } from '@/lib/utils/totp';
 import { logger } from '@/lib/logger';
+import { getVerifiedUserId } from '@/lib/auth/verified-session';
 
 /**
  * Response type for user actions
@@ -20,36 +21,11 @@ type UserActionResponse<T = any> = {
 };
 
 /**
- * Get authenticated user ID from session
- */
-async function getAuthenticatedUserId(): Promise<string | null> {
-  try {
-    const cookieStore = await cookies();
-    const sessionCookie = cookieStore.get('session')?.value;
-
-    if (!sessionCookie) {
-      return null;
-    }
-
-    const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, true);
-    const user = await db.user.findUnique({
-      where: { firebaseUid: decodedClaims.uid },
-      select: { id: true },
-    });
-
-    return user?.id || null;
-  } catch (error) {
-    logger.error('Authentication error:', error);
-    return null;
-  }
-}
-
-/**
  * Get user profile
  */
 export async function getUserProfileAction(): Promise<UserActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -107,7 +83,7 @@ export async function updateUserProfileAction(
   data: z.infer<typeof profileUpdateSchema>
 ): Promise<UserActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -154,7 +130,7 @@ export async function updateUserProfileAction(
  */
 export async function updateUserAvatarAction(avatarUrl: string): Promise<UserActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -196,7 +172,7 @@ export async function updateUserAvatarAction(avatarUrl: string): Promise<UserAct
  */
 export async function getUserSettingsAction(): Promise<UserActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -235,7 +211,7 @@ export async function updateUserSettingsAction(
   data: z.infer<typeof userSettingsSchema>
 ): Promise<UserActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -291,7 +267,7 @@ export async function getUserNotificationsAction(
   offset = 0
 ): Promise<UserActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -338,7 +314,7 @@ export async function markNotificationReadAction(
   notificationId: string
 ): Promise<UserActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -382,7 +358,7 @@ export async function markNotificationReadAction(
  */
 export async function markAllNotificationsReadAction(): Promise<UserActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -415,7 +391,7 @@ export async function deleteNotificationAction(
   notificationId: string
 ): Promise<UserActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -461,7 +437,7 @@ export async function getUserLoginHistoryAction(
   offset = 0
 ): Promise<UserActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -505,7 +481,7 @@ export async function changePasswordAction(
   newPassword: string
 ): Promise<UserActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -588,7 +564,7 @@ export async function changePasswordAction(
  */
 export async function exportUserDataAction(): Promise<UserActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -665,7 +641,7 @@ export async function exportUserDataAction(): Promise<UserActionResponse> {
  */
 export async function getLoginHistoryAction(limit = 10, offset = 0): Promise<UserActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -705,7 +681,7 @@ export async function getLoginHistoryAction(limit = 10, offset = 0): Promise<Use
  */
 export async function deleteAccountAction(): Promise<UserActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -773,7 +749,7 @@ export async function deleteUserAccountAction(): Promise<UserActionResponse> {
  */
 export async function initiate2FASetupAction(): Promise<UserActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) return { success: false, error: 'Unauthorized' };
 
     const user = await db.user.findUnique({ where: { id: userId } });
@@ -800,7 +776,7 @@ export async function initiate2FASetupAction(): Promise<UserActionResponse> {
  */
 export async function verify2FASetupAction(token: string): Promise<UserActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) return { success: false, error: 'Unauthorized' };
 
     const user = await db.user.findUnique({ where: { id: userId } });
@@ -828,7 +804,7 @@ export async function verify2FASetupAction(token: string): Promise<UserActionRes
  */
 export async function disable2FAAction(token: string): Promise<UserActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) return { success: false, error: 'Unauthorized' };
 
     const user = await db.user.findUnique({ where: { id: userId } });
@@ -856,7 +832,7 @@ export async function disable2FAAction(token: string): Promise<UserActionRespons
  */
 export async function get2FAStatusAction(): Promise<UserActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) return { success: false, error: 'Unauthorized' };
 
     const user = await db.user.findUnique({

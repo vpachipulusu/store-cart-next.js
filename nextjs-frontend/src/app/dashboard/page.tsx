@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
-import { redirect } from 'next/navigation';
-import { getAdminAuth } from '@/lib/firebase/admin';
+import { redirect, unstable_rethrow } from 'next/navigation';
+import { isEmailNotVerifiedError, verifyVerifiedSessionCookie } from '@/lib/auth/verified-session';
 import { db } from '@/lib/db/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -38,7 +38,7 @@ async function getUserData() {
       return null;
     }
 
-    const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, true);
+    const decodedClaims = await verifyVerifiedSessionCookie(sessionCookie);
 
     const user = await db.user.findUnique({
       where: { firebaseUid: decodedClaims.uid },
@@ -57,6 +57,10 @@ async function getUserData() {
 
     return user;
   } catch (error) {
+    unstable_rethrow(error);
+    if (isEmailNotVerifiedError(error)) {
+      redirect('/verify-email');
+    }
     // Expired/invalid session — clear cookies via route handler and redirect to login
     redirect('/api/auth/clear-session');
   }

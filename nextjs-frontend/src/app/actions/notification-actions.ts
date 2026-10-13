@@ -1,9 +1,8 @@
 'use server';
 
-import { cookies } from 'next/headers';
-import { getAdminAuth } from '@/lib/firebase/admin';
 import { db } from '@/lib/db/client';
 import { logger } from '@/lib/logger';
+import { getVerifiedUserId } from '@/lib/auth/verified-session';
 
 /**
  * Response type for notification actions
@@ -15,38 +14,13 @@ type NotificationActionResponse<T = any> = {
 };
 
 /**
- * Get authenticated user ID from session
- */
-async function getAuthenticatedUserId(): Promise<string | null> {
-  try {
-    const cookieStore = await cookies();
-    const sessionCookie = cookieStore.get('session')?.value;
-
-    if (!sessionCookie) {
-      return null;
-    }
-
-    const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, true);
-    const user = await db.user.findUnique({
-      where: { firebaseUid: decodedClaims.uid },
-      select: { id: true },
-    });
-
-    return user?.id || null;
-  } catch (error) {
-    logger.error('Authentication error:', error);
-    return null;
-  }
-}
-
-/**
  * Get recent notifications for authenticated user
  */
 export async function getNotificationsAction(
   limit: number = 10
 ): Promise<NotificationActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -90,7 +64,7 @@ export async function markNotificationAsReadAction(
   notificationId: string
 ): Promise<NotificationActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -137,7 +111,7 @@ export async function markNotificationAsReadAction(
  */
 export async function markAllNotificationsAsReadAction(): Promise<NotificationActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,
@@ -175,7 +149,7 @@ export async function deleteNotificationAction(
   notificationId: string
 ): Promise<NotificationActionResponse> {
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = await getVerifiedUserId();
     if (!userId) {
       return {
         success: false,

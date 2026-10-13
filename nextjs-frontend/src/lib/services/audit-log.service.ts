@@ -2,8 +2,8 @@
 
 import { db } from '@/lib/db/client';
 import { cookies } from 'next/headers';
-import { getAdminAuth } from '@/lib/firebase/admin';
 import { logger } from '@/lib/logger';
+import { verifyVerifiedSessionCookie } from '@/lib/auth/verified-session';
 
 export interface LogAuditParams {
   action: string;
@@ -27,7 +27,7 @@ export async function logAdminAction(params: LogAuditParams) {
 
     if (sessionCookie) {
       try {
-        const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, true);
+        const decodedClaims = await verifyVerifiedSessionCookie(sessionCookie);
         const user = await db.user.findUnique({
           where: { firebaseUid: decodedClaims.uid },
           select: { id: true },

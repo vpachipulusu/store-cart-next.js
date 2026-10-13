@@ -35,8 +35,14 @@ import DashboardLayout from '@/app/dashboard/layout';
 describe('DashboardLayout session check', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.cookieGet.mockReturnValue({ value: 'cookie-value' });
-    mocks.verifySessionCookie.mockResolvedValue({ uid: 'uid-1', email: 'a@b.test' });
+    mocks.cookieGet.mockImplementation((name: string) =>
+      name === 'session' ? { value: 'cookie-value' } : undefined
+    );
+    mocks.verifySessionCookie.mockResolvedValue({
+      uid: 'uid-1',
+      email: 'a@b.test',
+      email_verified: true,
+    });
     mocks.userFindUnique.mockResolvedValue({ id: 'u1', displayName: null, avatarUrl: null });
   });
 
@@ -47,6 +53,58 @@ describe('DashboardLayout session check', () => {
 
     expect(redirectTarget(error)).toBe('/login');
     expect(mocks.loggerError).not.toHaveBeenCalled();
+  });
+
+  describe('KAN-123: email-verified claim', () => {
+    const unverified = { uid: 'uid-1', email: 'a@b.test', email_verified: false };
+    const withCookies = (jar: Record<string, string>) =>
+      mocks.cookieGet.mockImplementation((name: string) =>
+        name in jar ? { value: jar[name] } : undefined
+      );
+
+    it('sends an unverified user to /verify-email', async () => {
+      mocks.verifySessionCookie.mockResolvedValue(unverified);
+
+      const error = await rejection(DashboardLayout({ children: null }));
+
+      expect(redirectTarget(error)).toBe('/verify-email');
+      expect(mocks.userFindUnique).not.toHaveBeenCalled();
+    });
+
+    it('does not trust a forged email-verified=true cookie', async () => {
+      withCookies({ session: 'cookie-value', 'email-verified': 'true' });
+      mocks.verifySessionCookie.mockResolvedValue(unverified);
+
+      const error = await rejection(DashboardLayout({ children: null }));
+
+      expect(redirectTarget(error)).toBe('/verify-email');
+    });
+
+    it('does not trust a missing email-verified cookie either way', async () => {
+      withCookies({ session: 'cookie-value' });
+      mocks.verifySessionCookie.mockResolvedValue(unverified);
+
+      expect(redirectTarget(await rejection(DashboardLayout({ children: null })))).toBe(
+        '/verify-email'
+      );
+    });
+
+    it('lets a verified user through even when the cookie is stale (false)', async () => {
+      withCookies({ session: 'cookie-value', 'email-verified': 'false' });
+
+      await expect(DashboardLayout({ children: null })).resolves.toBeDefined();
+      expect(navigationMock.redirect).not.toHaveBeenCalled();
+    });
+
+    it('checks revocation, and a revoked session clears the session', async () => {
+      const revoked = Object.assign(new Error('revoked'), { code: 'auth/session-cookie-revoked' });
+      mocks.verifySessionCookie.mockRejectedValue(revoked);
+
+      const error = await rejection(DashboardLayout({ children: null }));
+
+      expect(mocks.verifySessionCookie).toHaveBeenCalledWith('cookie-value', true);
+      expect(redirectTarget(error)).toBe('/api/auth/clear-session');
+    });
   });
 
   it('clears the session when the session cookie has expired', async () => {
