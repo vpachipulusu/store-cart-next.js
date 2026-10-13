@@ -15,7 +15,7 @@ import {
 import { auth } from '@/lib/firebase/client';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { resendVerificationEmail } from '@/lib/firebase/auth-helpers';
-import { verifyTokenAction } from '@/app/actions/auth-actions';
+import { refreshSessionAction } from '@/app/actions/auth-actions';
 
 export default function VerifyEmailPage() {
   const router = useRouter();
@@ -74,7 +74,7 @@ export default function VerifyEmailPage() {
 
   const refreshSessionAndContinue = async (user: User) => {
     const idToken = await user.getIdToken(true);
-    const result = await verifyTokenAction(idToken);
+    const result = await refreshSessionAction(idToken);
     if (result.success && result.data?.claimsEmailVerified === true) {
       router.push('/dashboard');
     } else {

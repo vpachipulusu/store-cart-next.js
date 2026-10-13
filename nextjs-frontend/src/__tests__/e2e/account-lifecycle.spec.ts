@@ -105,13 +105,13 @@ test.describe('Legacy browser account lifecycle', () => {
     await loginAsThrowawayAccount(page, throwawayAccount);
     await page.goto('/dashboard/security');
     await waitForPageReady(page);
-    // Legacy token-refresh subscriptions also record history; one login can add multiple rows.
-    await expect.poll(() => rows.count()).toBeGreaterThan(beforeLogin);
+    // Token refresh must not record history (KAN-163): one explicit sign-in adds exactly one row.
+    await expect.poll(() => rows.count()).toBe(beforeLogin + 1);
     const afterLogin = await rows.count();
     await expect(rows.getByText('Success', { exact: true })).toHaveCount(afterLogin);
     await page.reload();
     await waitForPageReady(page);
-    await expect.poll(() => rows.count()).toBeGreaterThanOrEqual(afterLogin);
+    await expect.poll(() => rows.count()).toBe(afterLogin);
     await expect(rows.getByText('Failed', { exact: true })).toHaveCount(0);
   });
 

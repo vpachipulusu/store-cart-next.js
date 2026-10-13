@@ -9,17 +9,16 @@ These journeys exercise the **legacy frontend implementation**. They do not prov
 that the new FastAPI endpoints run until KAN-41 switches the frontend to FastAPI.
 TOTP setup is covered; TOTP enforcement during sign-in is outside this scope.
 
-| Spec                        | Browser assertions                                                                                                                                                                                                                             |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `account-lifecycle.spec.ts` | Session survives reload; logout denies protected routes; profile edits persist and preserve other fields; fresh sign-in adds successful, persisted history; exact deletion confirmation removes the disposable account and denies later access |
-| `settings-totp.spec.ts`     | All four preferences persist after reload; invalid TOTP code is rejected; valid code enables setup, reload hides the enrollment secret, and valid-code disabling persists; avatar selection reports the existing placeholder                   |
+| Spec                        | Browser assertions                                                                                                                                                                                                                                             |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `account-lifecycle.spec.ts` | Session survives reload; logout denies protected routes; profile edits persist and preserve other fields; fresh sign-in adds exactly one successful, persisted history row; exact deletion confirmation removes the disposable account and denies later access |
+| `settings-totp.spec.ts`     | All four preferences persist after reload; invalid TOTP code is rejected; valid code enables setup, reload hides the enrollment secret, and valid-code disabling persists; avatar selection reports the existing placeholder                                   |
 
 Avatar upload is not implemented in the current UI. Its test explicitly checks the
 placeholder notification, rather than claiming upload or avatar persistence.
-Login history checks the fresh account's entries and growth; it does not assert one
-record per sign-in because legacy token-refresh verification also records history.
-That duplicate-event behavior is tracked in [KAN-163](https://storecart.atlassian.net/browse/KAN-163)
-and is not repaired by this test change.
+Login history asserts exactly one new record per explicit sign-in. Session refresh
+(`refreshSessionAction`, used by the token-refresh hook and the verify-email re-check) mints the
+cookie without recording history, fixed in [KAN-163](https://storecart.atlassian.net/browse/KAN-163).
 
 ## Isolation and cleanup
 

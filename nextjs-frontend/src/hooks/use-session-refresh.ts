@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { auth } from '@/lib/firebase/client';
 import { onIdTokenChanged } from 'firebase/auth';
-import { verifyTokenAction } from '@/app/actions/auth-actions';
+import { refreshSessionAction } from '@/app/actions/auth-actions';
 
 /**
  * Hook to automatically refresh the server session cookie when the
@@ -19,7 +19,7 @@ export function useSessionRefresh() {
       if (user) {
         try {
           const idToken = await user.getIdToken();
-          await verifyTokenAction(idToken);
+          await refreshSessionAction(idToken);
         } catch (error) {
           console.error('Session refresh failed:', error);
         }
@@ -33,7 +33,7 @@ export function useSessionRefresh() {
         if (user) {
           try {
             const idToken = await user.getIdToken(true); // Force refresh
-            await verifyTokenAction(idToken);
+            await refreshSessionAction(idToken);
           } catch (error) {
             console.error('Periodic session refresh failed:', error);
           }
