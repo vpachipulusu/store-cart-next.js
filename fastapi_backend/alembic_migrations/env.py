@@ -1,15 +1,16 @@
 import asyncio
 import os
 from logging.config import fileConfig
-from urllib.parse import urlparse
 
 from alembic import context
 from dotenv import load_dotenv
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import async_engine_from_config
+from sqlalchemy.ext.asyncio import create_async_engine
 
+import app.models.platform  # noqa: F401  (registers every table on Base.metadata)
 from app.core.base import Base
+from app.core.db_url import to_async_target
 
 load_dotenv()
 
@@ -22,32 +23,17 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# add your model's MetaData object here
-# for 'autogenerate' support
+# The platform metadata (ADR-005). Store databases get a separate tree later.
 target_metadata = Base.metadata
-# target_metadata = None
 
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
-
-# Retrieve the database URL from the environment
-# set it during execution
-database_url = os.getenv("DATABASE_URL")
+# Migrations use Neon's direct (unpooled) endpoint when DATABASE_URL_DIRECT is set
+# (ADR-005); otherwise they fall back to DATABASE_URL (local and CI databases).
+database_url = os.getenv("DATABASE_URL_DIRECT") or os.getenv("DATABASE_URL")
 
 if not database_url:
-    raise ValueError("DATABASE_URL environment variable is not set!")
+    raise ValueError("DATABASE_URL (or DATABASE_URL_DIRECT) is not set!")
 
-parsed_db_url = urlparse(database_url)
-
-async_db_connection_url = (
-    f"postgresql+asyncpg://{parsed_db_url.username}:{parsed_db_url.password}@"
-    f"{parsed_db_url.hostname}{':' + str(parsed_db_url.port) if parsed_db_url.port else ''}"
-    f"{parsed_db_url.path}"
-)
-
-config.set_main_option("sqlalchemy.url", async_db_connection_url)
+db_target = to_async_target(database_url)
 
 
 def run_migrations_offline() -> None:
@@ -62,9 +48,8 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url,
+        url=db_target.url.render_as_string(hide_password=False),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -87,10 +72,10 @@ async def run_async_migrations() -> None:
 
     """
 
-    connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
+    connectable = create_async_engine(
+        db_target.url,
         poolclass=pool.NullPool,
+        connect_args=db_target.connect_args,
     )
 
     async with connectable.connect() as connection:

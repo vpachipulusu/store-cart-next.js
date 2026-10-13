@@ -108,6 +108,7 @@ Run commands from `fastapi_backend/`. `app/core/config.py` reads `.env` from the
 | Variable names | Required | Notes |
 |---|---|---|
 | `DATABASE_URL` | Yes | Platform database. |
+| `DATABASE_URL_DIRECT` | No | Neon unpooled endpoint. `alembic` uses it when set, else `DATABASE_URL` (ADR-005). `sslmode` is passed to asyncpg as `ssl`. |
 | `APP_NAME`, `APP_VERSION`, `LOG_LEVEL`, `OPENAPI_URL`, `EXPIRE_ON_COMMIT` | No | Defaults: `StoreCart API`, `0.1.0`, `INFO`, `/openapi.json`, `false`. |
 | `SENTRY_DSN` | No | Backend error reporting (KAN-35). Unset locally and in tests: Sentry then stays off. Set in deployed environments. Environment comes from `VERCEL_ENV` (else `ENVIRONMENT`), release from `VERCEL_GIT_COMMIT_SHA`. See [`fastapi_backend/CLAUDE.md`](../../fastapi_backend/CLAUDE.md). |
 | `OPENAPI_OUTPUT_FILE` | No | Output path for `commands.generate_openapi_schema`. Default: `nextjs-frontend/openapi.json`. |
