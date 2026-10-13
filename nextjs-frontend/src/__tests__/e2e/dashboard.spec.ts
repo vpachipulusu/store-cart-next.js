@@ -1,5 +1,5 @@
-import { test, expect } from '@playwright/test';
-import { loginViaUI, TEST_USER, waitForPageReady } from './helpers/e2e-utils';
+import { test, expect } from './helpers/fixtures';
+import { STORAGE_STATE, clickNavLink, waitForPageReady } from './helpers/e2e-utils';
 
 /**
  * Customer Dashboard E2E Tests
@@ -24,13 +24,12 @@ test.describe('Customer Dashboard', () => {
     });
 
     test.describe('When authenticated', () => {
-      test.skip(
-        !process.env.TEST_USER_EMAIL,
-        'Skipped: TEST_USER_EMAIL not configured'
-      );
+      test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
+      test.use({ storageState: STORAGE_STATE.user });
 
       test.beforeEach(async ({ page }) => {
-        await loginViaUI(page, TEST_USER.email, TEST_USER.password);
+        await page.goto('/dashboard');
+        await waitForPageReady(page);
       });
 
       test('should display dashboard heading and welcome message', async ({ page }) => {
@@ -46,25 +45,30 @@ test.describe('Customer Dashboard', () => {
         await expect(page.getByText('Subscription Plan')).toBeVisible();
 
         // Notifications card
-        await expect(page.getByText(/^notifications$/i)).toBeVisible();
+        await expect(
+          page.getByRole('heading', { name: 'Notifications', exact: true })
+        ).toBeVisible();
 
         // Total Logins card
-        await expect(page.getByText('Total Logins')).toBeVisible();
+        await expect(
+          page.getByRole('heading', { name: 'Total Logins', exact: true })
+        ).toBeVisible();
       });
 
       test('should display quick action cards', async ({ page }) => {
         await expect(page.getByText('Quick Actions')).toBeVisible();
 
         // Quick action links
-        await expect(page.getByRole('link', { name: /edit profile/i })).toBeVisible();
-        await expect(page.getByRole('link', { name: /settings/i })).toBeVisible();
-        await expect(page.getByRole('link', { name: /security/i })).toBeVisible();
-        await expect(page.getByRole('link', { name: /billing/i })).toBeVisible();
+        // Each quick action card is one link named by its title and description.
+        await expect(page.getByRole('link', { name: /^edit profile update/i })).toBeVisible();
+        await expect(page.getByRole('link', { name: /^settings configure/i })).toBeVisible();
+        await expect(page.getByRole('link', { name: /^security manage/i })).toBeVisible();
+        await expect(page.getByRole('link', { name: /^billing manage/i })).toBeVisible();
       });
 
       test('should display account information section', async ({ page }) => {
         await expect(page.getByText('Account Information')).toBeVisible();
-        await expect(page.getByText(/email/i)).toBeVisible();
+        await expect(page.getByText('Email', { exact: true })).toBeVisible();
         await expect(page.getByText(/member since/i)).toBeVisible();
         await expect(page.getByText(/last login/i)).toBeVisible();
       });
@@ -90,17 +94,23 @@ test.describe('Customer Dashboard', () => {
       });
 
       test('should navigate to profile via quick action', async ({ page }) => {
-        await page.getByRole('link', { name: /edit profile/i }).click();
+        await page.getByRole('link', { name: /^edit profile update/i }).click();
         await expect(page).toHaveURL(/\/dashboard\/profile/);
       });
 
       test('should navigate to settings via quick action', async ({ page }) => {
-        await page.getByRole('link', { name: /settings/i }).first().click();
+        await page
+          .getByRole('link', { name: /settings/i })
+          .first()
+          .click();
         await expect(page).toHaveURL(/\/dashboard\/settings/);
       });
 
       test('should navigate to security via quick action', async ({ page }) => {
-        await page.getByRole('link', { name: /security/i }).first().click();
+        await page
+          .getByRole('link', { name: /security/i })
+          .first()
+          .click();
         await expect(page).toHaveURL(/\/dashboard\/security/);
       });
 
@@ -112,13 +122,12 @@ test.describe('Customer Dashboard', () => {
   });
 
   test.describe('Dashboard Layout & Navigation', () => {
-    test.skip(
-      !process.env.TEST_USER_EMAIL,
-      'Skipped: TEST_USER_EMAIL not configured'
-    );
+    test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
+    test.use({ storageState: STORAGE_STATE.user });
 
     test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_USER.email, TEST_USER.password);
+      await page.goto('/dashboard');
+      await waitForPageReady(page);
     });
 
     test('should display top navigation bar', async ({ page }) => {
@@ -130,26 +139,26 @@ test.describe('Customer Dashboard', () => {
       await expect(nav).toBeVisible();
 
       await expect(page.getByRole('link', { name: /^home$/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: /profile/i })).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Profile', exact: true })).toBeVisible();
       await expect(page.getByRole('link', { name: /settings/i }).first()).toBeVisible();
       await expect(page.getByRole('link', { name: /security/i }).first()).toBeVisible();
     });
 
     test('should navigate between dashboard pages', async ({ page }) => {
       // Navigate to Profile
-      await page.getByRole('link', { name: /profile/i }).first().click();
+      await clickNavLink(page, page.getByRole('link', { name: /profile/i }).first());
       await expect(page).toHaveURL(/\/dashboard\/profile/);
 
       // Navigate to Settings
-      await page.getByRole('link', { name: /settings/i }).first().click();
+      await clickNavLink(page, page.getByRole('link', { name: /settings/i }).first());
       await expect(page).toHaveURL(/\/dashboard\/settings/);
 
       // Navigate to Security
-      await page.getByRole('link', { name: /security/i }).first().click();
+      await clickNavLink(page, page.getByRole('link', { name: /security/i }).first());
       await expect(page).toHaveURL(/\/dashboard\/security/);
 
       // Navigate back to Home
-      await page.getByRole('link', { name: /^home$/i }).click();
+      await clickNavLink(page, page.getByRole('link', { name: /^home$/i }));
       await expect(page).toHaveURL(/\/dashboard$/);
     });
   });
@@ -162,19 +171,16 @@ test.describe('Customer Dashboard', () => {
     });
 
     test.describe('When authenticated', () => {
-      test.skip(
-        !process.env.TEST_USER_EMAIL,
-        'Skipped: TEST_USER_EMAIL not configured'
-      );
+      test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
+      test.use({ storageState: STORAGE_STATE.user });
 
       test.beforeEach(async ({ page }) => {
-        await loginViaUI(page, TEST_USER.email, TEST_USER.password);
         await page.goto('/dashboard/profile');
         await waitForPageReady(page);
       });
 
       test('should display profile page heading', async ({ page }) => {
-        await expect(page.getByRole('heading', { name: /profile/i })).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'Profile', exact: true })).toBeVisible();
         await expect(page.getByText(/manage your public profile/i)).toBeVisible();
       });
 
@@ -211,9 +217,7 @@ test.describe('Customer Dashboard', () => {
         await page.getByLabel(/display name/i).fill('A');
         await page.getByRole('button', { name: /save changes/i }).click();
 
-        await expect(
-          page.getByText(/at least 2 characters/i)
-        ).toBeVisible({ timeout: 5_000 });
+        await expect(page.getByText(/at least 2 characters/i)).toBeVisible({ timeout: 5_000 });
       });
 
       test('should validate website URL format', async ({ page }) => {
@@ -228,9 +232,9 @@ test.describe('Customer Dashboard', () => {
         await page.getByLabel(/bio/i).fill(longBio);
         await page.getByRole('button', { name: /save changes/i }).click();
 
-        await expect(
-          page.getByText(/500 characters/i)
-        ).toBeVisible({ timeout: 5_000 });
+        await expect(page.getByText(/must not exceed 500 characters/i)).toBeVisible({
+          timeout: 5_000,
+        });
       });
     });
   });
@@ -243,19 +247,16 @@ test.describe('Customer Dashboard', () => {
     });
 
     test.describe('When authenticated', () => {
-      test.skip(
-        !process.env.TEST_USER_EMAIL,
-        'Skipped: TEST_USER_EMAIL not configured'
-      );
+      test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
+      test.use({ storageState: STORAGE_STATE.user });
 
       test.beforeEach(async ({ page }) => {
-        await loginViaUI(page, TEST_USER.email, TEST_USER.password);
         await page.goto('/dashboard/settings');
         await waitForPageReady(page);
       });
 
       test('should display settings page heading', async ({ page }) => {
-        await expect(page.getByRole('heading', { name: /settings/i })).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
         await expect(page.getByText(/manage your account preferences/i)).toBeVisible();
       });
 
@@ -267,7 +268,7 @@ test.describe('Customer Dashboard', () => {
 
       test('should display notification settings section', async ({ page }) => {
         await expect(page.getByText(/^notifications$/i).first()).toBeVisible();
-        await expect(page.getByText(/email notifications/i)).toBeVisible();
+        await expect(page.getByText('Email Notifications', { exact: true })).toBeVisible();
       });
 
       test('should display regional settings section', async ({ page }) => {
@@ -296,13 +297,10 @@ test.describe('Customer Dashboard', () => {
     });
 
     test.describe('When authenticated', () => {
-      test.skip(
-        !process.env.TEST_USER_EMAIL,
-        'Skipped: TEST_USER_EMAIL not configured'
-      );
+      test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
+      test.use({ storageState: STORAGE_STATE.user });
 
       test.beforeEach(async ({ page }) => {
-        await loginViaUI(page, TEST_USER.email, TEST_USER.password);
         await page.goto('/dashboard/security');
         await waitForPageReady(page);
       });
@@ -349,9 +347,11 @@ test.describe('Customer Dashboard', () => {
         await page.getByRole('button', { name: /change password/i }).click();
 
         // Dialog should appear
-        await expect(page.getByText(/enter your current password/i)).toBeVisible({ timeout: 5_000 });
+        await expect(page.getByText(/enter your current password/i)).toBeVisible({
+          timeout: 5_000,
+        });
         await expect(page.getByLabel(/current password/i)).toBeVisible();
-        await expect(page.getByLabel(/new password/i)).toBeVisible();
+        await expect(page.getByLabel('New Password', { exact: true })).toBeVisible();
         await expect(page.getByLabel(/confirm.*password/i)).toBeVisible();
       });
 
@@ -367,9 +367,9 @@ test.describe('Customer Dashboard', () => {
         await page.getByRole('button', { name: /delete account/i }).click();
 
         // Dialog should appear
-        await expect(
-          page.getByText(/this action cannot be undone/i)
-        ).toBeVisible({ timeout: 5_000 });
+        await expect(page.getByText(/this action cannot be undone/i)).toBeVisible({
+          timeout: 5_000,
+        });
         await expect(page.getByLabel(/type.*delete.*confirm/i)).toBeVisible();
       });
 
@@ -378,7 +378,9 @@ test.describe('Customer Dashboard', () => {
         await expect(page.getByLabel(/type.*delete.*confirm/i)).toBeVisible({ timeout: 5_000 });
 
         // Delete button in dialog should be disabled initially
-        const dialogDeleteBtn = page.locator('[role="dialog"]').getByRole('button', { name: /delete account/i });
+        const dialogDeleteBtn = page
+          .locator('[role="dialog"]')
+          .getByRole('button', { name: /delete account/i });
         await expect(dialogDeleteBtn).toBeDisabled();
 
         // Type DELETE to enable it
@@ -390,6 +392,8 @@ test.describe('Customer Dashboard', () => {
         // Check for either table or "no login history" message
         const table = page.locator('table');
         const noHistory = page.getByText(/no login history/i);
+        // Login history loads client-side after the page renders; wait for it to finish (either outcome).
+        await expect(table.or(noHistory).first()).toBeVisible();
 
         const tableVisible = await table.isVisible().catch(() => false);
         const noHistoryVisible = await noHistory.isVisible().catch(() => false);
@@ -397,9 +401,9 @@ test.describe('Customer Dashboard', () => {
         expect(tableVisible || noHistoryVisible).toBeTruthy();
 
         if (tableVisible) {
-          await expect(page.getByText(/date.*time/i)).toBeVisible();
-          await expect(page.getByText(/ip address/i)).toBeVisible();
-          await expect(page.getByText(/status/i)).toBeVisible();
+          await expect(table.getByText(/date.*time/i)).toBeVisible();
+          await expect(table.getByText(/ip address/i)).toBeVisible();
+          await expect(table.getByText(/status/i)).toBeVisible();
         }
       });
     });

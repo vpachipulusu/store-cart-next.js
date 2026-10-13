@@ -1,8 +1,8 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import {
-  loginViaUI,
-  TEST_USER,
-  TEST_ADMIN,
+  loginAsThrowawayAccount,
+  signInWithSavedSession,
+  waitForServerActionResponse,
   navigateAndWait,
   STRIPE_TEST_CARDS,
   fillStripeCheckout,
@@ -31,15 +31,20 @@ test.describe('Subscription Upgrade - Happy Path', () => {
     'Skipped: TEST_USER_EMAIL or STRIPE not configured'
   );
 
-  test('should successfully upgrade from free to pro tier', async ({ page, context }) => {
-    // Step 1: Login as test user
-    await loginViaUI(page, TEST_USER.email, TEST_USER.password);
+  test('should successfully upgrade from free to pro tier', async ({ page, throwawayAccount }) => {
+    // Checkout, the Stripe webhook and the success handler's polling (up to 30 s) take longer than the 30 s default.
+    test.setTimeout(150_000);
+
+    // Step 1: Login as a fresh free-tier user (throwaway: this test changes the plan)
+    await loginAsThrowawayAccount(page, throwawayAccount);
 
     // Step 2: Navigate to pricing page
     await navigateAndWait(page, '/pricing');
 
     // Step 3: Find and click Pro tier upgrade button
-    const proCard = page.locator('[class*="card"]').filter({ hasText: /^Pro$/i });
+    const proCard = page
+      .locator('[class*="card"]')
+      .filter({ has: page.getByRole('heading', { name: 'Pro', exact: true }) });
     const upgradeButton = proCard.getByRole('button', { name: /upgrade to pro/i });
 
     const buttonExists = await upgradeButton.count().then((count) => count > 0);
@@ -49,45 +54,38 @@ test.describe('Subscription Upgrade - Happy Path', () => {
       return;
     }
 
-    // Step 4: Click upgrade and handle Stripe checkout popup
-    const checkoutPagePromise = context.waitForEvent('page');
+    // Step 4: Click upgrade: the app sends this tab to Stripe Checkout (window.location.href), not a new tab.
     await upgradeButton.click();
-    const checkoutPage = await checkoutPagePromise;
-    await checkoutPage.waitForLoadState();
+    await page.waitForURL(/checkout\.stripe\.com/);
+    const checkoutPage = page;
 
     // Verify on Stripe checkout
     expect(checkoutPage.url()).toContain('checkout.stripe.com');
 
-    try {
-      // Step 5: Fill checkout form with test card
-      await fillStripeCheckout(checkoutPage, STRIPE_TEST_CARDS.success);
+    // Step 5: Fill checkout form with test card
+    await fillStripeCheckout(checkoutPage, STRIPE_TEST_CARDS.success);
 
-      // Step 6: Submit payment
-      await submitStripeCheckout(checkoutPage);
+    // Step 6: Submit payment
+    await submitStripeCheckout(checkoutPage);
 
-      // Step 7: Wait for success redirect and webhook processing
-      const success = await waitForSubscriptionSuccess(page);
-      expect(success).toBe(true);
+    // Step 7: Wait for success redirect and webhook processing (the same tab returns to the app)
+    const success = await waitForSubscriptionSuccess(page);
+    expect(success).toBe(true);
 
-      // Step 8: Verify subscription tier updated
-      await expectSubscriptionTier(page, 'pro');
+    // Step 8: Verify subscription tier updated
+    await expectSubscriptionTier(page, 'pro');
 
-      // Step 9: Verify upgrade banner is gone
-      const upgradeBanner = page.getByText(/upgrade to pro/i).first();
-      await expect(upgradeBanner).not.toBeVisible();
+    // Step 9: Verify upgrade banner is gone
+    const upgradeBanner = page.getByText(/upgrade to pro/i).first();
+    await expect(upgradeBanner).not.toBeVisible();
 
-      console.log('✅ Subscription upgrade successful!');
-    } finally {
-      if (!checkoutPage.isClosed()) {
-        await checkoutPage.close();
-      }
-    }
+    console.log('✅ Subscription upgrade successful!');
   });
 
   test('should display subscription in admin panel after upgrade', async ({ page, context }) => {
     // First, ensure user is on pro tier (prerequisite test or manual setup)
-    // Login as admin
-    await loginViaUI(page, TEST_ADMIN.email, TEST_ADMIN.password);
+    // Login as admin (session saved by auth.setup.ts)
+    await signInWithSavedSession(context, 'admin');
 
     // Navigate to admin subscriptions page
     await navigateAndWait(page, '/admin/subscriptions');
@@ -130,20 +128,22 @@ test.describe('Subscription Upgrade - Happy Path', () => {
   });
 
   test('should prevent fake upgrade success URL manipulation', async ({ page }) => {
-    // Login as test user
-    await loginViaUI(page, TEST_USER.email, TEST_USER.password);
+    // Login as test user (session saved by auth.setup.ts)
+    await signInWithSavedSession(page.context(), 'user');
 
     // Try to manually navigate to upgrade success URL (without actual payment)
+    const verification = waitForServerActionResponse(page, '/dashboard');
     await page.goto('/dashboard?upgrade=success');
-    await page.waitForLoadState('networkidle');
+    await verification;
 
     // Should redirect to clean dashboard URL (removing the query parameter)
     // because there's no valid checkout session
     await page.waitForTimeout(2000); // Wait for verification
 
     // URL should be cleaned up
-    expect(page.url()).not.toContain('upgrade=success');
-    expect(page.url()).toMatch(/\/dashboard$/);
+    // The app removes ?upgrade=success once it finds no valid checkout session; retry until it has.
+    await expect(page).not.toHaveURL(/upgrade=success/);
+    await expect(page).toHaveURL(/\/dashboard$/);
 
     // Should NOT show the success processing banner
     const processingBanner = page.getByText(/processing your subscription/i);

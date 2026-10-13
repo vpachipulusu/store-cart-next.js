@@ -20,10 +20,14 @@
     "test:integration": "vitest run --dir src/__tests__/integration",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
+    "test:e2e:baseline": "playwright test --config=playwright.baseline.config.ts --project=chromium",
+    "test:e2e:build": "node scripts/e2e-build.mjs",
+    "test:e2e:db": "node scripts/e2e-db.mjs",
+    "test:e2e:baseline:build": "npm run test:e2e:build && npm run test:e2e:baseline",
     "test:e2e:subscription": "playwright test subscription",
     "test:all": "vitest run && playwright test",
     "test:ci": "vitest run --coverage && playwright test",
-    "test:setup": "node scripts/create-test-user.mjs",
+    "test:setup": "node scripts/setup-e2e-accounts.mjs",
     "test:reset": "node scripts/reset-test-user.mjs",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
@@ -43,7 +47,8 @@
     "cap:run:android": "npx cap run android",
     "cap:update": "npx cap update",
     "ios:build": "npm run build:mobile && npx cap copy ios && npx cap open ios",
-    "android:build": "npm run build:mobile && npx cap copy android && npx cap open android"
+    "android:build": "npm run build:mobile && npx cap copy android && npx cap open android",
+    "foundation:check": "tsx scripts/foundation-done-check.cli.ts"
   },
   "dependencies": {
     "@capacitor/android": "^6.2.0",
@@ -112,6 +117,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^5.0.4",
     "autoprefixer": "^10.4.20",
+    "dotenv": "^16.6.1",
     "dotenv-cli": "^8.0.0",
     "eslint": "^9.17.0",
     "eslint-config-next": "^16.4.0",

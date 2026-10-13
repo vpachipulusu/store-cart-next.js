@@ -14,9 +14,14 @@ coverage/
 playwright-report/
 test-results/
 playwright/.cache/
+# Saved e2e login state per role (KAN-113): holds live session cookies
+**/playwright/.auth/
 
 # Next.js
 .next/
+# Separate e2e builds (KAN-113): test Firebase project, Sentry off
+.next-e2e/
+.next-e2e-dev/
 nextjs-frontend/out/
 nextjs-frontend/build/
 next-env.d.ts

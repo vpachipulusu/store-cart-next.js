@@ -1,19 +1,45 @@
-import { test as setup } from '@playwright/test';
+import { mkdirSync } from 'node:fs';
+import path from 'node:path';
+import e2eEnv from '../../../scripts/e2e-env.cjs';
+import { test as setup } from './helpers/fixtures';
+import { STORAGE_STATE, TEST_ADMIN, TEST_USER, loginViaUI } from './helpers/e2e-utils';
 
 /**
- * Global setup for Playwright tests.
- * This runs before all test projects and can be used to seed test data,
- * authenticate test users, or prepare the environment.
+ * Global setup for Playwright tests (KAN-113). Runs before every browser project.
  *
- * For authenticated tests, individual specs use helper functions
- * to set session cookies directly, avoiding flaky Firebase auth flows.
+ * 1. Fails fast, naming the missing variables, when the e2e Firebase config (test project) is incomplete or
+ *    DATABASE_URL is missing or is the dev database.
+ * 2. Checks the app is reachable.
+ * 3. Logs in through the UI ONCE per role and saves the session to playwright/.auth/<role>.json (gitignored).
+ *    Specs reuse it with `test.use({ storageState: STORAGE_STATE.<role> })`, so they do not log in themselves.
+ *    If Firebase Email/Password sign-in is disabled, this fails with a clear message instead of every login test
+ *    timing out.
  */
-setup('verify test environment', async ({ page }) => {
-  // Verify the app is reachable
+
+setup('verify e2e environment', async ({ page }) => {
+  e2eEnv.assertE2eFirebaseEnv(process.env, { requireAdmin: true });
+  e2eEnv.assertE2eDatabaseEnv(process.env);
+
   const response = await page.goto('/');
   if (!response || !response.ok()) {
-    throw new Error(
-      `App not reachable at http://localhost:3000. Status: ${response?.status()}`
-    );
+    throw new Error(`App not reachable at http://localhost:3000. Status: ${response?.status()}`);
   }
 });
+
+const ROLES = [
+  { role: 'user', account: TEST_USER, envName: 'TEST_USER_EMAIL' },
+  { role: 'admin', account: TEST_ADMIN, envName: 'TEST_ADMIN_EMAIL' },
+] as const;
+
+for (const { role, account, envName } of ROLES) {
+  setup(`log in once as ${role}`, async ({ page }) => {
+    setup.skip(!process.env[envName], `${envName} not configured; run \`npm run test:setup\``);
+
+    // Fails with a clear message if Firebase Email/Password sign-in is disabled.
+    await loginViaUI(page, account.email, account.password);
+
+    const statePath = STORAGE_STATE[role];
+    mkdirSync(path.dirname(statePath), { recursive: true });
+    await page.context().storageState({ path: statePath });
+  });
+}

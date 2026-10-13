@@ -1,6 +1,6 @@
 # ADR-011: One Vercel project with services
 
-- **Status:** Proposed (awaiting product owner confirmation)
+- **Status:** Accepted by the product owner, 2026-10-12
 - **Date:** 2026-10-11
 - **Supersedes:** the "two Vercel projects" part of [ADR-002](0002-hosting-on-vercel.md) (D10, D13)
 - **Plan decisions:** D10, D13, D14

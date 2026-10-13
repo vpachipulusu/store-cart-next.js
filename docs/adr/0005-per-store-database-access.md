@@ -1,6 +1,6 @@
 # ADR-005: Per-store database access
 
-- **Status:** Proposed. The one-database-per-store choice (D1) is **provisional** until the KAN-115 spike.
+- **Status:** Accepted by the product owner, 2026-10-12. The one-database-per-store choice (D1) is **provisional** until the KAN-115 spike.
 - **Date:** 2026-10-11
 - **Plan decisions:** D1 (tenant data isolation), D15 (SQLAlchemy 2 async, asyncpg, NullPool, two Alembic trees)
 - **Jira:** KAN-29; spike KAN-115; carried out in KAN-30 (seam) and E7 (KAN-52 …)

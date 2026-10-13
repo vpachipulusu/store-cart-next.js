@@ -1,6 +1,6 @@
 # ADR-002: Hosting — two Vercel projects and serverless services
 
-- **Status:** Proposed. The two-project layout is superseded by [ADR-011](0011-single-vercel-project-with-services.md) (if accepted).
+- **Status:** Accepted by the product owner, 2026-10-12. The two-project layout is superseded by [ADR-011](0011-single-vercel-project-with-services.md).
 - **Date:** 2026-10-11
 - **Plan decisions:** D10 (frontend hosting), D13 (backend hosting), D18 (background jobs), D19 (file storage)
 - **Jira:** KAN-29; carried out in KAN-28 and KAN-112

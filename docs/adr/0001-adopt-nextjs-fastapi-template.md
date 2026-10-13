@@ -1,6 +1,6 @@
 # ADR-001: Adopt the nextjs-fastapi-template backend
 
-- **Status:** Proposed
+- **Status:** Accepted by the product owner, 2026-10-12
 - **Date:** 2026-10-11
 - **Plan decisions:** D20 (tooling), D23 (folder names)
 - **Jira:** KAN-29; carried out in KAN-25 (move) and KAN-30 (adaptation)

@@ -59,8 +59,9 @@ If you see "Email not verified yet", the link has not been opened yet. Open it, 
    - Select **Continue with Google** or **Continue with GitHub**.
 3. You are taken to your dashboard.
 
-> **Two-factor authentication:** sign-in does not ask for a 2FA code yet, even if you have set
-> 2FA up. This **may change** during the rebuild. See [Two-factor authentication](profile-and-settings.md#two-factor-authentication-2fa).
+> **Coming soon: sign-in will ask for your two-factor authentication (2FA) code.** Until then,
+> turning 2FA on does not add a check at sign-in. See
+> [Two-factor authentication](profile-and-settings.md#two-factor-authentication-2fa).
 
 ## Sign out
 

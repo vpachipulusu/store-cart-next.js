@@ -2,6 +2,9 @@ import type { NextConfig } from 'next';
 import { withSentryConfig } from '@sentry/nextjs';
 
 const nextConfig: NextConfig = {
+  // e2e builds use their own folder (scripts/e2e-build.mjs sets NEXT_DIST_DIR=.next-e2e), so they never replace the
+  // developer's normal .next build, which uses the dev Firebase project.
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   reactStrictMode: true,
   serverExternalPackages: ['winston', 'winston-daily-rotate-file'],
   webpack: (config) => {

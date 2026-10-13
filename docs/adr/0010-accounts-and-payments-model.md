@@ -1,6 +1,6 @@
 # ADR-010: Account structure, seller of record and platform revenue
 
-- **Status:** Proposed
+- **Status:** Accepted by the product owner, 2026-10-12
 - **Date:** 2026-10-11
 - **Plan decisions:** D3 (account structure), D4 (seller of record), D9 (platform revenue)
 - **Jira:** KAN-29; carried out in E3/E4 (KAN-36 …, KAN-42 …) and E10 (KAN-67 …)

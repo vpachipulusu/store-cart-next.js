@@ -72,7 +72,7 @@ Fill in the values from the team's secret store. Never commit `.env`. The list b
 | Monitoring | `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_AUTH_TOKEN` | The Sentry token is optional and used at build time only. |
 | FastAPI base URL *(lands with KAN-113)* | `BACKEND_API_URL` | Not yet in `.env.example`; lands with the FastAPI integration work. Read by `npm run foundation:check`. The server-only API client (KAN-33) reads the same name. |
 | FastAPI service key | `BACKEND_INTERNAL_KEY` | Not yet in `.env.example`; lands with the FastAPI integration work. Server-only. Will be sent to FastAPI as the `X-Internal-Key` header (ADR-003). |
-| E2E test accounts *(lands with KAN-113)* | `TEST_USER_EMAIL`, `TEST_USER_PASSWORD`, `TEST_ADMIN_EMAIL`, `TEST_ADMIN_PASSWORD` | Written to `.env.e2e.local` by `npm run test:setup`. Do not edit by hand. |
+| E2E test accounts *(lands with KAN-113)* | `TEST_USER_EMAIL`, `TEST_USER_PASSWORD`, `TEST_ADMIN_EMAIL`, `TEST_ADMIN_PASSWORD` | Written to `.env.e2e.local` by `npm run test:setup`. Do not edit these by hand. The same file also holds the Firebase TEST project config and its `FIREBASE_ADMIN_*` service account; see [testing.md](testing.md#dedicated-firebase-test-project). |
 
 ### Build the frontend
 
@@ -126,6 +126,16 @@ uv run python -m commands.generate_openapi_schema
 ```
 
 It writes to the path in `OPENAPI_OUTPUT_FILE`.
+
+## Troubleshooting
+
+- **Stuck dev server or `.next/dev/lock` error:** run `npm run dev:kill`, then `npm run dev`.
+- **`Module not found` after switching package manager:** this project uses npm only. Delete `node_modules` and run `npm ci`.
+- **`Can't reach database server`:** check `DATABASE_URL` in `.env`, that Postgres is running, and the port (see [Local databases](#local-databases)).
+- **Prisma client out of date after a schema change:** run `npm run db:generate`, then `npm run db:push` (development) or `npm run db:migrate`.
+- **`Firebase: Error (auth/invalid-api-key)`:** the `NEXT_PUBLIC_FIREBASE_*` values must match the Firebase console, and Email/Password sign-in must be enabled there.
+- **Stripe webhook signature failures locally:** run `stripe listen --forward-to localhost:3000/api/webhooks/stripe` and set `STRIPE_WEBHOOK_SECRET` to the secret it prints.
+- **Admin pages deny access:** the user needs an `AdminUser` record (`node scripts/create-admin.mjs <email>`).
 
 ## Pre-commit hooks
 

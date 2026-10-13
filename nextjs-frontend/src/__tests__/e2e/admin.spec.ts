@@ -1,5 +1,10 @@
-import { test, expect } from '@playwright/test';
-import { loginViaUI, TEST_ADMIN, waitForPageReady } from './helpers/e2e-utils';
+import { test, expect } from './helpers/fixtures';
+import {
+  STORAGE_STATE,
+  clickNavLink,
+  signInWithSavedSession,
+  waitForPageReady,
+} from './helpers/e2e-utils';
 
 /**
  * Admin Dashboard E2E Tests
@@ -31,11 +36,8 @@ test.describe('Admin Dashboard', () => {
         return;
       }
 
-      await loginViaUI(
-        page,
-        process.env.TEST_USER_EMAIL,
-        process.env.TEST_USER_PASSWORD || 'TestPass123!'
-      );
+      // Logged in as the regular test user (session saved by auth.setup.ts).
+      await signInWithSavedSession(page.context(), 'user');
 
       await page.goto('/admin');
       // Non-admin users should be redirected away from admin
@@ -44,13 +46,10 @@ test.describe('Admin Dashboard', () => {
   });
 
   test.describe('Admin Layout & Navigation', () => {
-    test.skip(
-      !process.env.TEST_ADMIN_EMAIL,
-      'Skipped: TEST_ADMIN_EMAIL not configured'
-    );
+    test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
+    test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_ADMIN.email, TEST_ADMIN.password);
       await page.goto('/admin');
       await waitForPageReady(page);
     });
@@ -63,54 +62,52 @@ test.describe('Admin Dashboard', () => {
       const sidebar = page.locator('aside');
       await expect(sidebar).toBeVisible();
 
-      await expect(page.getByRole('link', { name: /^dashboard$/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: /^users$/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: /^subscriptions$/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: /^analytics$/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: /^seo$/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: /^settings$/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: /^audit logs$/i })).toBeVisible();
+      await expect(sidebar.getByRole('link', { name: /^dashboard$/i })).toBeVisible();
+      await expect(sidebar.getByRole('link', { name: /^users$/i })).toBeVisible();
+      await expect(sidebar.getByRole('link', { name: /^subscriptions$/i })).toBeVisible();
+      await expect(sidebar.getByRole('link', { name: /^analytics$/i })).toBeVisible();
+      await expect(sidebar.getByRole('link', { name: /^seo$/i })).toBeVisible();
+      await expect(sidebar.getByRole('link', { name: /^settings$/i })).toBeVisible();
+      await expect(sidebar.getByRole('link', { name: /^audit logs$/i })).toBeVisible();
     });
 
     test('should navigate to all admin sections via sidebar', async ({ page }) => {
+      const sidebar = page.locator('aside');
       // Users
-      await page.getByRole('link', { name: /^users$/i }).click();
+      await clickNavLink(page, sidebar.getByRole('link', { name: /^users$/i }));
       await expect(page).toHaveURL(/\/admin\/users/);
 
       // Subscriptions
-      await page.getByRole('link', { name: /^subscriptions$/i }).click();
+      await clickNavLink(page, sidebar.getByRole('link', { name: /^subscriptions$/i }));
       await expect(page).toHaveURL(/\/admin\/subscriptions/);
 
       // Analytics
-      await page.getByRole('link', { name: /^analytics$/i }).click();
+      await clickNavLink(page, sidebar.getByRole('link', { name: /^analytics$/i }));
       await expect(page).toHaveURL(/\/admin\/analytics/);
 
       // SEO
-      await page.getByRole('link', { name: /^seo$/i }).click();
+      await clickNavLink(page, sidebar.getByRole('link', { name: /^seo$/i }));
       await expect(page).toHaveURL(/\/admin\/seo/);
 
       // Settings
-      await page.getByRole('link', { name: /^settings$/i }).click();
+      await clickNavLink(page, sidebar.getByRole('link', { name: /^settings$/i }));
       await expect(page).toHaveURL(/\/admin\/settings/);
 
       // Audit Logs
-      await page.getByRole('link', { name: /^audit logs$/i }).click();
+      await clickNavLink(page, sidebar.getByRole('link', { name: /^audit logs$/i }));
       await expect(page).toHaveURL(/\/admin\/audit-logs/);
 
       // Back to Dashboard
-      await page.getByRole('link', { name: /^dashboard$/i }).click();
+      await clickNavLink(page, sidebar.getByRole('link', { name: /^dashboard$/i }));
       await expect(page).toHaveURL(/\/admin$/);
     });
   });
 
   test.describe('Dashboard Overview Page', () => {
-    test.skip(
-      !process.env.TEST_ADMIN_EMAIL,
-      'Skipped: TEST_ADMIN_EMAIL not configured'
-    );
+    test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
+    test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_ADMIN.email, TEST_ADMIN.password);
       await page.goto('/admin');
       await waitForPageReady(page);
     });
@@ -129,7 +126,8 @@ test.describe('Admin Dashboard', () => {
 
     test('should display MRR with dollar sign', async ({ page }) => {
       const mrrCard = page.locator('[class*="card"]').filter({ hasText: 'MRR' });
-      await expect(mrrCard.getByText(/\$/)).toBeVisible();
+      // MRR is shown in the Stripe price's currency (GBP in the e2e Stripe account).
+      await expect(mrrCard.getByText(/[$£€]/)).toBeVisible();
       await expect(mrrCard.getByText(/monthly recurring revenue/i)).toBeVisible();
     });
 
@@ -157,31 +155,30 @@ test.describe('Admin Dashboard', () => {
     test('should display quick actions section', async ({ page }) => {
       await expect(page.getByText('Quick Actions')).toBeVisible();
 
-      await expect(page.getByRole('link', { name: /manage users/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: /subscriptions/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: /analytics/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: /settings/i })).toBeVisible();
+      // Quick action links are in the main area (the sidebar repeats some of the names).
+      const main = page.getByRole('main');
+      await expect(main.getByRole('link', { name: /manage users/i })).toBeVisible();
+      await expect(main.getByRole('link', { name: /subscriptions/i })).toBeVisible();
+      await expect(main.getByRole('link', { name: /analytics/i })).toBeVisible();
+      await expect(main.getByRole('link', { name: /settings/i })).toBeVisible();
     });
 
     test('should navigate to users page from "View All Users"', async ({ page }) => {
-      await page.getByRole('link', { name: /view all users/i }).click();
+      await clickNavLink(page, page.getByRole('link', { name: /view all users/i }));
       await expect(page).toHaveURL(/\/admin\/users/);
     });
 
     test('should navigate to audit logs from "View All Logs"', async ({ page }) => {
-      await page.getByRole('link', { name: /view all logs/i }).click();
+      await clickNavLink(page, page.getByRole('link', { name: /view all logs/i }));
       await expect(page).toHaveURL(/\/admin\/audit-logs/);
     });
   });
 
   test.describe('User Management Page', () => {
-    test.skip(
-      !process.env.TEST_ADMIN_EMAIL,
-      'Skipped: TEST_ADMIN_EMAIL not configured'
-    );
+    test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
+    test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_ADMIN.email, TEST_ADMIN.password);
       await page.goto('/admin/users');
       await waitForPageReady(page);
     });
@@ -192,9 +189,7 @@ test.describe('Admin Dashboard', () => {
     });
 
     test('should display search bar', async ({ page }) => {
-      await expect(
-        page.getByPlaceholder(/search users by email or name/i)
-      ).toBeVisible();
+      await expect(page.getByPlaceholder(/search users by email or name/i)).toBeVisible();
     });
 
     test('should display export button', async ({ page }) => {
@@ -208,7 +203,7 @@ test.describe('Admin Dashboard', () => {
       const table = page.locator('table');
       await expect(table).toBeVisible();
 
-      await expect(table.getByText(/^user$/i)).toBeVisible();
+      await expect(table.getByRole('columnheader', { name: /^user$/i })).toBeVisible();
       await expect(table.getByText(/^email$/i)).toBeVisible();
       await expect(table.getByText(/^status$/i)).toBeVisible();
       await expect(table.getByText(/^subscription$/i)).toBeVisible();
@@ -220,7 +215,11 @@ test.describe('Admin Dashboard', () => {
     test('should display user action dropdown menu', async ({ page }) => {
       // Click the first action button in the table
       const actionButton = page.locator('table tbody tr').first().getByRole('button');
-      const isVisible = await actionButton.isVisible().catch(() => false);
+      // Wait for the table row to render (isVisible() alone does not wait, so the test passed without checking).
+      const isVisible = await actionButton
+        .waitFor({ state: 'visible' })
+        .then(() => true)
+        .catch(() => false);
 
       if (isVisible) {
         await actionButton.click();
@@ -235,27 +234,27 @@ test.describe('Admin Dashboard', () => {
       // Users should have either "Verified" or "Unverified" badge
       const table = page.locator('table tbody');
       const verifiedBadge = table.getByText(/verified|unverified/i);
-      const hasBadge = await verifiedBadge.first().isVisible().catch(() => false);
+      const hasBadge = await verifiedBadge
+        .first()
+        .isVisible()
+        .catch(() => false);
       expect(hasBadge || true).toBeTruthy();
     });
 
     test('should show subscription tier badges', async ({ page }) => {
       const table = page.locator('table tbody');
       const tierBadge = table.getByText(/free|pro|enterprise/i);
-      const hasBadge = await tierBadge.first().isVisible().catch(() => false);
+      const hasBadge = await tierBadge
+        .first()
+        .isVisible()
+        .catch(() => false);
       expect(hasBadge || true).toBeTruthy();
     });
   });
 
   test.describe('User Detail Page', () => {
-    test.skip(
-      !process.env.TEST_ADMIN_EMAIL,
-      'Skipped: TEST_ADMIN_EMAIL not configured'
-    );
-
-    test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_ADMIN.email, TEST_ADMIN.password);
-    });
+    test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
+    test.use({ storageState: STORAGE_STATE.admin });
 
     test('should display 404 for non-existent user', async ({ page }) => {
       await page.goto('/admin/users/nonexistent-id');
@@ -270,37 +269,34 @@ test.describe('Admin Dashboard', () => {
   });
 
   test.describe('Subscription Management Page', () => {
-    test.skip(
-      !process.env.TEST_ADMIN_EMAIL,
-      'Skipped: TEST_ADMIN_EMAIL not configured'
-    );
+    test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
+    test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_ADMIN.email, TEST_ADMIN.password);
       await page.goto('/admin/subscriptions');
       await waitForPageReady(page);
     });
 
     test('should display subscription management heading', async ({ page }) => {
-      await expect(
-        page.getByRole('heading', { name: /subscription management/i })
-      ).toBeVisible();
+      await expect(page.getByRole('heading', { name: /subscription management/i })).toBeVisible();
       await expect(page.getByText(/monitor and manage all subscriptions/i)).toBeVisible();
     });
 
     test('should display 4 subscription metric cards', async ({ page }) => {
       await expect(page.getByText('Total Active')).toBeVisible();
       await expect(page.getByText('Pro Plans')).toBeVisible();
-      await expect(page.getByText('Enterprise Plans')).toBeVisible();
+      await expect(page.getByText('Enterprise Plans', { exact: true })).toBeVisible();
       await expect(page.getByText('MRR')).toBeVisible();
     });
 
     test('should display pricing info in metric cards', async ({ page }) => {
       const proCard = page.locator('[class*="card"]').filter({ hasText: 'Pro Plans' });
-      await expect(proCard.getByText(/\$\d+\/month/i)).toBeVisible();
+      await expect(proCard.getByText(/[$£€]\d+\/month/i)).toBeVisible();
 
-      const enterpriseCard = page.locator('[class*="card"]').filter({ hasText: 'Enterprise Plans' });
-      await expect(enterpriseCard.getByText(/\$\d+\/month/i)).toBeVisible();
+      const enterpriseCard = page
+        .locator('[class*="card"]')
+        .filter({ hasText: 'Enterprise Plans' });
+      await expect(enterpriseCard.getByText(/[$£€]\d+\/month/i)).toBeVisible();
     });
 
     test('should display recent subscriptions table', async ({ page }) => {
@@ -319,20 +315,20 @@ test.describe('Admin Dashboard', () => {
 
     test('should display manage buttons for subscriptions', async ({ page }) => {
       const manageBtn = page.getByRole('button', { name: /manage/i });
-      const hasManage = await manageBtn.first().isVisible().catch(() => false);
+      const hasManage = await manageBtn
+        .first()
+        .isVisible()
+        .catch(() => false);
       // Manage buttons should exist if there are subscriptions
       expect(hasManage || true).toBeTruthy();
     });
   });
 
   test.describe('Analytics Page', () => {
-    test.skip(
-      !process.env.TEST_ADMIN_EMAIL,
-      'Skipped: TEST_ADMIN_EMAIL not configured'
-    );
+    test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
+    test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_ADMIN.email, TEST_ADMIN.password);
       await page.goto('/admin/analytics');
       await waitForPageReady(page);
     });
@@ -346,7 +342,7 @@ test.describe('Admin Dashboard', () => {
       await expect(page.getByText('New Users')).toBeVisible();
       await expect(page.getByText('Active Subscriptions')).toBeVisible();
       await expect(page.getByText('MRR')).toBeVisible();
-      await expect(page.getByText('Total Logins')).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Total Logins', exact: true })).toBeVisible();
     });
 
     test('should display growth percentage indicator', async ({ page }) => {
@@ -383,19 +379,18 @@ test.describe('Admin Dashboard', () => {
     });
 
     test('should display conversion rate as percentage', async ({ page }) => {
-      const activitySection = page.locator('[class*="card"]').filter({ hasText: 'Activity Overview' });
+      const activitySection = page
+        .locator('[class*="card"]')
+        .filter({ hasText: 'Activity Overview' });
       await expect(activitySection.getByText(/free to paid/i)).toBeVisible();
     });
   });
 
   test.describe('SEO Management Page', () => {
-    test.skip(
-      !process.env.TEST_ADMIN_EMAIL,
-      'Skipped: TEST_ADMIN_EMAIL not configured'
-    );
+    test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
+    test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_ADMIN.email, TEST_ADMIN.password);
       await page.goto('/admin/seo');
       await waitForPageReady(page);
     });
@@ -419,7 +414,7 @@ test.describe('Admin Dashboard', () => {
     test('should switch to redirects tab', async ({ page }) => {
       await page.getByRole('tab', { name: /redirects/i }).click();
 
-      await expect(page.getByText('URL Redirects')).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'URL Redirects' })).toBeVisible();
       await expect(page.getByText(/manage 301\/302 redirects/i)).toBeVisible();
     });
 
@@ -472,13 +467,10 @@ test.describe('Admin Dashboard', () => {
   });
 
   test.describe('Settings Page', () => {
-    test.skip(
-      !process.env.TEST_ADMIN_EMAIL,
-      'Skipped: TEST_ADMIN_EMAIL not configured'
-    );
+    test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
+    test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_ADMIN.email, TEST_ADMIN.password);
       await page.goto('/admin/settings');
       await waitForPageReady(page);
     });
@@ -512,7 +504,7 @@ test.describe('Admin Dashboard', () => {
     test('should switch to email templates tab', async ({ page }) => {
       await page.getByRole('tab', { name: /email/i }).click();
 
-      await expect(page.getByText('Email Templates')).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Email Templates' })).toBeVisible();
       await expect(page.getByText(/manage transactional email/i)).toBeVisible();
     });
 
@@ -523,12 +515,19 @@ test.describe('Admin Dashboard', () => {
       await expect(page.getByText(/manage subscription plans/i)).toBeVisible();
 
       // Pro plan fields
+      // Each plan is a card with its own price field (labelled "Monthly Price (<currency>)").
       await expect(page.getByText(/pro plan/i)).toBeVisible();
-      await expect(page.getByLabel(/pro.*price/i).first()).toBeVisible();
+      const proPlanCard = page
+        .locator('[class*="card"]')
+        .filter({ has: page.getByRole('heading', { name: /^pro plan$/i }) });
+      await expect(proPlanCard.getByLabel(/price/i).first()).toBeVisible();
 
       // Enterprise plan fields
       await expect(page.getByText(/enterprise plan/i)).toBeVisible();
-      await expect(page.getByLabel(/enterprise.*price/i).first()).toBeVisible();
+      const enterprisePlanCard = page
+        .locator('[class*="card"]')
+        .filter({ has: page.getByRole('heading', { name: /^enterprise plan$/i }) });
+      await expect(enterprisePlanCard.getByLabel(/price/i).first()).toBeVisible();
 
       // Save button
       await expect(page.getByRole('button', { name: /save pricing/i })).toBeVisible();
@@ -542,13 +541,10 @@ test.describe('Admin Dashboard', () => {
   });
 
   test.describe('Audit Logs Page', () => {
-    test.skip(
-      !process.env.TEST_ADMIN_EMAIL,
-      'Skipped: TEST_ADMIN_EMAIL not configured'
-    );
+    test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
+    test.use({ storageState: STORAGE_STATE.admin });
 
     test.beforeEach(async ({ page }) => {
-      await loginViaUI(page, TEST_ADMIN.email, TEST_ADMIN.password);
       await page.goto('/admin/audit-logs');
       await waitForPageReady(page);
     });

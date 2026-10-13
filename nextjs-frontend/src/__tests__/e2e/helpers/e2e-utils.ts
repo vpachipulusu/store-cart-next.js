@@ -1,4 +1,12 @@
-import { type Page, type BrowserContext, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import {
+  type Page,
+  type BrowserContext,
+  type Locator,
+  type Response,
+  expect,
+} from '@playwright/test';
 
 /**
  * Test credentials for E2E tests.
@@ -16,20 +24,96 @@ export const TEST_ADMIN = {
   name: 'Admin User',
 };
 
+export type SavedRole = 'user' | 'admin';
+
+/**
+ * Session saved once per role by auth.setup.ts (gitignored). Use with `test.use({ storageState: STORAGE_STATE.user })`
+ * for read-only tests. Tests that log out, revoke or expire sessions, or change plan or billing state must use a
+ * throwaway account instead (see helpers/fixtures.ts), because Firebase revokes per user, not per cookie.
+ */
+export const STORAGE_STATE: Record<SavedRole, string> = {
+  user: path.resolve('playwright/.auth/user.json'),
+  admin: path.resolve('playwright/.auth/admin.json'),
+};
+
+/**
+ * Add a saved role's session cookies to this context. For a single test inside a describe whose other tests run
+ * logged out, where `test.use({ storageState })` would apply to all of them.
+ */
+export async function signInWithSavedSession(
+  context: BrowserContext,
+  role: SavedRole
+): Promise<void> {
+  const state = JSON.parse(readFileSync(STORAGE_STATE[role], 'utf8')) as {
+    cookies: Parameters<BrowserContext['addCookies']>[0];
+  };
+  await context.addCookies(state.cookies);
+}
+
+const HYDRATION_ATTEMPTS = 3;
+
+/**
+ * Wait until React has hydrated every form and button on the page, so a click runs the React handler. Before
+ * hydration a form click would submit natively, as a GET with the field values (including passwords) in the URL, and
+ * a menu button would do nothing. React marks each hydrated DOM node with a `__reactProps$<id>` property. Retries if
+ * the page navigates while waiting.
+ */
+export async function waitForHydration(page: Page): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await page.waitForFunction(() =>
+        Array.from(document.querySelectorAll('form, button')).every((element) =>
+          Object.keys(element).some((key) => key.startsWith('__reactProps$'))
+        )
+      );
+      return;
+    } catch (error) {
+      const navigated =
+        error instanceof Error && /context was destroyed|navigation/i.test(error.message);
+      if (!navigated || attempt >= HYDRATION_ATTEMPTS) throw error;
+      await page.waitForLoadState('load');
+    }
+  }
+}
+
+const PROVIDER_DISABLED_MESSAGE = /sign-in method is not enabled/i;
+
 /**
  * Log in a user via the login form UI.
- * Use this when testing the actual login flow.
+ * Use this when the login itself is under test, or for a throwaway account. Read-only tests use STORAGE_STATE.
+ * Fails with a clear message when Firebase Email/Password sign-in is disabled (auth/operation-not-allowed).
  */
 export async function loginViaUI(page: Page, email: string, password: string): Promise<void> {
   await page.goto('/login');
-  await page.waitForLoadState('networkidle');
+  await waitForHydration(page);
 
   await page.getByLabel(/email/i).fill(email);
   await page.getByLabel(/^password$/i).fill(password);
   await page.getByRole('button', { name: /sign in/i }).click();
 
   // Wait for navigation to dashboard
-  await page.waitForURL(/\/dashboard/, { timeout: 15_000 });
+  try {
+    await page.waitForURL(/\/dashboard/, { timeout: 15_000 });
+  } catch (error) {
+    if (await page.getByText(PROVIDER_DISABLED_MESSAGE).isVisible()) {
+      throw new Error(
+        'Firebase Email/Password sign-in is disabled in the e2e Firebase project (auth/operation-not-allowed). ' +
+          'Enable it in Firebase Console > Authentication > Sign-in method, then re-run.'
+      );
+    }
+    throw error;
+  }
+}
+
+/**
+ * Log this page in as a throwaway account: drop any saved session first, then log in through the UI.
+ */
+export async function loginAsThrowawayAccount(
+  page: Page,
+  account: { email: string; password: string }
+): Promise<void> {
+  await page.context().clearCookies();
+  await loginViaUI(page, account.email, account.password);
 }
 
 /**
@@ -53,6 +137,54 @@ export async function setSessionCookie(
   ]);
 }
 
+const APP_ORIGIN = 'http://localhost:3000';
+const IP_OCTET_RANGE = 254;
+
+function randomPrivateIp(): string {
+  const octet = () => 1 + Math.floor(Math.random() * IP_OCTET_RANGE);
+  return `10.${octet()}.${octet()}.${octet()}`;
+}
+
+/**
+ * Give this page its own client IP for the app's rate limiter.
+ *
+ * `src/proxy.ts` keys rate limits on `x-forwarded-for`. Locally there is no proxy, so every request shares the key
+ * "unknown" and `/api/auth/*` (5 requests per 15 minutes) returns 429 after a handful of tests. In production each
+ * user has their own IP, so a distinct IP per test reproduces real behaviour. Only app requests get the header.
+ */
+export async function useDistinctClientIp(page: Page): Promise<void> {
+  const clientIp = randomPrivateIp();
+  await page.route(
+    (url) => url.origin === APP_ORIGIN,
+    (route) =>
+      route.continue({ headers: { ...route.request().headers(), 'x-forwarded-for': clientIp } })
+  );
+}
+
+/**
+ * Click a link the way a person does: point at it, let the route prefetch that the pointer starts finish, then
+ * click. Next.js starts a prefetch on hover; a click that lands while it is in flight can be lost (see
+ * helpers/fixtures.ts), which a person's slower hover-then-click never triggers.
+ */
+export async function clickNavLink(page: Page, link: Locator): Promise<void> {
+  await link.hover();
+  await waitForRouterIdle(page);
+  await link.click();
+}
+
+/**
+ * Resolves with the response of the next Next.js server action called from `pathname` (a POST with a `next-action`
+ * header). Start waiting before the navigation or click that triggers the action.
+ */
+export function waitForServerActionResponse(page: Page, pathname: string): Promise<Response> {
+  return page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      'next-action' in response.request().headers() &&
+      new URL(response.url()).pathname === pathname
+  );
+}
+
 /**
  * Assert that the page redirects unauthenticated users to login.
  */
@@ -73,11 +205,31 @@ export async function expectToast(page: Page, text: string | RegExp): Promise<vo
 }
 
 /**
- * Wait for page to be fully loaded (no network activity + DOM stable).
+ * Wait for the page to load and hydrate. Assertions after this should still be web-first (`expect(...)`).
  */
 export async function waitForPageReady(page: Page): Promise<void> {
-  await page.waitForLoadState('networkidle');
-  await page.waitForLoadState('domcontentloaded');
+  // Not 'networkidle': Firebase, Stripe and Sentry keep connections open, so it can time out on its own.
+  await page.waitForLoadState('load');
+  // src/app/loading.tsx is the Suspense fallback for every route. React reveals streamed content shortly after the
+  // load event, so wait until the fallback ("Loading") is gone before tests read the page without retrying.
+  await expect(page.getByText('Loading', { exact: true })).toHaveCount(0);
+  await waitForHydration(page);
+  await waitForRouterIdle(page);
+}
+
+const ROUTER_QUIET_MS = 500;
+
+/**
+ * Wait until Next.js has no RSC fetch (link prefetch or navigation) in flight and none started for a moment, so a
+ * following click is not lost to a prefetch for the same route that is still running (see helpers/fixtures.ts).
+ */
+export async function waitForRouterIdle(page: Page): Promise<void> {
+  await page.waitForFunction((quietMs) => {
+    const state = (
+      window as unknown as { __rscFetches?: { inflight: number; lastActivity: number } }
+    ).__rscFetches;
+    return !state || (state.inflight === 0 && performance.now() - state.lastActivity > quietMs);
+  }, ROUTER_QUIET_MS);
 }
 
 /**
@@ -131,38 +283,38 @@ export const TEST_BILLING_DETAILS = {
 
 /**
  * Fill Stripe checkout form with test card details.
- * Handles the iframe structure of Stripe's checkout page.
+ * Stripe's hosted checkout shows the email as text when the app passes an existing customer, and renders the card
+ * fields as textboxes named "Card number", "Expiration" and "Credit or debit card CVC/CVV".
  */
 export async function fillStripeCheckout(
   checkoutPage: Page,
   cardNumber: string = STRIPE_TEST_CARDS.success,
   billingDetails = TEST_BILLING_DETAILS
 ): Promise<void> {
-  // Wait for email field
-  const emailField = checkoutPage.locator('input[type="email"]').first();
-  await emailField.waitFor({ state: 'visible', timeout: 10000 });
+  // Wait for the card form to load
+  const cardNumberField = checkoutPage.getByRole('textbox', { name: 'Card number' });
+  await cardNumberField.waitFor({ state: 'visible', timeout: 10000 });
 
-  // Fill email if not pre-filled
-  const emailValue = await emailField.inputValue();
-  if (!emailValue) {
+  // Fill email only when the page asks for it (it is text when the customer already has an email)
+  const emailField = checkoutPage.locator('input[type="email"]').first();
+  if ((await emailField.count()) > 0 && !(await emailField.inputValue())) {
     await emailField.fill(billingDetails.email);
   }
 
-  // Fill card details in iframe
-  const cardFrame = checkoutPage.frameLocator('iframe[name*="card"]').first();
-  await cardFrame.locator('input[name="number"]').fill(cardNumber);
-  await cardFrame.locator('input[name="expiry"]').fill(billingDetails.expiry);
-  await cardFrame.locator('input[name="cvc"]').fill(billingDetails.cvc);
+  // Card details
+  await cardNumberField.fill(cardNumber);
+  await checkoutPage.getByRole('textbox', { name: 'Expiration' }).fill(billingDetails.expiry);
+  await checkoutPage.getByRole('textbox', { name: /CVC/ }).fill(billingDetails.cvc);
 
   // Fill billing name
-  const nameField = checkoutPage.locator('input[name="billingName"]');
-  if (await nameField.isVisible().catch(() => false)) {
+  const nameField = checkoutPage.getByRole('textbox', { name: 'Cardholder name' });
+  if (await nameField.isVisible()) {
     await nameField.fill(billingDetails.name);
   }
 
-  // Fill zip code if visible
-  const zipField = checkoutPage.locator('input[name="zip"]');
-  if (await zipField.isVisible().catch(() => false)) {
+  // Fill postal code if asked
+  const zipField = checkoutPage.getByRole('textbox', { name: 'Postal code' });
+  if (await zipField.isVisible()) {
     await zipField.fill(billingDetails.zip);
   }
 }

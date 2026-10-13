@@ -1,5 +1,11 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/fixtures';
 import { waitForPageReady } from './helpers/e2e-utils';
+
+// The page shows prices in the Stripe price's currency (GBP in the e2e Stripe account), so match any symbol.
+const CURRENCY_SYMBOL = /[$£€]/;
+const FREE_PRICE = /^[$£€]0$/;
+const PRICE_AMOUNT = /[$£€]\d+/;
+const MONTHLY_PRICE = /[$£€]\d+\.?\d*\/month/;
 
 /**
  * Pricing & Marketing Pages E2E Tests
@@ -36,18 +42,22 @@ test.describe('Pricing Page', () => {
     });
 
     test('should display prices for each tier', async ({ page }) => {
-      // Free tier should show $0
+      // Free tier should show the currency symbol and 0
       await expect(page.getByRole('heading', { name: /^free$/i })).toBeVisible();
-      await expect(page.getByText('$0').first()).toBeVisible();
+      await expect(page.getByText(FREE_PRICE).first()).toBeVisible();
 
-      // Pro and Enterprise should show a dollar amount (fetched from Stripe)
+      // Pro and Enterprise should show a price (fetched from Stripe)
       await expect(page.getByRole('heading', { name: /^pro$/i })).toBeVisible();
-      const proCard = page.locator('[class*="card"]').filter({ hasText: /^Pro$/ });
-      await expect(proCard.getByText(/\$\d+/).first()).toBeVisible();
+      const proCard = page
+        .locator('[class*="card"]')
+        .filter({ has: page.getByRole('heading', { name: 'Pro', exact: true }) });
+      await expect(proCard.getByText(PRICE_AMOUNT).first()).toBeVisible();
 
       await expect(page.getByRole('heading', { name: /^enterprise$/i })).toBeVisible();
-      const enterpriseCard = page.locator('[class*="card"]').filter({ hasText: /^Enterprise$/ });
-      await expect(enterpriseCard.getByText(/\$\d+/).first()).toBeVisible();
+      const enterpriseCard = page
+        .locator('[class*="card"]')
+        .filter({ has: page.getByRole('heading', { name: 'Enterprise', exact: true }) });
+      await expect(enterpriseCard.getByText(PRICE_AMOUNT).first()).toBeVisible();
     });
 
     test('should display tier descriptions', async ({ page }) => {
@@ -163,13 +173,13 @@ test.describe('Pricing Page', () => {
 
     test('should default to Monthly billing', async ({ page }) => {
       const monthlyButton = page.getByRole('button', { name: 'Monthly' });
-      await expect(monthlyButton).toHaveClass(/bg-primary/);
+      await expect(monthlyButton).toHaveClass(/\bbg-theme-accent\b/);
     });
 
     test('should switch to Yearly billing when clicked', async ({ page }) => {
       const yearlyButton = page.getByRole('button', { name: /yearly/i });
       await yearlyButton.click();
-      await expect(yearlyButton).toHaveClass(/bg-primary/);
+      await expect(yearlyButton).toHaveClass(/\bbg-theme-accent\b/);
     });
 
     test('should not display savings badge when there is 0% savings', async ({ page }) => {
@@ -193,7 +203,7 @@ test.describe('Pricing Page', () => {
 
       const monthlyButton = page.getByRole('button', { name: 'Monthly' });
       await monthlyButton.click();
-      await expect(monthlyButton).toHaveClass(/bg-primary/);
+      await expect(monthlyButton).toHaveClass(/\bbg-theme-accent\b/);
     });
   });
 
@@ -277,7 +287,7 @@ test.describe('Pricing Page', () => {
       await page.waitForTimeout(500);
 
       // Get all price elements
-      const monthlyPrices = await page.getByText(/\$\d+\.?\d*\/month/).all();
+      const monthlyPrices = await page.getByText(MONTHLY_PRICE).all();
       const annualTexts = await page.getByText(/billed annually/i).all();
 
       // Should have monthly breakdown prices displayed
@@ -315,9 +325,9 @@ test.describe('Pricing Page', () => {
       // Wait for page load
       await page.waitForTimeout(1000);
 
-      // Should have dollar signs visible
-      const dollarSigns = await page.locator('text=/\\$/').count();
-      expect(dollarSigns).toBeGreaterThan(0);
+      // Should have currency symbols visible
+      const currencySymbols = await page.getByText(CURRENCY_SYMBOL).count();
+      expect(currencySymbols).toBeGreaterThan(0);
     });
 
     test('should update prices when switching billing periods', async ({ page }) => {

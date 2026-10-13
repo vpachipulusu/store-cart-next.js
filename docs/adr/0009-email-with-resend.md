@@ -1,6 +1,6 @@
 # ADR-009: Email through Resend from the backend
 
-- **Status:** Proposed
+- **Status:** Accepted by the product owner, 2026-10-12
 - **Date:** 2026-10-11
 - **Plan decisions:** D22 (email)
 - **Jira:** KAN-29; carried out in KAN-30 and E3
