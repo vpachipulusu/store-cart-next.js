@@ -27,11 +27,11 @@ project, so read this file and the baton before you do anything.
 
 ## Review routing (by PR type)
 
-| PR type | Review |
-|---|---|
-| Docs, tests, config only | Merge on a green **CI gate** job, no reviewer |
-| Ordinary code | PM pass |
-| Auth, payments, proxy, schema, structural change | PM pass and Architect pass |
+| PR type                                          | Review                                        |
+| ------------------------------------------------ | --------------------------------------------- |
+| Docs, tests, config only                         | Merge on a green **CI gate** job, no reviewer |
+| Ordinary code                                    | PM pass                                       |
+| Auth, payments, proxy, schema, structural change | PM pass and Architect pass                    |
 
 Claude uses separate PM and Architect subagents. If you have no subagents, do the passes yourself, one at a time, and write each verdict in the PR:
 
@@ -40,13 +40,15 @@ Claude uses separate PM and Architect subagents. If you have no subagents, do th
 - **Security pass** (auth, payments, input, secrets): authorization, validation, no secrets, no data leaks.
 - Then read `git diff main...HEAD` once more before asking for a merge.
 
-CI: the **CI gate** job must be green. The Playwright e2e job is outside the gate; today it is red only for the known failures KAN-154 to KAN-158 (the same four tests also fail on `main`).
+CI: the **CI gate** job must be green. The Playwright e2e job is outside the gate. Historical baseline failures are tracked under KAN-154 to KAN-158; inspect the current run and report its actual failures before attributing them to that baseline. The latest run's state is recorded in the baton.
 
 ## Jira
 
 Statuses: **To-do → In Progress → In Review → Done**. Take only To-do stories. Before coding: move to In Progress and comment the branch. At PR: comment the link and move to In Review. After merge and an acceptance-criteria check: Done. If you cannot reach Jira, say so in the baton and in your handoff note, and keep the baton accurate so the next agent can sync it.
 
 ## Handing the baton back
+
+The [continuity protocol](docs/developer/agent-handover.md) includes startup and return prompts. A usage-limit reset does not transfer ownership; the owner requests a handoff and the outgoing agent publishes the updated baton and Jira comment. Only the named developer writes feature code.
 
 Hand over only at a clean state: work committed and pushed, no half-run migrations, PR open or none. Then:
 
