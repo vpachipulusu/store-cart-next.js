@@ -10,6 +10,7 @@ from watchdog.observers import Observer
 # Updated regex to include main.py, schemas.py, and all .py files in app/routes
 WATCHER_REGEX_PATTERN = re.compile(r"(main\.py|schemas\.py|routes/.*\.py)$")
 APP_PATH = "app"
+FRONTEND_PATH = os.path.join("..", "nextjs-frontend")
 
 
 class MyHandler(FileSystemEventHandler):
@@ -33,7 +34,8 @@ class MyHandler(FileSystemEventHandler):
     def execute_command(self, file_path):
         print(f"File {file_path} has been modified and saved.")
         self.run_mypy_checks()
-        self.run_openapi_schema_generation()
+        if self.run_openapi_schema_generation():
+            self.run_client_generation()
 
     def run_mypy_checks(self):
         """Run mypy type checks and print output."""
@@ -52,8 +54,8 @@ class MyHandler(FileSystemEventHandler):
             else "No type errors detected."
         )
 
-    def run_openapi_schema_generation(self):
-        """Run the OpenAPI schema generation command."""
+    def run_openapi_schema_generation(self) -> bool:
+        """Write nextjs-frontend/openapi.json; return whether it succeeded."""
         print("Proceeding with OpenAPI schema generation...")
         try:
             subprocess.run(
@@ -67,8 +69,23 @@ class MyHandler(FileSystemEventHandler):
                 check=True,
             )
             print("OpenAPI schema generation completed successfully.")
+            return True
         except subprocess.CalledProcessError as e:
             print(f"An error occurred while generating OpenAPI schema: {e}")
+            return False
+
+    def run_client_generation(self) -> None:
+        """Regenerate the TypeScript client from the fresh schema (dev only)."""
+        print("Regenerating the TypeScript client...")
+        try:
+            subprocess.run(
+                ["npm", "run", "generate:client"],
+                cwd=FRONTEND_PATH,
+                check=True,
+                shell=os.name == "nt",  # npm is npm.cmd on Windows
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            print(f"Client generation failed (run `npm run generate:client`): {e}")
 
 
 if __name__ == "__main__":

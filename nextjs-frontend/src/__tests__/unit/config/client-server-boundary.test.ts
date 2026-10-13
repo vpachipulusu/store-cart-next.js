@@ -7,7 +7,7 @@ import { CURRENCIES } from '@/config/currencies';
 const SRC_DIR = path.resolve(__dirname, '../../..');
 const CLIENT_DIRECTIVE = /^\s*['"]use client['"]/;
 const SERVER_ONLY_IMPORT =
-  /from\s+['"]@\/(config\/subscriptions|lib\/db\/[^'"]+|lib\/logger|lib\/stripe\/[^'"]+|lib\/firebase\/admin)['"]/g;
+  /from\s+['"]@\/(config\/subscriptions|lib\/db\/[^'"]+|lib\/api\/server|lib\/logger|lib\/stripe\/[^'"]+|lib\/firebase\/admin)['"]/g;
 
 function listSourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {

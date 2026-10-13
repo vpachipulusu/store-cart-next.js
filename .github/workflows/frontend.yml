@@ -55,6 +55,12 @@ jobs:
       - name: Generate Prisma client
         run: npm run db:generate
 
+      # Regenerates the typed API client from openapi.json and fails if it differs from
+      # src/lib/api/generated (KAN-33). Takes about a second; the schema itself is checked
+      # against the backend by the pre-commit job.
+      - name: OpenAPI client is up to date
+        run: npm run check:client
+
       - name: Lint
         run: npm run lint
 

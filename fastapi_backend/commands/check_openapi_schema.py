@@ -3,11 +3,8 @@
 Regenerates the OpenAPI schema into a temporary file and compares it with the
 committed copy. Exits 1 (with a hint) when they differ.
 
-TODO(KAN-33): the frontend has no committed openapi.json / generated TypeScript
-client yet. Until KAN-33 adds them, this check is a placeholder that passes when
-the committed schema file does not exist. Once KAN-33 lands, also run the
-frontend client generator here (see the vintasoftware template's
-`generate-frontend-client` hook).
+The generated TypeScript client is checked separately, from nextjs-frontend/, by
+`npm run check:client`.
 """
 
 import json
@@ -31,10 +28,11 @@ PLACEHOLDER_SETTINGS = {
 def main() -> int:
     if not SCHEMA_FILE.exists():
         print(
-            f"openapi-schema-check: {SCHEMA_FILE.name} not found in nextjs-frontend/; "
-            "skipping (placeholder until KAN-33 adds the generated client)."
+            "openapi-schema-check: nextjs-frontend/openapi.json is missing.\n"
+            "Generate it from fastapi_backend/ with:\n"
+            "  uv run python -m commands.generate_openapi_schema"
         )
-        return 0
+        return 1
 
     for key, value in PLACEHOLDER_SETTINGS.items():
         os.environ.setdefault(key, value)
@@ -53,8 +51,8 @@ def main() -> int:
         print(
             "openapi-schema-check: nextjs-frontend/openapi.json is out of date.\n"
             "Regenerate it from fastapi_backend/ with:\n"
-            "  OPENAPI_OUTPUT_FILE=../nextjs-frontend/openapi.json "
-            "uv run python -m commands.generate_openapi_schema"
+            "  uv run python -m commands.generate_openapi_schema\n"
+            "then, from nextjs-frontend/: npm run generate:client"
         )
         return 1
 

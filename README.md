@@ -139,8 +139,11 @@ Notes:
   commit when they change something. Review the changes, `git add` them and commit again.
 - If you change `fastapi_backend/pyproject.toml`, run `uv lock` first; the hook regenerates
   `requirements.txt` with `uv export --frozen --no-dev --no-hashes`.
-- The OpenAPI check is a placeholder until KAN-33 adds `nextjs-frontend/openapi.json` and the
-  generated client. Until then it passes with a notice.
+- Two hooks keep the API contract current (ADR-008): `openapi-schema-check` compares
+  `nextjs-frontend/openapi.json` with the backend, and `openapi-client-check` compares
+  `nextjs-frontend/src/lib/api/generated` with that schema. To fix a failure, run
+  `uv run python -m commands.generate_openapi_schema` in `fastapi_backend/`, then
+  `npm run generate:client` in `nextjs-frontend/`, and commit both.
 - `--all-files` also reports existing lint/type issues in code nobody has touched yet. Commits
   are only checked against the files they change.
 - To skip the hooks in an emergency: `git commit --no-verify`.

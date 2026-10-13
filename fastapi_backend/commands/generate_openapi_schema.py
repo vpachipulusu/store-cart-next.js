@@ -9,7 +9,12 @@ from app.main import app
 
 load_dotenv()
 
-OUTPUT_FILE = os.getenv("OPENAPI_OUTPUT_FILE")
+# Defaults to the frontend schema that the generated TypeScript client is built from
+# (ADR-008); set OPENAPI_OUTPUT_FILE to write elsewhere.
+DEFAULT_OUTPUT_FILE = (
+    Path(__file__).resolve().parent.parent.parent / "nextjs-frontend" / "openapi.json"
+)
+OUTPUT_FILE = os.getenv("OPENAPI_OUTPUT_FILE") or DEFAULT_OUTPUT_FILE
 
 
 def generate_openapi_schema(output_file: str | Path) -> None:
@@ -18,7 +23,10 @@ def generate_openapi_schema(output_file: str | Path) -> None:
 
     updated_schema = remove_operation_id_tag(schema)
 
-    output_path.write_text(json.dumps(updated_schema, indent=2))
+    # LF newlines: the committed schema must be byte-identical on Windows and CI.
+    output_path.write_text(
+        json.dumps(updated_schema, indent=2) + "\n", encoding="utf-8", newline="\n"
+    )
     print(f"OpenAPI schema saved to {output_file}")
 
 
@@ -41,6 +49,4 @@ def remove_operation_id_tag(schema: dict[str, Any]) -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    if OUTPUT_FILE is None:
-        raise SystemExit("Set OPENAPI_OUTPUT_FILE to the schema output path.")
     generate_openapi_schema(OUTPUT_FILE)

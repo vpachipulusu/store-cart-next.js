@@ -59,8 +59,8 @@ def test_generate_openapi_schema(mocker, mock_app):
 
     output_path = Path(output_file)
     assert output_path.is_file()
-    with open(output_file, "r") as f:
-        content = f.read()
-        assert content == expected_output
+    # Bytes, not text: the schema is committed, so it must use LF on every platform.
+    assert output_path.read_bytes() == (expected_output + "\n").encode()
+    assert b"\r" not in output_path.read_bytes()
 
     output_path.unlink()

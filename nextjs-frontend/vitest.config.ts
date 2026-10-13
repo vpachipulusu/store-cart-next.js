@@ -18,6 +18,7 @@ export default defineConfig({
         'src/app/actions/**/*.{ts,tsx}',
       ],
       exclude: [
+        'src/lib/api/generated/**',
         'src/**/*.d.ts',
         'src/**/*.test.{ts,tsx}',
         'src/**/*.spec.{ts,tsx}',

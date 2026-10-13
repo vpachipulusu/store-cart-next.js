@@ -22,11 +22,11 @@ def fake_generator(schema: dict[str, object]):
     return generate
 
 
-def test_passes_when_the_committed_schema_does_not_exist(
+def test_fails_when_the_committed_schema_does_not_exist(
     schema_file: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert check_openapi_schema.main() == 0
-    assert "skipping" in capsys.readouterr().out
+    assert check_openapi_schema.main() == 1
+    assert "missing" in capsys.readouterr().out
 
 
 def test_passes_when_the_committed_schema_is_current(
