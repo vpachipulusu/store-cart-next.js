@@ -6,7 +6,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { headers } from 'next/headers';
-import { verifyWebhookSignature, handleWebhookEvent } from '@/lib/stripe/webhooks';
+import { verifyWebhookSignature } from '@/lib/stripe/webhooks';
+import { processWebhookEvent } from '@/lib/stripe/webhook-processing';
 import { logger } from '@/lib/logger';
 
 /**
@@ -25,10 +26,7 @@ export async function POST(request: NextRequest) {
 
     if (!signature) {
       logger.error('Missing stripe-signature header');
-      return NextResponse.json(
-        { error: 'Missing signature header' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Missing signature header' }, { status: 400 });
     }
 
     // Verify webhook signature and construct event
@@ -37,48 +35,34 @@ export async function POST(request: NextRequest) {
       event = verifyWebhookSignature(body, signature);
     } catch (error) {
       logger.error('Webhook signature verification failed:', error);
-      return NextResponse.json(
-        { error: 'Invalid signature' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
 
     logger.info(`Received webhook event: ${event.type}`);
 
-    // Handle the event
+    // Handle the event once. A failure returns 5xx so Stripe retries.
+    let result;
     try {
-      await handleWebhookEvent(event);
+      result = await processWebhookEvent(event);
     } catch (error) {
-      logger.error(`Error handling webhook event ${event.type}:`, error);
+      logger.error(`Error handling webhook event ${event.type} (${event.id}):`, error);
 
-      // Return 200 to acknowledge receipt even if processing fails
-      // This prevents Stripe from retrying immediately
-      return NextResponse.json(
-        {
-          received: true,
-          error: 'Event processing failed',
-          eventId: event.id,
-        },
-        { status: 200 }
-      );
+      return NextResponse.json({ error: 'Webhook processing failed' }, { status: 500 });
     }
 
-    // Return success response
     return NextResponse.json(
       {
         received: true,
         eventId: event.id,
         eventType: event.type,
+        ...(result === 'duplicate' ? { duplicate: true } : {}),
       },
       { status: 200 }
     );
   } catch (error) {
     logger.error('Webhook error:', error);
 
-    return NextResponse.json(
-      { error: 'Webhook processing failed' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Webhook processing failed' }, { status: 500 });
   }
 }
 
@@ -104,3 +88,5 @@ export async function OPTIONS() {
  */
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+// Keep below WEBHOOK_LEASE_MS (60 s) so a handler cannot outlive its processing lease.
+export const maxDuration = 30;

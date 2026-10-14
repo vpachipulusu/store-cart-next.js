@@ -210,3 +210,19 @@ model EmailTemplate {
   @@index([name])
   @@map("email_templates")
 }
+
+// Stripe webhook idempotency (KAN-128): one row per Stripe event id.
+// claimedAt is a processing lease; processedAt is set only after the handler succeeds.
+// Retention: Stripe retries for up to 3 days, so rows older than 30 days (receivedAt)
+// can be pruned.
+model ProcessedStripeEvent {
+  id          String    @id // Stripe event id (evt_...)
+  type        String
+  receivedAt  DateTime  @default(now())
+  claimedAt   DateTime  @default(now())
+  processedAt DateTime?
+
+  @@index([receivedAt])
+
+  @@map("processed_stripe_events")
+}
