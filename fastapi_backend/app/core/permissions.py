@@ -77,7 +77,8 @@ def assert_can_grant(actor: AdminContext, role: str, permissions: Any) -> bool:
     The guard for the grant endpoints (KAN-47) against KAN-124 self-escalation: the
     actor needs ``admins.create``, only a ``super_admin`` may grant the
     ``super_admin`` role or the wildcard, and nobody can grant a permission they do
-    not hold. Unknown or malformed input is refused.
+    not hold. Unknown or malformed input is refused, and so is a ``super_admin`` that
+    is not exactly the wildcard.
     """
     if "admins.create" not in actor.permissions:
         return False
@@ -87,5 +88,12 @@ def assert_can_grant(actor: AdminContext, role: str, permissions: Any) -> bool:
         return False
     wanted = set(permissions)
     if role == ROLE_SUPER_ADMIN or WILDCARD in wanted:
-        return actor.role == ROLE_SUPER_ADMIN
+        # A super_admin always carries the wildcard and only a holder of every
+        # known permission may hand it out, so a hollow super_admin row cannot.
+        return (
+            role == ROLE_SUPER_ADMIN
+            and wanted == {WILDCARD}
+            and actor.role == ROLE_SUPER_ADMIN
+            and actor.permissions >= ADMIN_PERMISSIONS
+        )
     return wanted <= ADMIN_PERMISSIONS and wanted <= actor.permissions

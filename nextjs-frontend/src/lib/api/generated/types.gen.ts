@@ -5,6 +5,143 @@ export type ClientOptions = {
 };
 
 /**
+ * AdminGrantData
+ */
+export type AdminGrantData = {
+    /**
+     * User Id
+     */
+    user_id: string;
+    /**
+     * Role
+     */
+    role: string;
+    /**
+     * Permissions
+     */
+    permissions: Array<string>;
+};
+
+/**
+ * AdminGrantResponse
+ */
+export type AdminGrantResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: AdminGrantData;
+};
+
+/**
+ * AdminUserDetail
+ */
+export type AdminUserDetail = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Email
+     */
+    email: string;
+    /**
+     * Email Verified
+     */
+    email_verified: boolean;
+    /**
+     * Display Name
+     */
+    display_name: string | null;
+    /**
+     * Avatar Url
+     */
+    avatar_url: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Last Login At
+     */
+    last_login_at: string | null;
+    /**
+     * Is Admin
+     */
+    is_admin: boolean;
+    /**
+     * Admin Role
+     */
+    admin_role: string | null;
+    /**
+     * Bio
+     */
+    bio: string | null;
+    /**
+     * Location
+     */
+    location: string | null;
+    /**
+     * Website
+     */
+    website: string | null;
+    /**
+     * Phone Number
+     */
+    phone_number: string | null;
+    /**
+     * Two Factor Enabled
+     */
+    two_factor_enabled: boolean;
+    /**
+     * Admin Permissions
+     */
+    admin_permissions: Array<string>;
+};
+
+/**
+ * AdminUserSummary
+ */
+export type AdminUserSummary = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Email
+     */
+    email: string;
+    /**
+     * Email Verified
+     */
+    email_verified: boolean;
+    /**
+     * Display Name
+     */
+    display_name: string | null;
+    /**
+     * Avatar Url
+     */
+    avatar_url: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Last Login At
+     */
+    last_login_at: string | null;
+    /**
+     * Is Admin
+     */
+    is_admin: boolean;
+    /**
+     * Admin Role
+     */
+    admin_role: string | null;
+};
+
+/**
  * AvatarRequest
  */
 export type AvatarRequest = {
@@ -12,6 +149,16 @@ export type AvatarRequest = {
      * Avatar Url
      */
     avatar_url?: string | null;
+};
+
+/**
+ * BanRequest
+ */
+export type BanRequest = {
+    /**
+     * Reason
+     */
+    reason?: string | null;
 };
 
 /**
@@ -97,6 +244,20 @@ export type ErrorResponse = {
      * Error
      */
     error: string;
+};
+
+/**
+ * GrantAdminRequest
+ */
+export type GrantAdminRequest = {
+    /**
+     * Role
+     */
+    role: 'admin' | 'super_admin';
+    /**
+     * Permissions
+     */
+    permissions: Array<string>;
 };
 
 /**
@@ -191,6 +352,16 @@ export type IdentityResponse = {
      */
     success?: true;
     data: IdentityData;
+};
+
+/**
+ * OkResponse
+ */
+export type OkResponse = {
+    /**
+     * Success
+     */
+    success?: true;
 };
 
 /**
@@ -384,6 +555,80 @@ export type TotpChangedResponse = {
      * Success
      */
     success?: true;
+};
+
+/**
+ * UpdateUserRequest
+ */
+export type UpdateUserRequest = {
+    /**
+     * Display Name
+     */
+    display_name?: string | null;
+    /**
+     * Bio
+     */
+    bio?: string | null;
+    /**
+     * Location
+     */
+    location?: string | null;
+    /**
+     * Website
+     */
+    website?: string | null;
+    /**
+     * Phone Number
+     */
+    phone_number?: string | null;
+    /**
+     * Avatar Url
+     */
+    avatar_url?: string | null;
+};
+
+/**
+ * UserDetailResponse
+ */
+export type UserDetailResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: AdminUserDetail;
+};
+
+/**
+ * UsersPage
+ */
+export type UsersPage = {
+    /**
+     * Users
+     */
+    users: Array<AdminUserSummary>;
+    /**
+     * Total Count
+     */
+    total_count: number;
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Offset
+     */
+    offset: number;
+};
+
+/**
+ * UsersPageResponse
+ */
+export type UsersPageResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: UsersPage;
 };
 
 /**
@@ -1221,3 +1466,526 @@ export type DisableResponses = {
 };
 
 export type DisableResponse = DisableResponses[keyof DisableResponses];
+
+export type ListUsersData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Offset
+         */
+        offset?: number;
+        /**
+         * Search
+         */
+        search?: string | null;
+    };
+    url: '/v1/admin/users';
+};
+
+export type ListUsersErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ListUsersError = ListUsersErrors[keyof ListUsersErrors];
+
+export type ListUsersResponses = {
+    /**
+     * Successful Response
+     */
+    200: UsersPageResponse;
+};
+
+export type ListUsersResponse = ListUsersResponses[keyof ListUsersResponses];
+
+export type DeleteUserData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * User Id
+         */
+        user_id: string;
+    };
+    query?: never;
+    url: '/v1/admin/users/{user_id}';
+};
+
+export type DeleteUserErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type DeleteUserError = DeleteUserErrors[keyof DeleteUserErrors];
+
+export type DeleteUserResponses = {
+    /**
+     * Successful Response
+     */
+    200: OkResponse;
+};
+
+export type DeleteUserResponse = DeleteUserResponses[keyof DeleteUserResponses];
+
+export type ReadUserData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * User Id
+         */
+        user_id: string;
+    };
+    query?: never;
+    url: '/v1/admin/users/{user_id}';
+};
+
+export type ReadUserErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ReadUserError = ReadUserErrors[keyof ReadUserErrors];
+
+export type ReadUserResponses = {
+    /**
+     * Successful Response
+     */
+    200: UserDetailResponse;
+};
+
+export type ReadUserResponse = ReadUserResponses[keyof ReadUserResponses];
+
+export type UpdateUserData = {
+    body: UpdateUserRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * User Id
+         */
+        user_id: string;
+    };
+    query?: never;
+    url: '/v1/admin/users/{user_id}';
+};
+
+export type UpdateUserErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type UpdateUserError = UpdateUserErrors[keyof UpdateUserErrors];
+
+export type UpdateUserResponses = {
+    /**
+     * Successful Response
+     */
+    200: UserDetailResponse;
+};
+
+export type UpdateUserResponse = UpdateUserResponses[keyof UpdateUserResponses];
+
+export type RevokeAdminData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * User Id
+         */
+        user_id: string;
+    };
+    query?: never;
+    url: '/v1/admin/users/{user_id}/admin';
+};
+
+export type RevokeAdminErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type RevokeAdminError = RevokeAdminErrors[keyof RevokeAdminErrors];
+
+export type RevokeAdminResponses = {
+    /**
+     * Successful Response
+     */
+    200: OkResponse;
+};
+
+export type RevokeAdminResponse = RevokeAdminResponses[keyof RevokeAdminResponses];
+
+export type GrantAdminData = {
+    body: GrantAdminRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * User Id
+         */
+        user_id: string;
+    };
+    query?: never;
+    url: '/v1/admin/users/{user_id}/admin';
+};
+
+export type GrantAdminErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type GrantAdminError = GrantAdminErrors[keyof GrantAdminErrors];
+
+export type GrantAdminResponses = {
+    /**
+     * Successful Response
+     */
+    200: AdminGrantResponse;
+};
+
+export type GrantAdminResponse = GrantAdminResponses[keyof GrantAdminResponses];
+
+export type BanUserData = {
+    /**
+     * Body
+     */
+    body?: BanRequest | null;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * User Id
+         */
+        user_id: string;
+    };
+    query?: never;
+    url: '/v1/admin/users/{user_id}/ban';
+};
+
+export type BanUserErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type BanUserError = BanUserErrors[keyof BanUserErrors];
+
+export type BanUserResponses = {
+    /**
+     * Successful Response
+     */
+    200: OkResponse;
+};
+
+export type BanUserResponse = BanUserResponses[keyof BanUserResponses];
+
+export type UnbanUserData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * User Id
+         */
+        user_id: string;
+    };
+    query?: never;
+    url: '/v1/admin/users/{user_id}/unban';
+};
+
+export type UnbanUserErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type UnbanUserError = UnbanUserErrors[keyof UnbanUserErrors];
+
+export type UnbanUserResponses = {
+    /**
+     * Successful Response
+     */
+    200: OkResponse;
+};
+
+export type UnbanUserResponse = UnbanUserResponses[keyof UnbanUserResponses];

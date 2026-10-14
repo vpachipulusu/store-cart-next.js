@@ -140,3 +140,43 @@ async def test_user_deletion_is_off_loop_and_idempotent_for_missing_users(
 
     monkeypatch.setattr(module.auth, "delete_user", delete)
     await FirebaseIdentityProvider().delete_user("user")
+
+
+async def test_disabling_a_user_is_off_loop_and_passes_the_flag(monkeypatch, sdk_app):
+    event_thread = threading.get_ident()
+    seen = []
+
+    def update(uid, *, disabled, app):
+        assert threading.get_ident() != event_thread and app is sdk_app
+        seen.append((uid, disabled))
+
+    monkeypatch.setattr(module.auth, "update_user", update)
+    provider = FirebaseIdentityProvider()
+    await provider.set_user_disabled("user", True)
+    await provider.set_user_disabled("user", False)
+
+    assert seen == [("user", True), ("user", False)]
+
+
+async def test_disabling_an_unknown_user_raises_a_sanitized_not_found(
+    monkeypatch, sdk_app
+):
+    monkeypatch.setattr(
+        module.auth,
+        "update_user",
+        Mock(side_effect=module.auth.UserNotFoundError("private")),
+    )
+
+    with pytest.raises(module.IdentityUserNotFound):
+        await FirebaseIdentityProvider().set_user_disabled("user", True)
+
+
+async def test_disabling_a_user_sanitizes_sdk_outages(monkeypatch, sdk_app):
+    monkeypatch.setattr(
+        module.auth,
+        "update_user",
+        Mock(side_effect=module.exceptions.UnavailableError("secret")),
+    )
+
+    with pytest.raises(IdentityProviderUnavailable):
+        await FirebaseIdentityProvider().set_user_disabled("user", True)
