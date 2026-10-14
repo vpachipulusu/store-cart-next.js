@@ -152,7 +152,10 @@
 
   body {
     @apply bg-background text-foreground;
-    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
+    font-feature-settings:
+      'rlig' 1,
+      'calt' 1,
+      'ss01' 1;
   }
 
   html {
@@ -189,39 +192,45 @@
     );
   }
 
-  /* Theme border hover glow */
+  /* Theme border: hairline, no glow (KAN-177) */
   .theme-border {
-    @apply border border-border/60 transition-all duration-500;
-  }
-  .theme-border:hover {
-    border-color: hsl(var(--theme-accent) / 0.3);
-    box-shadow: 0 0 20px -5px hsl(var(--theme-accent) / 0.15);
+    @apply border border-border/60 transition-colors duration-200;
   }
 
-  /* Theme card */
+  /* Theme card: hairline panel, one elevation, no glow (KAN-177) */
   .theme-card {
-    @apply rounded-xl border border-border/60 bg-card shadow-sm transition-all duration-500;
-  }
-  .theme-card:hover {
-    border-color: hsl(var(--theme-accent) / 0.25);
-    box-shadow:
-      0 10px 25px -5px hsl(var(--theme-accent) / 0.05),
-      0 4px 6px -2px hsl(var(--theme-accent) / 0.02);
+    @apply rounded-xl border border-border/60 bg-card shadow-sm transition-colors duration-200;
   }
 
   /* Staggered reveal children */
   .stagger-children > * {
     opacity: 0;
-    animation: reveal-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    animation: reveal-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
-  .stagger-children > *:nth-child(1) { animation-delay: 0ms; }
-  .stagger-children > *:nth-child(2) { animation-delay: 80ms; }
-  .stagger-children > *:nth-child(3) { animation-delay: 160ms; }
-  .stagger-children > *:nth-child(4) { animation-delay: 240ms; }
-  .stagger-children > *:nth-child(5) { animation-delay: 320ms; }
-  .stagger-children > *:nth-child(6) { animation-delay: 400ms; }
-  .stagger-children > *:nth-child(7) { animation-delay: 480ms; }
-  .stagger-children > *:nth-child(8) { animation-delay: 560ms; }
+  .stagger-children > *:nth-child(1) {
+    animation-delay: 0ms;
+  }
+  .stagger-children > *:nth-child(2) {
+    animation-delay: 80ms;
+  }
+  .stagger-children > *:nth-child(3) {
+    animation-delay: 160ms;
+  }
+  .stagger-children > *:nth-child(4) {
+    animation-delay: 240ms;
+  }
+  .stagger-children > *:nth-child(5) {
+    animation-delay: 320ms;
+  }
+  .stagger-children > *:nth-child(6) {
+    animation-delay: 400ms;
+  }
+  .stagger-children > *:nth-child(7) {
+    animation-delay: 480ms;
+  }
+  .stagger-children > *:nth-child(8) {
+    animation-delay: 560ms;
+  }
 
   /* Shimmer accent */
   .shimmer-accent {
@@ -242,14 +251,9 @@
     @apply relative h-px w-full bg-border;
   }
   .divider-accent::after {
-    content: "";
+    content: '';
     @apply absolute left-1/2 top-1/2 h-px w-16 -translate-x-1/2 -translate-y-1/2;
-    background: linear-gradient(
-      to right,
-      transparent,
-      hsl(var(--theme-accent)),
-      transparent
-    );
+    background: linear-gradient(to right, transparent, hsl(var(--theme-accent)), transparent);
   }
 
   /* Nav link with accent underline animation */
@@ -260,7 +264,7 @@
     @apply text-foreground;
   }
   .nav-link-accent::after {
-    content: "";
+    content: '';
     @apply absolute -bottom-1 left-0 h-px w-0 transition-all duration-300;
     background-color: hsl(var(--theme-accent));
   }
@@ -302,7 +306,7 @@
 @keyframes reveal-up {
   from {
     opacity: 0;
-    transform: translateY(20px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -311,43 +315,109 @@
 }
 
 @keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes fade-out {
-  from { opacity: 1; }
-  to { opacity: 0; }
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 @keyframes slide-in-from-top {
-  from { transform: translateY(-100%); }
-  to { transform: translateY(0); }
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(0);
+  }
 }
 
 @keyframes slide-in-from-bottom {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
 }
 
 @keyframes slide-in-from-left {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(0); }
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
 
 @keyframes slide-in-from-right {
-  from { transform: translateX(100%); }
-  to { transform: translateX(0); }
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
 
 @keyframes shimmer {
-  from { background-position: 200% 0; }
-  to { background-position: -200% 0; }
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
 }
 
-.animate-fade-in { animation: fade-in 0.3s ease-in-out; }
-.animate-fade-out { animation: fade-out 0.3s ease-in-out; }
-.animate-slide-in-from-top { animation: slide-in-from-top 0.3s ease-out; }
-.animate-slide-in-from-bottom { animation: slide-in-from-bottom 0.3s ease-out; }
-.animate-slide-in-from-left { animation: slide-in-from-left 0.3s ease-out; }
-.animate-slide-in-from-right { animation: slide-in-from-right 0.3s ease-out; }
+.animate-fade-in {
+  animation: fade-in 0.3s ease-in-out;
+}
+.animate-fade-out {
+  animation: fade-out 0.3s ease-in-out;
+}
+.animate-slide-in-from-top {
+  animation: slide-in-from-top 0.3s ease-out;
+}
+.animate-slide-in-from-bottom {
+  animation: slide-in-from-bottom 0.3s ease-out;
+}
+.animate-slide-in-from-left {
+  animation: slide-in-from-left 0.3s ease-out;
+}
+.animate-slide-in-from-right {
+  animation: slide-in-from-right 0.3s ease-out;
+}
+
+/* Reduced motion (KAN-177): no reveal, shimmer or transitions; content stays visible */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+  }
+
+  .stagger-children > * {
+    opacity: 1 !important;
+    animation: none !important;
+  }
+
+  .shimmer-accent {
+    animation: none !important;
+  }
+}
