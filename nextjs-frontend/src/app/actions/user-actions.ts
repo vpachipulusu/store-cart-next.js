@@ -21,6 +21,26 @@ type UserActionResponse<T = any> = {
 };
 
 /**
+ * The only user columns a profile action may return to the browser (KAN-126). An explicit
+ * `select` keeps secrets (twoFactorSecret, Stripe ids, firebaseUid) out of the response even when
+ * the schema gains new columns.
+ */
+const SAFE_PROFILE_SELECT = {
+  id: true,
+  email: true,
+  emailVerified: true,
+  displayName: true,
+  bio: true,
+  avatarUrl: true,
+  location: true,
+  website: true,
+  phoneNumber: true,
+  subscriptionTier: true,
+  subscriptionStatus: true,
+  createdAt: true,
+} as const;
+
+/**
  * Get user profile
  */
 export async function getUserProfileAction(): Promise<UserActionResponse> {
@@ -35,9 +55,7 @@ export async function getUserProfileAction(): Promise<UserActionResponse> {
 
     const user = await db.user.findUnique({
       where: { id: userId },
-      include: {
-        settings: true,
-      },
+      select: { ...SAFE_PROFILE_SELECT, settings: true },
     });
 
     if (!user) {
@@ -49,23 +67,7 @@ export async function getUserProfileAction(): Promise<UserActionResponse> {
 
     return {
       success: true,
-      data: {
-        user: {
-          id: user.id,
-          email: user.email,
-          emailVerified: user.emailVerified,
-          displayName: user.displayName,
-          bio: user.bio,
-          avatarUrl: user.avatarUrl,
-          location: user.location,
-          website: user.website,
-          phoneNumber: user.phoneNumber,
-          subscriptionTier: user.subscriptionTier,
-          subscriptionStatus: user.subscriptionStatus,
-          createdAt: user.createdAt,
-          settings: user.settings,
-        },
-      },
+      data: { user },
     };
   } catch (error: any) {
     logger.error('Get user profile error:', error);
@@ -110,6 +112,7 @@ export async function updateUserProfileAction(
         website: data.website || null,
         phoneNumber: data.phoneNumber,
       },
+      select: SAFE_PROFILE_SELECT,
     });
 
     return {
