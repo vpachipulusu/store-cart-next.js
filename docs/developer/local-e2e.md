@@ -16,19 +16,28 @@ Everything after `--` goes to Playwright (spec paths, `--grep`, `--headed`, `--w
 
 What it does, in order (a timing table is printed at the end):
 
-| Step         | What happens                                                                                                                                                                                                                                                                               |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Step         | What happens                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `setup`      | Copies missing `.env`, `.env.local`, `.env.e2e.local` from the main checkout. Links `node_modules` to the main checkout's when `package-lock.json` and `prisma/schema.prisma` are identical, otherwise `npm ci --prefer-offline`. Runs `prisma generate` only when the client is missing or older than the schema. Installs Chromium only if it is not in the global Playwright cache. |
-| `build`      | `next build --webpack` into `.next-e2e` (never your `.next`). Skipped when the commit, uncommitted edits, port and `.env.e2e.local` are unchanged since the last build.                                                                                                                    |
-| `serve+warm` | `next start` on a free port, then requests `/`, `/login`, `/signup`, `/pricing` and `/dashboard` once.                                                                                                                                                                                     |
-| `test`       | `playwright.local.config.ts`: chromium plus the auth setup project, up to 4 workers (CPU count / 2).                                                                                                                                                                                       |
-| cleanup      | The server process tree is stopped on exit and on Ctrl+C. Server output is in `test-results/e2e-local-server.log`.                                                                                                                                                                         |
+| `build`      | `next build --webpack` into `.next-e2e` (never your `.next`). Skipped when the commit, uncommitted edits, port and `.env.e2e.local` are unchanged since the last build.                                                                                                                                                                                                                |
+| `serve+warm` | `next start` on a free port, then requests `/`, `/login`, `/signup`, `/pricing` and `/dashboard` once.                                                                                                                                                                                                                                                                                 |
+| `test`       | `playwright.local.config.ts`: chromium plus the auth setup project, up to 4 workers (CPU count / 2).                                                                                                                                                                                                                                                                                   |
+| cleanup      | The server process tree is stopped on exit and on Ctrl+C. Server output is in `test-results/e2e-local-server.log`.                                                                                                                                                                                                                                                                     |
 
 Why a production build and not `next dev`: dev compiles each route on first request (40-58 s for `/` and `/login` cold), which broke the one-time login and caused hydration timeouts under parallel workers. A production build has no per-route compile, so warming only primes the server.
 
 ## Expected timings
 
-See the KAN-178 pull request for the measured before/after table. The one-off costs are `npm ci` (about 4 minutes, skipped by the node_modules link) and the cold `next build`. A repeat run with no code change skips the build and pays only server start, warm-up and the tests.
+Measured on the dev machine (Windows 11, 4 workers), five specs (button-contrast, motion-hygiene, theme-contrast, display-font, touch-targets; 27 tests):
+
+| Scenario                                                      | Total | Result                                                       |
+| ------------------------------------------------------------- | ----- | ------------------------------------------------------------ |
+| Before: plain Playwright with a cold `next dev`               | 203 s | 26 passed, 1 failed (hydration timeout)                      |
+| Before: `npm ci --prefer-offline` in a new worktree (one-off) | 255 s | removed by the node_modules link                             |
+| After: clean worktree, nothing installed or built             | 113 s | 27 passed (setup 4 s, build 73 s, serve+warm 6 s, test 29 s) |
+| After: same code, build cached                                | 34 s  | 27 passed (build 0.3 s, serve+warm 4 s, test 28 s)           |
+
+So a clean worktree went from about 4 min of install plus a flaky 3.4 min run to under 2 min, and a repeat run is about 30 s.
 
 ## Ports
 
@@ -42,6 +51,7 @@ Each checkout gets a stable port in 3100-3899 derived from its path; the script 
 - **Tests time out in `page.goto`**: too many workers for the machine; add `--workers=2`.
 - **Stale build**: any change to tracked or untracked files triggers a rebuild automatically; delete `.next-e2e` to force one.
 - **Shared `node_modules`**: it is a link to the main checkout's. Running `npm ci` in the main checkout changes it for every worktree. Set `E2E_LOCAL_NO_LINK=1` for your own copy. If the lockfile later differs from the main checkout's, the script removes only the link and runs `npm ci`.
+- **Deleting a worktree**: it holds a link to the main checkout's `node_modules`. Remove the link first (`rmdir node_modules` in Windows `cmd`, `rm node_modules` elsewhere, no recursive flag), then remove the worktree. A recursive delete that follows the link would destroy the main checkout's dependencies.
 - **Plain `npm run test:e2e`** still works and starts `next dev`. The setup project now allows 90 s and the post-login redirect 45 s, so a cold dev compile no longer fails the login, but the prebuilt run is much faster.
 
 ## Not covered

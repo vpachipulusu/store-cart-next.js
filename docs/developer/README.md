@@ -1,20 +1,20 @@
 # StoreCart developer documentation
 
 **Last updated:** 2026-10-11
-**Scope:** the repository as it is on `main`. Items marked *(lands with KAN-n)* are on unmerged branches and are not yet in `main`.
+**Scope:** the repository as it is on `main`. Items marked _(lands with KAN-n)_ are on unmerged branches and are not yet in `main`.
 
 If you are setting up a machine for the first time, start with [getting-started.md](getting-started.md).
 
-| Page | Read it when |
-|---|---|
-| [getting-started.md](getting-started.md) | Installing prerequisites, cloning, configuring env, running both apps |
-| [architecture.md](architecture.md) | You need the monorepo layout and the request flow from browser to FastAPI |
-| [workflow.md](workflow.md) | You pick up a Jira story, branch, commit, or open a PR |
-| [testing.md](testing.md) | You run or write unit, integration, e2e, foundation, or backend tests |
-| [local-e2e.md](local-e2e.md) | You run Playwright E2E locally (one command, timings, troubleshooting) |
-| [security.md](security.md) | You write a server action, handle secrets, or touch e2e accounts |
-| [admin-settings.md](admin-settings.md) | You work on the admin settings page, currency, language or feature flags |
-| [known-issues.md](known-issues.md) | Something is broken and you want to know whether it is already tracked |
+| Page                                     | Read it when                                                              |
+| ---------------------------------------- | ------------------------------------------------------------------------- |
+| [getting-started.md](getting-started.md) | Installing prerequisites, cloning, configuring env, running both apps     |
+| [architecture.md](architecture.md)       | You need the monorepo layout and the request flow from browser to FastAPI |
+| [workflow.md](workflow.md)               | You pick up a Jira story, branch, commit, or open a PR                    |
+| [testing.md](testing.md)                 | You run or write unit, integration, e2e, foundation, or backend tests     |
+| [local-e2e.md](local-e2e.md)             | You run Playwright E2E locally (one command, timings, troubleshooting)    |
+| [security.md](security.md)               | You write a server action, handle secrets, or touch e2e accounts          |
+| [admin-settings.md](admin-settings.md)   | You work on the admin settings page, currency, language or feature flags  |
+| [known-issues.md](known-issues.md)       | Something is broken and you want to know whether it is already tracked    |
 
 ## Related sources
 
