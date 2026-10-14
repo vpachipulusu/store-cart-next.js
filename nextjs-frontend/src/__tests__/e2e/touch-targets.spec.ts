@@ -47,9 +47,13 @@ test('primary button on /login is 44px and focus ring is a 3px outline', async (
 
   await page.keyboard.press('Tab');
   await submit.focus();
-  const outline = await submit.evaluate((el) => {
-    const s = getComputedStyle(el);
-    return { width: s.outlineWidth, offset: s.outlineOffset, style: s.outlineStyle };
-  });
-  expect(outline).toEqual({ width: '3px', offset: '2px', style: 'solid' });
+  // Buttons use transition-all, so wait for the outline to finish animating in.
+  await expect
+    .poll(() =>
+      submit.evaluate((el) => {
+        const s = getComputedStyle(el);
+        return { width: s.outlineWidth, offset: s.outlineOffset, style: s.outlineStyle };
+      })
+    )
+    .toEqual({ width: '3px', offset: '2px', style: 'solid' });
 });
