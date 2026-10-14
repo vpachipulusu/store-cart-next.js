@@ -1,7 +1,7 @@
 'use server';
 
 import { cookies } from 'next/headers';
-import { revalidateTag } from 'next/cache';
+import { updateTag } from 'next/cache';
 import { z } from 'zod';
 import { db } from '@/lib/db/client';
 import { logger } from '@/lib/logger';
@@ -64,6 +64,15 @@ const appSettingSchema = z.object({
   category: z.string().min(1),
   description: z.string().optional(),
 });
+
+/**
+ * Settings whose reads are cached with unstable_cache, mapped to the tag to expire when they change
+ */
+const SETTING_CACHE_TAGS: Record<string, string | undefined> = {
+  active_theme: 'active-theme',
+  app_font: 'active-font',
+  currency: 'currency-setting',
+};
 
 /**
  * Get all app settings
@@ -188,14 +197,10 @@ export async function upsertAppSettingAction(
       },
     });
 
-    // Bust theme cache when active theme changes
-    if (data.key === 'active_theme') {
-      revalidateTag('active-theme', { expire: 3600 });
-    }
-
-    // Bust font cache when font changes
-    if (data.key === 'app_font') {
-      revalidateTag('active-font', { expire: 3600 });
+    // Expire the cached read immediately (read-your-writes) so the admin sees the change on next load
+    const cacheTag = SETTING_CACHE_TAGS[data.key];
+    if (cacheTag) {
+      updateTag(cacheTag);
     }
 
     return {

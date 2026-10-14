@@ -190,14 +190,25 @@ async function fetchCurrencySymbol(): Promise<string> {
     const code = (setting?.value as string) || 'USD';
     return CURRENCIES.find((c) => c.code === code)?.symbol ?? '$';
   } catch (error) {
-    return '$';
+    // Log and rethrow so unstable_cache does not store the fallback for the whole revalidate window.
+    logger.error('Failed to fetch currency symbol:', error);
+    throw error;
   }
 }
 
-/**
- * Cached currency symbol from admin settings. Revalidates every 1 hour.
- */
-export const getCurrencySymbol = unstable_cache(fetchCurrencySymbol, ['currency-symbol'], {
+const getCachedCurrencySymbol = unstable_cache(fetchCurrencySymbol, ['currency-symbol'], {
   revalidate: 3600,
   tags: ['currency-setting'],
 });
+
+/**
+ * Currency symbol from admin settings, cached for 1 hour. A database error is logged and answered
+ * with '$' outside the cache, so the fallback is never cached.
+ */
+export async function getCurrencySymbol(): Promise<string> {
+  try {
+    return await getCachedCurrencySymbol();
+  } catch {
+    return '$';
+  }
+}
