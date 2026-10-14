@@ -69,35 +69,49 @@ export default function BillingPage() {
   const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
   const [settingDefaultId, setSettingDefaultId] = useState<string | null>(null);
 
-  const loadData = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     try {
-      setIsLoading(true);
       const [subResult, pmResult, invResult] = await Promise.all([
         getSubscriptionDetailsAction(),
         getPaymentMethodsAction(),
         getSubscriptionInvoicesAction(10),
       ]);
 
-      if (subResult.success && subResult.data) {
-        setSubscription(subResult.data);
-      }
-      if (pmResult.success && pmResult.data) {
-        setPaymentMethods(pmResult.data.paymentMethods);
-      }
-      if (invResult.success && invResult.data) {
-        setInvoices(invResult.data.invoices);
-      }
+      return {
+        subscription: subResult.success && subResult.data ? subResult.data : undefined,
+        paymentMethods:
+          pmResult.success && pmResult.data ? pmResult.data.paymentMethods : undefined,
+        invoices: invResult.success && invResult.data ? invResult.data.invoices : undefined,
+      };
     } catch (error) {
       console.error('Failed to load billing data:', error);
       toast({ title: 'Error', description: 'Failed to load billing data', variant: 'destructive' });
-    } finally {
-      setIsLoading(false);
+      return null;
     }
   }, [toast]);
 
+  const applyBillingData = useCallback((data: Awaited<ReturnType<typeof fetchData>>) => {
+    if (data?.subscription) setSubscription(data.subscription);
+    if (data?.paymentMethods) setPaymentMethods(data.paymentMethods);
+    if (data?.invoices) setInvoices(data.invoices);
+    setIsLoading(false);
+  }, []);
+
+  // Re-fetch after a mutation, showing the loading state again.
+  const loadData = useCallback(async () => {
+    setIsLoading(true);
+    applyBillingData(await fetchData());
+  }, [fetchData, applyBillingData]);
+
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    let cancelled = false;
+    fetchData().then((data) => {
+      if (!cancelled) applyBillingData(data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchData, applyBillingData]);
 
   const handleToggleAutoRenewal = async () => {
     if (!subscription) return;

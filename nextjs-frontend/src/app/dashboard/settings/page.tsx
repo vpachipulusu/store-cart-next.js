@@ -1,22 +1,13 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
-import {
-  getUserSettingsAction,
-  updateUserSettingsAction,
-} from "@/app/actions/user-actions";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+import { getUserSettingsAction, updateUserSettingsAction } from '@/app/actions/user-actions';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Form,
   FormControl,
@@ -25,20 +16,20 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-} from "@/components/ui/form";
+} from '@/components/ui/form';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { Loader2, Moon, Sun, Bell, Globe } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+} from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { Loader2, Moon, Sun, Bell, Globe } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 const settingsSchema = z.object({
-  theme: z.enum(["light", "dark", "system"]),
+  theme: z.enum(['light', 'dark', 'system']),
   emailNotifications: z.boolean(),
   language: z.string(),
   timezone: z.string(),
@@ -55,49 +46,55 @@ export default function SettingsPage() {
   const form = useForm<SettingsFormValues>({
     resolver: zodResolver(settingsSchema),
     defaultValues: {
-      theme: "system",
+      theme: 'system',
       emailNotifications: true,
-      language: "en",
-      timezone: "UTC",
+      language: 'en',
+      timezone: 'UTC',
     },
   });
 
   useEffect(() => {
-    loadSettings();
-  }, []);
+    let cancelled = false;
 
-  async function loadSettings() {
-    try {
-      setIsLoading(true);
-      const result = await getUserSettingsAction();
+    async function loadSettings() {
+      try {
+        const result = await getUserSettingsAction();
+        if (cancelled) return;
 
-      if (!result.success || !result.data) {
-        toast({
-          title: "Error",
-          description: result.error || "Failed to load settings",
-          variant: "destructive",
+        if (!result.success || !result.data) {
+          toast({
+            title: 'Error',
+            description: result.error || 'Failed to load settings',
+            variant: 'destructive',
+          });
+          return;
+        }
+
+        const settings = result.data.settings;
+        form.reset({
+          theme: settings.theme as 'light' | 'dark' | 'system',
+          emailNotifications: settings.emailNotifications,
+          language: settings.language,
+          timezone: settings.timezone,
         });
-        return;
+      } catch (error) {
+        if (cancelled) return;
+        console.error('Load settings error:', error);
+        toast({
+          title: 'Error',
+          description: 'An unexpected error occurred',
+          variant: 'destructive',
+        });
+      } finally {
+        if (!cancelled) setIsLoading(false);
       }
-
-      const settings = result.data.settings;
-      form.reset({
-        theme: settings.theme as "light" | "dark" | "system",
-        emailNotifications: settings.emailNotifications,
-        language: settings.language,
-        timezone: settings.timezone,
-      });
-    } catch (error) {
-      console.error("Load settings error:", error);
-      toast({
-        title: "Error",
-        description: "An unexpected error occurred",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
     }
-  }
+
+    loadSettings();
+    return () => {
+      cancelled = true;
+    };
+  }, [form, toast]);
 
   async function onSubmit(data: SettingsFormValues) {
     try {
@@ -107,25 +104,25 @@ export default function SettingsPage() {
 
       if (!result.success) {
         toast({
-          title: "Error",
-          description: result.error || "Failed to update settings",
-          variant: "destructive",
+          title: 'Error',
+          description: result.error || 'Failed to update settings',
+          variant: 'destructive',
         });
         return;
       }
 
       toast({
-        title: "Success",
-        description: "Settings updated successfully",
+        title: 'Success',
+        description: 'Settings updated successfully',
       });
 
       router.refresh();
     } catch (error) {
-      console.error("Update settings error:", error);
+      console.error('Update settings error:', error);
       toast({
-        title: "Error",
-        description: "An unexpected error occurred",
-        variant: "destructive",
+        title: 'Error',
+        description: 'An unexpected error occurred',
+        variant: 'destructive',
       });
     } finally {
       setIsSaving(false);
@@ -144,9 +141,7 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl tracking-tight">Settings</h1>
-        <p className="text-muted-foreground">
-          Manage your account preferences and settings
-        </p>
+        <p className="text-muted-foreground">Manage your account preferences and settings</p>
       </div>
 
       <Form {...form}>
@@ -158,9 +153,7 @@ export default function SettingsPage() {
                 <Sun className="h-5 w-5 text-theme-accent" />
                 Appearance
               </CardTitle>
-              <CardDescription>
-                Customize how the app looks and feels
-              </CardDescription>
+              <CardDescription>Customize how the app looks and feels</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <FormField
@@ -169,10 +162,7 @@ export default function SettingsPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Theme</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                    >
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Select a theme" />
@@ -199,9 +189,7 @@ export default function SettingsPage() {
                         </SelectItem>
                       </SelectContent>
                     </Select>
-                    <FormDescription>
-                      Choose your preferred color theme
-                    </FormDescription>
+                    <FormDescription>Choose your preferred color theme</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -216,9 +204,7 @@ export default function SettingsPage() {
                 <Bell className="h-5 w-5 text-theme-accent" />
                 Notifications
               </CardTitle>
-              <CardDescription>
-                Configure how you receive notifications
-              </CardDescription>
+              <CardDescription>Configure how you receive notifications</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <FormField
@@ -227,18 +213,13 @@ export default function SettingsPage() {
                 render={({ field }) => (
                   <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
                     <div className="space-y-0.5">
-                      <FormLabel className="text-base">
-                        Email Notifications
-                      </FormLabel>
+                      <FormLabel className="text-base">Email Notifications</FormLabel>
                       <FormDescription>
                         Receive email notifications about your account activity
                       </FormDescription>
                     </div>
                     <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
                     </FormControl>
                   </FormItem>
                 )}
@@ -253,9 +234,7 @@ export default function SettingsPage() {
                 <Globe className="h-5 w-5 text-theme-accent" />
                 Regional Settings
               </CardTitle>
-              <CardDescription>
-                Set your language and timezone preferences
-              </CardDescription>
+              <CardDescription>Set your language and timezone preferences</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <FormField
@@ -264,10 +243,7 @@ export default function SettingsPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Language</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                    >
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Select a language" />
@@ -282,9 +258,7 @@ export default function SettingsPage() {
                         <SelectItem value="zh">中文</SelectItem>
                       </SelectContent>
                     </Select>
-                    <FormDescription>
-                      Choose your preferred language
-                    </FormDescription>
+                    <FormDescription>Choose your preferred language</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -296,10 +270,7 @@ export default function SettingsPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Timezone</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                    >
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Select a timezone" />
@@ -307,27 +278,13 @@ export default function SettingsPage() {
                       </FormControl>
                       <SelectContent>
                         <SelectItem value="UTC">UTC</SelectItem>
-                        <SelectItem value="America/New_York">
-                          Eastern Time (ET)
-                        </SelectItem>
-                        <SelectItem value="America/Chicago">
-                          Central Time (CT)
-                        </SelectItem>
-                        <SelectItem value="America/Denver">
-                          Mountain Time (MT)
-                        </SelectItem>
-                        <SelectItem value="America/Los_Angeles">
-                          Pacific Time (PT)
-                        </SelectItem>
-                        <SelectItem value="Europe/London">
-                          London (GMT)
-                        </SelectItem>
-                        <SelectItem value="Europe/Paris">
-                          Paris (CET)
-                        </SelectItem>
-                        <SelectItem value="Asia/Tokyo">
-                          Tokyo (JST)
-                        </SelectItem>
+                        <SelectItem value="America/New_York">Eastern Time (ET)</SelectItem>
+                        <SelectItem value="America/Chicago">Central Time (CT)</SelectItem>
+                        <SelectItem value="America/Denver">Mountain Time (MT)</SelectItem>
+                        <SelectItem value="America/Los_Angeles">Pacific Time (PT)</SelectItem>
+                        <SelectItem value="Europe/London">London (GMT)</SelectItem>
+                        <SelectItem value="Europe/Paris">Paris (CET)</SelectItem>
+                        <SelectItem value="Asia/Tokyo">Tokyo (JST)</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormDescription>
@@ -341,7 +298,11 @@ export default function SettingsPage() {
           </Card>
 
           <div className="flex gap-4">
-            <Button type="submit" disabled={isSaving} className="bg-theme-accent text-white hover:bg-theme-accent-dark">
+            <Button
+              type="submit"
+              disabled={isSaving}
+              className="bg-theme-accent text-white hover:bg-theme-accent-dark"
+            >
               {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Save Settings
             </Button>

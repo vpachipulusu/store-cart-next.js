@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 
 const mocks = vi.hoisted(() => ({
   getUserProfileAction: vi.fn(),
+  toast: vi.fn(),
 }));
 
 vi.mock('@/app/actions/user-actions', () => ({
@@ -11,7 +12,7 @@ vi.mock('@/app/actions/user-actions', () => ({
   updateUserProfileAction: vi.fn(),
   updateUserAvatarAction: vi.fn(),
 }));
-vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: vi.fn() }) }));
+vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: mocks.toast }) }));
 
 import ProfilePage from '@/app/dashboard/profile/page';
 

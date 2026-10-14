@@ -24,6 +24,16 @@ export default function VerifyEmailPage() {
   const [error, setError] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string>('');
 
+  const refreshSessionAndContinue = async (user: User) => {
+    const idToken = await user.getIdToken(true);
+    const result = await refreshSessionAction(idToken);
+    if (result.success && result.data?.claimsEmailVerified === true) {
+      router.push('/dashboard');
+    } else {
+      setError('Could not confirm your verified email yet. Please try again in a moment.');
+    }
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (!user) {
@@ -69,16 +79,6 @@ export default function VerifyEmailPage() {
       console.error('Resend email error:', error);
     } finally {
       setIsResending(false);
-    }
-  };
-
-  const refreshSessionAndContinue = async (user: User) => {
-    const idToken = await user.getIdToken(true);
-    const result = await refreshSessionAction(idToken);
-    if (result.success && result.data?.claimsEmailVerified === true) {
-      router.push('/dashboard');
-    } else {
-      setError('Could not confirm your verified email yet. Please try again in a moment.');
     }
   };
 
