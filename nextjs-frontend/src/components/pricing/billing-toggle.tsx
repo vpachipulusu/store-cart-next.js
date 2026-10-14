@@ -18,7 +18,7 @@ export function BillingToggle({
       <button
         type="button"
         onClick={() => onToggle('monthly')}
-        className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+        className={`min-h-11 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
           billingPeriod === 'monthly'
             ? 'bg-cta text-cta-foreground'
             : 'text-muted-foreground hover:text-foreground'
@@ -29,7 +29,7 @@ export function BillingToggle({
       <button
         type="button"
         onClick={() => onToggle('yearly')}
-        className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+        className={`flex min-h-11 items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
           billingPeriod === 'yearly'
             ? 'bg-cta text-cta-foreground'
             : 'text-muted-foreground hover:text-foreground'

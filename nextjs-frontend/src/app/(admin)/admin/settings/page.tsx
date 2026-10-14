@@ -39,10 +39,7 @@ async function getSettings() {
 }
 
 export default async function AdminSettingsPage() {
-  const [settings, currencySymbol] = await Promise.all([
-    getSettings(),
-    getCurrencySymbol(),
-  ]);
+  const [settings, currencySymbol] = await Promise.all([getSettings(), getCurrencySymbol()]);
 
   return (
     <div className="space-y-6">
@@ -90,9 +87,7 @@ export default async function AdminSettingsPage() {
                   <div key={template.id} className="space-y-2 rounded-lg border p-4">
                     <div className="flex items-center justify-between">
                       <p className="font-medium capitalize">{template.name.replace('-', ' ')}</p>
-                      <Button variant="outline" size="sm">
-                        Edit
-                      </Button>
+                      <Button variant="outline">Edit</Button>
                     </div>
                     <p className="text-sm text-muted-foreground">Subject: {template.subject}</p>
                   </div>

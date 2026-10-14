@@ -352,7 +352,7 @@ export default function BillingPage() {
               <CardDescription>Manage your saved payment methods</CardDescription>
             </div>
             {subscription?.hasStripeCustomer && (
-              <Button variant="outline" size="sm" onClick={handleAddPaymentMethod}>
+              <Button variant="outline" onClick={handleAddPaymentMethod}>
                 Add Payment Method
               </Button>
             )}
@@ -387,7 +387,6 @@ export default function BillingPage() {
                     {!pm.isDefault && (
                       <Button
                         variant="ghost"
-                        size="sm"
                         onClick={() => handleSetDefaultPaymentMethod(pm.id)}
                         disabled={settingDefaultId === pm.id}
                       >
@@ -403,7 +402,6 @@ export default function BillingPage() {
                     {(!pm.isDefault || isFreeTier) && (
                       <Button
                         variant="ghost"
-                        size="sm"
                         onClick={() => handleDeletePaymentMethod(pm.id)}
                         disabled={deletingPaymentId === pm.id}
                         title="Remove payment method"
@@ -461,7 +459,7 @@ export default function BillingPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     {invoice.pdfUrl && (
-                      <Button variant="ghost" size="sm" asChild>
+                      <Button variant="ghost" asChild>
                         <a href={invoice.pdfUrl} target="_blank" rel="noopener noreferrer">
                           <Download className="h-4 w-4" />
                           <span className="ml-1">PDF</span>
@@ -469,7 +467,7 @@ export default function BillingPage() {
                       </Button>
                     )}
                     {invoice.hostedUrl && (
-                      <Button variant="ghost" size="sm" asChild>
+                      <Button variant="ghost" asChild>
                         <a href={invoice.hostedUrl} target="_blank" rel="noopener noreferrer">
                           <ExternalLink className="h-4 w-4" />
                           <span className="ml-1">View</span>
