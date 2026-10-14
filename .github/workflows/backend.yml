@@ -16,11 +16,26 @@ jobs:
     defaults:
       run:
         working-directory: fastapi_backend
+    # Throwaway database for the webhook end-to-end test only (KAN-44); the unit
+    # tests use fake database sessions and never connect (KAN-30).
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: storecart_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       # CI-only values, not secrets: app.core.config requires them at import time.
-      # The unit tests use fake database sessions and never connect (KAN-30), so
-      # no database service runs here.
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/unused
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/storecart_test
       ENVIRONMENT: test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

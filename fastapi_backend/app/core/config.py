@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     FIREBASE_ADMIN_PRIVATE_KEY: SecretStr | None = None
     TOTP_ENCRYPTION_KEY: SecretStr | None = None
 
+    # Stripe Billing webhook (KAN-44). Unset means the webhook answers 503.
+    STRIPE_WEBHOOK_SECRET: SecretStr | None = None
+    STRIPE_PRICE_ID_PRO_MONTHLY: str | None = None
+    STRIPE_PRICE_ID_PRO_YEARLY: str | None = None
+    STRIPE_PRICE_ID_ENTERPRISE_MONTHLY: str | None = None
+    STRIPE_PRICE_ID_ENTERPRISE_YEARLY: str | None = None
+
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )

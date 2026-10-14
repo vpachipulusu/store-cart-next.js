@@ -1,0 +1,82 @@
+# Backend: Stripe Billing webhook (KAN-44)
+
+`POST /webhooks/stripe` in `fastapi_backend` keeps an organisation's subscription in sync with Stripe Billing
+([ADR-010](../adr/0010-accounts-and-payments-model.md)). It is the backend counterpart of the legacy Next.js
+webhook (`nextjs-frontend/src/app/api/webhooks/stripe`), which stays until the cutover (KAN-45).
+
+## Request handling
+
+1. **Public route.** No `X-Internal-Key` ([ADR-003](../adr/0003-nextjs-to-fastapi-authentication.md) section 5); the
+   Stripe signature is the credential. The route is left out of the OpenAPI schema.
+2. **Signature on the raw body** (`app/core/stripe_signature.py`): HMAC-SHA256 of `"{t}.{raw bytes}"` with
+   `STRIPE_WEBHOOK_SECRET`, compared in constant time, 300 second timestamp tolerance, any matching `v1` accepted.
+   A bad, missing or stale signature returns **400** and nothing is processed. If the secret is not configured the
+   route returns **503**. Bodies over 1 MB return 413 (checked while streaming).
+3. **Event types.** `customer.subscription.created`, `.updated` and `.deleted` are handled. Any other type is
+   acknowledged with 200 and ignored (no row written).
+4. **Responses.** 200 `{"received": true}` for processed, duplicate, ignored and unmatched events; 400 for a
+   signed but malformed payload; a generic **500** when the handler fails, so Stripe retries. No payload,
+   header or secret is logged; failures log the exception type only.
+5. There is no rate limit on this route: limiting before the signature check would let anyone throttle real
+   Stripe deliveries, and the check is cheap.
+
+## Idempotency and transactions
+
+`stripe_events` has a unique `stripe_event_id`. The service inserts it with `INSERT ... ON CONFLICT DO NOTHING`
+**in the same transaction** as the organisation update and commits once. A handler that fails rolls both back, so
+the event is not marked processed and the retry runs again. A concurrent delivery of the same id blocks on the
+unique index until the first transaction ends, then sees a duplicate (or inserts, if the first rolled back).
+The organisation row is locked (`SELECT ... FOR UPDATE`) while it is updated.
+
+## Out-of-order events
+
+`organizations.stripe_subscription_event_at` stores the Stripe `created` time of the last event applied. An event
+with an older `created` is recorded but does not change the organisation. Also, an ending event (`deleted`, or a
+`canceled`, `unpaid`, `incomplete_expired`, `paused` status) for a subscription that is not the organisation's
+current one is ignored, and so is a non-paying (for example `incomplete`) event for a different subscription, so
+neither can downgrade or hide the current one. Stripe times have one second resolution: in the same second, an
+ended state is final and a `created` event does not overwrite an update.
+
+## State mapping
+
+The organisation is found by `stripe_subscription_id`, else by `stripe_customer_id` (KAN-43 stores the customer
+before checkout). An event that matches no organisation is acknowledged (200) with a warning carrying the event id, but **not
+recorded**, so a redelivery is processed once the organisation is linked. KAN-43 must save the customer id before
+sending the user to Checkout; a failed link is otherwise only healed by the next event for that subscription.
+
+| Stripe status                                        | `subscription_status` | `subscription_tier`                                   |
+| ---------------------------------------------------- | --------------------- | ----------------------------------------------------- |
+| `active`, `trialing`, `past_due`                     | as sent               | from the price id (unmapped price: unchanged, warned) |
+| `canceled`, `unpaid`, `incomplete_expired`, `paused` | as sent               | `free`, price cleared                                 |
+| `incomplete` and anything else                       | as sent               | unchanged                                             |
+| `customer.subscription.deleted`                      | `canceled`            | `free`, price cleared                                 |
+
+`stripe_current_period_end` is read from the subscription, or from its first item in newer API versions.
+
+## Configuration
+
+`STRIPE_WEBHOOK_SECRET` (the Billing endpoint's `whsec_...`; a separate endpoint and secret from Connect, ADR-010)
+and the price ids `STRIPE_PRICE_ID_{PRO,ENTERPRISE}_{MONTHLY,YEARLY}` map prices to plans (`app/core/plans.py`).
+All are optional in settings; they must be set on Vercel for the webhook to work. Add them to `.env.example`.
+
+## Schema
+
+Migration `0002`: table `stripe_events` (`id`, `stripe_event_id` unique, `type`, `stripe_created_at`,
+`created_at`; no payload) and column `organizations.stripe_subscription_event_at`. Rows in `stripe_events` can be
+pruned after 30 days; Stripe stops retrying after 3 days.
+
+## Tests
+
+- `tests/core/test_stripe_signature.py`, `tests/services/test_stripe_webhook.py` and
+  `tests/api/test_stripe_webhook_route.py` run with fakes and no database.
+- `tests/api/test_stripe_webhook_e2e.py` posts signed payloads through the real ASGI app against Postgres: valid,
+  replayed, concurrent, bad signature, unknown type, out of order, failed-then-retried, unknown customer. It runs only
+  when `TEST_DATABASE_URL` is set and **rebuilds that database with Alembic (downgrade base, upgrade head)**; the
+  name must end in `_test` and the host must be local. CI sets it for the backend job (Postgres 17 service `storecart_test`). Locally:
+  `TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/storecart_test uv run pytest tests/api/test_stripe_webhook_e2e.py`.
+
+## Follow-ups outside this ticket
+
+- Route Stripe to the backend: a narrow public rewrite before the catch-all in `vercel.json` (ADR-011), then point
+  the Billing webhook endpoint at it.
+- `.env.example` and `getting-started.md` entries for the new variables.
