@@ -1,6 +1,6 @@
 import enum
 
-from sqlalchemy import ForeignKey, text
+from sqlalchemy import CheckConstraint, ForeignKey, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.base import Base
@@ -19,7 +19,10 @@ class Store(IdMixin, TimestampMixin, Base):
     """Registry entry for one store database (ADR-005). Holds no store data."""
 
     __tablename__ = "stores"
-    __table_args__ = (enum_check("status", StoreStatus),)
+    __table_args__ = (
+        enum_check("status", StoreStatus),
+        CheckConstraint("slug = lower(slug)", name="slug_lowercase"),
+    )
 
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), index=True

@@ -232,6 +232,22 @@ export type CheckoutRequest = {
 };
 
 /**
+ * CreateRequest
+ *
+ * Body for creating an organisation or a store (name and slug only).
+ */
+export type CreateRequest = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Slug
+     */
+    slug: string;
+};
+
+/**
  * DeleteRequest
  */
 export type DeleteRequest = {
@@ -481,6 +497,11 @@ export type InvoicesResponse = {
 };
 
 /**
+ * MembershipRole
+ */
+export type MembershipRole = 'OWNER' | 'ADMIN' | 'STAFF';
+
+/**
  * OkResponse
  */
 export type OkResponse = {
@@ -488,6 +509,78 @@ export type OkResponse = {
      * Success
      */
     success?: true;
+};
+
+/**
+ * OrganizationData
+ */
+export type OrganizationData = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Slug
+     */
+    slug: string;
+    role: MembershipRole;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+    /**
+     * Stores
+     */
+    stores: Array<StoreData>;
+    /**
+     * Stores Truncated
+     */
+    stores_truncated: boolean;
+};
+
+/**
+ * OrganizationListResponse
+ */
+export type OrganizationListResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    /**
+     * Data
+     */
+    data: Array<OrganizationData>;
+    /**
+     * Total
+     */
+    total: number;
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Offset
+     */
+    offset: number;
+};
+
+/**
+ * OrganizationResponse
+ */
+export type OrganizationResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: OrganizationData;
 };
 
 /**
@@ -750,6 +843,79 @@ export type SettingsResponse = {
 };
 
 /**
+ * StoreData
+ */
+export type StoreData = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Organization Id
+     */
+    organization_id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Slug
+     */
+    slug: string;
+    status: StoreStatus;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+};
+
+/**
+ * StoreListResponse
+ */
+export type StoreListResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    /**
+     * Data
+     */
+    data: Array<StoreData>;
+    /**
+     * Total
+     */
+    total: number;
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Offset
+     */
+    offset: number;
+};
+
+/**
+ * StoreResponse
+ */
+export type StoreResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: StoreData;
+};
+
+/**
+ * StoreStatus
+ */
+export type StoreStatus = 'PROVISIONING' | 'ACTIVE' | 'SUSPENDED' | 'ARCHIVED';
+
+/**
  * TotpChangedResponse
  */
 export type TotpChangedResponse = {
@@ -757,6 +923,22 @@ export type TotpChangedResponse = {
      * Success
      */
     success?: true;
+};
+
+/**
+ * UpdateRequest
+ *
+ * Partial update of a name and/or slug; at least one is required.
+ */
+export type UpdateRequest = {
+    /**
+     * Name
+     */
+    name?: string | null;
+    /**
+     * Slug
+     */
+    slug?: string | null;
 };
 
 /**
@@ -2808,3 +2990,555 @@ export type ListPaymentMethodsResponses = {
 };
 
 export type ListPaymentMethodsResponse = ListPaymentMethodsResponses[keyof ListPaymentMethodsResponses];
+
+export type ListOrganizationsData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Offset
+         */
+        offset?: number;
+    };
+    url: '/v1/organizations';
+};
+
+export type ListOrganizationsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ListOrganizationsError = ListOrganizationsErrors[keyof ListOrganizationsErrors];
+
+export type ListOrganizationsResponses = {
+    /**
+     * Successful Response
+     */
+    200: OrganizationListResponse;
+};
+
+export type ListOrganizationsResponse = ListOrganizationsResponses[keyof ListOrganizationsResponses];
+
+export type CreateOrganizationData = {
+    body: CreateRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/organizations';
+};
+
+export type CreateOrganizationErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type CreateOrganizationError = CreateOrganizationErrors[keyof CreateOrganizationErrors];
+
+export type CreateOrganizationResponses = {
+    /**
+     * Successful Response
+     */
+    201: OrganizationResponse;
+};
+
+export type CreateOrganizationResponse = CreateOrganizationResponses[keyof CreateOrganizationResponses];
+
+export type ReadOrganizationData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+    };
+    query?: never;
+    url: '/v1/organizations/{organization_id}';
+};
+
+export type ReadOrganizationErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ReadOrganizationError = ReadOrganizationErrors[keyof ReadOrganizationErrors];
+
+export type ReadOrganizationResponses = {
+    /**
+     * Successful Response
+     */
+    200: OrganizationResponse;
+};
+
+export type ReadOrganizationResponse = ReadOrganizationResponses[keyof ReadOrganizationResponses];
+
+export type UpdateOrganizationData = {
+    body: UpdateRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+    };
+    query?: never;
+    url: '/v1/organizations/{organization_id}';
+};
+
+export type UpdateOrganizationErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type UpdateOrganizationError = UpdateOrganizationErrors[keyof UpdateOrganizationErrors];
+
+export type UpdateOrganizationResponses = {
+    /**
+     * Successful Response
+     */
+    200: OrganizationResponse;
+};
+
+export type UpdateOrganizationResponse = UpdateOrganizationResponses[keyof UpdateOrganizationResponses];
+
+export type ListOrganizationStoresData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+    };
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Offset
+         */
+        offset?: number;
+    };
+    url: '/v1/organizations/{organization_id}/stores';
+};
+
+export type ListOrganizationStoresErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ListOrganizationStoresError = ListOrganizationStoresErrors[keyof ListOrganizationStoresErrors];
+
+export type ListOrganizationStoresResponses = {
+    /**
+     * Successful Response
+     */
+    200: StoreListResponse;
+};
+
+export type ListOrganizationStoresResponse = ListOrganizationStoresResponses[keyof ListOrganizationStoresResponses];
+
+export type CreateStoreData = {
+    body: CreateRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+    };
+    query?: never;
+    url: '/v1/organizations/{organization_id}/stores';
+};
+
+export type CreateStoreErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type CreateStoreError = CreateStoreErrors[keyof CreateStoreErrors];
+
+export type CreateStoreResponses = {
+    /**
+     * Successful Response
+     */
+    201: StoreResponse;
+};
+
+export type CreateStoreResponse = CreateStoreResponses[keyof CreateStoreResponses];
+
+export type ReadStoreData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/stores/{store_id}';
+};
+
+export type ReadStoreErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ReadStoreError = ReadStoreErrors[keyof ReadStoreErrors];
+
+export type ReadStoreResponses = {
+    /**
+     * Successful Response
+     */
+    200: StoreResponse;
+};
+
+export type ReadStoreResponse = ReadStoreResponses[keyof ReadStoreResponses];
+
+export type UpdateStoreData = {
+    body: UpdateRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/stores/{store_id}';
+};
+
+export type UpdateStoreErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type UpdateStoreError = UpdateStoreErrors[keyof UpdateStoreErrors];
+
+export type UpdateStoreResponses = {
+    /**
+     * Successful Response
+     */
+    200: StoreResponse;
+};
+
+export type UpdateStoreResponse = UpdateStoreResponses[keyof UpdateStoreResponses];

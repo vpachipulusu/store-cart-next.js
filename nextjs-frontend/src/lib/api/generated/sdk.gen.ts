@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { BanUserData, BanUserErrors, BanUserResponses, CancelSubscriptionData, CancelSubscriptionErrors, CancelSubscriptionResponses, ChangePlanData, ChangePlanErrors, ChangePlanResponses, CreateCheckoutData, CreateCheckoutErrors, CreateCheckoutResponses, CreatePortalData, CreatePortalErrors, CreatePortalResponses, CreateSessionData, CreateSessionErrors, CreateSessionResponses, DeleteAccountData, DeleteAccountErrors, DeleteAccountResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DeleteUserData, DeleteUserErrors, DeleteUserResponses, DisableData, DisableErrors, DisableResponses, EnrollData, EnrollErrors, EnrollResponses, GrantAdminData, GrantAdminErrors, GrantAdminResponses, HealthCheckData, HealthCheckErrors, HealthCheckResponses, ListInvoicesData, ListInvoicesErrors, ListInvoicesResponses, ListPaymentMethodsData, ListPaymentMethodsErrors, ListPaymentMethodsResponses, ListUsersData, ListUsersErrors, ListUsersResponses, ReadBillingData, ReadBillingErrors, ReadBillingResponses, ReadHistoryData, ReadHistoryErrors, ReadHistoryResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, ReadProfileData, ReadProfileErrors, ReadProfileResponses, ReadSessionData, ReadSessionErrors, ReadSessionResponses, ReadSettingsData, ReadSettingsErrors, ReadSettingsResponses, ReadUserData, ReadUserErrors, ReadUserResponses, ResumeSubscriptionData, ResumeSubscriptionErrors, ResumeSubscriptionResponses, RevokeAdminData, RevokeAdminErrors, RevokeAdminResponses, UnbanUserData, UnbanUserErrors, UnbanUserResponses, UpdateAvatarData, UpdateAvatarErrors, UpdateAvatarResponses, UpdateProfileData, UpdateProfileErrors, UpdateProfileResponses, UpdateSettingsData, UpdateSettingsErrors, UpdateSettingsResponses, UpdateUserData, UpdateUserErrors, UpdateUserResponses, VerifyData, VerifyErrors, VerifyResponses } from './types.gen';
+import type { BanUserData, BanUserErrors, BanUserResponses, CancelSubscriptionData, CancelSubscriptionErrors, CancelSubscriptionResponses, ChangePlanData, ChangePlanErrors, ChangePlanResponses, CreateCheckoutData, CreateCheckoutErrors, CreateCheckoutResponses, CreateOrganizationData, CreateOrganizationErrors, CreateOrganizationResponses, CreatePortalData, CreatePortalErrors, CreatePortalResponses, CreateSessionData, CreateSessionErrors, CreateSessionResponses, CreateStoreData, CreateStoreErrors, CreateStoreResponses, DeleteAccountData, DeleteAccountErrors, DeleteAccountResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DeleteUserData, DeleteUserErrors, DeleteUserResponses, DisableData, DisableErrors, DisableResponses, EnrollData, EnrollErrors, EnrollResponses, GrantAdminData, GrantAdminErrors, GrantAdminResponses, HealthCheckData, HealthCheckErrors, HealthCheckResponses, ListInvoicesData, ListInvoicesErrors, ListInvoicesResponses, ListOrganizationsData, ListOrganizationsErrors, ListOrganizationsResponses, ListOrganizationStoresData, ListOrganizationStoresErrors, ListOrganizationStoresResponses, ListPaymentMethodsData, ListPaymentMethodsErrors, ListPaymentMethodsResponses, ListUsersData, ListUsersErrors, ListUsersResponses, ReadBillingData, ReadBillingErrors, ReadBillingResponses, ReadHistoryData, ReadHistoryErrors, ReadHistoryResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, ReadOrganizationData, ReadOrganizationErrors, ReadOrganizationResponses, ReadProfileData, ReadProfileErrors, ReadProfileResponses, ReadSessionData, ReadSessionErrors, ReadSessionResponses, ReadSettingsData, ReadSettingsErrors, ReadSettingsResponses, ReadStoreData, ReadStoreErrors, ReadStoreResponses, ReadUserData, ReadUserErrors, ReadUserResponses, ResumeSubscriptionData, ResumeSubscriptionErrors, ResumeSubscriptionResponses, RevokeAdminData, RevokeAdminErrors, RevokeAdminResponses, UnbanUserData, UnbanUserErrors, UnbanUserResponses, UpdateAvatarData, UpdateAvatarErrors, UpdateAvatarResponses, UpdateOrganizationData, UpdateOrganizationErrors, UpdateOrganizationResponses, UpdateProfileData, UpdateProfileErrors, UpdateProfileResponses, UpdateSettingsData, UpdateSettingsErrors, UpdateSettingsResponses, UpdateStoreData, UpdateStoreErrors, UpdateStoreResponses, UpdateUserData, UpdateUserErrors, UpdateUserResponses, VerifyData, VerifyErrors, VerifyResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -277,3 +277,81 @@ export const listInvoices = <ThrowOnError extends boolean = false>(options: Opti
  * List Payment Methods
  */
 export const listPaymentMethods = <ThrowOnError extends boolean = false>(options: Options<ListPaymentMethodsData, ThrowOnError>) => (options.client ?? client).get<ListPaymentMethodsResponses, ListPaymentMethodsErrors, ThrowOnError>({ url: '/v1/organizations/{organization_id}/billing/payment-methods', ...options });
+
+/**
+ * List Organizations
+ *
+ * The caller's own organisations (memberships only), with their role and stores.
+ */
+export const listOrganizations = <ThrowOnError extends boolean = false>(options?: Options<ListOrganizationsData, ThrowOnError>) => (options?.client ?? client).get<ListOrganizationsResponses, ListOrganizationsErrors, ThrowOnError>({ url: '/v1/organizations', ...options });
+
+/**
+ * Create Organization
+ *
+ * Create an organisation; the caller becomes its OWNER.
+ */
+export const createOrganization = <ThrowOnError extends boolean = false>(options: Options<CreateOrganizationData, ThrowOnError>) => (options.client ?? client).post<CreateOrganizationResponses, CreateOrganizationErrors, ThrowOnError>({
+    url: '/v1/organizations',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Read Organization
+ */
+export const readOrganization = <ThrowOnError extends boolean = false>(options: Options<ReadOrganizationData, ThrowOnError>) => (options.client ?? client).get<ReadOrganizationResponses, ReadOrganizationErrors, ThrowOnError>({ url: '/v1/organizations/{organization_id}', ...options });
+
+/**
+ * Update Organization
+ *
+ * Rename (OWNER or ADMIN) or change the slug (OWNER only).
+ */
+export const updateOrganization = <ThrowOnError extends boolean = false>(options: Options<UpdateOrganizationData, ThrowOnError>) => (options.client ?? client).patch<UpdateOrganizationResponses, UpdateOrganizationErrors, ThrowOnError>({
+    url: '/v1/organizations/{organization_id}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * List Organization Stores
+ */
+export const listOrganizationStores = <ThrowOnError extends boolean = false>(options: Options<ListOrganizationStoresData, ThrowOnError>) => (options.client ?? client).get<ListOrganizationStoresResponses, ListOrganizationStoresErrors, ThrowOnError>({ url: '/v1/organizations/{organization_id}/stores', ...options });
+
+/**
+ * Create Store
+ *
+ * Create a store in PROVISIONING status (OWNER or ADMIN, within the plan limit).
+ */
+export const createStore = <ThrowOnError extends boolean = false>(options: Options<CreateStoreData, ThrowOnError>) => (options.client ?? client).post<CreateStoreResponses, CreateStoreErrors, ThrowOnError>({
+    url: '/v1/organizations/{organization_id}/stores',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Read Store
+ */
+export const readStore = <ThrowOnError extends boolean = false>(options: Options<ReadStoreData, ThrowOnError>) => (options.client ?? client).get<ReadStoreResponses, ReadStoreErrors, ThrowOnError>({ url: '/v1/stores/{store_id}', ...options });
+
+/**
+ * Update Store
+ *
+ * Rename (OWNER or ADMIN) or change the slug (OWNER only) of an ACTIVE store.
+ */
+export const updateStore = <ThrowOnError extends boolean = false>(options: Options<UpdateStoreData, ThrowOnError>) => (options.client ?? client).patch<UpdateStoreResponses, UpdateStoreErrors, ThrowOnError>({
+    url: '/v1/stores/{store_id}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
