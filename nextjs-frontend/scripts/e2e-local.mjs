@@ -31,12 +31,13 @@ import {
 import net from 'node:net';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
-import e2eEnv from './e2e-env.cjs';
 
 const IS_WINDOWS = process.platform === 'win32';
 const ENV_FILES = ['.env', '.env.local', '.env.e2e.local'];
-const REQUIRED_ENV_FILE = e2eEnv.E2E_ENV_FILE;
-const FINGERPRINT_FILE = path.join(e2eEnv.E2E_DIST_DIR, 'local-fingerprint');
+// Mirror E2E_ENV_FILE / E2E_DIST_DIR in e2e-env.cjs. Not imported: that file needs dotenv, which this script installs.
+const REQUIRED_ENV_FILE = '.env.e2e.local';
+const E2E_DIST_DIR = '.next-e2e';
+const FINGERPRINT_FILE = path.join(E2E_DIST_DIR, 'local-fingerprint');
 const SERVER_LOG = path.join('test-results', 'e2e-local-server.log');
 const PORT_RANGE_START = 3100;
 const PORT_RANGE_SIZE = 800;
@@ -215,7 +216,7 @@ function sourceFingerprint(port) {
 
 function ensureBuild(port, serverEnv) {
   const fingerprint = sourceFingerprint(port);
-  const hasBuild = existsSync(path.join(e2eEnv.E2E_DIST_DIR, 'BUILD_ID'));
+  const hasBuild = existsSync(path.join(E2E_DIST_DIR, 'BUILD_ID'));
   if (
     hasBuild &&
     existsSync(FINGERPRINT_FILE) &&
