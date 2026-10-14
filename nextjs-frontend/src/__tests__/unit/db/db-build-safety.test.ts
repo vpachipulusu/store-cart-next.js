@@ -27,6 +27,7 @@ vi.mock('next/font/google', () => {
       'Source_Sans_3',
       'Montserrat',
       'Raleway',
+      'Fraunces',
     ].map((name) => [name, font])
   );
 });

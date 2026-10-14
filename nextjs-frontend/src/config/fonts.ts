@@ -16,7 +16,22 @@ import {
   Source_Sans_3,
   Montserrat,
   Raleway,
+  Fraunces,
 } from 'next/font/google';
+
+/**
+ * Display font (h1-h3, large figures).
+ * Always loaded and independent of the admin-selectable body font, so it
+ * uses its own CSS variable and is applied on <html> in the root layout.
+ * Variable font: no weight list, optical-size axis only, normal style only.
+ */
+export const displayFont = Fraunces({
+  subsets: ['latin'],
+  axes: ['opsz'],
+  variable: '--font-display',
+  display: 'swap',
+  fallback: ['Georgia', 'Times New Roman', 'serif'],
+});
 
 /**
  * Font loader instances

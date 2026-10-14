@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 import { getActiveTheme } from '@/app/actions/theme-actions';
 import { getActiveFont } from '@/app/actions/font-actions';
 import { generateThemeCSS } from '@/config/themes';
-import { getFontById } from '@/config/fonts';
+import { displayFont, getFontById } from '@/config/fonts';
 import { siteConfig } from '@/config/site';
 
 /**
@@ -113,7 +113,7 @@ export default async function RootLayout({
   const { font: activeFont } = getFontById(activeFontId);
 
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={displayFont.variable} suppressHydrationWarning>
       <head>
         <style dangerouslySetInnerHTML={{ __html: generateThemeCSS(activeTheme) }} />
       </head>
