@@ -23,6 +23,11 @@ Items are listed by area. Each one is either tracked by a Jira key or marked as 
 - **`npm run test:setup` runs the old script on `main`.** `scripts/create-test-user.mjs` is replaced by `setup-e2e-accounts.mjs` (lands with KAN-113).
 - **Foundation check fails by design** until KAN-51 (lands with KAN-113).
 
+## Security
+
+- **Auth rate limiting is not real yet (deferred).** The limiter in `src/lib/middleware/rate-limit.ts` is an in-memory `Map`, which gives no protection on serverless (ADR-007). KAN-129 did not build a new one: it is replaced by the backend Redis/Upstash limiter (KAN-34, keyed by user/org/store). Until then, do not rely on it for brute-force protection.
+- **Other server actions still return raw `error.message`.** KAN-129 fixed `auth-actions.ts` only. `subscription-actions.ts`, `notification-actions.ts` and `admin/seo-actions.ts` still pass it through; they fall under the KAN-31 error envelope. `user-actions.ts` is covered by KAN-126.
+
 ## Backend
 
 - **The backend has almost no features.** KAN-30 removed the template's auth, `Item` example and email. Only `GET /health` and `GET /health/ready` exist; auth (ADR-003), the platform and store models, error types, Sentry and rate limiting come in later stories.
