@@ -39,7 +39,9 @@ test.describe('Legacy settings and authenticator setup', () => {
     );
   });
 
-  test('rejects an invalid authenticator code, enables and then disables setup', async ({
+  // KAN-41: authenticator setup/disable is switched off (KAN-180 re-authentication dialog; hidden while KAN-125
+  // is parked).
+  test.skip('rejects an invalid authenticator code, enables and then disables setup', async ({
     page,
     throwawayAccount,
   }) => {

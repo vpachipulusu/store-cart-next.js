@@ -115,7 +115,8 @@ test.describe('Legacy browser account lifecycle', () => {
     await expect(rows.getByText('Failed', { exact: true })).toHaveCount(0);
   });
 
-  test('account deletion requires confirmation and then denies protected access', async ({
+  // KAN-41: account deletion is switched off until the KAN-180 re-authentication dialog.
+  test.skip('account deletion requires confirmation and then denies protected access', async ({
     page,
     throwawayAccount,
     expectThrowawayAccountDeleted,

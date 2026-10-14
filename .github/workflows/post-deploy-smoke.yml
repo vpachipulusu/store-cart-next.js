@@ -6,6 +6,13 @@ name: Post-deploy smoke
 
 on:
   deployment_status:
+  # Manual run against any public URL, e.g. before the first Production deploy (KAN-164).
+  workflow_dispatch:
+    inputs:
+      url:
+        description: Base URL to check, e.g. https://storecart.example.com
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -13,13 +20,13 @@ permissions:
 jobs:
   health:
     name: Smoke /api/health
-    if: github.event.deployment_status.state == 'success' && github.event.deployment.environment == 'Production'
+    if: github.event_name == 'workflow_dispatch' || (github.event.deployment_status.state == 'success' && github.event.deployment.environment == 'Production')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Check /api/health
         env:
-          DEPLOY_URL: ${{ github.event.deployment_status.environment_url }}
+          DEPLOY_URL: ${{ inputs.url || github.event.deployment_status.environment_url }}
         run: |
           set -euo pipefail
           curl --fail --silent --show-error --location \

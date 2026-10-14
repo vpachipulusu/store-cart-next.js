@@ -6,7 +6,8 @@
 #
 #   changes ──┬─> pre-commit (PRs only)  ─┐
 #             ├─> frontend.yml            ├─> CI gate  (the required check)
-#             ├─> backend.yml            ─┘
+#             ├─> backend.yml            ─┤
+#             └─> compose-smoke (KAN-164)─┘
 #
 # Path rules (KAN-27 AC1):
 #   nextjs-frontend/**  -> frontend
@@ -137,11 +138,27 @@ jobs:
     if: needs.changes.outputs.backend == 'true'
     uses: ./.github/workflows/backend.yml
 
+  compose-smoke:
+    # KAN-164: starts the whole docker-compose.yml stack (fake local values, no secrets) and
+    # asserts frontend /api/health (200, then a generic 503 with the backend stopped) and backend
+    # /health. In the gate: it needs no secrets, only public images and package registries.
+    name: Compose smoke
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compose up, then assert /api/health and /health
+        run: scripts/compose-smoke.sh all
+
   gate:
     # Branch protection: require exactly this check ("CI gate").
     name: CI gate
     if: always()
-    needs: [changes, pre-commit, frontend, backend]
+    needs: [changes, pre-commit, frontend, backend, compose-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

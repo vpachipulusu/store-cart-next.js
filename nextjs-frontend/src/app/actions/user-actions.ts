@@ -1,15 +1,32 @@
 'use server';
 
-import { cookies } from 'next/headers';
 import { z } from 'zod';
 import { getAdminAuth } from '@/lib/firebase/admin';
-import { db } from '@/lib/db/client';
 import { profileUpdateSchema, userSettingsSchema } from '@/lib/utils/validation';
-import { cancelSubscription } from '@/lib/stripe/subscriptions';
-import { notifyPasswordChanged } from '@/lib/utils/notifications';
-import { generateTOTPSecret, verifyTOTPToken } from '@/lib/utils/totp';
 import { logger } from '@/lib/logger';
-import { getVerifiedUserId } from '@/lib/auth/verified-session';
+import { getVerifiedSessionClaims, isEmailNotVerifiedError } from '@/lib/auth/verified-session';
+import type { ApiResult } from '@/lib/api/server';
+import {
+  fetchLoginHistory,
+  fetchProfile,
+  fetchSettings,
+  patchAvatar,
+  patchProfile,
+  patchSettings,
+  toLoginHistoryEntry,
+  toProfile,
+  toSettings,
+} from '@/lib/api/account';
+
+/**
+ * Profile, settings, login history and password actions. Profile data lives behind the FastAPI backend
+ * (KAN-41): the API authenticates the session cookie, enforces the verified-email claim and derives the
+ * user, so no user id ever comes from the browser.
+ *
+ * Switched off until their replacements land (the controls are hidden, no Prisma access is left behind):
+ * - notifications and data export: KAN-114
+ * - 2FA setup/disable and account deletion: KAN-180 (re-authentication dialog); 2FA status: KAN-179
+ */
 
 /**
  * Response type for user actions
@@ -20,29 +37,11 @@ type UserActionResponse<T = any> = {
   error?: string;
 };
 
-/**
- * The only user columns a profile action may return to the browser (KAN-126). An explicit
- * `select` keeps secrets (twoFactorSecret, Stripe ids, firebaseUid) out of the response even when
- * the schema gains new columns.
- */
-const SAFE_PROFILE_SELECT = {
-  id: true,
-  email: true,
-  emailVerified: true,
-  displayName: true,
-  bio: true,
-  avatarUrl: true,
-  location: true,
-  website: true,
-  phoneNumber: true,
-  subscriptionTier: true,
-  subscriptionStatus: true,
-  createdAt: true,
-} as const;
+const MAX_HISTORY_PAGE = 100;
 
 /**
  * Logs the failure server-side and returns a stable generic message. Raw `error.message` text from
- * Firebase, Prisma or other libraries must never reach the client (KAN-170).
+ * Firebase, the backend or other libraries must never reach the client (KAN-170).
  */
 function fail(logMessage: string, error: unknown, publicMessage: string): UserActionResponse {
   logger.error(logMessage, error);
@@ -50,9 +49,8 @@ function fail(logMessage: string, error: unknown, publicMessage: string): UserAc
 }
 
 /**
- * Like `fail`, for actions that handle passwords, TOTP secrets or codes. Prisma and Firebase
- * errors can embed the arguments of the failing call (for example the `twoFactorSecret` being
- * written), so only the error name and code are logged, never the message, stack or error object.
+ * Like `fail`, for actions that handle passwords. Firebase errors can embed the arguments of the failing
+ * call, so only the error name and code are logged, never the message, stack or error object.
  */
 function failSensitive(
   logMessage: string,
@@ -68,33 +66,44 @@ function failSensitive(
 }
 
 /**
+ * Maps a failed API result to an action response. No session, an invalid or revoked session, or an
+ * unverified email (401/403) is "Unauthorized"; a 404 means the platform user is missing; any other
+ * failure is logged and answered with the generic message.
+ */
+function apiFailure(
+  result: Extract<ApiResult<unknown>, { success: false }>,
+  logMessage: string,
+  publicMessage: string
+): UserActionResponse {
+  if (result.status === 401 || result.status === 403) {
+    return { success: false, error: 'Unauthorized' };
+  }
+  if (result.status === 404) {
+    return { success: false, error: 'User not found' };
+  }
+  if (result.status === 422) {
+    // The backend's validation text is not forwarded; the zod schemas give the user-facing messages.
+    return fail(logMessage, { status: result.status }, 'Invalid input');
+  }
+  return fail(logMessage, { status: result.status, error: result.error }, publicMessage);
+}
+
+/**
  * Get user profile
  */
 export async function getUserProfileAction(): Promise<UserActionResponse> {
   try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
+    const [profile, settings] = await Promise.all([fetchProfile(), fetchSettings()]);
+    if (!profile.success) {
+      return apiFailure(profile, 'Get user profile error:', 'Failed to get user profile');
     }
-
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: { ...SAFE_PROFILE_SELECT, settings: true },
-    });
-
-    if (!user) {
-      return {
-        success: false,
-        error: 'User not found',
-      };
+    if (!settings.success) {
+      return apiFailure(settings, 'Get user profile error:', 'Failed to get user profile');
     }
 
     return {
       success: true,
-      data: { user },
+      data: { user: { ...toProfile(profile.data), settings: toSettings(settings.data) } },
     };
   } catch (error: unknown) {
     return fail('Get user profile error:', error, 'Failed to get user profile');
@@ -108,14 +117,6 @@ export async function updateUserProfileAction(
   data: z.infer<typeof profileUpdateSchema>
 ): Promise<UserActionResponse> {
   try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
-
     // Validate input
     const validation = profileUpdateSchema.safeParse(data);
     if (!validation.success) {
@@ -125,22 +126,20 @@ export async function updateUserProfileAction(
       };
     }
 
-    // Update user profile
-    const updatedUser = await db.user.update({
-      where: { id: userId },
-      data: {
-        displayName: data.displayName,
-        bio: data.bio,
-        location: data.location,
-        website: data.website || null,
-        phoneNumber: data.phoneNumber,
-      },
-      select: SAFE_PROFILE_SELECT,
+    const result = await patchProfile({
+      display_name: validation.data.displayName,
+      bio: validation.data.bio,
+      location: validation.data.location,
+      website: validation.data.website || null,
+      phone_number: validation.data.phoneNumber,
     });
+    if (!result.success) {
+      return apiFailure(result, 'Update user profile error:', 'Failed to update profile');
+    }
 
     return {
       success: true,
-      data: { user: updatedUser },
+      data: { user: toProfile(result.data) },
     };
   } catch (error: unknown) {
     return fail('Update user profile error:', error, 'Failed to update profile');
@@ -152,14 +151,6 @@ export async function updateUserProfileAction(
  */
 export async function updateUserAvatarAction(avatarUrl: string): Promise<UserActionResponse> {
   try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
-
     // Validate URL
     const urlSchema = z.string().url();
     const validation = urlSchema.safeParse(avatarUrl);
@@ -170,15 +161,17 @@ export async function updateUserAvatarAction(avatarUrl: string): Promise<UserAct
       };
     }
 
-    // Update avatar
-    const updatedUser = await db.user.update({
-      where: { id: userId },
-      data: { avatarUrl },
-    });
+    const result = await patchAvatar(avatarUrl);
+    if (!result.success) {
+      if (result.status === 422) {
+        return { success: false, error: 'Invalid avatar URL' };
+      }
+      return apiFailure(result, 'Update avatar error:', 'Failed to update avatar');
+    }
 
     return {
       success: true,
-      data: { avatarUrl: updatedUser.avatarUrl },
+      data: { avatarUrl: result.data.avatar_url },
     };
   } catch (error: unknown) {
     return fail('Update avatar error:', error, 'Failed to update avatar');
@@ -190,28 +183,14 @@ export async function updateUserAvatarAction(avatarUrl: string): Promise<UserAct
  */
 export async function getUserSettingsAction(): Promise<UserActionResponse> {
   try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
-
-    let settings = await db.userSettings.findUnique({
-      where: { userId },
-    });
-
-    // Create default settings if not exists
-    if (!settings) {
-      settings = await db.userSettings.create({
-        data: { userId },
-      });
+    const result = await fetchSettings();
+    if (!result.success) {
+      return apiFailure(result, 'Get user settings error:', 'Failed to get settings');
     }
 
     return {
       success: true,
-      data: { settings },
+      data: { settings: toSettings(result.data) },
     };
   } catch (error: unknown) {
     return fail('Get user settings error:', error, 'Failed to get settings');
@@ -225,14 +204,6 @@ export async function updateUserSettingsAction(
   data: z.infer<typeof userSettingsSchema>
 ): Promise<UserActionResponse> {
   try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
-
     // Validate input
     const validation = userSettingsSchema.safeParse(data);
     if (!validation.success) {
@@ -242,189 +213,29 @@ export async function updateUserSettingsAction(
       };
     }
 
-    // Update settings
-    const settings = await db.userSettings.upsert({
-      where: { userId },
-      update: {
-        theme: data.theme,
-        emailNotifications: data.emailNotifications,
-        language: data.language,
-        timezone: data.timezone,
-      },
-      create: {
-        userId,
-        theme: data.theme,
-        emailNotifications: data.emailNotifications,
-        language: data.language,
-        timezone: data.timezone,
-      },
+    const result = await patchSettings({
+      theme: validation.data.theme,
+      email_notifications: validation.data.emailNotifications,
+      language: validation.data.language,
+      timezone: validation.data.timezone,
     });
+    if (!result.success) {
+      return apiFailure(result, 'Update user settings error:', 'Failed to update settings');
+    }
 
     return {
       success: true,
-      data: { settings },
+      data: { settings: toSettings(result.data) },
     };
   } catch (error: unknown) {
     return fail('Update user settings error:', error, 'Failed to update settings');
   }
 }
 
-/**
- * Get user notifications
- */
-export async function getUserNotificationsAction(
-  limit = 10,
-  offset = 0
-): Promise<UserActionResponse> {
-  try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
-
-    const notifications = await db.notification.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-      skip: offset,
-    });
-
-    const totalCount = await db.notification.count({
-      where: { userId },
-    });
-
-    const unreadCount = await db.notification.count({
-      where: { userId, read: false },
-    });
-
-    return {
-      success: true,
-      data: {
-        notifications,
-        totalCount,
-        unreadCount,
-      },
-    };
-  } catch (error: unknown) {
-    return fail('Get notifications error:', error, 'Failed to get notifications');
-  }
-}
-
-/**
- * Mark notification as read
- */
-export async function markNotificationReadAction(
-  notificationId: string
-): Promise<UserActionResponse> {
-  try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
-
-    // Verify notification belongs to user
-    const notification = await db.notification.findUnique({
-      where: { id: notificationId },
-    });
-
-    if (!notification || notification.userId !== userId) {
-      return {
-        success: false,
-        error: 'Notification not found',
-      };
-    }
-
-    // Mark as read
-    await db.notification.update({
-      where: { id: notificationId },
-      data: { read: true },
-    });
-
-    return {
-      success: true,
-      data: { message: 'Notification marked as read' },
-    };
-  } catch (error: unknown) {
-    return fail('Mark notification read error:', error, 'Failed to mark notification as read');
-  }
-}
-
-/**
- * Mark all notifications as read
- */
-export async function markAllNotificationsReadAction(): Promise<UserActionResponse> {
-  try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
-
-    await db.notification.updateMany({
-      where: { userId, read: false },
-      data: { read: true },
-    });
-
-    return {
-      success: true,
-      data: { message: 'All notifications marked as read' },
-    };
-  } catch (error: unknown) {
-    return fail(
-      'Mark all notifications read error:',
-      error,
-      'Failed to mark all notifications as read'
-    );
-  }
-}
-
-/**
- * Delete notification
- */
-export async function deleteNotificationAction(
-  notificationId: string
-): Promise<UserActionResponse> {
-  try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
-
-    // Verify notification belongs to user
-    const notification = await db.notification.findUnique({
-      where: { id: notificationId },
-    });
-
-    if (!notification || notification.userId !== userId) {
-      return {
-        success: false,
-        error: 'Notification not found',
-      };
-    }
-
-    // Delete notification
-    await db.notification.delete({
-      where: { id: notificationId },
-    });
-
-    return {
-      success: true,
-      data: { message: 'Notification deleted' },
-    };
-  } catch (error: unknown) {
-    return fail('Delete notification error:', error, 'Failed to delete notification');
-  }
+async function loadLoginHistory(limit: number, offset: number) {
+  const pageSize = Math.min(Math.max(Math.trunc(limit) || 1, 1), MAX_HISTORY_PAGE);
+  const start = Math.max(Math.trunc(offset) || 0, 0);
+  return fetchLoginHistory(pageSize, start);
 }
 
 /**
@@ -435,34 +246,51 @@ export async function getUserLoginHistoryAction(
   offset = 0
 ): Promise<UserActionResponse> {
   try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
+    const result = await loadLoginHistory(limit, offset);
+    if (!result.success) {
+      return apiFailure(result, 'Get login history error:', 'Failed to get login history');
     }
-
-    const loginHistory = await db.loginHistory.findMany({
-      where: { userId },
-      orderBy: { loginAt: 'desc' },
-      take: limit,
-      skip: offset,
-    });
-
-    const totalCount = await db.loginHistory.count({
-      where: { userId },
-    });
 
     return {
       success: true,
       data: {
-        loginHistory,
-        totalCount,
+        loginHistory: result.data.login_history.map(toLoginHistoryEntry),
+        totalCount: result.data.total_count,
       },
     };
   } catch (error: unknown) {
     return fail('Get login history error:', error, 'Failed to get login history');
+  }
+}
+
+/**
+ * Get login history (alias for getUserLoginHistoryAction)
+ */
+export async function getLoginHistoryAction(limit = 10, offset = 0): Promise<UserActionResponse> {
+  const result = await getUserLoginHistoryAction(limit, offset);
+  if (!result.success || !result.data) {
+    return result;
+  }
+  return {
+    success: true,
+    data: { history: result.data.loginHistory, totalCount: result.data.totalCount },
+  };
+}
+
+/**
+ * Verified Firebase claims for the current request, or null for any failure (no session, invalid,
+ * revoked or unverified). Same contract as the old `getVerifiedUserId`, without the database lookup.
+ */
+async function getVerifiedClaimsOrNull() {
+  try {
+    return await getVerifiedSessionClaims();
+  } catch (error) {
+    if (isEmailNotVerifiedError(error)) {
+      logger.warn('Rejected request from a user with an unverified email');
+    } else {
+      logger.error('Authentication error:', error);
+    }
+    return null;
   }
 }
 
@@ -475,8 +303,8 @@ export async function changePasswordAction(
   newPassword: string
 ): Promise<UserActionResponse> {
   try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
+    const claims = await getVerifiedClaimsOrNull();
+    if (!claims?.email) {
       return {
         success: false,
         error: 'Unauthorized',
@@ -488,18 +316,6 @@ export async function changePasswordAction(
       return {
         success: false,
         error: 'New password must be at least 8 characters long',
-      };
-    }
-
-    // Get user
-    const user = await db.user.findUnique({
-      where: { id: userId },
-    });
-
-    if (!user) {
-      return {
-        success: false,
-        error: 'User not found',
       };
     }
 
@@ -518,7 +334,7 @@ export async function changePasswordAction(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: user.email,
+          email: claims.email,
           password: currentPassword,
           returnSecureToken: false,
         }),
@@ -533,12 +349,9 @@ export async function changePasswordAction(
     }
 
     // Update password in Firebase Auth
-    await getAdminAuth().updateUser(user.firebaseUid, {
+    await getAdminAuth().updateUser(claims.uid, {
       password: newPassword,
     });
-
-    // Notify user about password change
-    await notifyPasswordChanged(userId);
 
     return {
       success: true,
@@ -546,282 +359,5 @@ export async function changePasswordAction(
     };
   } catch (error: unknown) {
     return failSensitive('Change password error:', error, 'Failed to change password');
-  }
-}
-
-/**
- * Export user data
- */
-export async function exportUserDataAction(): Promise<UserActionResponse> {
-  try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
-
-    // Get all user data
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      include: {
-        settings: true,
-        loginHistory: true,
-        notifications: true,
-      },
-    });
-
-    if (!user) {
-      return {
-        success: false,
-        error: 'User not found',
-      };
-    }
-
-    // Prepare export data
-    const exportData = {
-      profile: {
-        email: user.email,
-        displayName: user.displayName,
-        bio: user.bio,
-        location: user.location,
-        website: user.website,
-        phoneNumber: user.phoneNumber,
-        emailVerified: user.emailVerified,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-      },
-      settings: user.settings,
-      loginHistory: user.loginHistory.map((login) => ({
-        loginAt: login.loginAt,
-        ipAddress: login.ipAddress,
-        userAgent: login.userAgent,
-        location: login.location,
-        successful: login.successful,
-      })),
-      notifications: user.notifications.map((notification) => ({
-        type: notification.type,
-        title: notification.title,
-        message: notification.message,
-        read: notification.read,
-        createdAt: notification.createdAt,
-      })),
-      subscription: {
-        tier: user.subscriptionTier,
-        status: user.subscriptionStatus,
-      },
-    };
-
-    return {
-      success: true,
-      data: exportData,
-    };
-  } catch (error: unknown) {
-    return fail('Export data error:', error, 'Failed to export data');
-  }
-}
-
-/**
- * Get login history (alias for getUserLoginHistoryAction)
- */
-export async function getLoginHistoryAction(limit = 10, offset = 0): Promise<UserActionResponse> {
-  try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
-
-    const history = await db.loginHistory.findMany({
-      where: { userId },
-      orderBy: { loginAt: 'desc' },
-      take: limit,
-      skip: offset,
-    });
-
-    const totalCount = await db.loginHistory.count({
-      where: { userId },
-    });
-
-    return {
-      success: true,
-      data: {
-        history,
-        totalCount,
-      },
-    };
-  } catch (error: unknown) {
-    return fail('Get login history error:', error, 'Failed to get login history');
-  }
-}
-
-/**
- * Delete user account (alias for deleteUserAccountAction)
- */
-export async function deleteAccountAction(): Promise<UserActionResponse> {
-  try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
-
-    // Get user
-    const user = await db.user.findUnique({
-      where: { id: userId },
-    });
-
-    if (!user) {
-      return {
-        success: false,
-        error: 'User not found',
-      };
-    }
-
-    // Cancel Stripe subscription if exists
-    if (user.stripeSubscriptionId) {
-      try {
-        await cancelSubscription(user.id, true);
-      } catch (stripeError) {
-        logger.error('Failed to cancel Stripe subscription during account deletion:', stripeError);
-        // Continue with deletion even if Stripe cancellation fails
-      }
-    }
-
-    // Delete from Firebase Auth
-    await getAdminAuth().deleteUser(user.firebaseUid);
-
-    // Delete from database (cascade will handle related records)
-    await db.user.delete({
-      where: { id: userId },
-    });
-
-    // Clear session
-    const cookieStore = await cookies();
-    cookieStore.delete('session');
-    cookieStore.delete('email-verified');
-
-    return {
-      success: true,
-      data: { message: 'Account deleted successfully' },
-    };
-  } catch (error: unknown) {
-    return fail('Delete account error:', error, 'Failed to delete account');
-  }
-}
-
-/**
- * Delete user account (deprecated - use deleteAccountAction)
- */
-export async function deleteUserAccountAction(): Promise<UserActionResponse> {
-  return deleteAccountAction();
-}
-
-/**
- * Initialize 2FA setup - generates a TOTP secret and returns the URI
- */
-export async function initiate2FASetupAction(): Promise<UserActionResponse> {
-  try {
-    const userId = await getVerifiedUserId();
-    if (!userId) return { success: false, error: 'Unauthorized' };
-
-    const user = await db.user.findUnique({ where: { id: userId } });
-    if (!user) return { success: false, error: 'User not found' };
-    if (user.twoFactorEnabled) return { success: false, error: '2FA is already enabled' };
-
-    const { secret, uri } = generateTOTPSecret(user.email);
-
-    // Store the secret (will be confirmed in verify step)
-    await db.user.update({
-      where: { id: userId },
-      data: { twoFactorSecret: secret },
-    });
-
-    return { success: true, data: { uri, secret } };
-  } catch (error: unknown) {
-    return failSensitive('Initiate 2FA setup error:', error, 'Failed to initiate 2FA setup');
-  }
-}
-
-/**
- * Verify and enable 2FA
- */
-export async function verify2FASetupAction(token: string): Promise<UserActionResponse> {
-  try {
-    const userId = await getVerifiedUserId();
-    if (!userId) return { success: false, error: 'Unauthorized' };
-
-    const user = await db.user.findUnique({ where: { id: userId } });
-    if (!user || !user.twoFactorSecret) {
-      return { success: false, error: '2FA setup not initiated' };
-    }
-
-    const isValid = verifyTOTPToken(token, user.twoFactorSecret);
-    if (!isValid) return { success: false, error: 'Invalid verification code' };
-
-    await db.user.update({
-      where: { id: userId },
-      data: { twoFactorEnabled: true },
-    });
-
-    return { success: true, data: { message: '2FA enabled successfully' } };
-  } catch (error: unknown) {
-    return failSensitive('Verify 2FA setup error:', error, 'Failed to verify 2FA setup');
-  }
-}
-
-/**
- * Disable 2FA (requires valid TOTP token to confirm)
- */
-export async function disable2FAAction(token: string): Promise<UserActionResponse> {
-  try {
-    const userId = await getVerifiedUserId();
-    if (!userId) return { success: false, error: 'Unauthorized' };
-
-    const user = await db.user.findUnique({ where: { id: userId } });
-    if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) {
-      return { success: false, error: '2FA is not enabled' };
-    }
-
-    const isValid = verifyTOTPToken(token, user.twoFactorSecret);
-    if (!isValid) return { success: false, error: 'Invalid verification code' };
-
-    await db.user.update({
-      where: { id: userId },
-      data: { twoFactorEnabled: false, twoFactorSecret: null },
-    });
-
-    return { success: true, data: { message: '2FA disabled successfully' } };
-  } catch (error: unknown) {
-    return failSensitive('Disable 2FA error:', error, 'Failed to disable 2FA');
-  }
-}
-
-/**
- * Get 2FA status for the current user
- */
-export async function get2FAStatusAction(): Promise<UserActionResponse> {
-  try {
-    const userId = await getVerifiedUserId();
-    if (!userId) return { success: false, error: 'Unauthorized' };
-
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: { twoFactorEnabled: true },
-    });
-
-    if (!user) return { success: false, error: 'User not found' };
-
-    return {
-      success: true,
-      data: { twoFactorEnabled: user.twoFactorEnabled },
-    };
-  } catch (error: unknown) {
-    return fail('Get 2FA status error:', error, 'Failed to get 2FA status');
   }
 }

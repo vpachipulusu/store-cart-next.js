@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * KAN-172: the legacy subscription, notification and admin server actions must never return raw
+ * KAN-172: the legacy subscription and admin server actions must never return raw
  * Stripe/Firebase/Prisma error text to the client. Every dependency is mocked to reject with a
  * secret-looking error; each action must answer with its stable generic message, leak nothing, and
  * hand the original error (with a message string) to the logger.
@@ -91,7 +91,6 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 import * as subscription from '@/app/actions/subscription-actions';
-import * as notification from '@/app/actions/notification-actions';
 import * as seo from '@/app/actions/admin/seo-actions';
 import * as settings from '@/app/actions/admin/settings-actions';
 import * as adminSubscription from '@/app/actions/admin/subscription-actions';
@@ -177,27 +176,6 @@ const ROWS: Row[] = [
     'setDefaultPaymentMethodAction',
     () => subscription.setDefaultPaymentMethodAction('pm_1'),
     'Failed to set default payment method',
-  ],
-  // notification-actions.ts (4)
-  [
-    'getNotificationsAction',
-    () => notification.getNotificationsAction(),
-    'Failed to get notifications',
-  ],
-  [
-    'markNotificationAsReadAction',
-    () => notification.markNotificationAsReadAction('n1'),
-    'Failed to mark notification as read',
-  ],
-  [
-    'markAllNotificationsAsReadAction',
-    () => notification.markAllNotificationsAsReadAction(),
-    'Failed to mark all notifications as read',
-  ],
-  [
-    'deleteNotificationAction',
-    () => notification.deleteNotificationAction('n1'),
-    'Failed to delete notification',
   ],
   // admin/seo-actions.ts (11 single-catch sites; bulk import per-item has its own test)
   ['getAllSEOMetaAction', () => seo.getAllSEOMetaAction(), 'Failed to get SEO meta'],
@@ -435,10 +413,8 @@ describe('KAN-172: legacy server actions return generic errors', () => {
       mocks.getVerifiedUserId.mockResolvedValue(null);
 
       const result = await subscription.getSubscriptionStatusAction();
-      const notifications = await notification.getNotificationsAction();
 
       expect(result).toEqual({ success: false, error: 'Unauthorized' });
-      expect(notifications).toEqual({ success: false, error: 'Unauthorized' });
     });
 
     it('keeps the zod validation message for invalid input', async () => {

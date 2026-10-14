@@ -1,6 +1,7 @@
 // @vitest-environment node
 /**
  * Regression tests for KAN-122: auth server actions must not allow account takeover or plan escalation.
+ * KAN-41: sign-in goes through the API; a session refresh records no login.
  */
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -8,13 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   verifyIdToken: vi.fn(),
-  getUser: vi.fn(),
-  userFindUnique: vi.fn(),
-  userCreate: vi.fn(),
-  userUpdate: vi.fn(),
-  historyFindFirst: vi.fn(),
-  historyCreate: vi.fn(),
-  notifyNewDeviceLogin: vi.fn(),
+  createBackendSession: vi.fn(),
   createSessionCookie: vi.fn(),
   verifySessionCookie: vi.fn(),
   cookieGet: vi.fn(),
@@ -28,24 +23,18 @@ vi.mock('next/headers', () => ({
 vi.mock('@/lib/firebase/admin', () => ({
   getAdminAuth: () => ({
     verifyIdToken: mocks.verifyIdToken,
-    getUser: mocks.getUser,
     createSessionCookie: mocks.createSessionCookie,
     verifySessionCookie: mocks.verifySessionCookie,
   }),
 }));
 vi.mock('@/lib/firebase/client', () => ({ auth: {} }));
 vi.mock('firebase/auth', () => ({ applyActionCode: vi.fn() }));
-vi.mock('@/lib/db/client', () => ({
-  db: {
-    user: { findUnique: mocks.userFindUnique, create: mocks.userCreate, update: mocks.userUpdate },
-    userSettings: { create: vi.fn() },
-    loginHistory: { findFirst: mocks.historyFindFirst, create: mocks.historyCreate },
-  },
-}));
-vi.mock('@/lib/utils/geo-ip', () => ({ getLocationFromIP: vi.fn().mockResolvedValue(null) }));
-vi.mock('@/lib/utils/notifications', () => ({
-  notifyNewDeviceLogin: mocks.notifyNewDeviceLogin,
-  notifyEmailVerified: vi.fn(),
+vi.mock('@/lib/api/account', () => ({
+  createBackendSession: mocks.createBackendSession,
+  revokeBackendSession: vi.fn(),
+  fetchProfile: vi.fn(),
+  fetchSettings: vi.fn(),
+  toSettings: (settings: unknown) => settings,
 }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
@@ -59,20 +48,11 @@ describe('KAN-122: auth server actions', () => {
       email: 'new@example.com',
       email_verified: false,
     });
-    mocks.getUser.mockResolvedValue({
-      uid: 'uid-1',
-      displayName: null,
-      photoURL: null,
-      phoneNumber: null,
+    mocks.createBackendSession.mockResolvedValue({
+      success: true,
+      data: { session_cookie: 'backend-session-cookie', expires_in: 432000 },
     });
-    mocks.userFindUnique.mockResolvedValue(null);
-    mocks.userCreate.mockResolvedValue({
-      id: 'user-1',
-      email: 'new@example.com',
-      subscriptionTier: 'free',
-    });
-    mocks.historyFindFirst.mockResolvedValue(null);
-    mocks.createSessionCookie.mockResolvedValue('session-cookie');
+    mocks.createSessionCookie.mockResolvedValue('firebase-session-cookie');
     mocks.cookieGet.mockReturnValue(undefined);
   });
 
@@ -93,7 +73,7 @@ describe('KAN-122: auth server actions', () => {
   );
 
   it.each(['enterprise', 'pro', 'free'])(
-    'creates a new user on the free tier even when the client asks for "%s"',
+    'sends only the ID token and user agent to the API even when the client asks for "%s"',
     async (requestedPlan) => {
       // An attacker can still POST extra arguments to the server action; they must be ignored.
       const verifyTokenAction = authActions.verifyTokenAction as unknown as (
@@ -103,42 +83,51 @@ describe('KAN-122: auth server actions', () => {
 
       await verifyTokenAction('id-token', { selectedPlan: requestedPlan });
 
-      expect(mocks.userCreate).toHaveBeenCalledTimes(1);
-      expect(mocks.userCreate.mock.calls[0][0].data.subscriptionTier).toBe('free');
+      expect(mocks.createBackendSession).toHaveBeenCalledTimes(1);
+      expect(mocks.createBackendSession).toHaveBeenCalledWith('id-token', 'vitest');
     }
   );
 
-  describe('KAN-163: login history is recorded only for explicit sign-ins', () => {
-    const existingUser = {
-      id: 'user-1',
-      email: 'new@example.com',
-      emailVerified: true,
-      subscriptionTier: 'free',
-    };
+  describe('KAN-41: explicit sign-in goes through the API', () => {
+    it('sets the backend-issued httpOnly session cookie and reports the verified-email claim', async () => {
+      const result = await authActions.verifyTokenAction('id-token');
 
+      expect(result).toEqual({ success: true, data: { claimsEmailVerified: false } });
+      expect(mocks.cookieSet).toHaveBeenCalledWith(
+        'session',
+        'backend-session-cookie',
+        expect.objectContaining({ httpOnly: true, sameSite: 'lax', path: '/', maxAge: 432000 })
+      );
+      expect(mocks.createSessionCookie).not.toHaveBeenCalled();
+    });
+
+    it.each([401, 409, 429, 503, undefined])(
+      'returns the generic error and sets no cookie when the API answers %s',
+      async (status) => {
+        mocks.createBackendSession.mockResolvedValue({
+          success: false,
+          error: 'Account conflict',
+          status,
+        });
+
+        const result = await authActions.verifyTokenAction('id-token');
+
+        expect(result).toEqual({ success: false, error: 'Token verification failed' });
+        expect(mocks.cookieSet).not.toHaveBeenCalled();
+      }
+    );
+  });
+
+  describe('KAN-163: a session refresh records no login (no API sign-in)', () => {
     beforeEach(() => {
       mocks.verifyIdToken.mockResolvedValue({
         uid: 'uid-1',
         email: 'new@example.com',
         email_verified: true,
       });
-      mocks.userFindUnique.mockResolvedValue(existingUser);
     });
 
-    it('records exactly one history row and the new-device notice for an explicit sign-in', async () => {
-      const result = await authActions.verifyTokenAction('id-token');
-
-      expect(result.success).toBe(true);
-      expect(mocks.historyCreate).toHaveBeenCalledTimes(1);
-      expect(mocks.historyCreate.mock.calls[0][0].data).toMatchObject({
-        userId: 'user-1',
-        successful: true,
-      });
-      expect(mocks.notifyNewDeviceLogin).toHaveBeenCalledTimes(1);
-      expect(mocks.userUpdate.mock.calls[0][0].data.lastLoginAt).toBeInstanceOf(Date);
-    });
-
-    it('records no history and sends no notice on session refresh, but still mints the cookie', async () => {
+    it('does not call the sign-in API on refresh with a matching session, but still mints the cookie', async () => {
       mocks.cookieGet.mockReturnValue({ value: 'old-session' });
       mocks.verifySessionCookie.mockResolvedValue({ uid: 'uid-1' });
       const result = await authActions.refreshSessionAction('id-token');
@@ -146,10 +135,12 @@ describe('KAN-122: auth server actions', () => {
       expect(result.success).toBe(true);
       expect(result.data.claimsEmailVerified).toBe(true);
       expect(mocks.createSessionCookie).toHaveBeenCalledWith('id-token', expect.any(Object));
-      expect(mocks.historyCreate).not.toHaveBeenCalled();
-      expect(mocks.historyFindFirst).not.toHaveBeenCalled();
-      expect(mocks.notifyNewDeviceLogin).not.toHaveBeenCalled();
-      expect(mocks.userUpdate.mock.calls[0][0].data).not.toHaveProperty('lastLoginAt');
+      expect(mocks.createBackendSession).not.toHaveBeenCalled();
+      expect(mocks.cookieSet).toHaveBeenCalledWith(
+        'session',
+        'firebase-session-cookie',
+        expect.objectContaining({ httpOnly: true })
+      );
     });
 
     it('verifies the existing session with revocation checking and does not require email_verified', async () => {
@@ -164,42 +155,42 @@ describe('KAN-122: auth server actions', () => {
       await authActions.refreshSessionAction('id-token');
 
       expect(mocks.verifySessionCookie).toHaveBeenCalledWith('old-session', true);
-      expect(mocks.historyCreate).not.toHaveBeenCalled();
+      expect(mocks.createBackendSession).not.toHaveBeenCalled();
     });
 
-    it('records once like a sign-in when refresh has no existing session', async () => {
+    it('signs in through the API once when refresh has no existing session', async () => {
       await authActions.refreshSessionAction('id-token');
 
-      expect(mocks.historyCreate).toHaveBeenCalledTimes(1);
-      expect(mocks.notifyNewDeviceLogin).toHaveBeenCalledTimes(1);
+      expect(mocks.createBackendSession).toHaveBeenCalledTimes(1);
+      expect(mocks.createSessionCookie).not.toHaveBeenCalled();
     });
 
-    it('records once when the existing session belongs to another user', async () => {
+    it('signs in through the API once when the existing session belongs to another user', async () => {
       mocks.cookieGet.mockReturnValue({ value: 'other-session' });
       mocks.verifySessionCookie.mockResolvedValue({ uid: 'uid-2' });
 
       await authActions.refreshSessionAction('id-token');
 
-      expect(mocks.historyCreate).toHaveBeenCalledTimes(1);
+      expect(mocks.createBackendSession).toHaveBeenCalledTimes(1);
     });
 
-    it('records once when the existing session is revoked or invalid', async () => {
+    it('signs in through the API once when the existing session is revoked or invalid', async () => {
       mocks.cookieGet.mockReturnValue({ value: 'revoked-session' });
       mocks.verifySessionCookie.mockRejectedValue(new Error('auth/session-cookie-revoked'));
 
       await authActions.refreshSessionAction('id-token');
 
-      expect(mocks.historyCreate).toHaveBeenCalledTimes(1);
+      expect(mocks.createBackendSession).toHaveBeenCalledTimes(1);
     });
 
-    it('still rejects an invalid token on refresh without recording anything', async () => {
+    it('still rejects an invalid token on refresh without calling the API', async () => {
       mocks.verifyIdToken.mockRejectedValue(new Error('bad token'));
 
       const result = await authActions.refreshSessionAction('bad');
 
       expect(result.success).toBe(false);
       expect(mocks.createSessionCookie).not.toHaveBeenCalled();
-      expect(mocks.historyCreate).not.toHaveBeenCalled();
+      expect(mocks.createBackendSession).not.toHaveBeenCalled();
     });
   });
 
@@ -213,7 +204,7 @@ describe('KAN-122: auth server actions', () => {
     });
 
     it.each(['verifyTokenAction', 'refreshSessionAction'] as const)(
-      '%s checks revocation, returns the generic error, sets no cookie and records no history',
+      '%s checks revocation, returns the generic error, sets no cookie and does not call the API',
       async (action) => {
         const result = await authActions[action]('revoked-token');
 
@@ -222,10 +213,7 @@ describe('KAN-122: auth server actions', () => {
         expect(JSON.stringify(result)).not.toContain('revoked');
         expect(mocks.createSessionCookie).not.toHaveBeenCalled();
         expect(mocks.cookieSet).not.toHaveBeenCalled();
-        expect(mocks.historyCreate).not.toHaveBeenCalled();
-        expect(mocks.userCreate).not.toHaveBeenCalled();
-        expect(mocks.userUpdate).not.toHaveBeenCalled();
-        expect(mocks.notifyNewDeviceLogin).not.toHaveBeenCalled();
+        expect(mocks.createBackendSession).not.toHaveBeenCalled();
       }
     );
 

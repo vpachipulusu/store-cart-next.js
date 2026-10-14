@@ -9,11 +9,13 @@ const THROWING_EMAIL = 'boom@example.com';
 
 const mocks = vi.hoisted(() => ({
   verifyIdToken: vi.fn(),
-  getUser: vi.fn(),
   verifySessionCookie: vi.fn(),
   revokeRefreshTokens: vi.fn(),
   createSessionCookie: vi.fn(),
-  userFindUnique: vi.fn(),
+  createBackendSession: vi.fn(),
+  revokeBackendSession: vi.fn(),
+  fetchProfile: vi.fn(),
+  fetchSettings: vi.fn(),
   applyActionCode: vi.fn(),
   cookieGet: vi.fn(),
   cookieSet: vi.fn(),
@@ -29,7 +31,6 @@ vi.mock('next/headers', () => ({
 vi.mock('@/lib/firebase/admin', () => ({
   getAdminAuth: () => ({
     verifyIdToken: mocks.verifyIdToken,
-    getUser: mocks.getUser,
     verifySessionCookie: mocks.verifySessionCookie,
     revokeRefreshTokens: mocks.revokeRefreshTokens,
     createSessionCookie: mocks.createSessionCookie,
@@ -37,17 +38,12 @@ vi.mock('@/lib/firebase/admin', () => ({
 }));
 vi.mock('@/lib/firebase/client', () => ({ auth: {} }));
 vi.mock('firebase/auth', () => ({ applyActionCode: mocks.applyActionCode }));
-vi.mock('@/lib/db/client', () => ({
-  db: {
-    user: { findUnique: mocks.userFindUnique, create: vi.fn(), update: vi.fn() },
-    userSettings: { create: vi.fn() },
-    loginHistory: { findFirst: vi.fn(), create: vi.fn() },
-  },
-}));
-vi.mock('@/lib/utils/geo-ip', () => ({ getLocationFromIP: vi.fn().mockResolvedValue(null) }));
-vi.mock('@/lib/utils/notifications', () => ({
-  notifyNewDeviceLogin: vi.fn(),
-  notifyEmailVerified: vi.fn(),
+vi.mock('@/lib/api/account', () => ({
+  createBackendSession: mocks.createBackendSession,
+  revokeBackendSession: mocks.revokeBackendSession,
+  fetchProfile: mocks.fetchProfile,
+  fetchSettings: mocks.fetchSettings,
+  toSettings: (settings: unknown) => settings,
 }));
 vi.mock('@/lib/auth/verified-session', () => ({
   isEmailNotVerifiedError: () => false,
@@ -94,6 +90,7 @@ describe('KAN-129: auth actions return generic errors', () => {
       delete: mocks.cookieDelete,
     });
     mocks.cookieGet.mockReturnValue({ value: 'session-cookie' });
+    mocks.revokeBackendSession.mockResolvedValue({ success: true, data: {} });
   });
 
   it('loginAction hides an unexpected failure and logs the detail', async () => {
@@ -126,20 +123,76 @@ describe('KAN-129: auth actions return generic errors', () => {
     expectNoLeak(await verifyTokenAction('tok'), 'Token verification failed');
   });
 
-  it('verifyTokenAction hides a database failure after the token verified', async () => {
+  it('verifyTokenAction hides a backend failure after the token verified', async () => {
     mocks.verifyIdToken.mockResolvedValue({ uid: 'u', email: 'a@b.co', email_verified: true });
-    mocks.getUser.mockResolvedValue({ displayName: null });
-    mocks.userFindUnique.mockRejectedValue(new Error(SECRET));
+    mocks.createBackendSession.mockResolvedValue({ success: false, error: SECRET, status: 500 });
 
     expectNoLeak(await verifyTokenAction('tok'), 'Token verification failed');
   });
 
-  it('refreshSessionAction hides a Firebase user lookup failure', async () => {
+  it('verifyTokenAction hides an unexpected exception from the backend wrapper', async () => {
+    mocks.verifyIdToken.mockResolvedValue({ uid: 'u', email: 'a@b.co', email_verified: true });
+    mocks.createBackendSession.mockRejectedValue(new Error(SECRET));
+
+    expectNoLeak(await verifyTokenAction('tok'), 'Token verification failed');
+  });
+
+  it('refreshSessionAction hides a Firebase session cookie failure', async () => {
     mocks.verifyIdToken.mockResolvedValue({ uid: 'u', email: 'a@b.co', email_verified: true });
     mocks.verifySessionCookie.mockResolvedValue({ uid: 'u' });
-    mocks.getUser.mockRejectedValue(new Error(SECRET));
+    mocks.createSessionCookie.mockRejectedValue(new Error(SECRET));
 
     expectNoLeak(await refreshSessionAction('tok'), 'Token verification failed');
+  });
+
+  it('logoutAction still clears the cookie and hides a backend revocation failure', async () => {
+    mocks.revokeBackendSession.mockResolvedValue({ success: false, error: SECRET, status: 500 });
+
+    const result = await logoutAction();
+
+    expect(result.success).toBe(true);
+    expect(JSON.stringify(result)).not.toContain('SECRET');
+    expect(mocks.cookieDelete).toHaveBeenCalledWith('session');
+  });
+
+  it('getCurrentSessionAction hides a backend profile failure', async () => {
+    mocks.verifySessionCookie.mockResolvedValue({ uid: 'u' });
+    mocks.fetchProfile.mockResolvedValue({ success: false, error: SECRET, status: 500 });
+    mocks.fetchSettings.mockResolvedValue({ success: true, data: {} });
+
+    expectNoLeak(await getCurrentSessionAction(), 'Session retrieval failed');
+    // A backend outage must not sign the user out.
+    expect(mocks.cookieDelete).not.toHaveBeenCalled();
+  });
+
+  it('getCurrentSessionAction clears the session when the backend rejects it', async () => {
+    mocks.verifySessionCookie.mockResolvedValue({ uid: 'u' });
+    mocks.fetchProfile.mockResolvedValue({
+      success: false,
+      error: 'Invalid authentication',
+      status: 401,
+    });
+    mocks.fetchSettings.mockResolvedValue({ success: true, data: {} });
+
+    expectNoLeak(await getCurrentSessionAction(), 'Session retrieval failed');
+    expect(mocks.cookieDelete).toHaveBeenCalledWith('session');
+  });
+
+  it('logoutAction revokes through Firebase when the backend call fails with a server error', async () => {
+    mocks.revokeBackendSession.mockResolvedValue({ success: false, error: 'x', status: 503 });
+    mocks.verifySessionCookie.mockResolvedValue({ uid: 'u1' });
+
+    await logoutAction();
+
+    expect(mocks.revokeRefreshTokens).toHaveBeenCalledWith('u1');
+  });
+
+  it('logoutAction does not fall back when the backend already rejected the session', async () => {
+    mocks.revokeBackendSession.mockResolvedValue({ success: false, error: 'x', status: 401 });
+
+    await logoutAction();
+
+    expect(mocks.revokeRefreshTokens).not.toHaveBeenCalled();
   });
 
   it('getCurrentSessionAction hides a verification or database failure', async () => {

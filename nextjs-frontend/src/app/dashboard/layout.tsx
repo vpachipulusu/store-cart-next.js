@@ -1,7 +1,8 @@
 import { redirect, unstable_rethrow } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { isEmailNotVerifiedError, verifyVerifiedSessionCookie } from '@/lib/auth/verified-session';
-import { db } from '@/lib/db/client';
+import { fetchProfile } from '@/lib/api/account';
+import { isSessionRejected } from '@/lib/api/session-rejected';
 import { isSessionVerificationError, logRouteError } from '@/lib/auth/session-errors';
 import Link from 'next/link';
 import { LayoutDashboard } from 'lucide-react';
@@ -31,36 +32,23 @@ async function getUser() {
     const decodedClaims = await verifyVerifiedSessionCookie(sessionCookie);
     uid = decodedClaims.uid;
 
-    // Get user from database for additional data
-    const dbUser = await db.user.findUnique({
-      where: { firebaseUid: decodedClaims.uid },
-      select: { id: true, displayName: true, avatarUrl: true },
-    });
-
-    // Get unread notification count and recent notifications
-    const [unreadNotificationCount, recentNotifications] = dbUser
-      ? await Promise.all([
-          db.notification.count({
-            where: { userId: dbUser.id, read: false },
-          }),
-          db.notification.findMany({
-            where: { userId: dbUser.id },
-            orderBy: { createdAt: 'desc' },
-            take: 10,
-          }),
-        ])
-      : [0, []];
+    // Display name and avatar come from the API (the session cookie is forwarded to the backend).
+    // Notifications are switched off until KAN-114 delivers them through the API.
+    const profile = await fetchProfile();
+    // A session the backend rejects (or has no platform user for) is cleared so the user signs in again.
+    if (!profile.success && isSessionRejected(profile)) {
+      throw Object.assign(new Error('Session rejected by the backend'), {
+        code: 'auth/invalid-session-cookie',
+      });
+    }
+    if (!profile.success) {
+      throw new Error(`Profile request failed (${profile.status ?? 'unreachable'})`);
+    }
 
     return {
       ...decodedClaims,
-      dbDisplayName: dbUser?.displayName,
-      dbAvatarUrl: dbUser?.avatarUrl,
-      unreadNotificationCount,
-      // Serialize Date objects to strings for client components
-      recentNotifications: recentNotifications.map((n) => ({
-        ...n,
-        createdAt: n.createdAt.toISOString(),
-      })),
+      dbDisplayName: profile.data.display_name,
+      dbAvatarUrl: profile.data.avatar_url,
     };
   } catch (error) {
     unstable_rethrow(error);
@@ -123,8 +111,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
               picture: user.picture,
               dbDisplayName: user.dbDisplayName,
               dbAvatarUrl: user.dbAvatarUrl,
-              unreadNotificationCount: user.unreadNotificationCount,
-              recentNotifications: user.recentNotifications,
             }}
           />
         </div>
