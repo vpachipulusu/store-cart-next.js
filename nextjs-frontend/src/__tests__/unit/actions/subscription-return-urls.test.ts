@@ -1,18 +1,16 @@
 // @vitest-environment node
 /**
  * KAN-127: checkout success/cancel URLs and the billing-portal return URL are built on the server from the app's own
- * origin. Nothing a client sends may reach Stripe. Stripe, the database and auth are mocked; no real keys are used.
+ * origin. Nothing a client sends may reach the billing API (KAN-45 moved Stripe behind it). The billing wrapper and auth
+ * are mocked; no real keys are used.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const APP_ORIGIN = 'https://shop.example.test';
 
 const mocks = vi.hoisted(() => ({
-  checkoutCreate: vi.fn(),
-  portalCreate: vi.fn(),
-  customersCreate: vi.fn(),
-  userFindUnique: vi.fn(),
-  userUpdate: vi.fn(),
+  startBillingCheckout: vi.fn(),
+  startBillingPortal: vi.fn(),
   cookieSet: vi.fn(),
 }));
 
@@ -22,15 +20,10 @@ vi.mock('next/headers', () => ({
 }));
 vi.mock('@/lib/auth/verified-session', () => ({ getVerifiedUserId: vi.fn(async () => 'user-1') }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock('@/lib/db/client', () => ({
-  db: { user: { findUnique: mocks.userFindUnique, update: mocks.userUpdate } },
-}));
-vi.mock('@/lib/stripe/server', () => ({
-  getStripeServerClient: () => ({
-    checkout: { sessions: { create: mocks.checkoutCreate } },
-    billingPortal: { sessions: { create: mocks.portalCreate } },
-    customers: { create: mocks.customersCreate },
-  }),
+vi.mock('@/lib/api/billing', () => ({
+  NO_BILLING_ORGANIZATION_MESSAGE: 'No organisation you can manage billing for was found',
+  startBillingCheckout: mocks.startBillingCheckout,
+  startBillingPortal: mocks.startBillingPortal,
 }));
 
 const HOSTILE_URLS = [
@@ -55,18 +48,14 @@ describe('KAN-127: Stripe return URLs are server-built', () => {
     vi.resetModules();
     vi.clearAllMocks();
     vi.stubEnv('NEXT_PUBLIC_APP_URL', APP_ORIGIN);
-    vi.stubEnv('STRIPE_PRICE_ID_PRO_MONTHLY', 'price_test_pro_monthly');
-    mocks.userFindUnique.mockResolvedValue({
-      id: 'user-1',
-      email: 'u@example.test',
-      firebaseUid: 'fb-1',
-      stripeCustomerId: 'cus_test_1',
+    mocks.startBillingCheckout.mockResolvedValue({
+      success: true,
+      data: { url: 'https://checkout.stripe.test/s' },
     });
-    mocks.checkoutCreate.mockResolvedValue({
-      id: 'cs_test_1',
-      url: 'https://checkout.stripe.test/s',
+    mocks.startBillingPortal.mockResolvedValue({
+      success: true,
+      data: { url: 'https://billing.stripe.test/p' },
     });
-    mocks.portalCreate.mockResolvedValue({ url: 'https://billing.stripe.test/p' });
   });
 
   afterEach(() => {
@@ -80,11 +69,11 @@ describe('KAN-127: Stripe return URLs are server-built', () => {
 
     expect(result.error).toBeUndefined();
     expect(result.success).toBe(true);
-    expect(mocks.checkoutCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        success_url: `${APP_ORIGIN}/dashboard?upgrade=success`,
-        cancel_url: `${APP_ORIGIN}/pricing?upgrade=cancelled`,
-      })
+    expect(mocks.startBillingCheckout).toHaveBeenCalledWith(
+      'pro',
+      'monthly',
+      `${APP_ORIGIN}/dashboard?upgrade=success`,
+      `${APP_ORIGIN}/pricing?upgrade=cancelled`
     );
   });
 
@@ -94,10 +83,9 @@ describe('KAN-127: Stripe return URLs are server-built', () => {
     const result = await createBillingPortalSessionAction();
 
     expect(result.success).toBe(true);
-    expect(mocks.portalCreate).toHaveBeenCalledWith({
-      customer: 'cus_test_1',
-      return_url: `${APP_ORIGIN}/dashboard/settings/billing`,
-    });
+    expect(mocks.startBillingPortal).toHaveBeenCalledWith(
+      `${APP_ORIGIN}/dashboard/settings/billing`
+    );
   });
 
   it('strips any path from the configured origin', async () => {
@@ -106,7 +94,7 @@ describe('KAN-127: Stripe return URLs are server-built', () => {
 
     await createBillingPortalSessionAction();
 
-    expect(mocks.portalCreate.mock.calls[0][0].return_url).toBe(
+    expect(mocks.startBillingPortal.mock.calls[0][0]).toBe(
       `${APP_ORIGIN}/dashboard/settings/billing`
     );
   });
@@ -117,7 +105,7 @@ describe('KAN-127: Stripe return URLs are server-built', () => {
 
     await createBillingPortalSessionAction();
 
-    expect(mocks.portalCreate.mock.calls[0][0].return_url).toBe(
+    expect(mocks.startBillingPortal.mock.calls[0][0]).toBe(
       'http://localhost:3000/dashboard/settings/billing'
     );
   });
@@ -165,7 +153,7 @@ describe('KAN-127: Stripe return URLs are server-built', () => {
   });
 
   describe.each(HOSTILE_URLS)('hostile client input %s', (hostile) => {
-    it('never reaches Stripe for checkout, even if extra arguments are smuggled in', async () => {
+    it('never reaches the billing API for checkout, even if extra arguments are smuggled in', async () => {
       const { createCheckoutSessionAction } = await loadActions();
       const smuggled = createCheckoutSessionAction as unknown as (
         ...args: unknown[]
@@ -173,14 +161,18 @@ describe('KAN-127: Stripe return URLs are server-built', () => {
 
       await smuggled('pro', 'monthly', hostile, hostile);
 
-      const params = mocks.checkoutCreate.mock.calls[0][0];
-      expect(params.success_url).toBe(`${APP_ORIGIN}/dashboard?upgrade=success`);
-      expect(params.cancel_url).toBe(`${APP_ORIGIN}/pricing?upgrade=cancelled`);
-      expect(JSON.stringify(params)).not.toContain('evil.example');
-      expect(JSON.stringify(params)).not.toContain('javascript:');
+      const args = mocks.startBillingCheckout.mock.calls[0];
+      expect(args).toEqual([
+        'pro',
+        'monthly',
+        `${APP_ORIGIN}/dashboard?upgrade=success`,
+        `${APP_ORIGIN}/pricing?upgrade=cancelled`,
+      ]);
+      expect(JSON.stringify(args)).not.toContain('evil.example');
+      expect(JSON.stringify(args)).not.toContain('javascript:');
     });
 
-    it('never reaches Stripe for the billing portal, even if an extra argument is smuggled in', async () => {
+    it('never reaches the billing API for the billing portal, even if an extra argument is smuggled in', async () => {
       const { createBillingPortalSessionAction } = await loadActions();
       const smuggled = createBillingPortalSessionAction as unknown as (
         ...args: unknown[]
@@ -188,10 +180,10 @@ describe('KAN-127: Stripe return URLs are server-built', () => {
 
       await smuggled(hostile);
 
-      const params = mocks.portalCreate.mock.calls[0][0];
-      expect(params.return_url).toBe(`${APP_ORIGIN}/dashboard/settings/billing`);
-      expect(JSON.stringify(params)).not.toContain('evil.example');
-      expect(JSON.stringify(params)).not.toContain('javascript:');
+      const args = mocks.startBillingPortal.mock.calls[0];
+      expect(args).toEqual([`${APP_ORIGIN}/dashboard/settings/billing`]);
+      expect(JSON.stringify(args)).not.toContain('evil.example');
+      expect(JSON.stringify(args)).not.toContain('javascript:');
     });
   });
 });

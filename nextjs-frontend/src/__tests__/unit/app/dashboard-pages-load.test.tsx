@@ -23,10 +23,6 @@ vi.mock('@/app/actions/subscription-actions', () => ({
   getSubscriptionDetailsAction: mocks.getSubscriptionDetailsAction,
   getPaymentMethodsAction: mocks.getPaymentMethodsAction,
   getSubscriptionInvoicesAction: mocks.getSubscriptionInvoicesAction,
-  cancelSubscriptionAction: vi.fn(),
-  resumeSubscriptionAction: vi.fn(),
-  deletePaymentMethodAction: vi.fn(),
-  setDefaultPaymentMethodAction: vi.fn(),
   createBillingPortalSessionAction: vi.fn(),
 }));
 

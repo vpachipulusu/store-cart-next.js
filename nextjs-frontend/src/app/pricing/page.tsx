@@ -5,12 +5,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { PricingCardsSection } from '@/components/pricing/pricing-cards-section';
 import { getAdminAuth } from '@/lib/firebase/admin';
-import { db } from '@/lib/db/client';
+import { fetchBillingSummary, NO_BILLING_ORGANIZATION_MESSAGE } from '@/lib/api/billing';
+import { logger } from '@/lib/logger';
 import { isSessionVerificationError, logRouteError } from '@/lib/auth/session-errors';
 import { getSubscriptionPlans, getCurrencySymbol } from '@/config/subscriptions';
 
 /**
- * Pricing adapts to the visitor's session and plan (cookie + Prisma), so it renders per request.
+ * Pricing adapts to the visitor's session and plan (cookie + billing API), so it renders per request.
  */
 export const dynamic = 'force-dynamic';
 
@@ -51,17 +52,18 @@ async function getUserSession() {
 
     const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, true);
     uid = decodedClaims.uid;
-    const user = await db.user.findUnique({
-      where: { firebaseUid: decodedClaims.uid },
-      select: {
-        id: true,
-        subscriptionTier: true,
-      },
-    });
+
+    // The plan comes from the organisation billing API (KAN-45). Prices still come from the Stripe catalogue
+    // (`getSubscriptionPlans`) because the API exposes no price list. If the API is unavailable the page falls
+    // back to the free view, and the backend still refuses a duplicate checkout.
+    const summary = await fetchBillingSummary();
+    if (!summary.success && summary.error !== NO_BILLING_ORGANIZATION_MESSAGE) {
+      logger.warn('Pricing could not read the billing plan:', { error: summary.error });
+    }
 
     return {
       isAuthenticated: true,
-      userTier: user?.subscriptionTier || 'free',
+      userTier: summary.success ? summary.data.plan.key : 'free',
     };
   } catch (error) {
     unstable_rethrow(error);

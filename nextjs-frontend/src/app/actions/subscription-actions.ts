@@ -2,244 +2,132 @@
 
 import { cookies } from 'next/headers';
 import { z } from 'zod';
-import Stripe from 'stripe';
-import { getStripeServerClient } from '@/lib/stripe/server';
-import { db } from '@/lib/db/client';
 import crypto from 'crypto';
 import { logger } from '@/lib/logger';
 import { getVerifiedUserId } from '@/lib/auth/verified-session';
 import { buildBillingPortalReturnUrl, buildCheckoutReturnUrls } from '@/lib/stripe/return-urls';
+import {
+  NO_BILLING_ORGANIZATION_MESSAGE,
+  cancelBillingSubscription,
+  changeBillingPlan,
+  fetchBillingInvoices,
+  fetchBillingPaymentMethods,
+  fetchBillingSummary,
+  resumeBillingSubscription,
+  startBillingCheckout,
+  startBillingPortal,
+} from '@/lib/api/billing';
 
 /**
- * Initialize Stripe
+ * Subscription server actions. Billing state and every Stripe operation live in the FastAPI organisation billing
+ * API (KAN-43, KAN-45); this file only authenticates the caller, validates input, builds server-side return URLs
+ * and reshapes responses for the existing pages. It no longer touches Prisma or Stripe.
+ *
+ * KAN-182 (backend): the API does not yet expose the auto-renewal flag (`cancel_at_period_end`), the billing
+ * interval, a default-card flag, delete/set-default card routes or an upcoming invoice. Those legacy actions were
+ * removed and the matching UI is switched off until KAN-182 lands.
  */
 
-/**
- * Response type for subscription actions
- */
 type SubscriptionActionResponse<T = any> = {
   success: boolean;
   data?: T;
   error?: string;
 };
 
-/**
- * Server-side price ID mapping (env vars are only available on the server)
- */
-const PRICE_IDS: Record<string, { monthly: string; yearly: string }> = {
-  pro: {
-    monthly: process.env.STRIPE_PRICE_ID_PRO_MONTHLY || '',
-    yearly: process.env.STRIPE_PRICE_ID_PRO_YEARLY || '',
-  },
-  enterprise: {
-    monthly: process.env.STRIPE_PRICE_ID_ENTERPRISE_MONTHLY || '',
-    yearly: process.env.STRIPE_PRICE_ID_ENTERPRISE_YEARLY || '',
-  },
+const UNAUTHORIZED = { success: false, error: 'Unauthorized' } as const;
+
+type PlanSummary = {
+  tier: string;
+  status: string;
+  currentPeriodEnd: string | null;
+  hasBillingAccount: boolean;
 };
 
-/**
- * Safely extract the period end timestamp from a Stripe subscription.
- * Handles different Stripe API versions where property names may vary.
- */
-function getSubscriptionPeriodEnd(subscription: any): Date | null {
-  const timestamp =
-    subscription.current_period_end ??
-    subscription.currentPeriodEnd ??
-    subscription.current_period?.end;
+/** Shown when the user manages no organisation: they are on the free plan. */
+const FREE_SUMMARY: PlanSummary = {
+  tier: 'free',
+  status: 'inactive',
+  currentPeriodEnd: null,
+  hasBillingAccount: false,
+};
 
-  if (typeof timestamp === 'number' && timestamp > 0) {
-    return new Date(timestamp * 1000);
-  }
-  return null;
-}
-
-/**
- * Extract a customer ID string from a Stripe customer field
- * which may be a string, Customer object, or null.
- */
-function extractCustomerId(customer: string | { id: string } | null | undefined): string | null {
-  if (!customer) return null;
-  if (typeof customer === 'string') return customer;
-  if (typeof customer === 'object' && 'id' in customer) return customer.id;
-  return null;
-}
-
-/**
- * Create checkout session schema
- */
-const createCheckoutSessionSchema = z.object({
+const planChoiceSchema = z.object({
   tier: z.enum(['pro', 'enterprise']),
   billingPeriod: z.enum(['monthly', 'yearly']),
 });
 
-/**
- * Get subscription status
- */
+/** Reads the organisation plan; a user without a billable organisation is shown as free. */
+async function loadPlanSummary(): Promise<
+  { success: true; data: PlanSummary } | { success: false; error: string }
+> {
+  const result = await fetchBillingSummary();
+  if (result.success) {
+    const { plan, subscription_status, current_period_end, has_billing_account } = result.data;
+    return {
+      success: true,
+      data: {
+        tier: plan.key,
+        status: subscription_status,
+        currentPeriodEnd: current_period_end,
+        hasBillingAccount: has_billing_account,
+      },
+    };
+  }
+  if (result.error === NO_BILLING_ORGANIZATION_MESSAGE) {
+    return { success: true, data: FREE_SUMMARY };
+  }
+  return result;
+}
+
+/** Logs and returns the backend's own envelope message (409 rules, 403, 503 ...), which is curated, never raw. */
+function failure(logMessage: string, error: string): SubscriptionActionResponse {
+  logger.error(logMessage, { error });
+  return { success: false, error };
+}
+
 export async function getSubscriptionStatusAction(): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
+    if (!(await getVerifiedUserId())) return UNAUTHORIZED;
 
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: {
-        subscriptionTier: true,
-        subscriptionStatus: true,
-        stripeSubscriptionId: true,
-        stripePriceId: true,
-        stripeCurrentPeriodEnd: true,
-      },
-    });
-
-    if (!user) {
-      return {
-        success: false,
-        error: 'User not found',
-      };
-    }
-
-    let subscriptionDetails = null;
-
-    // Get detailed subscription info from Stripe if exists
-    if (user.stripeSubscriptionId) {
-      try {
-        const subscription = await getStripeServerClient().subscriptions.retrieve(
-          user.stripeSubscriptionId
-        );
-        subscriptionDetails = {
-          id: subscription.id,
-          status: subscription.status,
-          currentPeriodEnd: getSubscriptionPeriodEnd(subscription)?.toISOString() ?? null,
-          cancelAtPeriodEnd: subscription.cancel_at_period_end,
-          canceledAt: subscription.canceled_at
-            ? new Date(subscription.canceled_at * 1000).toISOString()
-            : null,
-        };
-      } catch (error) {
-        logger.error('Failed to retrieve Stripe subscription:', error);
-      }
-    }
+    const summary = await loadPlanSummary();
+    if (!summary.success) return failure('Get subscription status error:', summary.error);
 
     return {
       success: true,
       data: {
-        subscriptionTier: user.subscriptionTier,
-        subscriptionStatus: user.subscriptionStatus,
-        currentPeriodEnd: user.stripeCurrentPeriodEnd,
-        stripeSubscription: subscriptionDetails,
+        subscriptionTier: summary.data.tier,
+        subscriptionStatus: summary.data.status,
+        currentPeriodEnd: summary.data.currentPeriodEnd,
+        stripeSubscription: null,
       },
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Get subscription status error:', error);
-    return {
-      success: false,
-      error: 'Failed to get subscription status',
-    };
+    return { success: false, error: 'Failed to get subscription status' };
   }
 }
 
-/**
- * Create Stripe checkout session
- */
 export async function createCheckoutSessionAction(
   tier: 'pro' | 'enterprise',
   billingPeriod: 'monthly' | 'yearly'
 ): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
+    if (!(await getVerifiedUserId())) return UNAUTHORIZED;
 
-    // Validate input
-    const validation = createCheckoutSessionSchema.safeParse({
-      tier,
-      billingPeriod,
-    });
-
+    const validation = planChoiceSchema.safeParse({ tier, billingPeriod });
     if (!validation.success) {
-      return {
-        success: false,
-        error: validation.error.errors[0].message,
-      };
+      return { success: false, error: validation.error.errors[0].message };
     }
 
-    // Resolve price ID on the server
-    const priceId = PRICE_IDS[tier]?.[billingPeriod];
-    if (!priceId) {
-      return {
-        success: false,
-        error: `Price not configured for ${tier} ${billingPeriod} plan`,
-      };
-    }
-
-    const user = await db.user.findUnique({
-      where: { id: userId },
-    });
-
-    if (!user) {
-      return {
-        success: false,
-        error: 'User not found',
-      };
-    }
-
-    // Create or retrieve Stripe customer
-    let customerId = user.stripeCustomerId;
-
-    if (!customerId) {
-      const customer = await getStripeServerClient().customers.create({
-        email: user.email,
-        metadata: {
-          userId: user.id,
-          firebaseUid: user.firebaseUid,
-        },
-      });
-
-      customerId = customer.id;
-
-      // Update user with Stripe customer ID
-      await db.user.update({
-        where: { id: userId },
-        data: { stripeCustomerId: customerId },
-      });
-    }
-
-    // Return URLs are built on the server; clients cannot supply them (KAN-127)
+    // Return URLs are built on the server; clients cannot supply them (KAN-127). The backend also checks them
+    // against BILLING_RETURN_URL_ORIGINS.
     const { successUrl, cancelUrl } = buildCheckoutReturnUrls();
+    const result = await startBillingCheckout(tier, billingPeriod, successUrl, cancelUrl);
+    if (!result.success) return failure('Create checkout session error:', result.error);
 
-    // Create checkout session
-    const session = await getStripeServerClient().checkout.sessions.create({
-      customer: customerId,
-      payment_method_types: ['card'],
-      line_items: [
-        {
-          price: priceId,
-          quantity: 1,
-        },
-      ],
-      mode: 'subscription',
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-      metadata: {
-        userId: user.id,
-      },
-    });
-
-    // Generate secure checkout token to prevent URL manipulation
-    const checkoutToken = crypto.randomBytes(32).toString('hex');
+    // httpOnly token proving this browser started a checkout, so ?upgrade=success cannot be forged by hand.
     const cookieStore = await cookies();
-
-    // Store checkout token in HTTP-only cookie (expires in 10 minutes)
-    cookieStore.set('checkout_token', checkoutToken, {
+    cookieStore.set('checkout_token', crypto.randomBytes(32).toString('hex'), {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
@@ -247,761 +135,210 @@ export async function createCheckoutSessionAction(
       path: '/',
     });
 
-    // Store session ID mapping
-    cookieStore.set('checkout_session', session.id, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 600, // 10 minutes
-      path: '/',
-    });
-
-    return {
-      success: true,
-      data: {
-        sessionId: session.id,
-        url: session.url,
-      },
-    };
-  } catch (error: any) {
+    return { success: true, data: { url: result.data.url } };
+  } catch (error: unknown) {
     logger.error('Create checkout session error:', error);
-    return {
-      success: false,
-      error: 'Failed to create checkout session',
-    };
+    return { success: false, error: 'Failed to create checkout session' };
   }
 }
 
 /**
- * Verify checkout session for upgrade success
- * Prevents users from manually navigating to ?upgrade=success
+ * Verify checkout session for upgrade success. Prevents users from manually navigating to ?upgrade=success: only
+ * the browser that started a checkout holds the short-lived httpOnly token. The webhook (the only writer of plan
+ * state) can lag behind the redirect, so the plan itself is polled afterwards by the success handler.
  */
 export async function verifyUpgradeSessionAction(): Promise<
-  SubscriptionActionResponse<{
-    valid: boolean;
-    reason?: string;
-  }>
+  SubscriptionActionResponse<{ valid: boolean; reason?: string }>
 > {
   try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
+    if (!(await getVerifiedUserId())) return UNAUTHORIZED;
 
     const cookieStore = await cookies();
-    const checkoutToken = cookieStore.get('checkout_token')?.value;
-    const checkoutSession = cookieStore.get('checkout_session')?.value;
-
-    // If no checkout token, this is a manual/fake URL
-    if (!checkoutToken || !checkoutSession) {
+    if (!cookieStore.get('checkout_token')?.value) {
       return {
         success: true,
-        data: {
-          valid: false,
-          reason: 'No valid checkout session found',
-        },
+        data: { valid: false, reason: 'No valid checkout session found' },
       };
     }
 
-    // Check if user's subscription was recently updated (within last 5 minutes)
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: {
-        subscriptionTier: true,
-        subscriptionStatus: true,
-        updatedAt: true,
-      },
-    });
-
-    if (!user) {
-      return {
-        success: false,
-        error: 'User not found',
-      };
-    }
-
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-    const wasRecentlyUpdated = user.updatedAt > fiveMinutesAgo;
-
-    // Valid if: has checkout token AND (subscription was recently updated OR is already upgraded)
-    const isValid = !!checkoutToken && (wasRecentlyUpdated || user.subscriptionTier !== 'free');
-
-    // Clear checkout tokens after verification
-    if (isValid) {
-      cookieStore.delete('checkout_token');
-      cookieStore.delete('checkout_session');
-    }
-
-    return {
-      success: true,
-      data: {
-        valid: isValid,
-        reason: isValid ? undefined : 'Invalid or expired checkout session',
-      },
-    };
-  } catch (error: any) {
+    cookieStore.delete('checkout_token');
+    return { success: true, data: { valid: true } };
+  } catch (error: unknown) {
     logger.error('Verify upgrade session error:', error);
-    return {
-      success: false,
-      error: 'Failed to verify upgrade session',
-    };
+    return { success: false, error: 'Failed to verify upgrade session' };
   }
 }
 
-/**
- * Create billing portal session
- */
 export async function createBillingPortalSessionAction(): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
+    if (!(await getVerifiedUserId())) return UNAUTHORIZED;
 
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: { stripeCustomerId: true },
-    });
-
-    if (!user || !user.stripeCustomerId) {
-      return {
-        success: false,
-        error: 'No billing information found',
-      };
-    }
-
-    // Create billing portal session
-    const session = await getStripeServerClient().billingPortal.sessions.create({
-      customer: user.stripeCustomerId,
-      return_url: buildBillingPortalReturnUrl(),
-    });
-
-    return {
-      success: true,
-      data: {
-        url: session.url,
-      },
-    };
-  } catch (error: any) {
+    const result = await startBillingPortal(buildBillingPortalReturnUrl());
+    if (!result.success) return failure('Create billing portal session error:', result.error);
+    return { success: true, data: { url: result.data.url } };
+  } catch (error: unknown) {
     logger.error('Create billing portal session error:', error);
-    return {
-      success: false,
-      error: 'Failed to create billing portal session',
-    };
+    return { success: false, error: 'Failed to create billing portal session' };
   }
 }
 
-/**
- * Cancel subscription
- */
+/** Cancel at period end. KAN-182: no UI calls this while the API cannot report the auto-renewal state. */
 export async function cancelSubscriptionAction(): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
+    if (!(await getVerifiedUserId())) return UNAUTHORIZED;
 
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: { stripeSubscriptionId: true },
-    });
-
-    if (!user || !user.stripeSubscriptionId) {
-      return {
-        success: false,
-        error: 'No active subscription found',
-      };
-    }
-
-    // Cancel subscription at period end
-    const subscription = await getStripeServerClient().subscriptions.update(
-      user.stripeSubscriptionId,
-      {
-        cancel_at_period_end: true,
-      }
-    );
-
+    const result = await cancelBillingSubscription();
+    if (!result.success) return failure('Cancel subscription error:', result.error);
     return {
       success: true,
-      data: {
-        message: 'Subscription will be canceled at the end of the billing period',
-        cancelAt: new Date((subscription as any).current_period_end * 1000),
-      },
+      data: { message: 'Subscription will be canceled at the end of the billing period' },
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Cancel subscription error:', error);
-    return {
-      success: false,
-      error: 'Failed to cancel subscription',
-    };
+    return { success: false, error: 'Failed to cancel subscription' };
   }
 }
 
-/**
- * Resume subscription (undo cancellation)
- */
+/** Undo a pending cancellation. KAN-182: no UI calls this yet (see cancelSubscriptionAction). */
 export async function resumeSubscriptionAction(): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
+    if (!(await getVerifiedUserId())) return UNAUTHORIZED;
 
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: { stripeSubscriptionId: true },
-    });
-
-    if (!user || !user.stripeSubscriptionId) {
-      return {
-        success: false,
-        error: 'No subscription found',
-      };
-    }
-
-    // First check current subscription state
-    const currentSub = await getStripeServerClient().subscriptions.retrieve(
-      user.stripeSubscriptionId
-    );
-
-    // Can only resume if subscription is in a valid state
-    if (currentSub.status === 'canceled') {
-      return {
-        success: false,
-        error:
-          'This subscription has already been canceled and cannot be resumed. Please subscribe again from the pricing page.',
-      };
-    }
-
-    if (currentSub.status === 'incomplete' || currentSub.status === 'incomplete_expired') {
-      return {
-        success: false,
-        error:
-          'This subscription was never completed. Please subscribe again from the pricing page.',
-      };
-    }
-
-    if (currentSub.status !== 'active') {
-      return {
-        success: false,
-        error: `Subscription status is ${currentSub.status}. Only active subscriptions can be managed.`,
-      };
-    }
-
-    // If already not set to cancel, it's already active
-    if (!currentSub.cancel_at_period_end) {
-      return {
-        success: true,
-        data: { message: 'Subscription is already active' },
-      };
-    }
-
-    // Resume subscription
-    await getStripeServerClient().subscriptions.update(user.stripeSubscriptionId, {
-      cancel_at_period_end: false,
-    });
-
-    return {
-      success: true,
-      data: {
-        message: 'Subscription resumed successfully',
-      },
-    };
-  } catch (error: any) {
+    const result = await resumeBillingSubscription();
+    if (!result.success) return failure('Resume subscription error:', result.error);
+    return { success: true, data: { message: 'Subscription resumed successfully' } };
+  } catch (error: unknown) {
     logger.error('Resume subscription error:', error);
-    return {
-      success: false,
-      error: 'Failed to resume subscription',
-    };
+    return { success: false, error: 'Failed to resume subscription' };
   }
 }
 
-/**
- * Update subscription (change plan)
- */
+/** Change plan or interval on the live subscription (prorated by the backend). */
 export async function updateSubscriptionAction(
-  newPriceId: string
+  tier: 'pro' | 'enterprise',
+  billingPeriod: 'monthly' | 'yearly'
 ): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
+    if (!(await getVerifiedUserId())) return UNAUTHORIZED;
+
+    const validation = planChoiceSchema.safeParse({ tier, billingPeriod });
+    if (!validation.success) {
+      return { success: false, error: validation.error.errors[0].message };
     }
 
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: { stripeSubscriptionId: true },
-    });
-
-    if (!user || !user.stripeSubscriptionId) {
-      return {
-        success: false,
-        error: 'No active subscription found',
-      };
-    }
-
-    // Get current subscription
-    const subscription = await getStripeServerClient().subscriptions.retrieve(
-      user.stripeSubscriptionId
-    );
-
-    // Update subscription with new price
-    const updatedSubscription = await getStripeServerClient().subscriptions.update(
-      user.stripeSubscriptionId,
-      {
-        items: [
-          {
-            id: subscription.items.data[0].id,
-            price: newPriceId,
-          },
-        ],
-        proration_behavior: 'create_prorations',
-      }
-    );
-
-    return {
-      success: true,
-      data: {
-        message: 'Subscription updated successfully',
-        subscription: {
-          id: updatedSubscription.id,
-          status: updatedSubscription.status,
-        },
-      },
-    };
-  } catch (error: any) {
+    const result = await changeBillingPlan(tier, billingPeriod);
+    if (!result.success) return failure('Update subscription error:', result.error);
+    return { success: true, data: { message: 'Subscription updated successfully' } };
+  } catch (error: unknown) {
     logger.error('Update subscription error:', error);
-    return {
-      success: false,
-      error: 'Failed to update subscription',
-    };
+    return { success: false, error: 'Failed to update subscription' };
   }
 }
 
-/**
- * Get subscription invoices
- */
+/** Latest invoices (the API returns up to 12). */
 export async function getSubscriptionInvoicesAction(
   limit = 10
 ): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
+    if (!(await getVerifiedUserId())) return UNAUTHORIZED;
+
+    const result = await fetchBillingInvoices();
+    if (!result.success) {
+      if (result.error === NO_BILLING_ORGANIZATION_MESSAGE) {
+        return { success: true, data: { invoices: [], hasMore: false } };
+      }
+      return failure('Get invoices error:', result.error);
     }
 
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: { stripeCustomerId: true },
-    });
-
-    if (!user || !user.stripeCustomerId) {
-      return {
-        success: false,
-        error: 'No billing information found',
-      };
-    }
-
-    // Get invoices from Stripe
-    const invoices = await getStripeServerClient().invoices.list({
-      customer: user.stripeCustomerId,
-      limit,
-    });
-
-    const formattedInvoices = invoices.data.map((invoice) => ({
+    const invoices = result.data.slice(0, limit).map((invoice) => ({
       id: invoice.id,
       amount: invoice.amount_paid,
       currency: invoice.currency,
       status: invoice.status,
-      created: new Date(invoice.created * 1000),
+      created: new Date(invoice.created * 1000).toISOString(),
       pdfUrl: invoice.invoice_pdf,
       hostedUrl: invoice.hosted_invoice_url,
     }));
-
-    return {
-      success: true,
-      data: {
-        invoices: formattedInvoices,
-        hasMore: invoices.has_more,
-      },
-    };
-  } catch (error: any) {
+    return { success: true, data: { invoices, hasMore: result.data.length > limit } };
+  } catch (error: unknown) {
     logger.error('Get invoices error:', error);
-    return {
-      success: false,
-      error: 'Failed to get invoices',
-    };
+    return { success: false, error: 'Failed to get invoices' };
   }
 }
 
-/**
- * Get upcoming invoice
- */
-export async function getUpcomingInvoiceAction(): Promise<SubscriptionActionResponse> {
-  try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
-
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: { stripeCustomerId: true, stripeSubscriptionId: true },
-    });
-
-    if (!user || !user.stripeCustomerId || !user.stripeSubscriptionId) {
-      return {
-        success: false,
-        error: 'No active subscription found',
-      };
-    }
-
-    // Get upcoming invoice
-    const invoice = await (getStripeServerClient().invoices as any).retrieveUpcoming({
-      customer: user.stripeCustomerId,
-      subscription: user.stripeSubscriptionId,
-    });
-
-    return {
-      success: true,
-      data: {
-        amount: invoice.amount_due,
-        currency: invoice.currency,
-        periodEnd: new Date(invoice.period_end * 1000),
-      },
-    };
-  } catch (error: any) {
-    logger.error('Get upcoming invoice error:', error);
-    return {
-      success: false,
-      error: 'Failed to get upcoming invoice',
-    };
-  }
-}
-
-/**
- * Check if user has active subscription
- */
 export async function hasActiveSubscriptionAction(): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
+    if (!(await getVerifiedUserId())) return UNAUTHORIZED;
 
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: {
-        subscriptionStatus: true,
-        stripeCurrentPeriodEnd: true,
-      },
-    });
+    const summary = await loadPlanSummary();
+    if (!summary.success) return failure('Check active subscription error:', summary.error);
 
-    if (!user) {
-      return {
-        success: false,
-        error: 'User not found',
-      };
-    }
-
+    const { status, currentPeriodEnd } = summary.data;
     const hasActive =
-      user.subscriptionStatus === 'active' &&
-      user.stripeCurrentPeriodEnd &&
-      user.stripeCurrentPeriodEnd > new Date();
-
-    return {
-      success: true,
-      data: {
-        hasActiveSubscription: hasActive,
-      },
-    };
-  } catch (error: any) {
+      status === 'active' && currentPeriodEnd !== null && new Date(currentPeriodEnd) > new Date();
+    return { success: true, data: { hasActiveSubscription: hasActive } };
+  } catch (error: unknown) {
     logger.error('Check active subscription error:', error);
-    return {
-      success: false,
-      error: 'Failed to check subscription status',
-    };
+    return { success: false, error: 'Failed to check subscription status' };
   }
 }
 
 /**
- * Get full subscription details including billing period and auto-renewal status
+ * Plan details for the billing page. KAN-182: `billingPeriod` and `autoRenewal` are placeholders (null/false)
+ * because the API does not return the billing interval or the cancel-at-period-end flag yet.
  */
 export async function getSubscriptionDetailsAction(): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return { success: false, error: 'Unauthorized' };
-    }
+    if (!(await getVerifiedUserId())) return UNAUTHORIZED;
 
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: {
-        subscriptionTier: true,
-        subscriptionStatus: true,
-        stripeSubscriptionId: true,
-        stripePriceId: true,
-        stripeCurrentPeriodEnd: true,
-        stripeCustomerId: true,
-      },
-    });
-
-    if (!user) {
-      return { success: false, error: 'User not found' };
-    }
-
-    let billingPeriod: 'monthly' | 'yearly' | null = null;
-    let autoRenewal = false;
-    let currentPeriodEnd: string | null = null;
-    let stripeStatus: string | null = null;
-
-    if (user.stripeSubscriptionId) {
-      try {
-        const subscription = await getStripeServerClient().subscriptions.retrieve(
-          user.stripeSubscriptionId,
-          {
-            expand: ['items.data.price'],
-          }
-        );
-        autoRenewal = !subscription.cancel_at_period_end;
-        stripeStatus = subscription.status;
-
-        const periodEndDate = getSubscriptionPeriodEnd(subscription);
-        currentPeriodEnd = periodEndDate?.toISOString() ?? null;
-
-        // Determine billing period from actual Stripe price interval
-        const price = subscription.items.data[0]?.price as any;
-        if (price?.recurring?.interval) {
-          billingPeriod = price.recurring.interval === 'year' ? 'yearly' : 'monthly';
-        }
-      } catch (error) {
-        logger.error('Failed to retrieve Stripe subscription:', error);
-      }
-    }
-
-    // Fall back to DB period end if Stripe retrieval didn't produce one
-    if (!currentPeriodEnd && user.stripeCurrentPeriodEnd) {
-      currentPeriodEnd = user.stripeCurrentPeriodEnd.toISOString();
-    }
+    const summary = await loadPlanSummary();
+    if (!summary.success) return failure('Get subscription details error:', summary.error);
 
     return {
       success: true,
       data: {
-        subscriptionTier: user.subscriptionTier,
-        subscriptionStatus: user.subscriptionStatus,
-        stripeStatus,
-        billingPeriod,
-        autoRenewal,
-        currentPeriodEnd,
-        hasStripeCustomer: !!user.stripeCustomerId,
+        subscriptionTier: summary.data.tier,
+        subscriptionStatus: summary.data.status,
+        stripeStatus: summary.data.status,
+        billingPeriod: null,
+        autoRenewal: false,
+        currentPeriodEnd: summary.data.currentPeriodEnd,
+        hasStripeCustomer: summary.data.hasBillingAccount,
       },
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Get subscription details error:', error);
     return { success: false, error: 'Failed to get subscription details' };
   }
 }
 
 /**
- * Get saved payment methods for the customer
+ * Saved cards (brand, last4, expiry). KAN-182: the API has no default-card flag, so `isDefault` is always false
+ * and the page offers the Stripe portal instead of per-card actions.
  */
 export async function getPaymentMethodsAction(): Promise<SubscriptionActionResponse> {
   try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return { success: false, error: 'Unauthorized' };
+    if (!(await getVerifiedUserId())) return UNAUTHORIZED;
+
+    const result = await fetchBillingPaymentMethods();
+    if (!result.success) {
+      if (result.error === NO_BILLING_ORGANIZATION_MESSAGE) {
+        return { success: true, data: { paymentMethods: [], defaultPaymentMethodId: null } };
+      }
+      return failure('Get payment methods error:', result.error);
     }
 
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: { stripeCustomerId: true },
-    });
-
-    if (!user || !user.stripeCustomerId) {
-      return { success: true, data: { paymentMethods: [], defaultPaymentMethodId: null } };
-    }
-
-    // Get customer to find default payment method
-    const customer = await getStripeServerClient().customers.retrieve(user.stripeCustomerId);
-    const defaultPaymentMethodId =
-      !customer.deleted && customer.invoice_settings?.default_payment_method
-        ? typeof customer.invoice_settings.default_payment_method === 'string'
-          ? customer.invoice_settings.default_payment_method
-          : customer.invoice_settings.default_payment_method.id
-        : null;
-
-    // List payment methods
-    const paymentMethods = await getStripeServerClient().paymentMethods.list({
-      customer: user.stripeCustomerId,
-      type: 'card',
-    });
-
-    const formatted = paymentMethods.data.map((pm) => ({
-      id: pm.id,
-      brand: pm.card?.brand || 'unknown',
-      last4: pm.card?.last4 || '****',
-      expMonth: pm.card?.exp_month || 0,
-      expYear: pm.card?.exp_year || 0,
-      isDefault: pm.id === defaultPaymentMethodId,
+    const paymentMethods = result.data.map((method) => ({
+      id: method.id,
+      brand: method.brand ?? 'unknown',
+      last4: method.last4 ?? '****',
+      expMonth: method.exp_month ?? 0,
+      expYear: method.exp_year ?? 0,
+      isDefault: false,
     }));
-
-    return {
-      success: true,
-      data: { paymentMethods: formatted, defaultPaymentMethodId },
-    };
-  } catch (error: any) {
+    return { success: true, data: { paymentMethods, defaultPaymentMethodId: null } };
+  } catch (error: unknown) {
     logger.error('Get payment methods error:', error);
     return { success: false, error: 'Failed to get payment methods' };
-  }
-}
-
-/**
- * Delete a saved payment method.
- * Blocked if auto-renewal is active on the subscription.
- */
-export async function deletePaymentMethodAction(
-  paymentMethodId: string
-): Promise<SubscriptionActionResponse> {
-  try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return { success: false, error: 'Unauthorized' };
-    }
-
-    if (!paymentMethodId || typeof paymentMethodId !== 'string') {
-      return { success: false, error: 'Invalid payment method ID' };
-    }
-
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: { stripeCustomerId: true, stripeSubscriptionId: true },
-    });
-
-    if (!user || !user.stripeCustomerId) {
-      return { success: false, error: 'No billing information found' };
-    }
-
-    // Check if auto-renewal is active - block deletion if so
-    if (user.stripeSubscriptionId) {
-      const subscription = await getStripeServerClient().subscriptions.retrieve(
-        user.stripeSubscriptionId
-      );
-      if (!subscription.cancel_at_period_end && subscription.status === 'active') {
-        return {
-          success: false,
-          error:
-            'Cannot delete payment method while auto-renewal is active. Turn off auto-renewal first.',
-        };
-      }
-    }
-
-    // Verify the payment method belongs to this customer
-    const pm = await getStripeServerClient().paymentMethods.retrieve(paymentMethodId);
-    const pmCustomerId = extractCustomerId(pm.customer as any);
-
-    if (!pmCustomerId) {
-      return { success: false, error: 'Payment method is not attached to any customer' };
-    }
-
-    if (pmCustomerId !== user.stripeCustomerId) {
-      return {
-        success: false,
-        error: 'Payment method not found or does not belong to your account',
-      };
-    }
-
-    await getStripeServerClient().paymentMethods.detach(paymentMethodId);
-
-    return { success: true, data: { message: 'Payment method removed' } };
-  } catch (error: any) {
-    logger.error('Delete payment method error:', error);
-    return { success: false, error: 'Failed to delete payment method' };
-  }
-}
-
-/**
- * Set a payment method as the default for the customer
- */
-export async function setDefaultPaymentMethodAction(
-  paymentMethodId: string
-): Promise<SubscriptionActionResponse> {
-  try {
-    const userId = await getVerifiedUserId();
-    if (!userId) {
-      return { success: false, error: 'Unauthorized' };
-    }
-
-    if (!paymentMethodId || typeof paymentMethodId !== 'string') {
-      return { success: false, error: 'Invalid payment method ID' };
-    }
-
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: { stripeCustomerId: true, stripeSubscriptionId: true },
-    });
-
-    if (!user || !user.stripeCustomerId) {
-      return { success: false, error: 'No billing information found' };
-    }
-
-    // Verify the payment method belongs to this customer
-    const pm = await getStripeServerClient().paymentMethods.retrieve(paymentMethodId);
-    const pmCustomerId = extractCustomerId(pm.customer as any);
-
-    // If payment method is not attached to a customer, attach it first
-    if (!pm.customer) {
-      await getStripeServerClient().paymentMethods.attach(paymentMethodId, {
-        customer: user.stripeCustomerId,
-      });
-    } else if (pmCustomerId !== user.stripeCustomerId) {
-      return { success: false, error: 'Payment method does not belong to your account' };
-    }
-
-    // Set as default on customer
-    await getStripeServerClient().customers.update(user.stripeCustomerId, {
-      invoice_settings: { default_payment_method: paymentMethodId },
-    });
-
-    // Also update on subscription if exists
-    if (user.stripeSubscriptionId) {
-      try {
-        await getStripeServerClient().subscriptions.update(user.stripeSubscriptionId, {
-          default_payment_method: paymentMethodId,
-        });
-      } catch (subError) {
-        // Subscription update may fail if subscription is in certain states;
-        // customer-level default is already set so this is non-critical
-        logger.error('Failed to update subscription default payment method:', subError);
-      }
-    }
-
-    return { success: true, data: { message: 'Default payment method updated' } };
-  } catch (error: any) {
-    logger.error('Set default payment method error:', error);
-    return { success: false, error: 'Failed to set default payment method' };
   }
 }

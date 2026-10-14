@@ -2,6 +2,7 @@ import { test, expect } from './helpers/fixtures';
 import {
   STORAGE_STATE,
   loginAsThrowawayAccount,
+  loginAsThrowawayAccountWithOrganization,
   waitForPageReady,
   waitForServerActionResponse,
   navigateAndWait,
@@ -147,7 +148,7 @@ test.describe('Subscription Upgrade Flow', () => {
       context,
       throwawayAccount,
     }) => {
-      await loginAsThrowawayAccount(page, throwawayAccount);
+      await loginAsThrowawayAccountWithOrganization(page, throwawayAccount);
       await navigateAndWait(page, '/pricing');
 
       // Find Pro tier upgrade button
@@ -180,7 +181,7 @@ test.describe('Subscription Upgrade Flow', () => {
       context,
       throwawayAccount,
     }) => {
-      await loginAsThrowawayAccount(page, throwawayAccount);
+      await loginAsThrowawayAccountWithOrganization(page, throwawayAccount);
       await navigateAndWait(page, '/pricing');
 
       // Find and click Pro tier upgrade button
@@ -280,7 +281,7 @@ test.describe('Subscription Upgrade Flow', () => {
       context,
       throwawayAccount,
     }) => {
-      await loginAsThrowawayAccount(page, throwawayAccount);
+      await loginAsThrowawayAccountWithOrganization(page, throwawayAccount);
       await navigateAndWait(page, '/pricing');
 
       const proCard = page.locator('[class*="card"]').filter({ hasText: /^Pro$/i });
@@ -370,7 +371,7 @@ test.describe('Subscription Upgrade Flow', () => {
     );
 
     test('should handle declined card gracefully', async ({ page, context, throwawayAccount }) => {
-      await loginAsThrowawayAccount(page, throwawayAccount);
+      await loginAsThrowawayAccountWithOrganization(page, throwawayAccount);
       await navigateAndWait(page, '/pricing');
 
       const proCard = page.locator('[class*="card"]').filter({ hasText: /^Pro$/i });
@@ -419,7 +420,7 @@ test.describe('Subscription Upgrade Flow', () => {
     });
 
     test('should handle insufficient funds card', async ({ page, context, throwawayAccount }) => {
-      await loginAsThrowawayAccount(page, throwawayAccount);
+      await loginAsThrowawayAccountWithOrganization(page, throwawayAccount);
       await navigateAndWait(page, '/pricing');
 
       const proCard = page.locator('[class*="card"]').filter({ hasText: /^Pro$/i });

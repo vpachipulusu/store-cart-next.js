@@ -1,6 +1,6 @@
 import { test, expect } from './helpers/fixtures';
 import {
-  loginAsThrowawayAccount,
+  loginAsThrowawayAccountWithOrganization,
   signInWithSavedSession,
   waitForServerActionResponse,
   navigateAndWait,
@@ -36,7 +36,7 @@ test.describe('Subscription Upgrade - Happy Path', () => {
     test.setTimeout(150_000);
 
     // Step 1: Login as a fresh free-tier user (throwaway: this test changes the plan)
-    await loginAsThrowawayAccount(page, throwawayAccount);
+    await loginAsThrowawayAccountWithOrganization(page, throwawayAccount);
 
     // Step 2: Navigate to pricing page
     await navigateAndWait(page, '/pricing');

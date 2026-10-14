@@ -140,6 +140,41 @@ export async function loginAsThrowawayAccount(
 }
 
 /**
+ * Logs in a throwaway account and gives it an organisation it owns (KAN-45). Billing belongs to an organisation and
+ * sign-in does not create one, so a checkout test needs one first. The call goes server to server to the backend
+ * with the browser's own session cookie, as the Next.js server does; it needs BACKEND_INTERNAL_KEY in the environment.
+ */
+export async function loginAsThrowawayAccountWithOrganization(
+  page: Page,
+  account: { email: string; password: string }
+): Promise<void> {
+  await loginAsThrowawayAccount(page, account);
+
+  const session = (await page.context().cookies()).find((cookie) => cookie.name === 'session');
+  const internalKey = process.env.BACKEND_INTERNAL_KEY;
+  if (!session || !internalKey) {
+    throw new Error(
+      'Creating a billing organisation needs the session cookie and BACKEND_INTERNAL_KEY'
+    );
+  }
+  const backendUrl = (process.env.BACKEND_API_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '');
+  const slug = `e2e-${account.email.split('@')[0]}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+
+  const response = await fetch(`${backendUrl}/v1/organizations`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Internal-Key': internalKey,
+      'X-Session-Token': session.value,
+    },
+    body: JSON.stringify({ name: 'E2E billing organisation', slug }),
+  });
+  if (!response.ok) {
+    throw new Error(`Creating the e2e organisation failed with HTTP ${response.status}`);
+  }
+}
+
+/**
  * Set a mock session cookie for authenticated tests.
  * This bypasses the Firebase auth flow for faster, more reliable tests.
  */

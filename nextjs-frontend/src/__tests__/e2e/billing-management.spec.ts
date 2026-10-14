@@ -2,6 +2,7 @@ import { test, expect } from './helpers/fixtures';
 import {
   STORAGE_STATE,
   loginAsThrowawayAccount,
+  loginAsThrowawayAccountWithOrganization,
   signInWithSavedSession,
   navigateAndWait,
   navigateToBilling,
@@ -184,7 +185,9 @@ test.describe('Billing Settings Page - Content', () => {
   });
 });
 
-test.describe('Billing Settings - Auto-Renewal', () => {
+// KAN-182: the organisation billing API (KAN-45) does not expose cancel_at_period_end, so the auto-renewal card and
+// toggle are switched off in the UI. Re-enable these tests when KAN-182 restores the control.
+test.describe.skip('Billing Settings - Auto-Renewal (switched off until KAN-182)', () => {
   test.skip(
     !process.env.TEST_USER_EMAIL || !process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
     'Skipped: TEST_USER_EMAIL or STRIPE not configured'
@@ -300,7 +303,8 @@ test.describe('Billing Settings - Payment Methods', () => {
     }
   });
 
-  test('should show default badge on default payment method', async ({ page }) => {
+  // KAN-182: the API has no default-card flag, so the Default badge is switched off.
+  test.skip('should show default badge on default payment method', async ({ page }) => {
     await navigateToBilling(page);
 
     const paymentCard = page.locator('[class*="card"]').filter({ hasText: /payment methods/i });
@@ -317,7 +321,8 @@ test.describe('Billing Settings - Payment Methods', () => {
     }
   });
 
-  test('should disable remove button when auto-renewal is active', async ({ page }) => {
+  // KAN-182: card removal and the auto-renewal state are switched off; cards are managed in the Stripe portal.
+  test.skip('should disable remove button when auto-renewal is active', async ({ page }) => {
     await navigateToBilling(page);
 
     const autoRenewalCard = page.locator('[class*="card"]').filter({ hasText: /auto-renewal/i });
@@ -411,7 +416,7 @@ test.describe('Pricing Page - Checkout with Billing Period', () => {
     page,
     throwawayAccount,
   }) => {
-    await loginAsThrowawayAccount(page, throwawayAccount);
+    await loginAsThrowawayAccountWithOrganization(page, throwawayAccount);
     await navigateAndWait(page, '/pricing');
 
     // Switch to yearly billing
