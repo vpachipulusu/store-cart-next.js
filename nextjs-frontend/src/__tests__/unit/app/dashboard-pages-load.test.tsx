@@ -81,20 +81,15 @@ describe('SettingsPage initial load', () => {
 });
 
 describe('SecurityPage initial load', () => {
-  it('requests login history and 2FA status once on mount', async () => {
+  it('requests login history once on mount', async () => {
     mocks.getLoginHistoryAction.mockResolvedValue({
       success: true,
       data: { history: [] },
-    });
-    mocks.get2FAStatusAction.mockResolvedValue({
-      success: true,
-      data: { twoFactorEnabled: false },
     });
 
     render(<SecurityPage />);
 
     await waitFor(() => expect(mocks.getLoginHistoryAction).toHaveBeenCalledTimes(1));
-    expect(mocks.get2FAStatusAction).toHaveBeenCalledTimes(1);
     expect(await screen.findByText('No login history available')).toBeInTheDocument();
   });
 });

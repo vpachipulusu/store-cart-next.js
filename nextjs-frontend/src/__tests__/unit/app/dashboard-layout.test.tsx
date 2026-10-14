@@ -11,7 +11,7 @@ import {
 const mocks = vi.hoisted(() => ({
   cookieGet: vi.fn(),
   verifySessionCookie: vi.fn(),
-  userFindUnique: vi.fn(),
+  fetchProfile: vi.fn(),
   loggerError: vi.fn(),
 }));
 
@@ -20,17 +20,25 @@ vi.mock('next/headers', () => ({ cookies: async () => ({ get: mocks.cookieGet })
 vi.mock('@/lib/firebase/admin', () => ({
   getAdminAuth: () => ({ verifySessionCookie: mocks.verifySessionCookie }),
 }));
-vi.mock('@/lib/db/client', () => ({
-  db: {
-    user: { findUnique: mocks.userFindUnique },
-    notification: { count: vi.fn().mockResolvedValue(0), findMany: vi.fn().mockResolvedValue([]) },
-  },
-}));
+vi.mock('@/lib/api/account', () => ({ fetchProfile: mocks.fetchProfile }));
 vi.mock('@/lib/logger', () => ({ logger: { error: mocks.loggerError } }));
 vi.mock('@/components/providers/session-provider', () => ({ SessionProvider: () => null }));
 vi.mock('@/components/dashboard/dashboard-header', () => ({ DashboardHeader: () => null }));
 
 import DashboardLayout from '@/app/dashboard/layout';
+
+/** Finds the props.user handed to DashboardHeader in the rendered element tree. */
+function findHeaderUser(node: unknown): Record<string, unknown> | undefined {
+  if (!node || typeof node !== 'object') return undefined;
+  const element = node as { props?: { user?: Record<string, unknown>; children?: unknown } };
+  if (element.props?.user && 'dbDisplayName' in element.props.user) return element.props.user;
+  const children = element.props?.children;
+  for (const child of Array.isArray(children) ? children : [children]) {
+    const found = findHeaderUser(child);
+    if (found) return found;
+  }
+  return undefined;
+}
 
 describe('DashboardLayout session check', () => {
   beforeEach(() => {
@@ -43,7 +51,10 @@ describe('DashboardLayout session check', () => {
       email: 'a@b.test',
       email_verified: true,
     });
-    mocks.userFindUnique.mockResolvedValue({ id: 'u1', displayName: null, avatarUrl: null });
+    mocks.fetchProfile.mockResolvedValue({
+      success: true,
+      data: { display_name: null, avatar_url: null },
+    });
   });
 
   it('propagates the /login redirect when there is no session cookie', async () => {
@@ -68,7 +79,7 @@ describe('DashboardLayout session check', () => {
       const error = await rejection(DashboardLayout({ children: null }));
 
       expect(redirectTarget(error)).toBe('/verify-email');
-      expect(mocks.userFindUnique).not.toHaveBeenCalled();
+      expect(mocks.fetchProfile).not.toHaveBeenCalled();
     });
 
     it('does not trust a forged email-verified=true cookie', async () => {
@@ -116,8 +127,8 @@ describe('DashboardLayout session check', () => {
     expect(mocks.loggerError).not.toHaveBeenCalled();
   });
 
-  it('logs and rethrows a database error without clearing the session', async () => {
-    mocks.userFindUnique.mockRejectedValue(DB_DOWN);
+  it('logs and rethrows a profile request error without clearing the session', async () => {
+    mocks.fetchProfile.mockRejectedValue(DB_DOWN);
 
     const error = await rejection(DashboardLayout({ children: null }));
 
@@ -132,5 +143,51 @@ describe('DashboardLayout session check', () => {
       userId: 'uid-1',
     });
     expect(JSON.stringify(mocks.loggerError.mock.calls)).not.toContain('cookie-value');
+  });
+
+  describe('KAN-41: profile comes from the API', () => {
+    it('passes the API display name and avatar to the header', async () => {
+      mocks.fetchProfile.mockResolvedValue({
+        success: true,
+        data: { display_name: 'Ada', avatar_url: 'https://x.test/a.png' },
+      });
+
+      const tree = await DashboardLayout({ children: null });
+
+      expect(findHeaderUser(tree)).toMatchObject({
+        dbDisplayName: 'Ada',
+        dbAvatarUrl: 'https://x.test/a.png',
+      });
+    });
+
+    it.each([
+      [401, 'Invalid authentication'],
+      [404, 'Not found'],
+    ])('clears the session when the backend answers %s (%s)', async (status, error) => {
+      mocks.fetchProfile.mockResolvedValue({ success: false, error, status });
+
+      const err = await rejection(DashboardLayout({ children: null }));
+
+      expect(redirectTarget(err)).toBe('/api/auth/clear-session');
+    });
+
+    it('does not clear the session for a 401 caused by a misconfigured internal key', async () => {
+      mocks.fetchProfile.mockResolvedValue({ success: false, error: 'Unauthorized', status: 401 });
+
+      const err = await rejection(DashboardLayout({ children: null }));
+
+      expect(navigationMock.redirect).not.toHaveBeenCalled();
+      expect(String(err)).toContain('Profile request failed (401)');
+      expect(mocks.loggerError).toHaveBeenCalledTimes(1);
+    });
+
+    it('rethrows when the backend is unreachable, keeping the session', async () => {
+      mocks.fetchProfile.mockResolvedValue({ success: false, error: 'Backend unavailable' });
+
+      const err = await rejection(DashboardLayout({ children: null }));
+
+      expect(navigationMock.redirect).not.toHaveBeenCalled();
+      expect(String(err)).toContain('unreachable');
+    });
   });
 });

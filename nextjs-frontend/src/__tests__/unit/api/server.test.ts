@@ -159,7 +159,7 @@ describe('callBackend', () => {
 
       const result = await callBackend((client) => healthCheck({ client }));
 
-      expect(result).toEqual({ success: false, error: 'Invalid request' });
+      expect(result).toEqual({ success: false, error: 'Invalid request', status: 422 });
     });
 
     it('returns a generic message when the body is not the envelope', async () => {
@@ -167,7 +167,7 @@ describe('callBackend', () => {
 
       const result = await callBackend((client) => healthCheck({ client }));
 
-      expect(result).toEqual({ success: false, error: BACKEND_ERROR_MESSAGE });
+      expect(result).toEqual({ success: false, error: BACKEND_ERROR_MESSAGE, status: 502 });
     });
 
     it('treats an error status with an empty body as a failure', async () => {
@@ -175,7 +175,7 @@ describe('callBackend', () => {
 
       const result = await callBackend((client) => healthCheck({ client }));
 
-      expect(result).toEqual({ success: false, error: BACKEND_ERROR_MESSAGE });
+      expect(result).toEqual({ success: false, error: BACKEND_ERROR_MESSAGE, status: 500 });
     });
   });
 

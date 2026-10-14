@@ -23,7 +23,10 @@ export const INTERNAL_KEY_HEADER = 'X-Internal-Key';
 export const BACKEND_UNAVAILABLE_MESSAGE = 'Backend unavailable';
 export const BACKEND_ERROR_MESSAGE = 'Request failed';
 
-export type ApiResult<T> = { success: true; data: T } | { success: false; error: string };
+/** `status` is the backend HTTP status when the backend answered (absent when it was unreachable). */
+export type ApiResult<T> =
+  | { success: true; data: T }
+  | { success: false; error: string; status?: number };
 
 type SdkResult<TData> = { data?: TData; error?: unknown; response?: Response };
 
@@ -96,7 +99,7 @@ export async function callBackend<TData>(
     return { success: false, error: BACKEND_UNAVAILABLE_MESSAGE };
   }
   if (result.error !== undefined || (result.response && !result.response.ok)) {
-    return { success: false, error: errorMessage(result.error) };
+    return { success: false, error: errorMessage(result.error), status: result.response?.status };
   }
   return { success: true, data: unwrap<TData>(result.data) };
 }

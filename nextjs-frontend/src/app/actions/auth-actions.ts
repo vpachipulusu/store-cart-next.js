@@ -5,12 +5,17 @@ import { z } from 'zod';
 import { getAdminAuth } from '@/lib/firebase/admin';
 import { auth } from '@/lib/firebase/client';
 import { applyActionCode } from 'firebase/auth';
-import { db } from '@/lib/db/client';
 import { emailSchema, passwordSchema } from '@/lib/utils/validation';
-import { getLocationFromIP } from '@/lib/utils/geo-ip';
-import { notifyNewDeviceLogin, notifyEmailVerified } from '@/lib/utils/notifications';
 import { logger } from '@/lib/logger';
 import { isEmailNotVerifiedError, verifyVerifiedSessionCookie } from '@/lib/auth/verified-session';
+import { SESSION_COOKIE_NAME } from '@/lib/api/server';
+import {
+  createBackendSession,
+  fetchProfile,
+  fetchSettings,
+  revokeBackendSession,
+  toSettings,
+} from '@/lib/api/account';
 
 /**
  * Response type for auth actions
@@ -101,26 +106,24 @@ export async function signUpAction(
 }
 
 /**
- * Logout action - revokes Firebase tokens and clears session cookie
+ * Logout action - revokes the user's Firebase tokens through the API and clears the session cookie
  */
 export async function logoutAction(): Promise<AuthActionResponse> {
   try {
     const cookieStore = await cookies();
-    const sessionCookie = cookieStore.get('session')?.value;
 
-    if (sessionCookie) {
-      try {
-        // Verify session to get Firebase UID (don't check revocation)
-        const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, false);
-        // Revoke all refresh tokens for this user
-        await getAdminAuth().revokeRefreshTokens(decodedClaims.uid);
-      } catch (error) {
-        // Session may be expired/invalid, still proceed with cookie deletion
-        logger.error('Token revocation during logout failed:', error);
+    if (cookieStore.get(SESSION_COOKIE_NAME)?.value) {
+      // An expired or invalid session answers 401 here; the cookie is cleared either way.
+      const revoked = await revokeBackendSession();
+      if (!revoked.success) {
+        logger.error('Token revocation during logout failed:', {
+          status: revoked.status,
+          error: revoked.error,
+        });
       }
     }
 
-    cookieStore.delete('session');
+    cookieStore.delete(SESSION_COOKIE_NAME);
     cookieStore.delete('email-verified');
 
     return {
@@ -155,9 +158,10 @@ export async function refreshSessionAction(idToken: string): Promise<AuthActionR
 }
 
 const GENERIC_SIGN_IN_ERROR = 'Token verification failed';
+const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 5; // 5 days, matches the backend session lifetime
 
 async function hasMatchingActiveSession(uid: string): Promise<boolean> {
-  const existing = (await cookies()).get('session')?.value;
+  const existing = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
   if (!existing) return false;
   try {
     // checkRevoked = true; email_verified is deliberately not required (/verify-email runs unverified).
@@ -166,6 +170,21 @@ async function hasMatchingActiveSession(uid: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function setSessionCookie(value: string, maxAgeSeconds: number): Promise<void> {
+  const cookieStore = await cookies();
+  cookieStore.set(SESSION_COOKIE_NAME, value, {
+    maxAge: maxAgeSeconds,
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+  });
+  // The email-verified decision lives in the signed claim inside the session cookie, enforced by
+  // `@/lib/auth/verified-session` (KAN-123). No client-readable verification cookie is issued any more;
+  // clear any left over from an older deployment.
+  cookieStore.delete('email-verified');
 }
 
 async function establishSession(
@@ -192,135 +211,34 @@ async function establishSession(
       };
     }
 
-    // Get full Firebase user data to access displayName
-    const firebaseUser = await getAdminAuth().getUser(uid);
-
-    // Get request headers for login tracking
-    const headersList = await headers();
-    const ipAddress =
-      headersList.get('x-forwarded-for')?.split(',')[0].trim() ||
-      headersList.get('x-real-ip') ||
-      'unknown';
-    const userAgent = headersList.get('user-agent') || 'unknown';
-
-    // Get or create user in database
-    let user = await db.user.findUnique({
-      where: { firebaseUid: uid },
-      include: {
-        settings: true,
-        adminUser: true,
-      },
-    });
-
-    if (!user) {
-      // Every new account starts on free. The client's selected plan is never trusted for the tier:
-      // paid tiers are granted only by Stripe checkout (KAN-122).
-      const subscriptionTier = 'free';
-
-      // Create new user in database
-      user = await db.user.create({
-        data: {
-          firebaseUid: uid,
-          email,
-          emailVerified: email_verified || false,
-          displayName: firebaseUser.displayName || null,
-          avatarUrl: firebaseUser.photoURL || null,
-          phoneNumber: firebaseUser.phoneNumber || null,
-          lastLoginAt: new Date(),
-          subscriptionTier,
-        },
-        include: {
-          settings: true,
-          adminUser: true,
-        },
-      });
-
-      // Create default settings
-      await db.userSettings.create({
-        data: {
-          userId: user.id,
-        },
-      });
-    } else {
-      // Notify if email was just verified
-      if (email_verified && !user.emailVerified) {
-        await notifyEmailVerified(user.id);
-      }
-
-      // Update last login (explicit sign-ins only) and sync displayName/avatar from Firebase
-      await db.user.update({
-        where: { id: user.id },
-        data: {
-          ...(isExplicitSignIn ? { lastLoginAt: new Date() } : {}),
-          emailVerified: email_verified || user.emailVerified,
-          displayName: firebaseUser.displayName || user.displayName,
-          avatarUrl: firebaseUser.photoURL || user.avatarUrl,
-        },
-      });
-    }
-
     if (isExplicitSignIn) {
-      // Get location from IP address
-      const location = await getLocationFromIP(ipAddress);
-
-      // Check if this is a new device (no previous login with same userAgent)
-      if (userAgent) {
-        const previousLogin = await db.loginHistory.findFirst({
-          where: { userId: user.id, userAgent },
+      // The API verifies the token again (fresh sign-in required), syncs the platform user, records ONE
+      // login-history row and returns the session cookie only after both commit.
+      const userAgent = (await headers()).get('user-agent');
+      const session = await createBackendSession(idToken, userAgent);
+      if (!session.success) {
+        logger.error('Backend session creation failed:', {
+          status: session.status,
+          error: session.error,
         });
-        if (!previousLogin) {
-          await notifyNewDeviceLogin(user.id, ipAddress);
-        }
+        return { success: false, error: GENERIC_SIGN_IN_ERROR };
       }
-
-      // Record login history
-      await db.loginHistory.create({
-        data: {
-          userId: user.id,
-          ipAddress,
-          userAgent,
-          location,
-          successful: true,
-          loginAt: new Date(),
-        },
+      await setSessionCookie(session.data.session_cookie, session.data.expires_in);
+    } else {
+      // TODO(KAN-179): move to POST /v1/auth/session/refresh. Until it exists the API cannot mint a cookie
+      // from an aged ID token without a fresh sign-in and a login-history row, so a refresh only re-mints the
+      // Firebase session cookie and does not sync email_verified to the platform user (it syncs at next sign-in).
+      const sessionCookie = await getAdminAuth().createSessionCookie(idToken, {
+        expiresIn: SESSION_MAX_AGE_SECONDS * 1000,
       });
+      await setSessionCookie(sessionCookie, SESSION_MAX_AGE_SECONDS);
     }
-
-    // Set session cookie
-    const expiresIn = 60 * 60 * 24 * 5 * 1000; // 5 days in ms (for Firebase)
-    const maxAgeSeconds = 60 * 60 * 24 * 5; // 5 days in seconds (for cookie maxAge)
-    const sessionCookie = await getAdminAuth().createSessionCookie(idToken, { expiresIn });
-
-    const cookieStore = await cookies();
-    cookieStore.set('session', sessionCookie, {
-      maxAge: maxAgeSeconds,
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-    });
-
-    // The email-verified decision lives in the signed claim inside the session cookie, enforced by
-    // `@/lib/auth/verified-session` (KAN-123). No client-readable verification cookie is issued any more;
-    // clear any left over from an older deployment.
-    cookieStore.delete('email-verified');
 
     return {
       success: true,
       data: {
-        // From the verified ID token that minted the session cookie (not the database row).
+        // From the verified ID token that minted the session cookie.
         claimsEmailVerified: email_verified === true,
-        user: {
-          id: user.id,
-          firebaseUid: user.firebaseUid,
-          email: user.email,
-          emailVerified: user.emailVerified,
-          displayName: user.displayName,
-          avatarUrl: user.avatarUrl,
-          subscriptionTier: user.subscriptionTier,
-          subscriptionStatus: user.subscriptionStatus,
-          isAdmin: !!user.adminUser,
-        },
       },
     };
   } catch (error: unknown) {
@@ -338,7 +256,7 @@ async function establishSession(
 export async function getCurrentSessionAction(): Promise<AuthActionResponse> {
   try {
     const cookieStore = await cookies();
-    const sessionCookie = cookieStore.get('session')?.value;
+    const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME)?.value;
 
     if (!sessionCookie) {
       return {
@@ -347,39 +265,29 @@ export async function getCurrentSessionAction(): Promise<AuthActionResponse> {
       };
     }
 
-    // Verify session cookie
+    // Verify session cookie (signature, revocation, verified email)
     const decodedClaims = await verifyVerifiedSessionCookie(sessionCookie);
 
-    // Get user from database
-    const user = await db.user.findUnique({
-      where: { firebaseUid: decodedClaims.uid },
-      include: {
-        settings: true,
-        adminUser: true,
-      },
-    });
-
-    if (!user) {
-      return {
-        success: false,
-        error: 'User not found',
-      };
+    const [profile, settings] = await Promise.all([fetchProfile(), fetchSettings()]);
+    if (!profile.success || !settings.success) {
+      const failed = profile.success ? settings : profile;
+      if (!failed.success && failed.status === 404) {
+        return { success: false, error: 'User not found' };
+      }
+      throw new Error('Backend profile request failed');
     }
 
     return {
       success: true,
       data: {
         user: {
-          id: user.id,
-          firebaseUid: user.firebaseUid,
-          email: user.email,
-          emailVerified: user.emailVerified,
-          displayName: user.displayName,
-          avatarUrl: user.avatarUrl,
-          subscriptionTier: user.subscriptionTier,
-          subscriptionStatus: user.subscriptionStatus,
-          isAdmin: !!user.adminUser,
-          settings: user.settings,
+          id: profile.data.id,
+          firebaseUid: decodedClaims.uid,
+          email: profile.data.email,
+          emailVerified: profile.data.email_verified,
+          displayName: profile.data.display_name,
+          avatarUrl: profile.data.avatar_url,
+          settings: toSettings(settings.data),
         },
       },
     };
@@ -389,7 +297,7 @@ export async function getCurrentSessionAction(): Promise<AuthActionResponse> {
     // finish verifying their email.
     if (!isEmailNotVerifiedError(error)) {
       const cookieStore = await cookies();
-      cookieStore.delete('session');
+      cookieStore.delete(SESSION_COOKIE_NAME);
       cookieStore.delete('email-verified');
     }
     return {

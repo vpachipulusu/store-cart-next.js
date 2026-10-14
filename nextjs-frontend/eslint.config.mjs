@@ -34,4 +34,29 @@ export default defineConfig([
       ],
     },
   },
+  {
+    // The generated SDK is reached only through the server-only wrappers in src/lib/api (ADR-008), so a
+    // client component can never call it directly and skip the session and internal-key forwarding.
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/lib/api/**', 'src/__tests__/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                '@/lib/api/generated',
+                '@/lib/api/generated/*',
+                '**/api/generated',
+                '**/api/generated/*',
+              ],
+              message:
+                'Import the generated API client only from src/lib/api (server-only wrappers) or tests (KAN-41).',
+            },
+          ],
+        },
+      ],
+    },
+  },
 ]);
