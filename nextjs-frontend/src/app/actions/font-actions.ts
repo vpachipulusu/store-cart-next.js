@@ -36,12 +36,21 @@ async function fetchActiveFont(): Promise<FontId> {
 
     return (fontId as FontId) || DEFAULT_FONT;
   } catch (error) {
+    // Log and rethrow so unstable_cache does not store the default for the whole revalidate window.
     logger.error('Failed to fetch active font:', error);
-    return DEFAULT_FONT;
+    throw error;
   }
 }
 
-export const getActiveFont = unstable_cache(fetchActiveFont, ['active-font'], {
+const getCachedActiveFont = unstable_cache(fetchActiveFont, ['active-font'], {
   revalidate: 3600,
   tags: ['active-font'],
 });
+
+export async function getActiveFont(): Promise<FontId> {
+  try {
+    return await getCachedActiveFont();
+  } catch {
+    return DEFAULT_FONT; // already logged; falls back outside the cache so it is not cached
+  }
+}

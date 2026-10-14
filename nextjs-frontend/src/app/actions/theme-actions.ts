@@ -28,17 +28,25 @@ async function fetchActiveTheme(): Promise<string> {
       return DEFAULT_THEME;
     }
 
-    const themeName =
-      typeof setting.value === 'string' ? setting.value : String(setting.value);
+    const themeName = typeof setting.value === 'string' ? setting.value : String(setting.value);
 
     return themeName || DEFAULT_THEME;
   } catch (error) {
+    // Log and rethrow so unstable_cache does not store the default for the whole revalidate window.
     logger.error('Failed to fetch active theme:', error);
-    return DEFAULT_THEME;
+    throw error;
   }
 }
 
-export const getActiveTheme = unstable_cache(fetchActiveTheme, ['active-theme'], {
+const getCachedActiveTheme = unstable_cache(fetchActiveTheme, ['active-theme'], {
   revalidate: 3600,
   tags: ['active-theme'],
 });
+
+export async function getActiveTheme(): Promise<string> {
+  try {
+    return await getCachedActiveTheme();
+  } catch {
+    return DEFAULT_THEME; // already logged; falls back outside the cache so it is not cached
+  }
+}
