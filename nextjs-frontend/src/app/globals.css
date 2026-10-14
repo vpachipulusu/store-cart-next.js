@@ -27,20 +27,38 @@
 
     /* Muted: Light warm gray */
     --muted: 35 20% 94%;
-    --muted-foreground: 220 10% 46%;
+    --muted-foreground: 220 12% 38%;
 
     /* Accent: Champagne gold */
     --accent: 38 65% 60%;
     --accent-foreground: 222 47% 11%;
 
     /* Destructive */
-    --destructive: 0 72% 51%;
+    --destructive: 0 72% 42%;
     --destructive-foreground: 0 0% 100%;
 
-    /* Border: Warm neutral */
+    /* Border: Warm neutral (decorative hairline); --input is the 3:1 control edge */
     --border: 35 20% 89%;
-    --input: 35 20% 89%;
-    --ring: 38 65% 60%;
+    --input: 35 12% 54%;
+    --ring: 222 47% 11%;
+
+    /* CTA: brass surface with navy text (8.49:1) */
+    --cta: 38 65% 60%;
+    --cta-foreground: 222 47% 11%;
+    --cta-hover: 38 65% 54%;
+    /* Brass as text on paper */
+    --accent-ink: 38 80% 27%;
+    /* Inverse panel (sidebar, featured plan, CTA band) */
+    --feature: 222 47% 11%;
+    /* Status pairs: text on own tint */
+    --good-fg: 152 60% 22%;
+    --good-bg: 152 40% 91%;
+    --warn-fg: 30 90% 24%;
+    --warn-bg: 42 90% 89%;
+    --crit-fg: 0 70% 36%;
+    --crit-bg: 0 80% 96%;
+    --info-fg: 217 70% 34%;
+    --info-bg: 217 80% 95%;
 
     --radius: 0.625rem;
 
@@ -82,20 +100,35 @@
 
     /* Muted */
     --muted: 224 35% 15%;
-    --muted-foreground: 220 15% 55%;
+    --muted-foreground: 220 15% 66%;
 
     /* Accent: Gold on dark */
     --accent: 38 65% 55%;
     --accent-foreground: 224 50% 6%;
 
     /* Destructive */
-    --destructive: 0 62% 30%;
+    --destructive: 0 70% 42%;
     --destructive-foreground: 0 0% 100%;
 
-    /* Border */
+    /* Border (decorative hairline); --input is the 3:1 control edge */
     --border: 224 35% 15%;
-    --input: 224 35% 15%;
+    --input: 224 20% 46%;
     --ring: 38 65% 55%;
+
+    /* CTA: brass surface with night text (8.37:1) */
+    --cta: 38 65% 55%;
+    --cta-foreground: 224 50% 6%;
+    --cta-hover: 38 65% 62%;
+    --accent-ink: 38 70% 66%;
+    --feature: 230 50% 21%;
+    --good-fg: 152 50% 64%;
+    --good-bg: 152 40% 13%;
+    --warn-fg: 40 85% 66%;
+    --warn-bg: 38 60% 13%;
+    --crit-fg: 0 85% 74%;
+    --crit-bg: 0 55% 15%;
+    --info-fg: 217 90% 76%;
+    --info-bg: 217 50% 15%;
 
     /* Chart colors - dark mode */
     --chart-1: 38 65% 55%;
