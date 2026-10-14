@@ -301,11 +301,7 @@ export default function BillingPage() {
                 </p>
               )}
             </div>
-            <Button
-              asChild
-              variant={isFreeTier ? 'default' : 'outline'}
-              className={isFreeTier ? 'bg-theme-accent text-white hover:bg-theme-accent-dark' : ''}
-            >
+            <Button asChild variant={isFreeTier ? 'accent' : 'outline'}>
               <Link href="/pricing">{isFreeTier ? 'Upgrade Plan' : 'Change Plan'}</Link>
             </Button>
           </div>

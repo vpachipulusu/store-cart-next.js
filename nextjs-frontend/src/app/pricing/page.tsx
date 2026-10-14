@@ -192,11 +192,7 @@ export default async function PricingPage() {
                 Join thousands of satisfied customers today.
               </p>
               <div className="flex justify-center gap-4">
-                <Button
-                  asChild
-                  size="lg"
-                  className="bg-theme-accent text-white hover:bg-theme-accent-dark"
-                >
+                <Button asChild size="lg" variant="accent">
                   <Link href="/signup">Get Started</Link>
                 </Button>
                 <Button

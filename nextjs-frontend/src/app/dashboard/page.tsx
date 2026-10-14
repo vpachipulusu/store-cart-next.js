@@ -135,7 +135,7 @@ export default async function DashboardPage({
                 </CardTitle>
                 <CardDescription>Unlock premium features and remove limitations</CardDescription>
               </div>
-              <Button asChild className="bg-theme-accent text-white hover:bg-theme-accent-dark">
+              <Button asChild variant="accent">
                 <Link href="/pricing">
                   Upgrade Now <ArrowUpRight className="ml-2 h-4 w-4" />
                 </Link>
