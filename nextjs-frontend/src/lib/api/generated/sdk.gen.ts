@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { BanUserData, BanUserErrors, BanUserResponses, CreateSessionData, CreateSessionErrors, CreateSessionResponses, DeleteAccountData, DeleteAccountErrors, DeleteAccountResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DeleteUserData, DeleteUserErrors, DeleteUserResponses, DisableData, DisableErrors, DisableResponses, EnrollData, EnrollErrors, EnrollResponses, GrantAdminData, GrantAdminErrors, GrantAdminResponses, HealthCheckData, HealthCheckErrors, HealthCheckResponses, ListUsersData, ListUsersErrors, ListUsersResponses, ReadHistoryData, ReadHistoryErrors, ReadHistoryResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, ReadProfileData, ReadProfileErrors, ReadProfileResponses, ReadSessionData, ReadSessionErrors, ReadSessionResponses, ReadSettingsData, ReadSettingsErrors, ReadSettingsResponses, ReadUserData, ReadUserErrors, ReadUserResponses, RevokeAdminData, RevokeAdminErrors, RevokeAdminResponses, UnbanUserData, UnbanUserErrors, UnbanUserResponses, UpdateAvatarData, UpdateAvatarErrors, UpdateAvatarResponses, UpdateProfileData, UpdateProfileErrors, UpdateProfileResponses, UpdateSettingsData, UpdateSettingsErrors, UpdateSettingsResponses, UpdateUserData, UpdateUserErrors, UpdateUserResponses, VerifyData, VerifyErrors, VerifyResponses } from './types.gen';
+import type { BanUserData, BanUserErrors, BanUserResponses, CancelSubscriptionData, CancelSubscriptionErrors, CancelSubscriptionResponses, ChangePlanData, ChangePlanErrors, ChangePlanResponses, CreateCheckoutData, CreateCheckoutErrors, CreateCheckoutResponses, CreatePortalData, CreatePortalErrors, CreatePortalResponses, CreateSessionData, CreateSessionErrors, CreateSessionResponses, DeleteAccountData, DeleteAccountErrors, DeleteAccountResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DeleteUserData, DeleteUserErrors, DeleteUserResponses, DisableData, DisableErrors, DisableResponses, EnrollData, EnrollErrors, EnrollResponses, GrantAdminData, GrantAdminErrors, GrantAdminResponses, HealthCheckData, HealthCheckErrors, HealthCheckResponses, ListInvoicesData, ListInvoicesErrors, ListInvoicesResponses, ListPaymentMethodsData, ListPaymentMethodsErrors, ListPaymentMethodsResponses, ListUsersData, ListUsersErrors, ListUsersResponses, ReadBillingData, ReadBillingErrors, ReadBillingResponses, ReadHistoryData, ReadHistoryErrors, ReadHistoryResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, ReadProfileData, ReadProfileErrors, ReadProfileResponses, ReadSessionData, ReadSessionErrors, ReadSessionResponses, ReadSettingsData, ReadSettingsErrors, ReadSettingsResponses, ReadUserData, ReadUserErrors, ReadUserResponses, ResumeSubscriptionData, ResumeSubscriptionErrors, ResumeSubscriptionResponses, RevokeAdminData, RevokeAdminErrors, RevokeAdminResponses, UnbanUserData, UnbanUserErrors, UnbanUserResponses, UpdateAvatarData, UpdateAvatarErrors, UpdateAvatarResponses, UpdateProfileData, UpdateProfileErrors, UpdateProfileResponses, UpdateSettingsData, UpdateSettingsErrors, UpdateSettingsResponses, UpdateUserData, UpdateUserErrors, UpdateUserResponses, VerifyData, VerifyErrors, VerifyResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -216,3 +216,64 @@ export const banUser = <ThrowOnError extends boolean = false>(options: Options<B
  * Unban User
  */
 export const unbanUser = <ThrowOnError extends boolean = false>(options: Options<UnbanUserData, ThrowOnError>) => (options.client ?? client).post<UnbanUserResponses, UnbanUserErrors, ThrowOnError>({ url: '/v1/admin/users/{user_id}/unban', ...options });
+
+/**
+ * Read Billing
+ */
+export const readBilling = <ThrowOnError extends boolean = false>(options: Options<ReadBillingData, ThrowOnError>) => (options.client ?? client).get<ReadBillingResponses, ReadBillingErrors, ThrowOnError>({ url: '/v1/organizations/{organization_id}/billing', ...options });
+
+/**
+ * Create Checkout
+ */
+export const createCheckout = <ThrowOnError extends boolean = false>(options: Options<CreateCheckoutData, ThrowOnError>) => (options.client ?? client).post<CreateCheckoutResponses, CreateCheckoutErrors, ThrowOnError>({
+    url: '/v1/organizations/{organization_id}/billing/checkout',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Create Portal
+ */
+export const createPortal = <ThrowOnError extends boolean = false>(options: Options<CreatePortalData, ThrowOnError>) => (options.client ?? client).post<CreatePortalResponses, CreatePortalErrors, ThrowOnError>({
+    url: '/v1/organizations/{organization_id}/billing/portal',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Change Plan
+ */
+export const changePlan = <ThrowOnError extends boolean = false>(options: Options<ChangePlanData, ThrowOnError>) => (options.client ?? client).post<ChangePlanResponses, ChangePlanErrors, ThrowOnError>({
+    url: '/v1/organizations/{organization_id}/billing/plan',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Cancel Subscription
+ */
+export const cancelSubscription = <ThrowOnError extends boolean = false>(options: Options<CancelSubscriptionData, ThrowOnError>) => (options.client ?? client).post<CancelSubscriptionResponses, CancelSubscriptionErrors, ThrowOnError>({ url: '/v1/organizations/{organization_id}/billing/cancel', ...options });
+
+/**
+ * Resume Subscription
+ */
+export const resumeSubscription = <ThrowOnError extends boolean = false>(options: Options<ResumeSubscriptionData, ThrowOnError>) => (options.client ?? client).post<ResumeSubscriptionResponses, ResumeSubscriptionErrors, ThrowOnError>({ url: '/v1/organizations/{organization_id}/billing/resume', ...options });
+
+/**
+ * List Invoices
+ */
+export const listInvoices = <ThrowOnError extends boolean = false>(options: Options<ListInvoicesData, ThrowOnError>) => (options.client ?? client).get<ListInvoicesResponses, ListInvoicesErrors, ThrowOnError>({ url: '/v1/organizations/{organization_id}/billing/invoices', ...options });
+
+/**
+ * List Payment Methods
+ */
+export const listPaymentMethods = <ThrowOnError extends boolean = false>(options: Options<ListPaymentMethodsData, ThrowOnError>) => (options.client ?? client).get<ListPaymentMethodsResponses, ListPaymentMethodsErrors, ThrowOnError>({ url: '/v1/organizations/{organization_id}/billing/payment-methods', ...options });

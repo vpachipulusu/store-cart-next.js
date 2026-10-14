@@ -119,6 +119,7 @@ httpx==0.28.1
     #   fastapi
     #   fastapi-cloud-cli
     #   firebase-admin
+    #   storecart-backend
     #   upstash-redis
 hyperframe==6.1.0
     # via h2

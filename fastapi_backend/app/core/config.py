@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     STRIPE_PRICE_ID_ENTERPRISE_MONTHLY: str | None = None
     STRIPE_PRICE_ID_ENTERPRISE_YEARLY: str | None = None
 
+    # Organisation billing endpoints (KAN-43). Unset secret key means they answer 503.
+    STRIPE_SECRET_KEY: SecretStr | None = None
+    # Comma separated origins (scheme://host[:port]) that Checkout and the customer
+    # portal may return to. Unset means every return URL is rejected.
+    BILLING_RETURN_URL_ORIGINS: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
