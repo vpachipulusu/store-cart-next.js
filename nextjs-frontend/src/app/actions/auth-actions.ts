@@ -9,6 +9,7 @@ import { emailSchema, passwordSchema } from '@/lib/utils/validation';
 import { logger } from '@/lib/logger';
 import { isEmailNotVerifiedError, verifyVerifiedSessionCookie } from '@/lib/auth/verified-session';
 import { SESSION_COOKIE_NAME } from '@/lib/api/server';
+import { isSessionRejected } from '@/lib/api/session-rejected';
 import {
   createBackendSession,
   fetchProfile,
@@ -105,6 +106,15 @@ export async function signUpAction(
   }
 }
 
+async function revokeRefreshTokensDirectly(sessionCookie: string): Promise<void> {
+  try {
+    const claims = await getAdminAuth().verifySessionCookie(sessionCookie, false);
+    await getAdminAuth().revokeRefreshTokens(claims.uid);
+  } catch (error) {
+    logger.error('Direct token revocation during logout failed:', error);
+  }
+}
+
 /**
  * Logout action - revokes the user's Firebase tokens through the API and clears the session cookie
  */
@@ -112,7 +122,8 @@ export async function logoutAction(): Promise<AuthActionResponse> {
   try {
     const cookieStore = await cookies();
 
-    if (cookieStore.get(SESSION_COOKIE_NAME)?.value) {
+    const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+    if (sessionCookie) {
       // An expired or invalid session answers 401 here; the cookie is cleared either way.
       const revoked = await revokeBackendSession();
       if (!revoked.success) {
@@ -120,6 +131,11 @@ export async function logoutAction(): Promise<AuthActionResponse> {
           status: revoked.status,
           error: revoked.error,
         });
+        // The backend rejecting the session (401) means there is nothing left to revoke. For an outage or
+        // server error, revoke through Firebase directly so a stolen cookie does not outlive the logout.
+        if (revoked.status !== 401) {
+          await revokeRefreshTokensDirectly(sessionCookie);
+        }
       }
     }
 
@@ -223,7 +239,10 @@ async function establishSession(
         });
         return { success: false, error: GENERIC_SIGN_IN_ERROR };
       }
-      await setSessionCookie(session.data.session_cookie, session.data.expires_in);
+      const maxAge = Number.isFinite(session.data.expires_in)
+        ? Math.min(Math.max(Math.trunc(session.data.expires_in), 1), SESSION_MAX_AGE_SECONDS)
+        : SESSION_MAX_AGE_SECONDS;
+      await setSessionCookie(session.data.session_cookie, maxAge);
     } else {
       // TODO(KAN-179): move to POST /v1/auth/session/refresh. Until it exists the API cannot mint a cookie
       // from an aged ID token without a fresh sign-in and a login-history row, so a refresh only re-mints the
@@ -271,10 +290,17 @@ export async function getCurrentSessionAction(): Promise<AuthActionResponse> {
     const [profile, settings] = await Promise.all([fetchProfile(), fetchSettings()]);
     if (!profile.success || !settings.success) {
       const failed = profile.success ? settings : profile;
-      if (!failed.success && failed.status === 404) {
-        return { success: false, error: 'User not found' };
+      if (!failed.success && isSessionRejected(failed)) {
+        // Revoked or no platform user for this session: fall through to the cookie-clearing path.
+        throw Object.assign(new Error('Session rejected by the backend'), {
+          code: 'auth/invalid-session-cookie',
+        });
       }
-      throw new Error('Backend profile request failed');
+      // An outage or server error is not a reason to log the user out.
+      logger.error('Get session backend request failed:', {
+        status: failed.success ? undefined : failed.status,
+      });
+      return { success: false, error: 'Session retrieval failed' };
     }
 
     return {

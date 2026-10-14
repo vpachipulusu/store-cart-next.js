@@ -82,7 +82,8 @@ function apiFailure(
     return { success: false, error: 'User not found' };
   }
   if (result.status === 422) {
-    return { success: false, error: result.error };
+    // The backend's validation text is not forwarded; the zod schemas give the user-facing messages.
+    return fail(logMessage, { status: result.status }, 'Invalid input');
   }
   return fail(logMessage, { status: result.status, error: result.error }, publicMessage);
 }
@@ -126,11 +127,11 @@ export async function updateUserProfileAction(
     }
 
     const result = await patchProfile({
-      display_name: data.displayName,
-      bio: data.bio,
-      location: data.location,
-      website: data.website || null,
-      phone_number: data.phoneNumber,
+      display_name: validation.data.displayName,
+      bio: validation.data.bio,
+      location: validation.data.location,
+      website: validation.data.website || null,
+      phone_number: validation.data.phoneNumber,
     });
     if (!result.success) {
       return apiFailure(result, 'Update user profile error:', 'Failed to update profile');
@@ -213,10 +214,10 @@ export async function updateUserSettingsAction(
     }
 
     const result = await patchSettings({
-      theme: data.theme,
-      email_notifications: data.emailNotifications,
-      language: data.language,
-      timezone: data.timezone,
+      theme: validation.data.theme,
+      email_notifications: validation.data.emailNotifications,
+      language: validation.data.language,
+      timezone: validation.data.timezone,
     });
     if (!result.success) {
       return apiFailure(result, 'Update user settings error:', 'Failed to update settings');

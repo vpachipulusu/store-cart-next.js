@@ -5,7 +5,6 @@ const mocks = vi.hoisted(() => ({
   toast: vi.fn(),
   getUserSettingsAction: vi.fn(),
   getLoginHistoryAction: vi.fn(),
-  get2FAStatusAction: vi.fn(),
   getSubscriptionDetailsAction: vi.fn(),
   getPaymentMethodsAction: vi.fn(),
   getSubscriptionInvoicesAction: vi.fn(),
@@ -18,13 +17,7 @@ vi.mock('@/app/actions/user-actions', () => ({
   getUserSettingsAction: mocks.getUserSettingsAction,
   updateUserSettingsAction: vi.fn(),
   getLoginHistoryAction: mocks.getLoginHistoryAction,
-  get2FAStatusAction: mocks.get2FAStatusAction,
   changePasswordAction: vi.fn(),
-  deleteAccountAction: vi.fn(),
-  exportUserDataAction: vi.fn(),
-  initiate2FASetupAction: vi.fn(),
-  verify2FASetupAction: vi.fn(),
-  disable2FAAction: vi.fn(),
 }));
 vi.mock('@/app/actions/subscription-actions', () => ({
   getSubscriptionDetailsAction: mocks.getSubscriptionDetailsAction,

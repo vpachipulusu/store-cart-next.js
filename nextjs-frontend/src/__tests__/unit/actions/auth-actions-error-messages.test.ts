@@ -161,6 +161,38 @@ describe('KAN-129: auth actions return generic errors', () => {
     mocks.fetchSettings.mockResolvedValue({ success: true, data: {} });
 
     expectNoLeak(await getCurrentSessionAction(), 'Session retrieval failed');
+    // A backend outage must not sign the user out.
+    expect(mocks.cookieDelete).not.toHaveBeenCalled();
+  });
+
+  it('getCurrentSessionAction clears the session when the backend rejects it', async () => {
+    mocks.verifySessionCookie.mockResolvedValue({ uid: 'u' });
+    mocks.fetchProfile.mockResolvedValue({
+      success: false,
+      error: 'Invalid authentication',
+      status: 401,
+    });
+    mocks.fetchSettings.mockResolvedValue({ success: true, data: {} });
+
+    expectNoLeak(await getCurrentSessionAction(), 'Session retrieval failed');
+    expect(mocks.cookieDelete).toHaveBeenCalledWith('session');
+  });
+
+  it('logoutAction revokes through Firebase when the backend call fails with a server error', async () => {
+    mocks.revokeBackendSession.mockResolvedValue({ success: false, error: 'x', status: 503 });
+    mocks.verifySessionCookie.mockResolvedValue({ uid: 'u1' });
+
+    await logoutAction();
+
+    expect(mocks.revokeRefreshTokens).toHaveBeenCalledWith('u1');
+  });
+
+  it('logoutAction does not fall back when the backend already rejected the session', async () => {
+    mocks.revokeBackendSession.mockResolvedValue({ success: false, error: 'x', status: 401 });
+
+    await logoutAction();
+
+    expect(mocks.revokeRefreshTokens).not.toHaveBeenCalled();
   });
 
   it('getCurrentSessionAction hides a verification or database failure', async () => {

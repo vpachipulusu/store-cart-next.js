@@ -361,7 +361,7 @@ export default async function DashboardPage({
           <CardContent>
             {user.loginHistory && user.loginHistory.length > 0 ? (
               <div className="space-y-3">
-                {user.loginHistory.map((login: any) => (
+                {user.loginHistory.map((login) => (
                   <div
                     key={login.id}
                     className="flex items-start justify-between border-b pb-3 last:border-0 last:pb-0"
