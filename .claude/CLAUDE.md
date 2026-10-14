@@ -91,8 +91,9 @@ Admin role verification cannot be done in the proxy (Firebase token verification
 ### Server Actions Pattern
 
 All server actions are in `src/app/actions/` and follow this pattern:
+
 ```typescript
-'use server';
+"use server";
 // Returns structured response
 type ActionResponse<T = any> = { success: boolean; data?: T; error?: string };
 // Validate with Zod, call db/services, revalidate cache with revalidatePath()
@@ -131,16 +132,18 @@ DATABASE_URL                          # PostgreSQL connection string
 NEXT_PUBLIC_FIREBASE_API_KEY          # Firebase client config
 NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
 NEXT_PUBLIC_FIREBASE_PROJECT_ID
-FIREBASE_PROJECT_ID                   # Firebase Admin SDK
-FIREBASE_CLIENT_EMAIL
-FIREBASE_PRIVATE_KEY
+FIREBASE_ADMIN_PROJECT_ID             # Firebase Admin SDK (src/lib/firebase/admin.ts)
+FIREBASE_ADMIN_CLIENT_EMAIL
+FIREBASE_ADMIN_PRIVATE_KEY
 STRIPE_SECRET_KEY
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
 STRIPE_WEBHOOK_SECRET
 STRIPE_PRICE_ID_PRO_MONTHLY
 STRIPE_PRICE_ID_PRO_YEARLY
 STRIPE_PRICE_ID_ENTERPRISE_MONTHLY
-STRIPE_PRICE_ID_ENTERPRISE_YEARLY
+STRIPE_PRICE_ID_ENTERPRISE_YEARLY     # Preferred names; legacy STRIPE_PRICE_ID_{FREE,PRO,ENTERPRISE} are optional tier-mapping fallbacks only
+BACKEND_API_URL                       # FastAPI base URL (server-only)
+BACKEND_INTERNAL_KEY                  # Sent as X-Internal-Key (server-only)
 SENTRY_AUTH_TOKEN                     # Optional; disables source maps if absent
 ```
 
