@@ -195,7 +195,7 @@ async function pickPort() {
 
 // ---- build -----------------------------------------------------------------------------------------------------
 
-/** Changes with the commit, uncommitted edits (tracked or untracked) and the port, which is baked into the build. */
+/** Changes with the committed tree (not the commit id), uncommitted edits (tracked or untracked) and the port, which is baked into the build. */
 function sourceFingerprint(port) {
   const hash = createHash('sha1');
   hash.update(`${git(['rev-parse', 'HEAD'])}\n${port}\n${git(['diff', 'HEAD'])}`);
