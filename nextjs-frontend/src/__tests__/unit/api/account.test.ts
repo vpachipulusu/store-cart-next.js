@@ -127,6 +127,7 @@ describe('account wrappers', () => {
         id: 'u1',
         email: 'a@b.test',
         email_verified: true,
+        two_factor_enabled: false,
         display_name: 'Ada',
         bio: null,
         avatar_url: null,

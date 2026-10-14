@@ -10,7 +10,11 @@ from app.repositories.base import BaseRepository
 
 class AuthRepository(BaseRepository):
     async def sync_user(
-        self, identity: VerifiedIdentity, logged_in_at: datetime
+        self,
+        identity: VerifiedIdentity,
+        logged_in_at: datetime,
+        *,
+        touch_login: bool = True,
     ) -> str:
         # Concurrent first logins converge by UID. A conflicting email never links another UID.
         statement = insert(User).values(
@@ -25,7 +29,8 @@ class AuthRepository(BaseRepository):
             set_={
                 "email": identity.email,
                 "email_verified": identity.email_verified,
-                "last_login_at": logged_in_at,
+                # A session refresh is not a sign-in (KAN-163): keep last_login_at.
+                **({"last_login_at": logged_in_at} if touch_login else {}),
                 "updated_at": func.now(),
             },
         ).returning(User.id)

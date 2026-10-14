@@ -45,6 +45,7 @@ class ProfileData(BaseModel):
     id: str
     email: str
     email_verified: bool
+    two_factor_enabled: bool
     display_name: str | None
     bio: str | None
     avatar_url: str | None

@@ -13,6 +13,7 @@ class ProfileData:
     id: str
     email: str
     email_verified: bool
+    two_factor_enabled: bool
     display_name: str | None
     bio: str | None
     avatar_url: str | None
@@ -27,6 +28,7 @@ def profile_data(user: User) -> ProfileData:
         user.id,
         user.email,
         user.email_verified,
+        user.two_factor_enabled,
         user.display_name,
         user.bio,
         user.avatar_url,

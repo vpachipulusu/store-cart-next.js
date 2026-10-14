@@ -5,6 +5,7 @@ Only the Next.js server calls these endpoints, under [ADR-003](../adr/0003-nextj
 | Endpoint                  | Behavior                                                                                                                                                                                                                                                                                                                                                             |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /v1/auth/session`   | Accepts `{ "id_token": "..." }`, verifies the ID token with revocation checks and authentication within five minutes, rate limits IP then verified email, mints a five-day session cookie, transactionally upserts the platform user by Firebase UID and records login history. Returns `{ success: true, data: { session_cookie, expires_in } }` only after commit. |
+| `POST /v1/auth/session/refresh` | Accepts `{ "id_token": "..." }` and requires the current `X-Session-Token` (KAN-179). The session is verified with revocation checking but, unlike most routes, an unverified-email session is allowed, because refresh is how `email_verified` gets re-synced after the user verifies. The ID token must verify (with revocation) for the **same UID** as the session; a mismatch is a generic 401 before any cookie is minted, and a missing or invalid session is 401, so a bare ID token can never mint a session here. There is **no `auth_time` freshness check**, `sync_user` only (so `email_verified` and email follow the token; `last_login_at` is left alone because a refresh is not a sign-in) and **no login-history row** (KAN-163). Rate-limited per user (`AUTH_POLICY`, key `user:<uid>`, fails closed with 503). Returns the same `{ success, data: { session_cookie, expires_in } }` as sign-in, only after the sync commits; 409 on an email conflict. Firebase's own `createSessionCookie` may still reject an ID token it considers too old; that surfaces as a 401 (indistinguishable from a bad token). `getIdToken(true)` does not reset `auth_time`, so the frontend should treat a refresh 401 as "re-authentication needed": keep the user signed in, show the re-auth dialog (KAN-180) and retry with the new ID token. This has not been verified against live Firebase; confirm it in KAN-41/KAN-180 testing. |
 | `GET /v1/auth/session`    | Requires `X-Session-Token`, verifies the session with `check_revoked=True`, enforces the verified `email_verified` claim, and returns UID/email/verification status. This is the reusable authenticated dependency for later API routes.                                                                                                                             |
 | `DELETE /v1/auth/session` | Verifies `X-Session-Token` and revokes the UID's refresh tokens. Firebase revocation affects all the user's sessions, not one cookie. Unverified users may sign out.                                                                                                                                                                                                 |
 
@@ -72,4 +73,17 @@ A suspended store stays readable so a merchant can still see and export their da
 ```bash
 docker run -d --name kan52-pg -e POSTGRES_PASSWORD=pw -e POSTGRES_DB=kan52_test -p 55432:5432 postgres:17
 TEST_DATABASE_URL=postgresql+asyncpg://postgres:pw@localhost:55432/kan52_test uv run pytest tests/api/test_merchant_e2e.py
+```
+
+## Session refresh and `two_factor_enabled` (KAN-179)
+
+`GET /v1/me` (and the profile PATCH responses) now include `two_factor_enabled`, read from `users.two_factor_enabled` (no migration). The security page uses it for 2FA status; the secret is never returned.
+
+Known limits (security review): (1) a logout or revocation racing between session verification and minting can still yield one new cookie; the window is a single Firebase round trip. (2) Refresh upserts by UID like sign-in, so it recreates a missing row. (3) Neither sign-in nor refresh enforces the second factor here; that stays with the Next.js layer (KAN-125).
+
+Tests: `tests/api/test_auth.py` covers refresh with fakes. `tests/api/test_auth_refresh_e2e.py` runs the real routes, auth service and repositories on Postgres (UID mismatch, no or invalid session, stale ID token accepted, `email_verified` synced, no `login_history` row, `two_factor_enabled` on `/v1/me`) against a throwaway local `*_test` database; only Firebase is replaced:
+
+```bash
+docker run -d --name kan179-pg -e POSTGRES_PASSWORD=pw -e POSTGRES_DB=kan179_test -p 55432:5432 postgres:17
+TEST_DATABASE_URL=postgresql+asyncpg://postgres:pw@localhost:55432/kan179_test uv run pytest tests/api/test_auth_refresh_e2e.py
 ```
