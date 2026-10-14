@@ -118,6 +118,40 @@ async def create_session(
     )
 
 
+async def session_subject(identity: SessionIdentityDep) -> RateLimitSubject:
+    # Refresh must work for a not-yet-verified session (that is what it re-syncs).
+    return RateLimitSubject("user", identity.uid)
+
+
+@router.post(
+    "/session/refresh",
+    response_model=SessionResponse,
+    responses={
+        **RATE_LIMIT_FAIL_CLOSED_RESPONSES,
+        409: {"model": ErrorResponse, "description": "Account conflict"},
+    },
+    dependencies=[Depends(limit_by_subject(AUTH_POLICY, session_subject))],
+)
+async def refresh_session(
+    body: SessionRequest,
+    response: Response,
+    service: AuthServiceDep,
+    identity: SessionIdentityDep,
+) -> SessionResponse:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        cookie = await service.refresh_session(
+            identity, body.id_token.get_secret_value()
+        )
+    except (AuthenticationFailed, IdentityProviderUnavailable) as exc:
+        raise auth_error(exc) from None
+    except AccountConflict:
+        raise HTTPException(409, "Account conflict") from None
+    return SessionResponse(
+        data=SessionData(session_cookie=cookie, expires_in=SESSION_EXPIRES_SECONDS)
+    )
+
+
 @router.get(
     "/session",
     response_model=IdentityResponse,

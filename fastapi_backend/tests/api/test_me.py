@@ -25,6 +25,7 @@ PROFILE = ProfileData(
     "platform-user",
     "ada@example.com",
     True,
+    False,
     "Ada",
     None,
     None,

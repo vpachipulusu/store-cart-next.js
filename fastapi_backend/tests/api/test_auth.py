@@ -28,13 +28,14 @@ class FakeIdentity:
             "name": "Ada",
         }
         self.calls: list[str] = []
+        self.id_claims: dict[str, Any] | None = None
         self.failure: Exception | None = None
 
     async def verify_id_token(self, token: str) -> dict[str, Any]:
         self.calls.append("verify-id")
         if self.failure:
             raise self.failure
-        return self.claims
+        return self.id_claims or self.claims
 
     async def verify_session_cookie(self, token: str) -> dict[str, Any]:
         self.calls.append("verify-session")
@@ -72,7 +73,10 @@ class FakeRepository:
         self.history: list[tuple[str, str, str | None]] = []
         self.failure: Exception | None = None
 
-    async def sync_user(self, identity: Any, logged_in_at: Any) -> str:
+    async def sync_user(
+        self, identity: Any, logged_in_at: Any, *, touch_login: bool = True
+    ) -> str:
+        self.touch_login = touch_login
         self.synced.append(identity)
         if self.failure:
             raise self.failure
@@ -315,3 +319,121 @@ async def test_session_status_limiter_outage_fails_closed(auth_context):
             headers={"X-Internal-Key": KEY, "X-Session-Token": "session"},
         )
     assert response.status_code == 503 and response.headers["retry-after"] == "5"
+
+
+def refresh_headers(**extra: str) -> dict[str, str]:
+    return {"X-Internal-Key": KEY, "X-Session-Token": "session", **extra}
+
+
+async def test_refresh_syncs_user_mints_cookie_and_records_no_login(auth_context):
+    app, identity, session, repository, limiter = auth_context
+    identity.claims["email_verified"] = False  # the stale session predates verification
+    identity.id_claims = {
+        **identity.claims,
+        "email_verified": True,
+        "auth_time": int(time.time()) - 86400,  # stale on purpose: no freshness check
+    }
+    async with client_for(app) as client:
+        response = await client.post(
+            "/v1/auth/session/refresh",
+            json={"id_token": "id-token"},
+            headers=refresh_headers(),
+        )
+    assert response.status_code == 200
+    assert response.json()["data"]["session_cookie"] == "minted-session-cookie"
+    assert identity.calls == ["verify-session", "verify-id", "mint"]
+    assert session.committed
+    assert [i.email_verified for i in repository.synced] == [True]
+    assert repository.history == [] and repository.touch_login is False
+    assert response.headers["cache-control"] == "no-store"
+    assert limiter.hits
+
+
+async def test_refresh_uid_mismatch_is_refused_before_minting(auth_context):
+    app, identity, session, repository, _ = auth_context
+    identity.id_claims = {**identity.claims, "uid": "someone-else"}
+    async with client_for(app) as client:
+        response = await client.post(
+            "/v1/auth/session/refresh",
+            json={"id_token": "id-token"},
+            headers=refresh_headers(),
+        )
+    assert response.status_code == 401
+    assert "mint" not in identity.calls and not repository.synced
+    assert not session.committed
+
+
+@pytest.mark.parametrize("token", [None, ""])
+async def test_refresh_without_session_never_mints(auth_context, token):
+    app, identity, _, repository, limiter = auth_context
+    headers = {
+        "X-Internal-Key": KEY,
+        **({"X-Session-Token": token} if token is not None else {}),
+    }
+    async with client_for(app) as client:
+        response = await client.post(
+            "/v1/auth/session/refresh", json={"id_token": "id"}, headers=headers
+        )
+    assert response.status_code == 401
+    assert not identity.calls and not repository.synced and not limiter.hits
+
+
+async def test_refresh_requires_internal_key(auth_context):
+    app, identity, *_ = auth_context
+    async with client_for(app) as client:
+        response = await client.post(
+            "/v1/auth/session/refresh",
+            json={"id_token": "id"},
+            headers={"X-Session-Token": "session"},
+        )
+    assert response.status_code == 401 and not identity.calls
+
+
+async def test_refresh_invalid_session_is_rejected(auth_context):
+    app, identity, _, repository, _ = auth_context
+    identity.failure = AuthenticationFailed()
+    async with client_for(app) as client:
+        response = await client.post(
+            "/v1/auth/session/refresh",
+            json={"id_token": "id"},
+            headers=refresh_headers(),
+        )
+    assert response.status_code == 401 and not repository.synced
+
+
+async def test_refresh_limits_per_user(auth_context):
+    app, _, _, _, limiter = auth_context
+    async with client_for(app) as client:
+        await client.post(
+            "/v1/auth/session/refresh",
+            json={"id_token": "id"},
+            headers=refresh_headers(),
+        )
+    assert any(":user:firebase-user" in hit[0] for hit in limiter.hits)
+
+
+async def test_refresh_limiter_outage_fails_closed(auth_context):
+    app, identity, *_ = auth_context
+    app.dependency_overrides[get_rate_limiter] = lambda: as_limiter(
+        RaisingRateLimiter()
+    )
+    async with client_for(app) as client:
+        response = await client.post(
+            "/v1/auth/session/refresh",
+            json={"id_token": "id"},
+            headers=refresh_headers(),
+        )
+    assert response.status_code == 503 and "mint" not in identity.calls
+
+
+async def test_refresh_account_conflict_returns_409_without_cookie(auth_context):
+    app, _, _, repository, _ = auth_context
+    repository.failure = IntegrityError("stmt", {}, Exception("dup"))
+    async with client_for(app) as client:
+        response = await client.post(
+            "/v1/auth/session/refresh",
+            json={"id_token": "id"},
+            headers=refresh_headers(),
+        )
+    assert response.status_code == 409
+    assert "minted-session" not in response.text

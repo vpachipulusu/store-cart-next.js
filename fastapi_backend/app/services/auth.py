@@ -17,7 +17,11 @@ class AccountConflict(Exception):
 
 class AuthUserRepository(Protocol):
     async def sync_user(
-        self, identity: VerifiedIdentity, logged_in_at: datetime
+        self,
+        identity: VerifiedIdentity,
+        logged_in_at: datetime,
+        *,
+        touch_login: bool = True,
     ) -> str: ...
     async def record_login(
         self, user_id: str, ip: str, user_agent: str | None
@@ -75,6 +79,28 @@ class AuthService:
             async with self.session.begin():
                 user_id = await self.repository.sync_user(identity, datetime.now(UTC))
                 await self.repository.record_login(user_id, ip, user_agent)
+        except IntegrityError:
+            raise AccountConflict() from None
+        return cookie
+
+    async def refresh_session(self, current: VerifiedIdentity, token: str) -> str:
+        """Re-issue a session for the signed-in user from a same-UID ID token.
+
+        No freshness check and no login history (KAN-163): this only re-syncs
+        ``email_verified`` and mints a new cookie. The current session is required
+        so a bare ID token can never mint one here.
+        """
+        fresh = identity_from_claims(await self.identity.verify_id_token(token))
+        if fresh.uid != current.uid:
+            raise AuthenticationFailed()
+        cookie = await self.identity.create_session_cookie(
+            token, SESSION_EXPIRES_SECONDS
+        )
+        try:
+            async with self.session.begin():
+                await self.repository.sync_user(
+                    fresh, datetime.now(UTC), touch_login=False
+                )
         except IntegrityError:
             raise AccountConflict() from None
         return cookie
