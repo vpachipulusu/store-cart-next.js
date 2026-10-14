@@ -298,11 +298,7 @@ export default function SettingsPage() {
           </Card>
 
           <div className="flex gap-4">
-            <Button
-              type="submit"
-              disabled={isSaving}
-              variant="accent"
-            >
+            <Button type="submit" disabled={isSaving} variant="accent">
               {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Save Settings
             </Button>

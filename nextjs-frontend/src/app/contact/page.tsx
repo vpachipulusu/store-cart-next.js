@@ -100,12 +100,7 @@ export default async function ContactPage({
                     />
                   </div>
 
-                  <Button
-                    type="button"
-                    disabled
-                    size="lg"
-                    variant="accent" className="w-full"
-                  >
+                  <Button type="button" disabled size="lg" variant="accent" className="w-full">
                     <Send className="mr-2 h-4 w-4" />
                     Send Message
                   </Button>

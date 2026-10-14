@@ -37,7 +37,10 @@ export function BillingToggle({
       >
         Yearly
         {yearlySavingsPercent !== undefined && yearlySavingsPercent > 0 && (
-          <Badge variant="secondary" className="text-xs bg-theme-accent/15 text-theme-accent-dark border-theme-accent/30">
+          <Badge
+            variant="secondary"
+            className="border-theme-accent/30 bg-theme-accent/15 text-xs text-theme-accent-dark"
+          >
             Save {yearlySavingsPercent}%
           </Badge>
         )}

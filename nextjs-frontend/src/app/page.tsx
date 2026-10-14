@@ -23,11 +23,7 @@ export default function HomePage() {
             TypeScript, Tailwind CSS, Prisma, and more.
           </p>
           <div className="flex w-full items-center justify-center space-x-4 py-4 md:pb-10">
-            <Button
-              size="lg"
-              asChild
-              variant="accent"
-            >
+            <Button size="lg" asChild variant="accent">
               <Link href="/signup">
                 Get Started
                 <ArrowRight className="ml-2 h-4 w-4" />
@@ -51,9 +47,7 @@ export default function HomePage() {
       {/* Features Section */}
       <section className="mx-auto max-w-[1200px] py-16 md:py-20">
         <div className="mb-12 text-center">
-          <h2 className="text-3xl tracking-tight md:text-4xl">
-            Everything you need
-          </h2>
+          <h2 className="text-3xl tracking-tight md:text-4xl">Everything you need</h2>
           <p className="mt-3 text-lg text-muted-foreground">
             Built with best practices, ready for production
           </p>
@@ -150,11 +144,7 @@ export default function HomePage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex justify-center pb-16">
-            <Button
-              size="lg"
-              asChild
-              variant="accent"
-            >
+            <Button size="lg" asChild variant="accent">
               <Link href="/signup">
                 Create an Account
                 <ArrowRight className="ml-2 h-4 w-4" />
