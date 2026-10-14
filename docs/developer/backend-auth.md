@@ -44,3 +44,32 @@ Backend tests use injected Firebase/repository/session/limiter fakes and never c
 **Wildcard decision.** The stored `*` is honoured only for role `super_admin`, where it expands to the known `ADMIN_PERMISSIONS`. On role `admin` it is ignored, and unknown strings are dropped. This keeps the legacy self-grant bug (KAN-124) from reappearing: the grant endpoints in KAN-47 must call `assert_can_grant(admin, role, permissions)` (`app/core/permissions.py`) before writing an admin record. It requires `admins.create`, lets only a `super_admin` grant `*` or the `super_admin` role, and refuses permissions the actor does not hold.
 
 **Audit.** The existing `audit_logs` table is reused, so there is no migration. Admin routes take `AuditorDep` and call `auditor.record(admin, action="admin.users.update", resource="users", resource_id=<target id>, before=..., after=..., details=...)` on the same `SessionDep` session as the change, then commit once, after `record` (the helper only stages and flushes; the session never auto-commits). Never commit the change first. If `record` raises, the route exits before its commit, so the change rolls back. Each row holds the actor's user id, action (`area.verb`), resource and target id, optional organisation id, IP (`client_ip`), user agent, and `metadata` with `actor_role`, `request_id`, `before`, `after` and `details`. Values under secret-looking keys (password, token, session, cookie, TOTP and 2FA material, API and private keys) and raw PII (email, phone, address) are replaced with `[REDACTED]` (keys are NFKC-normalised, look-alike keys are redacted, and string values that look like credentials are redacted whatever their key; pass `model_dump()` output, not models, and log changed field names rather than PII values); unknown objects are stored as their type name, and depth, list length and string length are bounded. Denied requests write no audit row (they are logged without payload). `AuditRepository` exposes `add` only, so the application never updates or deletes rows; the table has no database-level immutability guard.
+
+## Merchant (store) authorisation (KAN-52)
+
+`require_merchant(roles, write=False)` in `app/api/merchant.py` is the dependency for every store-scoped route (`/v1/stores/{store_id}/...`; the path parameter must be named `store_id`). It sits on the existing chain (internal key, then verified session, so 401 or 403 for an unverified email come first), then calls `MerchantService.authorize`. It returns a frozen `MerchantAccess` with `user_id`, `organization`, `store` and `role`. `roles` defaults to every `MembershipRole`; use `OWNER_ADMIN` for management routes. Declaring an empty role set raises at import time. Routers still declare `require_internal_key` themselves, as the billing router does.
+
+**Authorisation reads the database on every request.** One statement joins `users` (by verified Firebase UID), `memberships`, `organizations` and `stores`, so the role is the live `memberships.role`. Nothing in the token, header, query or body is consulted.
+
+**No leak between "no such store" and "not your store".** An unknown store id, a store of another organisation, a caller with no membership in the owning organisation and a caller with no platform user row all produce no row from that single query and the same `404 {"success": false, "error": "Store not found"}`. There is no second lookup, so the same query and code path serve every case (response bodies are asserted byte-identical in the Postgres e2e test; timing is not measured). Malformed ids (empty, over 128 characters, NUL) get the same 404 without a lookup. Only a member of the owning organisation can see a 403: `Forbidden` for a role outside `roles`. A user with memberships in two organisations only reaches the stores of the organisation that matches the store.
+
+**Store status policy.** The role check runs first, then status:
+
+| Store status                | Reads (`write=False`) | Writes (`write=True`)     |
+| --------------------------- | --------------------- | ------------------------- |
+| `ACTIVE`                    | allowed               | allowed                   |
+| `SUSPENDED`, `PROVISIONING` | allowed               | 403 `Store is not active` |
+| `ARCHIVED`                  | 404 (treated as gone) | 404                       |
+
+A suspended store stays readable so a merchant can still see and export their data and see why they are blocked; any mutation is refused. A store that is still provisioning has no usable database yet, so it is read-only too. Every route that changes store state should pass `write=True`; as a safety net any method other than GET, HEAD or OPTIONS is treated as a write even without the flag. Denials are logged with the store id only (no token, no email).
+
+**Known limits.** The check and a later write are separate transactions, so a membership removed or a store suspended between them can still be written by that one in-flight request (same window as `OrgBillingService`); writes that need a hard guarantee must re-check inside their own transaction. Users and organisations have no disabled flag today; add any future one to the `find_access` query. Run `require_merchant` before anything stages writes on the request session, because `authorize` rolls it back.
+
+**Transactions.** `authorize` ends its read transaction (rollback) before returning, so no connection stays held across later work, as in `OrgBillingService.authorize`.
+
+**Tests.** `tests/api/test_merchant.py` covers every role, missing membership, suspended, provisioning and archived stores, ordering with 401/403, and ignoring request claims. `tests/api/test_merchant_e2e.py` runs the dependency through real routes on Postgres when `TEST_DATABASE_URL` points at a local `*_test` database:
+
+```bash
+docker run -d --name kan52-pg -e POSTGRES_PASSWORD=pw -e POSTGRES_DB=kan52_test -p 55432:5432 postgres:17
+TEST_DATABASE_URL=postgresql+asyncpg://postgres:pw@localhost:55432/kan52_test uv run pytest tests/api/test_merchant_e2e.py
+```
