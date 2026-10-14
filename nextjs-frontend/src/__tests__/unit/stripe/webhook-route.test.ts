@@ -94,4 +94,10 @@ describe('POST /api/webhooks/stripe', () => {
     expect(verifyWebhookSignature).not.toHaveBeenCalled();
     expect(processWebhookEvent).not.toHaveBeenCalled();
   });
+
+  it('does not export a wildcard-CORS OPTIONS handler (KAN-129)', async () => {
+    const route = await import('@/app/api/webhooks/stripe/route');
+
+    expect(route).not.toHaveProperty('OPTIONS');
+  });
 });
