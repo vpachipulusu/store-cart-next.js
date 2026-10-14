@@ -162,6 +162,76 @@ export type BanRequest = {
 };
 
 /**
+ * BillingData
+ */
+export type BillingData = {
+    plan: PlanData;
+    /**
+     * Subscription Status
+     */
+    subscription_status: string;
+    /**
+     * Current Period End
+     */
+    current_period_end: string | null;
+    /**
+     * Has Billing Account
+     */
+    has_billing_account: boolean;
+    /**
+     * Has Subscription
+     */
+    has_subscription: boolean;
+};
+
+/**
+ * BillingResponse
+ */
+export type BillingResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: BillingData;
+};
+
+/**
+ * ChangePlanRequest
+ */
+export type ChangePlanRequest = {
+    /**
+     * Plan
+     */
+    plan: 'pro' | 'enterprise';
+    /**
+     * Interval
+     */
+    interval: 'monthly' | 'yearly';
+};
+
+/**
+ * CheckoutRequest
+ */
+export type CheckoutRequest = {
+    /**
+     * Plan
+     */
+    plan: 'pro' | 'enterprise';
+    /**
+     * Interval
+     */
+    interval: 'monthly' | 'yearly';
+    /**
+     * Success Url
+     */
+    success_url: string;
+    /**
+     * Cancel Url
+     */
+    cancel_url: string;
+};
+
+/**
  * DeleteRequest
  */
 export type DeleteRequest = {
@@ -355,6 +425,62 @@ export type IdentityResponse = {
 };
 
 /**
+ * InvoiceData
+ */
+export type InvoiceData = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Number
+     */
+    number: string | null;
+    /**
+     * Status
+     */
+    status: string | null;
+    /**
+     * Amount Due
+     */
+    amount_due: number;
+    /**
+     * Amount Paid
+     */
+    amount_paid: number;
+    /**
+     * Currency
+     */
+    currency: string;
+    /**
+     * Created
+     */
+    created: number;
+    /**
+     * Hosted Invoice Url
+     */
+    hosted_invoice_url: string | null;
+    /**
+     * Invoice Pdf
+     */
+    invoice_pdf: string | null;
+};
+
+/**
+ * InvoicesResponse
+ */
+export type InvoicesResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    /**
+     * Data
+     */
+    data: Array<InvoiceData>;
+};
+
+/**
  * OkResponse
  */
 export type OkResponse = {
@@ -362,6 +488,82 @@ export type OkResponse = {
      * Success
      */
     success?: true;
+};
+
+/**
+ * PaymentMethodData
+ */
+export type PaymentMethodData = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Brand
+     */
+    brand: string | null;
+    /**
+     * Last4
+     */
+    last4: string | null;
+    /**
+     * Exp Month
+     */
+    exp_month: number | null;
+    /**
+     * Exp Year
+     */
+    exp_year: number | null;
+};
+
+/**
+ * PaymentMethodsResponse
+ */
+export type PaymentMethodsResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    /**
+     * Data
+     */
+    data: Array<PaymentMethodData>;
+};
+
+/**
+ * PlanData
+ */
+export type PlanData = {
+    /**
+     * Key
+     */
+    key: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Max Stores
+     */
+    max_stores: number | null;
+    /**
+     * Max Products
+     */
+    max_products: number | null;
+    /**
+     * Max Staff
+     */
+    max_staff: number | null;
+};
+
+/**
+ * PortalRequest
+ */
+export type PortalRequest = {
+    /**
+     * Return Url
+     */
+    return_url: string;
 };
 
 /**
@@ -585,6 +787,27 @@ export type UpdateUserRequest = {
      * Avatar Url
      */
     avatar_url?: string | null;
+};
+
+/**
+ * UrlData
+ */
+export type UrlData = {
+    /**
+     * Url
+     */
+    url: string;
+};
+
+/**
+ * UrlResponse
+ */
+export type UrlResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: UrlData;
 };
 
 /**
@@ -1989,3 +2212,599 @@ export type UnbanUserResponses = {
 };
 
 export type UnbanUserResponse = UnbanUserResponses[keyof UnbanUserResponses];
+
+export type ReadBillingData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+    };
+    query?: never;
+    url: '/v1/organizations/{organization_id}/billing';
+};
+
+export type ReadBillingErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ReadBillingError = ReadBillingErrors[keyof ReadBillingErrors];
+
+export type ReadBillingResponses = {
+    /**
+     * Successful Response
+     */
+    200: BillingResponse;
+};
+
+export type ReadBillingResponse = ReadBillingResponses[keyof ReadBillingResponses];
+
+export type CreateCheckoutData = {
+    body: CheckoutRequest;
+    headers?: {
+        /**
+         * Idempotency-Key
+         */
+        'Idempotency-Key'?: string | null;
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+    };
+    query?: never;
+    url: '/v1/organizations/{organization_id}/billing/checkout';
+};
+
+export type CreateCheckoutErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type CreateCheckoutError = CreateCheckoutErrors[keyof CreateCheckoutErrors];
+
+export type CreateCheckoutResponses = {
+    /**
+     * Successful Response
+     */
+    200: UrlResponse;
+};
+
+export type CreateCheckoutResponse = CreateCheckoutResponses[keyof CreateCheckoutResponses];
+
+export type CreatePortalData = {
+    body: PortalRequest;
+    headers?: {
+        /**
+         * Idempotency-Key
+         */
+        'Idempotency-Key'?: string | null;
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+    };
+    query?: never;
+    url: '/v1/organizations/{organization_id}/billing/portal';
+};
+
+export type CreatePortalErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type CreatePortalError = CreatePortalErrors[keyof CreatePortalErrors];
+
+export type CreatePortalResponses = {
+    /**
+     * Successful Response
+     */
+    200: UrlResponse;
+};
+
+export type CreatePortalResponse = CreatePortalResponses[keyof CreatePortalResponses];
+
+export type ChangePlanData = {
+    body: ChangePlanRequest;
+    headers?: {
+        /**
+         * Idempotency-Key
+         */
+        'Idempotency-Key'?: string | null;
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+    };
+    query?: never;
+    url: '/v1/organizations/{organization_id}/billing/plan';
+};
+
+export type ChangePlanErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ChangePlanError = ChangePlanErrors[keyof ChangePlanErrors];
+
+export type ChangePlanResponses = {
+    /**
+     * Successful Response
+     */
+    200: OkResponse;
+};
+
+export type ChangePlanResponse = ChangePlanResponses[keyof ChangePlanResponses];
+
+export type CancelSubscriptionData = {
+    body?: never;
+    headers?: {
+        /**
+         * Idempotency-Key
+         */
+        'Idempotency-Key'?: string | null;
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+    };
+    query?: never;
+    url: '/v1/organizations/{organization_id}/billing/cancel';
+};
+
+export type CancelSubscriptionErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type CancelSubscriptionError = CancelSubscriptionErrors[keyof CancelSubscriptionErrors];
+
+export type CancelSubscriptionResponses = {
+    /**
+     * Successful Response
+     */
+    200: OkResponse;
+};
+
+export type CancelSubscriptionResponse = CancelSubscriptionResponses[keyof CancelSubscriptionResponses];
+
+export type ResumeSubscriptionData = {
+    body?: never;
+    headers?: {
+        /**
+         * Idempotency-Key
+         */
+        'Idempotency-Key'?: string | null;
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+    };
+    query?: never;
+    url: '/v1/organizations/{organization_id}/billing/resume';
+};
+
+export type ResumeSubscriptionErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ResumeSubscriptionError = ResumeSubscriptionErrors[keyof ResumeSubscriptionErrors];
+
+export type ResumeSubscriptionResponses = {
+    /**
+     * Successful Response
+     */
+    200: OkResponse;
+};
+
+export type ResumeSubscriptionResponse = ResumeSubscriptionResponses[keyof ResumeSubscriptionResponses];
+
+export type ListInvoicesData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+    };
+    query?: never;
+    url: '/v1/organizations/{organization_id}/billing/invoices';
+};
+
+export type ListInvoicesErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ListInvoicesError = ListInvoicesErrors[keyof ListInvoicesErrors];
+
+export type ListInvoicesResponses = {
+    /**
+     * Successful Response
+     */
+    200: InvoicesResponse;
+};
+
+export type ListInvoicesResponse = ListInvoicesResponses[keyof ListInvoicesResponses];
+
+export type ListPaymentMethodsData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+    };
+    query?: never;
+    url: '/v1/organizations/{organization_id}/billing/payment-methods';
+};
+
+export type ListPaymentMethodsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ListPaymentMethodsError = ListPaymentMethodsErrors[keyof ListPaymentMethodsErrors];
+
+export type ListPaymentMethodsResponses = {
+    /**
+     * Successful Response
+     */
+    200: PaymentMethodsResponse;
+};
+
+export type ListPaymentMethodsResponse = ListPaymentMethodsResponses[keyof ListPaymentMethodsResponses];
