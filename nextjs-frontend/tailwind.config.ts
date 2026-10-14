@@ -56,6 +56,30 @@ const config: Config = {
           DEFAULT: 'hsl(var(--popover))',
           foreground: 'hsl(var(--popover-foreground))',
         },
+        cta: {
+          DEFAULT: 'hsl(var(--cta))',
+          foreground: 'hsl(var(--cta-foreground))',
+          hover: 'hsl(var(--cta-hover))',
+        },
+        'accent-ink': 'hsl(var(--accent-ink))',
+        feature: 'hsl(var(--feature))',
+        // Status: DEFAULT is the tint (bg-good), foreground is the text (text-good-foreground).
+        good: {
+          DEFAULT: 'hsl(var(--good-bg))',
+          foreground: 'hsl(var(--good-fg))',
+        },
+        warn: {
+          DEFAULT: 'hsl(var(--warn-bg))',
+          foreground: 'hsl(var(--warn-fg))',
+        },
+        crit: {
+          DEFAULT: 'hsl(var(--crit-bg))',
+          foreground: 'hsl(var(--crit-fg))',
+        },
+        info: {
+          DEFAULT: 'hsl(var(--info-bg))',
+          foreground: 'hsl(var(--info-fg))',
+        },
         'theme-accent': {
           DEFAULT: 'hsl(var(--theme-accent))',
           light: 'hsl(var(--theme-accent-light))',
