@@ -23,6 +23,13 @@ them. Store data (products, orders, customers) and Stripe Connect are out of sco
 | `invitations` | Stores a hash of the token, never the token. Status `PENDING`, `ACCEPTED`, `REVOKED`, `EXPIRED`. |
 | `stores` | Registry: organisation, unique `slug`, status, `schema_version` (migrations applied), nullable `database_ref`. The reference locates the store database and is never a connection string or credential. |
 
+## Subscription plan catalogue (KAN-42)
+
+`app/core/plans.py` holds the static plan catalogue (`PLANS`, `get_plan`, `is_within_limit`); it is keyed by the same
+values as `organizations.subscription_tier` (`free`, `pro`, `enterprise`). Each plan sets `max_stores`, `max_products`
+and `max_staff` (`None` is unlimited) and `platform_fee_bps = 0`. The limit values are configurable defaults, not
+product decisions. It has no Stripe calls or tables: billing endpoints and the webhook are KAN-43 and KAN-44.
+
 ## Intentional differences from `prisma/schema.prisma`
 
 - Subscription fields moved from `users` to `organizations` (ADR-010). `users` keeps no billing columns.
