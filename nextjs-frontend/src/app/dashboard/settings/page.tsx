@@ -63,41 +63,47 @@ export default function SettingsPage() {
   });
 
   useEffect(() => {
-    loadSettings();
-  }, []);
+    let cancelled = false;
 
-  async function loadSettings() {
-    try {
-      setIsLoading(true);
-      const result = await getUserSettingsAction();
+    async function loadSettings() {
+      try {
+        const result = await getUserSettingsAction();
+        if (cancelled) return;
 
-      if (!result.success || !result.data) {
+        if (!result.success || !result.data) {
+          toast({
+            title: "Error",
+            description: result.error || "Failed to load settings",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        const settings = result.data.settings;
+        form.reset({
+          theme: settings.theme as "light" | "dark" | "system",
+          emailNotifications: settings.emailNotifications,
+          language: settings.language,
+          timezone: settings.timezone,
+        });
+      } catch (error) {
+        if (cancelled) return;
+        console.error("Load settings error:", error);
         toast({
           title: "Error",
-          description: result.error || "Failed to load settings",
+          description: "An unexpected error occurred",
           variant: "destructive",
         });
-        return;
+      } finally {
+        if (!cancelled) setIsLoading(false);
       }
-
-      const settings = result.data.settings;
-      form.reset({
-        theme: settings.theme as "light" | "dark" | "system",
-        emailNotifications: settings.emailNotifications,
-        language: settings.language,
-        timezone: settings.timezone,
-      });
-    } catch (error) {
-      console.error("Load settings error:", error);
-      toast({
-        title: "Error",
-        description: "An unexpected error occurred",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
     }
-  }
+
+    loadSettings();
+    return () => {
+      cancelled = true;
+    };
+  }, [form, toast]);
 
   async function onSubmit(data: SettingsFormValues) {
     try {

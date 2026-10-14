@@ -76,35 +76,38 @@ export default function SecurityPage() {
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function loadLoginHistory() {
+      try {
+        const result = await getLoginHistoryAction();
+        if (!cancelled && result.success && result.data) {
+          setLoginHistory(result.data.history || []);
+        }
+      } catch (error) {
+        console.error('Load login history error:', error);
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+
+    async function load2FAStatus() {
+      try {
+        const result = await get2FAStatusAction();
+        if (!cancelled && result.success && result.data) {
+          setTwoFactorEnabled(result.data.twoFactorEnabled || false);
+        }
+      } catch (error) {
+        console.error('Load 2FA status error:', error);
+      }
+    }
+
     loadLoginHistory();
     load2FAStatus();
+    return () => {
+      cancelled = true;
+    };
   }, []);
-
-  async function loadLoginHistory() {
-    try {
-      setIsLoading(true);
-      const result = await getLoginHistoryAction();
-
-      if (result.success && result.data) {
-        setLoginHistory(result.data.history || []);
-      }
-    } catch (error) {
-      console.error('Load login history error:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  async function load2FAStatus() {
-    try {
-      const result = await get2FAStatusAction();
-      if (result.success && result.data) {
-        setTwoFactorEnabled(result.data.twoFactorEnabled || false);
-      }
-    } catch (error) {
-      console.error('Load 2FA status error:', error);
-    }
-  }
 
   async function handleEnable2FA() {
     try {

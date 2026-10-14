@@ -58,45 +58,51 @@ export default function ProfilePage() {
   });
 
   useEffect(() => {
-    loadProfile();
-  }, []);
+    let cancelled = false;
 
-  async function loadProfile() {
-    try {
-      setIsLoading(true);
-      const result = await getUserProfileAction();
+    async function loadProfile() {
+      try {
+        const result = await getUserProfileAction();
+        if (cancelled) return;
 
-      if (!result.success || !result.data) {
+        if (!result.success || !result.data) {
+          toast({
+            title: 'Error',
+            description: result.error || 'Failed to load profile',
+            variant: 'destructive',
+          });
+          return;
+        }
+
+        const user = result.data.user;
+        setUserData(user);
+        setAvatarUrl(user.avatarUrl || '');
+
+        form.reset({
+          displayName: user.displayName || '',
+          bio: user.bio || '',
+          location: user.location || '',
+          website: user.website || '',
+          phoneNumber: user.phoneNumber || '',
+        });
+      } catch (error) {
+        if (cancelled) return;
+        console.error('Load profile error:', error);
         toast({
           title: 'Error',
-          description: result.error || 'Failed to load profile',
+          description: 'An unexpected error occurred',
           variant: 'destructive',
         });
-        return;
+      } finally {
+        if (!cancelled) setIsLoading(false);
       }
-
-      const user = result.data.user;
-      setUserData(user);
-      setAvatarUrl(user.avatarUrl || '');
-
-      form.reset({
-        displayName: user.displayName || '',
-        bio: user.bio || '',
-        location: user.location || '',
-        website: user.website || '',
-        phoneNumber: user.phoneNumber || '',
-      });
-    } catch (error) {
-      console.error('Load profile error:', error);
-      toast({
-        title: 'Error',
-        description: 'An unexpected error occurred',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsLoading(false);
     }
-  }
+
+    loadProfile();
+    return () => {
+      cancelled = true;
+    };
+  }, [form, toast]);
 
   async function onSubmit(data: ProfileFormValues) {
     try {
