@@ -7,7 +7,7 @@ Items are listed by area. Each one is either tracked by a Jira key or marked as 
 ## Tooling
 
 - **There is no `npm run test:integration` script.** KAN-148 removed it because there are no integration tests. Add the script back with the first real integration test.
-- **`npm run build` needs `DATABASE_URL`.** KAN-140. It no longer needs `FIREBASE_ADMIN_*` (fixed in KAN-136).
+- **`npm run build` needs no `DATABASE_URL` and no `FIREBASE_ADMIN_*`** (KAN-140, KAN-136), but only if `DATABASE_URL` is truly unset. A placeholder value counts as configured (`isDatabaseConfigured()`); see [getting-started.md](getting-started.md#build-the-frontend).
 - **ESLint works.** `npm run lint` runs `eslint .` with the flat config `eslint.config.mjs` (fixed in KAN-111).
 - **`npm audit` still reports 21 findings (1 critical, 8 high, 11 moderate, 1 low), with no runtime high or critical.** KAN-138 fixed every runtime critical and high, and CI blocks on `npm audit --omit=dev --audit-level=high`. What remains:
   - `tar` 6.2.1 under `@capacitor/cli` 6 (1 critical, 1 high; several advisories). Dev-only and accepted: the CLI only unpacks Capacitor templates. KAN-148 checked the upgrade: `@capacitor/cli` 7 and 8 depend on `tar` 7, but the CLI major must match `@capacitor/core`, `android` and `ios` (6 here). With CLI 7 against platform 6, `cap add android` failed (`ENOENT ... capacitor.plugins.json`). Capacitor stays untouched in StoreCart (the mobile app is E21.2, KAN-109), so the finding stays until all Capacitor packages are upgraded together. A `tar` 7 override was also rejected earlier because `@capacitor/cli` 6 calls `require("tar").default.extract`, which tar 7 does not export.
@@ -37,7 +37,7 @@ Items are listed by area. Each one is either tracked by a Jira key or marked as 
 
 ## Docs drift
 
-- **`.claude/CLAUDE.md` names differ from `.env.example`.** CLAUDE.md lists `FIREBASE_PROJECT_ID` and `STRIPE_PRICE_ID_PRO_MONTHLY`. The real names are `FIREBASE_ADMIN_PROJECT_ID` and `STRIPE_PRICE_ID_PRO`. Use `.env.example` as the reference. Untracked.
+- **Env var names were aligned in KAN-143.** `.env.example`, `.claude/CLAUDE.md` and getting-started.md now list the names the code reads (`FIREBASE_ADMIN_*`; `STRIPE_PRICE_ID_{PRO,ENTERPRISE}_{MONTHLY,YEARLY}`). The code is the source of truth.
 - **Parts of the root `README.md` are from the old boilerplate.** Its Quick Start describes the Prisma-based setup, and it linked a `GUIDE.md` that KAN-146 removed (its accurate parts are now in these pages). Do not follow the outdated parts; use [getting-started.md](getting-started.md). The README's pre-commit section is current. Untracked.
 
 ## Open questions
@@ -61,4 +61,4 @@ Open bug tickets from the KAN-113 parity inventory (council triage, 2026-10-11).
 - KAN-137: the `src/proxy.ts` API gate only checks that some Bearer header or `session` cookie is present (any value passes), so every `/api/*` handler must verify the session itself; also a logout CSRF via `GET /api/auth/clear-session` and a spoofable `x-forwarded-for` IP stored in login history (needs triage; fix in the E3 port).
 - KAN-138: `npm audit` reported 71 vulnerabilities, 10 critical (fixed for criticals and runtime highs; see Tooling).
 - KAN-139: PO decision on the 80% coverage rule (frontend coverage is about 2%).
-- KAN-140: `npm run build` still needs `DATABASE_URL`.
+- KAN-140: `npm run build` needed `DATABASE_URL` (fixed; it now falls back to defaults when unset).

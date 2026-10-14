@@ -168,7 +168,7 @@ Port the boilerplate's admin area to FastAPI with permission checks and audit lo
 The frontend holds no database, Stripe secret or Firebase Admin credentials.
 
 - **[KAN-51] E6.1 Remove Prisma and server secrets from the frontend** `frontend, security`
-  - [ ] nextjs-frontend/prisma, src/lib/db and server-side Stripe/Firebase Admin code are removed
+  - [ ] nextjs-frontend/prisma, src/lib/db (including `src/lib/db/config.ts`, `isDatabaseConfigured()` and its callers) and server-side Stripe/Firebase Admin code are removed
   - [ ] @prisma/client, prisma, stripe and firebase-admin are no longer frontend dependencies
   - [ ] An ESLint rule blocks reintroducing them and the frontend has no DATABASE_URL
 
