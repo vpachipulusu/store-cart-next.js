@@ -81,6 +81,10 @@ services:
   frontend:
     build:
       context: ./nextjs-frontend
+    # Run as the checkout's owner so Next can write next-env.d.ts, logs/ and .next into the bind mount
+    # (a Linux host or runner owns it as its own uid; the image's "node" user is 1000). Set DEV_UID and
+    # DEV_GID (id -u, id -g) when yours is not 1000.
+    user: "${DEV_UID:-1000}:${DEV_GID:-1000}"
     environment:
       BACKEND_API_URL: http://backend:8000
       NEXT_PUBLIC_APP_URL: http://localhost:${FRONTEND_PORT:-3000}
@@ -91,7 +95,9 @@ services:
     volumes:
       - ./nextjs-frontend:/app
       - frontend_node_modules:/app/node_modules
-      - frontend_next:/app/.next
+    # Build cache in memory, owned by the same uid (a named volume would stay owned by uid 1000).
+    tmpfs:
+      - /app/.next:uid=${DEV_UID:-1000},gid=${DEV_GID:-1000}
     depends_on:
       backend:
         condition: service_healthy
@@ -107,4 +113,3 @@ volumes:
   redis_data:
   backend_venv:
   frontend_node_modules:
-  frontend_next:

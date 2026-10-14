@@ -13,6 +13,12 @@ cd "$(dirname "$0")/.."
 FRONTEND="http://localhost:${FRONTEND_PORT:-3000}"
 BACKEND="http://localhost:${BACKEND_PORT:-8000}"
 
+# On Linux (CI) the checkout is owned by the runner's uid; the frontend container must run as it
+# (docker-compose.yml: user). Elsewhere the compose default (1000) is kept.
+if [ "$(uname -s)" = Linux ]; then
+  export DEV_UID="${DEV_UID:-$(id -u)}" DEV_GID="${DEV_GID:-$(id -g)}"
+fi
+
 fail() { echo "::error::$*" >&2; exit 1; }
 
 # status_of URL -> prints the HTTP status, or 000 when nothing answers.
