@@ -99,6 +99,7 @@ export async function waitForHydration(page: Page): Promise<void> {
 }
 
 const PROVIDER_DISABLED_MESSAGE = /sign-in method is not enabled/i;
+const LOGIN_REDIRECT_TIMEOUT_MS = 45_000;
 
 /**
  * Log in a user via the login form UI.
@@ -113,9 +114,9 @@ export async function loginViaUI(page: Page, email: string, password: string): P
   await page.getByLabel(/^password$/i).fill(password);
   await page.getByRole('button', { name: /sign in/i }).click();
 
-  // Wait for navigation to dashboard
+  // Wait for navigation to dashboard. Generous: a cold `next dev` compiles /dashboard on first request (KAN-178).
   try {
-    await page.waitForURL(/\/dashboard/, { timeout: 15_000 });
+    await page.waitForURL(/\/dashboard/, { timeout: LOGIN_REDIRECT_TIMEOUT_MS });
   } catch (error) {
     if (await page.getByText(PROVIDER_DISABLED_MESSAGE).isVisible()) {
       throw new Error(

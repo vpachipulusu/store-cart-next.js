@@ -35,6 +35,8 @@ export default defineConfig({
     {
       name: 'setup',
       testMatch: /.*\.setup\.ts/,
+      // The first login can wait on a cold `next dev` compile of /login and /dashboard (KAN-178).
+      timeout: 90_000,
     },
 
     {
