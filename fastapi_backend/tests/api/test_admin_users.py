@@ -330,3 +330,46 @@ async def test_ban_rejects_unknown_body_fields(harness):
         )
 
     assert result.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"avatar_url": "http://insecure.example/a.png"},
+        {"phone_number": "call me maybe"},
+        {"website": "javascript:alert(1)"},
+    ],
+)
+async def test_update_rejects_unsafe_urls_and_phone_numbers(harness, body):
+    async with harness.client() as http:
+        result = await http.patch("/v1/admin/users/bob", json=body)
+
+    assert result.status_code == 422
+
+
+async def test_update_accepts_clearing_optional_fields(harness):
+    async with harness.client() as http:
+        result = await http.patch(
+            "/v1/admin/users/bob",
+            json={
+                "avatar_url": "https://img.example/a.png",
+                "phone_number": "+44 20 7946 0000",
+                "website": "",
+            },
+        )
+
+    assert result.status_code == 200
+
+
+async def test_super_admin_role_needs_exactly_the_wildcard(harness):
+    async with harness.client("sa") as http:
+        mixed = await http.put(
+            "/v1/admin/users/bob/admin",
+            json={"role": "super_admin", "permissions": ["*", "users.read"]},
+        )
+        narrow = await http.put(
+            "/v1/admin/users/bob/admin",
+            json={"role": "super_admin", "permissions": ["users.read"]},
+        )
+
+    assert (mixed.status_code, narrow.status_code) == (422, 422)

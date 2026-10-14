@@ -67,8 +67,18 @@ class FakeStore:
     async def delete_user(self, user_id: str) -> None:
         del self.users[user_id]
 
+    async def get_admin_grant(self, user_id: str) -> tuple[str, Any] | None:
+        found = self.users.get(user_id)
+        if found is None or found.admin_role is None:
+            return None
+        return found.admin_role, found.admin_permissions
+
     async def lock_super_admin_count(self) -> int:
-        return sum(1 for u in self.users.values() if u.admin_role == "super_admin")
+        return sum(
+            1
+            for u in self.users.values()
+            if u.admin_role == "super_admin" and "*" in (u.admin_permissions or [])
+        )
 
     async def upsert_admin(
         self, user_id: str, role: str, permissions: list[str]

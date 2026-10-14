@@ -523,3 +523,63 @@ async def test_a_failing_audit_write_rolls_the_change_back(client, engine, monke
     assert result.status_code == 500
     assert await admin_row(engine, bob) is None
     assert await audit_rows(engine) == []
+
+
+async def test_a_super_admin_row_without_the_wildcard_has_no_extra_standing(
+    client, engine
+):
+    await seed(engine, "hollow", "super_admin", ["admins.create"])
+    bob = await seed(engine, "bob")
+    mgr = await seed(engine, "mgr", "admin", MANAGER)
+
+    wildcard = await client.put(
+        f"/v1/admin/users/{bob}/admin",
+        json={"role": "super_admin", "permissions": ["*"]},
+        headers=as_user("hollow"),
+    )
+    beyond = await client.put(
+        f"/v1/admin/users/{bob}/admin",
+        json={"role": "admin", "permissions": ["settings.write"]},
+        headers=as_user("hollow"),
+    )
+    revoke = await client.delete(
+        f"/v1/admin/users/{mgr}/admin", headers=as_user("hollow")
+    )
+
+    assert (wildcard.status_code, beyond.status_code, revoke.status_code) == (
+        403,
+        403,
+        403,
+    )
+    assert await admin_row(engine, bob) is None
+    assert await admin_row(engine, mgr) is not None
+    assert await audit_rows(engine) == []
+
+
+async def test_hollow_super_admins_do_not_count_towards_the_last_super_admin(
+    client, engine
+):
+    await seed(engine, "root1", "super_admin", ["*"])
+    root2 = await seed(engine, "root2", "super_admin", ["*"])
+    await seed(engine, "hollow", "super_admin", ["admins.create"])
+
+    first = await client.delete(
+        f"/v1/admin/users/{root2}/admin", headers=as_user("root1")
+    )
+
+    assert first.status_code == 200
+    assert await admin_row(engine, root2) is None
+
+
+async def test_super_admin_role_must_be_exactly_the_wildcard(client, engine):
+    await seed(engine, "root", "super_admin", ["*"])
+    bob = await seed(engine, "bob")
+
+    result = await client.put(
+        f"/v1/admin/users/{bob}/admin",
+        json={"role": "super_admin", "permissions": ["users.read"]},
+        headers=as_user("root"),
+    )
+
+    assert result.status_code == 422
+    assert await admin_row(engine, bob) is None

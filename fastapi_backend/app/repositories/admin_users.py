@@ -8,7 +8,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.permissions import ROLE_SUPER_ADMIN
+from app.core.permissions import ROLE_SUPER_ADMIN, WILDCARD
 from app.models.platform.admin_user import AdminUser
 from app.models.platform.membership import Membership, MembershipRole
 from app.models.platform.user import User
@@ -94,9 +94,13 @@ class AdminUsersRepository(BaseRepository):
     async def get_user(
         self, user_id: str, *, lock: bool = False
     ) -> AdminUserRecord | None:
-        statement = _select_records().where(User.id == user_id)
         if lock:
-            statement = statement.with_for_update(of=User)
+            # Lock first, then read in a fresh statement: the outer-joined admin
+            # columns must be read after any lock wait, not before it.
+            await self._session.execute(
+                select(User.id).where(User.id == user_id).with_for_update()
+            )
+        statement = _select_records().where(User.id == user_id)
         row = (await self._session.execute(statement)).one_or_none()
         return AdminUserRecord(*row) if row is not None else None
 
@@ -117,11 +121,21 @@ class AdminUsersRepository(BaseRepository):
     async def delete_user(self, user_id: str) -> None:
         await self._session.execute(delete(User).where(User.id == user_id))
 
+    async def get_admin_grant(self, user_id: str) -> tuple[str, Any] | None:
+        statement = select(AdminUser.role, AdminUser.permissions).where(
+            AdminUser.user_id == user_id
+        )
+        row = (await self._session.execute(statement)).one_or_none()
+        return (row[0], row[1]) if row is not None else None
+
     async def lock_super_admin_count(self) -> int:
         """Count super admins while holding their rows, serialising concurrent removals."""
         statement = (
             select(AdminUser.id)
-            .where(AdminUser.role == ROLE_SUPER_ADMIN)
+            .where(
+                AdminUser.role == ROLE_SUPER_ADMIN,
+                AdminUser.permissions.contains([WILDCARD]),  # hollow rows: not counted
+            )
             .with_for_update()
         )
         return len((await self._session.execute(statement)).scalars().all())

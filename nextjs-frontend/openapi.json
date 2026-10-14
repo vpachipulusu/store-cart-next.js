@@ -3234,7 +3234,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "maxLength": 500
+                "maxLength": 200
               },
               {
                 "type": "null"
@@ -3388,7 +3388,8 @@
           },
           "permissions": {
             "items": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 64
             },
             "type": "array",
             "maxItems": 18,

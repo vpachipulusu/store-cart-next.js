@@ -271,10 +271,15 @@ async def test_grant_to_a_missing_user_is_not_found():
 
 
 async def test_demoting_the_last_super_admin_is_refused():
-    service, *_ = build(user("only", role="super_admin", permissions=["*"]))
+    service, store, *_ = build(*people())
+    store.lock_super_admin_count = _only_one  # type: ignore[method-assign]
 
     with pytest.raises(AdminActionConflict):
-        await service.grant_admin(SUPER, "only", "admin", ["users.read"])
+        await service.grant_admin(SUPER, "sa2", "admin", ["users.read"])
+
+
+async def _only_one() -> int:
+    return 1
 
 
 async def test_demoting_a_super_admin_is_allowed_when_another_remains():
@@ -315,15 +320,13 @@ async def test_revoke_refuses_self_non_admins_and_stronger_targets():
 
 
 async def test_revoking_the_last_super_admin_is_refused():
-    service, store, _, auditor, _ = build(
-        user("only", role="super_admin", permissions=["*"]),
-        user("other", role="admin", permissions=["users.read"]),
-    )
+    service, store, _, auditor, _ = build(*people())
+    store.lock_super_admin_count = _only_one  # type: ignore[method-assign]
 
     with pytest.raises(AdminActionConflict):
-        await service.revoke_admin(SUPER, "only")
+        await service.revoke_admin(SUPER, "sa2")
 
-    assert store.users["only"].admin_role == "super_admin" and auditor.rows == []
+    assert store.users["sa2"].admin_role == "super_admin" and auditor.rows == []
 
 
 async def test_a_super_admin_can_revoke_another_super_admin():
@@ -332,3 +335,93 @@ async def test_a_super_admin_can_revoke_another_super_admin():
     await service.revoke_admin(SUPER, "sa2")
 
     assert store.users["sa2"].admin_role is None
+
+
+HOLLOW = AdminContext("hollow", "super_admin", frozenset({"admins.create"}))
+
+
+def with_hollow_super():
+    return build(
+        *people(),
+        user("hollow", role="super_admin", permissions=["admins.create"]),
+    )
+
+
+async def test_a_super_admin_row_without_the_wildcard_cannot_grant_or_manage():
+    service, store, accounts, auditor, _ = with_hollow_super()
+
+    with pytest.raises(AdminActionForbidden):
+        await service.grant_admin(HOLLOW, "bob", "super_admin", ["*"])
+    with pytest.raises(AdminActionForbidden):
+        await service.grant_admin(HOLLOW, "bob", "admin", ["settings.write"])
+    with pytest.raises(AdminActionForbidden):
+        await service.revoke_admin(HOLLOW, "mgr")
+    with pytest.raises(AdminActionForbidden):
+        await service.set_banned(HOLLOW, "mgr", True)
+
+    assert store.users["bob"].admin_role is None
+    assert accounts.calls == [] and auditor.rows == []
+
+
+async def test_standing_is_the_stored_grant_not_the_request_snapshot():
+    # The context says super admin, but the stored grant was reduced since.
+    service, store, _, auditor, _ = build(*people())
+    stale = AdminContext("peer", "super_admin", ADMIN_PERMISSIONS)
+
+    with pytest.raises(AdminActionForbidden):
+        await service.grant_admin(stale, "bob", "admin", ["users.update"])
+    with pytest.raises(AdminActionForbidden):
+        await service.delete_user(stale, "bob")
+
+    assert store.users["bob"].admin_role is None and auditor.rows == []
+
+
+async def test_a_revoked_admin_loses_standing_immediately():
+    service, _, _, auditor, _ = build(*people())
+    gone = AdminContext("bob", "admin", MANAGER_PERMISSIONS)  # bob holds no grant
+
+    with pytest.raises(AdminActionForbidden):
+        await service.update_user(gone, "plain-nobody", {"bio": "x"})
+
+    assert auditor.rows == []
+
+
+async def test_the_wildcard_must_be_granted_on_its_own():
+    service, *_ = build(*people())
+
+    with pytest.raises(AdminActionForbidden):
+        await service.grant_admin(SUPER, "bob", "super_admin", ["*", "users.read"])
+    with pytest.raises(AdminActionForbidden):
+        await service.grant_admin(SUPER, "bob", "super_admin", ["users.read"])
+
+
+async def test_banning_an_admin_needs_admins_delete():
+    service, _, accounts, auditor, _ = build(
+        *people(),
+        user("upd", role="admin", permissions=["users.update"]),
+        user("peer2", role="admin", permissions=["users.update"]),
+    )
+    updater = AdminContext("upd", "admin", frozenset({"users.update"}))
+
+    with pytest.raises(AdminActionForbidden):
+        await service.set_banned(updater, "peer2", True)
+    await service.set_banned(updater, "bob", True)  # a plain user is fine
+
+    assert [c[1] for c in accounts.calls if c[0] == "disable"] == ["uid-bob"]
+    assert len(auditor.rows) == 1
+
+
+async def test_a_failed_token_revocation_still_commits_the_audit_row():
+    service, _, accounts, auditor, session = build(*people())
+
+    async def fail(uid: str) -> None:
+        raise IdentityProviderUnavailable()
+
+    accounts.revoke_refresh_tokens = fail  # type: ignore[method-assign]
+
+    with pytest.raises(IdentityProviderUnavailable):
+        await service.set_banned(MANAGER, "bob", True)
+
+    assert ("disable", "uid-bob", True) in accounts.calls
+    assert [r["action"] for r in auditor.rows] == ["admin.users.ban"]
+    assert session.commits == 1

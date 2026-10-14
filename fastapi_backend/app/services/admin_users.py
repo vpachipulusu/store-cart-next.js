@@ -13,6 +13,8 @@ Rules, enforced here and not only in the router:
 * An admin who is not a super admin may not manage a super admin, nor an admin
   holding permissions they lack.
 * The last super admin can neither be revoked nor demoted.
+* A ``super_admin`` is exactly the wildcard; standing is judged by what the actor
+  holds, re-read inside the write transaction (not the request-start snapshot).
 """
 
 from collections.abc import Mapping
@@ -20,8 +22,9 @@ from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.firebase import IdentityUserNotFound
+from app.core.firebase import IdentityProviderUnavailable, IdentityUserNotFound
 from app.core.permissions import (
+    ADMIN_PERMISSIONS,
     ROLE_SUPER_ADMIN,
     AdminContext,
     assert_can_grant,
@@ -64,6 +67,7 @@ class UsersStore(Protocol):
     ) -> None: ...
     async def has_owner_membership(self, user_id: str) -> bool: ...
     async def delete_user(self, user_id: str) -> None: ...
+    async def get_admin_grant(self, user_id: str) -> tuple[str, Any] | None: ...
     async def lock_super_admin_count(self) -> int: ...
     async def upsert_admin(
         self, user_id: str, role: str, permissions: list[str]
@@ -99,6 +103,10 @@ def _admin_state(user: AdminUserRecord) -> dict[str, Any] | None:
     return {"role": user.admin_role, "permissions": sorted(held)}
 
 
+def _has_full_standing(actor: AdminContext) -> bool:
+    return actor.role == ROLE_SUPER_ADMIN and actor.permissions >= ADMIN_PERMISSIONS
+
+
 class AdminUsersService:
     def __init__(
         self,
@@ -128,6 +136,7 @@ class AdminUsersService:
     ) -> AdminUserRecord:
         if not changes or not changes.keys() <= UPDATABLE_FIELDS:
             raise ValueError("Invalid user fields")
+        actor = await self._fresh(actor, "users.update")
         target = await self._locked_target(user_id)
         self._assert_can_manage(actor, target)
         await self.store.update_user(user_id, dict(changes))
@@ -145,6 +154,7 @@ class AdminUsersService:
         return updated
 
     async def delete_user(self, actor: AdminContext, user_id: str) -> None:
+        actor = await self._fresh(actor, "users.delete")
         self._refuse_self(actor, user_id)
         target = await self._locked_target(user_id)
         if target.admin_role is not None:
@@ -167,9 +177,12 @@ class AdminUsersService:
         banned: bool,
         reason: str | None = None,
     ) -> None:
+        actor = await self._fresh(actor, "users.update")
         self._refuse_self(actor, user_id)
         target = await self._locked_target(user_id)
         self._assert_can_manage(actor, target)
+        if target.admin_role is not None and "admins.delete" not in actor.permissions:
+            raise AdminActionForbidden()  # disabling an admin is a revoke in effect
         await self.auditor.record(
             actor,
             action="admin.users.ban" if banned else "admin.users.unban",
@@ -179,10 +192,15 @@ class AdminUsersService:
         )
         try:
             await self.accounts.set_user_disabled(target.firebase_uid, banned)
-            if banned:
-                await self.accounts.revoke_refresh_tokens(target.firebase_uid)
         except IdentityUserNotFound:
             raise UserNotFound() from None
+        if banned:
+            try:
+                await self.accounts.revoke_refresh_tokens(target.firebase_uid)
+            except IdentityProviderUnavailable:
+                # The account is already disabled: keep its audit row, then report.
+                await self.session.commit()
+                raise
         await self.session.commit()
 
     async def grant_admin(
@@ -192,6 +210,7 @@ class AdminUsersService:
         role: str,
         permissions: list[str],
     ) -> dict[str, Any]:
+        actor = await self._fresh(actor, "admins.create")
         if not assert_can_grant(actor, role, permissions):
             raise AdminActionForbidden()
         # KAN-124: an admin never writes their own role or permissions, up or down.
@@ -217,6 +236,7 @@ class AdminUsersService:
         return after
 
     async def revoke_admin(self, actor: AdminContext, user_id: str) -> None:
+        actor = await self._fresh(actor, "admins.delete")
         self._refuse_self(actor, user_id)
         target = await self._locked_target(user_id)
         if target.admin_role is None:
@@ -234,6 +254,17 @@ class AdminUsersService:
         )
         await self.session.commit()
 
+    async def _fresh(self, actor: AdminContext, permission: str) -> AdminContext:
+        """The actor's grant as stored now: a revoked or reduced admin loses standing."""
+        grant = await self.store.get_admin_grant(actor.user_id)
+        if grant is None:
+            raise AdminActionForbidden()
+        role, stored = grant
+        held = effective_permissions(role, stored)
+        if permission not in held:
+            raise AdminActionForbidden()
+        return AdminContext(actor.user_id, role, held)
+
     async def _locked_target(self, user_id: str) -> AdminUserRecord:
         target = await self.store.get_user(user_id, lock=True)
         if target is None:
@@ -247,7 +278,7 @@ class AdminUsersService:
 
     @staticmethod
     def _assert_can_manage(actor: AdminContext, target: AdminUserRecord) -> None:
-        if target.admin_role is None or actor.role == ROLE_SUPER_ADMIN:
+        if target.admin_role is None or _has_full_standing(actor):
             return
         held = effective_permissions(target.admin_role, target.admin_permissions)
         if target.admin_role == ROLE_SUPER_ADMIN or not held <= actor.permissions:

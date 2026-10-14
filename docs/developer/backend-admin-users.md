@@ -32,7 +32,14 @@ Enforced in `app/services/admin_users.py`, on top of `assert_can_grant`:
   the `admin` role is a 422.
 - A non-super admin cannot grant to, revoke, ban or edit a `super_admin`, or an admin holding permissions
   they lack (403).
-- The last `super_admin` cannot be revoked or demoted (409). The check locks the super-admin rows, so two
+- A `super_admin` grant is exactly `["*"]` (422 otherwise), and only an actor holding every known permission may
+  hand it out or manage super admins: a `super_admin` row with a narrower list gains no extra standing.
+- The actor's grant is re-read inside the write transaction, so a revoked or reduced admin loses standing at once
+  (a request already past `require_admin` is still refused). The re-read does not lock the actor's row, which
+  would invite deadlocks between admins acting on each other; the remaining window is one statement wide.
+- Banning an admin also needs `admins.delete`. If the ban succeeds but token revocation fails, the audit row is
+  still committed and the request returns 503; retrying is safe.
+- The last `super_admin` (rows holding `*`) cannot be revoked or demoted (409). The check locks the super-admin rows, so two
   super admins revoking each other at once leave one.
 
 Denied requests write no audit row; they are logged without payload by `require_admin`.

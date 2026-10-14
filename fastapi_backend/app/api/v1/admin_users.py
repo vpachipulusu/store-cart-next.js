@@ -6,11 +6,19 @@ permission changes go through ``AdminUsersService``, which applies the KAN-124
 escalation guards and writes the audit row in the same transaction.
 """
 
+import re
 from datetime import datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from app.api.admin import AuditorDep, require_admin
 from app.api.auth import require_internal_key
@@ -137,11 +145,25 @@ class UpdateUserRequest(BaseModel):
             raise ValueError("Supply at least one field")
         return self
 
-    @field_validator("website", "avatar_url")
+    @field_validator("website")
     @classmethod
     def http_url(cls, value: str | None) -> str | None:
         if value and not value.startswith(("https://", "http://")):
             raise ValueError("Supply an http(s) URL")
+        return value or None
+
+    @field_validator("avatar_url")
+    @classmethod
+    def https_url(cls, value: str | None) -> str | None:
+        if value and not value.startswith("https://"):
+            raise ValueError("Supply an HTTPS URL")
+        return value or None
+
+    @field_validator("phone_number")
+    @classmethod
+    def phone(cls, value: str | None) -> str | None:
+        if value and not re.fullmatch(r"[0-9+()\-. ]{3,20}", value):
+            raise ValueError("Invalid phone number")
         return value or None
 
 
@@ -149,22 +171,26 @@ class GrantAdminRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     role: Literal["admin", "super_admin"]
-    permissions: list[str] = Field(min_length=1, max_length=len(ADMIN_PERMISSIONS) + 1)
+    permissions: list[Annotated[str, StringConstraints(max_length=64)]] = Field(
+        min_length=1, max_length=len(ADMIN_PERMISSIONS) + 1
+    )
 
     @model_validator(mode="after")
     def known_permissions(self) -> "GrantAdminRequest":
         wanted = set(self.permissions)
         if not wanted <= ADMIN_PERMISSIONS | {WILDCARD}:
             raise ValueError("Unknown permission")
-        if WILDCARD in wanted and self.role != ROLE_SUPER_ADMIN:
-            raise ValueError("The wildcard belongs to the super_admin role only")
+        if (WILDCARD in wanted) != (self.role == ROLE_SUPER_ADMIN):
+            raise ValueError("The wildcard and the super_admin role go together")
+        if WILDCARD in wanted and wanted != {WILDCARD}:
+            raise ValueError("Grant the wildcard on its own")
         return self
 
 
 class BanRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    reason: str | None = Field(default=None, max_length=500)
+    reason: str | None = Field(default=None, max_length=200)
 
 
 def get_admin_users_service(
