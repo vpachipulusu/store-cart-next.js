@@ -7,6 +7,7 @@ import { getStripeServerClient } from '@/lib/stripe/server';
 import { db } from '@/lib/db/client';
 import { logger } from '@/lib/logger';
 import { verifyVerifiedSessionCookie } from '@/lib/auth/verified-session';
+import { ADMIN_SUBSCRIPTION_USER_SELECT } from '@/lib/admin/user-select';
 
 /**
  * Initialize Stripe
@@ -332,6 +333,7 @@ export async function updateUserSubscriptionAction(
         subscriptionTier: data.subscriptionTier,
         subscriptionStatus: data.subscriptionStatus,
       },
+      select: ADMIN_SUBSCRIPTION_USER_SELECT,
     });
 
     // Log audit
@@ -549,6 +551,7 @@ export async function grantFreeSubscriptionAction(
         subscriptionStatus: 'active',
         stripeCurrentPeriodEnd: endDate,
       },
+      select: ADMIN_SUBSCRIPTION_USER_SELECT,
     });
 
     // Log audit

@@ -6,6 +6,7 @@ import { getAdminAuth } from '@/lib/firebase/admin';
 import { db } from '@/lib/db/client';
 import { logger } from '@/lib/logger';
 import { verifyVerifiedSessionCookie } from '@/lib/auth/verified-session';
+import { ADMIN_USER_DETAIL_SELECT, ADMIN_USER_SELECT } from '@/lib/admin/user-select';
 
 /**
  * Response type for admin user actions
@@ -172,18 +173,7 @@ export async function getUserByIdAction(userId: string): Promise<AdminUserAction
 
     const user = await db.user.findUnique({
       where: { id: userId },
-      include: {
-        settings: true,
-        adminUser: true,
-        loginHistory: {
-          orderBy: { loginAt: 'desc' },
-          take: 10,
-        },
-        notifications: {
-          orderBy: { createdAt: 'desc' },
-          take: 10,
-        },
-      },
+      select: ADMIN_USER_DETAIL_SELECT,
     });
 
     if (!user) {
@@ -252,6 +242,7 @@ export async function updateUserAction(
         subscriptionTier: data.subscriptionTier,
         subscriptionStatus: data.subscriptionStatus,
       },
+      select: ADMIN_USER_SELECT,
     });
 
     // Log audit
