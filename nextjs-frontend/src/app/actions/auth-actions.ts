@@ -323,7 +323,7 @@ async function establishSession(
         },
       },
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Verify token error:', error);
     return {
       success: false,
@@ -383,7 +383,7 @@ export async function getCurrentSessionAction(): Promise<AuthActionResponse> {
         },
       },
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Get session error:', error);
     // Clear stale cookie on verification failure. An unverified user keeps the session so they can
     // finish verifying their email.
