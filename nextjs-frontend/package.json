@@ -18,6 +18,7 @@
     "test:coverage": "vitest run --coverage",
     "test:unit": "vitest run --dir src/__tests__/unit",
     "test:e2e": "playwright test",
+    "test:e2e:local": "node scripts/e2e-local.mjs",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:baseline": "playwright test --config=playwright.baseline.config.ts --project=chromium",
     "test:e2e:build": "node scripts/e2e-build.mjs",
