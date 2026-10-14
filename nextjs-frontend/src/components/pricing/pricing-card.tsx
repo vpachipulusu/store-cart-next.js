@@ -126,7 +126,7 @@ export function PricingCard({
         <div className="mb-4 flex items-center justify-between">
           <CardTitle className="text-2xl">{tier.name}</CardTitle>
           {tier.popular && (
-            <Badge className="border-0 bg-theme-accent text-white">Most Popular</Badge>
+            <Badge className="border-0 bg-cta text-cta-foreground">Most Popular</Badge>
           )}
           {isAuthenticated && userTier === tier.name.toLowerCase() && (
             <Badge variant="secondary">Active</Badge>
@@ -171,8 +171,8 @@ export function PricingCard({
         {/* CTA */}
         <Button
           asChild={tier.name !== 'Pro' || !isAuthenticated}
-          className={`w-full ${tier.popular ? 'bg-theme-accent text-white hover:bg-theme-accent-dark' : ''}`}
-          variant={tier.popular ? 'default' : 'outline'}
+          className="w-full"
+          variant={tier.popular ? 'accent' : 'outline'}
           size="lg"
           disabled={ctaConfig.disabled || isLoading}
           onClick={tier.name === 'Pro' && isAuthenticated ? handleCTAClick : undefined}

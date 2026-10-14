@@ -26,7 +26,7 @@ export default function HomePage() {
             <Button
               size="lg"
               asChild
-              className="bg-theme-accent text-white shadow-lg shadow-theme-accent/25 hover:bg-theme-accent-dark"
+              variant="accent"
             >
               <Link href="/signup">
                 Get Started
@@ -153,7 +153,7 @@ export default function HomePage() {
             <Button
               size="lg"
               asChild
-              className="bg-theme-accent text-white shadow-lg shadow-theme-accent/25 hover:bg-theme-accent-dark"
+              variant="accent"
             >
               <Link href="/signup">
                 Create an Account

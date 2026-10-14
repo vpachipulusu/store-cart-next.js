@@ -183,13 +183,13 @@ test.describe('Pricing Page', () => {
 
     test('should default to Monthly billing', async ({ page }) => {
       const monthlyButton = page.getByRole('button', { name: 'Monthly' });
-      await expect(monthlyButton).toHaveClass(/\bbg-theme-accent\b/);
+      await expect(monthlyButton).toHaveClass(/\bbg-cta\b/);
     });
 
     test('should switch to Yearly billing when clicked', async ({ page }) => {
       const yearlyButton = page.getByRole('button', { name: /yearly/i });
       await yearlyButton.click();
-      await expect(yearlyButton).toHaveClass(/\bbg-theme-accent\b/);
+      await expect(yearlyButton).toHaveClass(/\bbg-cta\b/);
     });
 
     test('should not display savings badge when there is 0% savings', async ({ page }) => {
@@ -213,7 +213,7 @@ test.describe('Pricing Page', () => {
 
       const monthlyButton = page.getByRole('button', { name: 'Monthly' });
       await monthlyButton.click();
-      await expect(monthlyButton).toHaveClass(/\bbg-theme-accent\b/);
+      await expect(monthlyButton).toHaveClass(/\bbg-cta\b/);
     });
   });
 

@@ -104,7 +104,7 @@ export default async function ContactPage({
                     type="button"
                     disabled
                     size="lg"
-                    className="w-full bg-theme-accent text-white hover:bg-theme-accent-dark"
+                    variant="accent" className="w-full"
                   >
                     <Send className="mr-2 h-4 w-4" />
                     Send Message

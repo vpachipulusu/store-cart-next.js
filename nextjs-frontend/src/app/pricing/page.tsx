@@ -195,7 +195,7 @@ export default async function PricingPage() {
                 <Button
                   asChild
                   size="lg"
-                  className="bg-theme-accent text-white hover:bg-theme-accent-dark"
+                  variant="accent"
                 >
                   <Link href="/signup">Get Started</Link>
                 </Button>
