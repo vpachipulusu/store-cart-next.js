@@ -19,8 +19,6 @@ const SECRET_ERROR = new Error(
 );
 
 const mocks = vi.hoisted(() => {
-  // Read at module load by subscription-actions; without it checkout returns its config message.
-  process.env.STRIPE_PRICE_ID_PRO_MONTHLY = 'price_test_pro_monthly';
   const state = { error: undefined as unknown, resolves: new Set<string>() };
   const fail = () => Promise.reject(state.error);
 
@@ -76,8 +74,31 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock('next/headers', () => ({
-  cookies: async () => ({ get: () => ({ value: 'session-cookie' }) }),
+  cookies: async () => ({
+    get: () => ({ value: 'session-cookie' }),
+    set: () => {
+      throw mocks.state.error;
+    },
+    delete: () => {
+      throw mocks.state.error;
+    },
+  }),
 }));
+// The subscription actions reach Stripe and the database only through the billing API wrapper (KAN-45).
+vi.mock('@/lib/api/billing', () => {
+  const reject = () => Promise.reject(mocks.state.error);
+  return {
+    NO_BILLING_ORGANIZATION_MESSAGE: 'No organisation you can manage billing for was found',
+    fetchBillingSummary: reject,
+    fetchBillingInvoices: reject,
+    fetchBillingPaymentMethods: reject,
+    startBillingCheckout: reject,
+    startBillingPortal: reject,
+    changeBillingPlan: reject,
+    cancelBillingSubscription: reject,
+    resumeBillingSubscription: reject,
+  };
+});
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn() }));
 vi.mock('@/lib/db/client', () => ({ db: mocks.db }));
 vi.mock('@/lib/stripe/server', () => ({ getStripeServerClient: () => mocks.deepRejecting() }));
@@ -106,7 +127,7 @@ const FLAG = { name: 'beta', enabled: true };
 const TEMPLATE = { name: 'welcome', subject: 'Hi', htmlBody: '<p>Hi</p>' };
 
 const ROWS: Row[] = [
-  // subscription-actions.ts (14)
+  // subscription-actions.ts (10; KAN-182 removed upcoming invoice and card delete/set-default)
   [
     'getSubscriptionStatusAction',
     () => subscription.getSubscriptionStatusAction(),
@@ -139,18 +160,13 @@ const ROWS: Row[] = [
   ],
   [
     'updateSubscriptionAction',
-    () => subscription.updateSubscriptionAction('price_1'),
+    () => subscription.updateSubscriptionAction('pro', 'monthly'),
     'Failed to update subscription',
   ],
   [
     'getSubscriptionInvoicesAction',
     () => subscription.getSubscriptionInvoicesAction(),
     'Failed to get invoices',
-  ],
-  [
-    'getUpcomingInvoiceAction',
-    () => subscription.getUpcomingInvoiceAction(),
-    'Failed to get upcoming invoice',
   ],
   [
     'hasActiveSubscriptionAction',
@@ -166,16 +182,6 @@ const ROWS: Row[] = [
     'getPaymentMethodsAction',
     () => subscription.getPaymentMethodsAction(),
     'Failed to get payment methods',
-  ],
-  [
-    'deletePaymentMethodAction',
-    () => subscription.deletePaymentMethodAction('pm_1'),
-    'Failed to delete payment method',
-  ],
-  [
-    'setDefaultPaymentMethodAction',
-    () => subscription.setDefaultPaymentMethodAction('pm_1'),
-    'Failed to set default payment method',
   ],
   // admin/seo-actions.ts (11 single-catch sites; bulk import per-item has its own test)
   ['getAllSEOMetaAction', () => seo.getAllSEOMetaAction(), 'Failed to get SEO meta'],

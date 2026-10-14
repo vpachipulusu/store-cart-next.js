@@ -6,8 +6,9 @@ import { DB_DOWN, SESSION_EXPIRED, navigationMock, rejection } from './route-tes
 const mocks = vi.hoisted(() => ({
   cookieGet: vi.fn(),
   verifySessionCookie: vi.fn(),
-  userFindUnique: vi.fn(),
+  fetchBillingSummary: vi.fn(),
   loggerError: vi.fn(),
+  loggerWarn: vi.fn(),
 }));
 
 vi.mock('next/navigation', () => navigationMock);
@@ -15,8 +16,13 @@ vi.mock('next/headers', () => ({ cookies: async () => ({ get: mocks.cookieGet })
 vi.mock('@/lib/firebase/admin', () => ({
   getAdminAuth: () => ({ verifySessionCookie: mocks.verifySessionCookie }),
 }));
-vi.mock('@/lib/db/client', () => ({ db: { user: { findUnique: mocks.userFindUnique } } }));
-vi.mock('@/lib/logger', () => ({ logger: { error: mocks.loggerError } }));
+vi.mock('@/lib/api/billing', () => ({
+  NO_BILLING_ORGANIZATION_MESSAGE: 'No organisation you can manage billing for was found',
+  fetchBillingSummary: mocks.fetchBillingSummary,
+}));
+vi.mock('@/lib/logger', () => ({
+  logger: { error: mocks.loggerError, warn: mocks.loggerWarn },
+}));
 vi.mock('@/config/subscriptions', () => ({
   getSubscriptionPlans: async () => [],
   getCurrencySymbol: async () => '$',
@@ -43,14 +49,17 @@ describe('PricingPage session check', () => {
     vi.clearAllMocks();
     mocks.cookieGet.mockReturnValue({ value: 'cookie-value' });
     mocks.verifySessionCookie.mockResolvedValue({ uid: 'uid-1' });
-    mocks.userFindUnique.mockResolvedValue({ id: 'u1', subscriptionTier: 'pro' });
+    mocks.fetchBillingSummary.mockResolvedValue({
+      success: true,
+      data: { plan: { key: 'pro' } },
+    });
   });
 
   it('propagates a redirect thrown while loading the session', async () => {
     const redirectError = Object.assign(new Error('NEXT_REDIRECT'), {
       digest: 'NEXT_REDIRECT;replace;/somewhere;307;',
     });
-    mocks.userFindUnique.mockRejectedValue(redirectError);
+    mocks.fetchBillingSummary.mockRejectedValue(redirectError);
 
     expect(await rejection(PricingPage())).toBe(redirectError);
     expect(mocks.loggerError).not.toHaveBeenCalled();
@@ -65,8 +74,35 @@ describe('PricingPage session check', () => {
     expect(mocks.loggerError).not.toHaveBeenCalled();
   });
 
-  it('logs and rethrows a database error instead of showing the logged-out view', async () => {
-    mocks.userFindUnique.mockRejectedValue(DB_DOWN);
+  it('shows the plan the billing API reports for the signed-in user', async () => {
+    const props = findCardsProps(await PricingPage());
+
+    expect(props).toMatchObject({ isAuthenticated: true, userTier: 'pro' });
+  });
+
+  it('treats a user without a billable organisation as free without a warning', async () => {
+    mocks.fetchBillingSummary.mockResolvedValue({
+      success: false,
+      error: 'No organisation you can manage billing for was found',
+    });
+
+    const props = findCardsProps(await PricingPage());
+
+    expect(props).toMatchObject({ isAuthenticated: true, userTier: 'free' });
+    expect(mocks.loggerWarn).not.toHaveBeenCalled();
+  });
+
+  it('falls back to free and warns when the billing API is unavailable', async () => {
+    mocks.fetchBillingSummary.mockResolvedValue({ success: false, error: 'Backend unavailable' });
+
+    const props = findCardsProps(await PricingPage());
+
+    expect(props).toMatchObject({ isAuthenticated: true, userTier: 'free' });
+    expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs and rethrows a billing API error instead of showing the logged-out view', async () => {
+    mocks.fetchBillingSummary.mockRejectedValue(DB_DOWN);
 
     expect(await rejection(PricingPage())).toBe(DB_DOWN);
     expect(mocks.loggerError).toHaveBeenCalledTimes(1);
