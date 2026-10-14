@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { CreateSessionData, CreateSessionErrors, CreateSessionResponses, DeleteAccountData, DeleteAccountErrors, DeleteAccountResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DisableData, DisableErrors, DisableResponses, EnrollData, EnrollErrors, EnrollResponses, HealthCheckData, HealthCheckErrors, HealthCheckResponses, ReadHistoryData, ReadHistoryErrors, ReadHistoryResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, ReadProfileData, ReadProfileErrors, ReadProfileResponses, ReadSessionData, ReadSessionErrors, ReadSessionResponses, ReadSettingsData, ReadSettingsErrors, ReadSettingsResponses, UpdateAvatarData, UpdateAvatarErrors, UpdateAvatarResponses, UpdateProfileData, UpdateProfileErrors, UpdateProfileResponses, UpdateSettingsData, UpdateSettingsErrors, UpdateSettingsResponses, VerifyData, VerifyErrors, VerifyResponses } from './types.gen';
+import type { BanUserData, BanUserErrors, BanUserResponses, CreateSessionData, CreateSessionErrors, CreateSessionResponses, DeleteAccountData, DeleteAccountErrors, DeleteAccountResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DeleteUserData, DeleteUserErrors, DeleteUserResponses, DisableData, DisableErrors, DisableResponses, EnrollData, EnrollErrors, EnrollResponses, GrantAdminData, GrantAdminErrors, GrantAdminResponses, HealthCheckData, HealthCheckErrors, HealthCheckResponses, ListUsersData, ListUsersErrors, ListUsersResponses, ReadHistoryData, ReadHistoryErrors, ReadHistoryResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, ReadProfileData, ReadProfileErrors, ReadProfileResponses, ReadSessionData, ReadSessionErrors, ReadSessionResponses, ReadSettingsData, ReadSettingsErrors, ReadSettingsResponses, ReadUserData, ReadUserErrors, ReadUserResponses, RevokeAdminData, RevokeAdminErrors, RevokeAdminResponses, UnbanUserData, UnbanUserErrors, UnbanUserResponses, UpdateAvatarData, UpdateAvatarErrors, UpdateAvatarResponses, UpdateProfileData, UpdateProfileErrors, UpdateProfileResponses, UpdateSettingsData, UpdateSettingsErrors, UpdateSettingsResponses, UpdateUserData, UpdateUserErrors, UpdateUserResponses, VerifyData, VerifyErrors, VerifyResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -155,3 +155,64 @@ export const disable = <ThrowOnError extends boolean = false>(options: Options<D
         ...options.headers
     }
 });
+
+/**
+ * List Users
+ */
+export const listUsers = <ThrowOnError extends boolean = false>(options?: Options<ListUsersData, ThrowOnError>) => (options?.client ?? client).get<ListUsersResponses, ListUsersErrors, ThrowOnError>({ url: '/v1/admin/users', ...options });
+
+/**
+ * Delete User
+ */
+export const deleteUser = <ThrowOnError extends boolean = false>(options: Options<DeleteUserData, ThrowOnError>) => (options.client ?? client).delete<DeleteUserResponses, DeleteUserErrors, ThrowOnError>({ url: '/v1/admin/users/{user_id}', ...options });
+
+/**
+ * Read User
+ */
+export const readUser = <ThrowOnError extends boolean = false>(options: Options<ReadUserData, ThrowOnError>) => (options.client ?? client).get<ReadUserResponses, ReadUserErrors, ThrowOnError>({ url: '/v1/admin/users/{user_id}', ...options });
+
+/**
+ * Update User
+ */
+export const updateUser = <ThrowOnError extends boolean = false>(options: Options<UpdateUserData, ThrowOnError>) => (options.client ?? client).patch<UpdateUserResponses, UpdateUserErrors, ThrowOnError>({
+    url: '/v1/admin/users/{user_id}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Revoke Admin
+ */
+export const revokeAdmin = <ThrowOnError extends boolean = false>(options: Options<RevokeAdminData, ThrowOnError>) => (options.client ?? client).delete<RevokeAdminResponses, RevokeAdminErrors, ThrowOnError>({ url: '/v1/admin/users/{user_id}/admin', ...options });
+
+/**
+ * Grant Admin
+ */
+export const grantAdmin = <ThrowOnError extends boolean = false>(options: Options<GrantAdminData, ThrowOnError>) => (options.client ?? client).put<GrantAdminResponses, GrantAdminErrors, ThrowOnError>({
+    url: '/v1/admin/users/{user_id}/admin',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Ban User
+ */
+export const banUser = <ThrowOnError extends boolean = false>(options: Options<BanUserData, ThrowOnError>) => (options.client ?? client).post<BanUserResponses, BanUserErrors, ThrowOnError>({
+    url: '/v1/admin/users/{user_id}/ban',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Unban User
+ */
+export const unbanUser = <ThrowOnError extends boolean = false>(options: Options<UnbanUserData, ThrowOnError>) => (options.client ?? client).post<UnbanUserResponses, UnbanUserErrors, ThrowOnError>({ url: '/v1/admin/users/{user_id}/unban', ...options });

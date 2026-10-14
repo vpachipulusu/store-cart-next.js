@@ -22,6 +22,10 @@ class IdentityProviderUnavailable(Exception):
     pass
 
 
+class IdentityUserNotFound(Exception):
+    pass
+
+
 @dataclass(frozen=True)
 class VerifiedIdentity:
     uid: str
@@ -139,6 +143,17 @@ class FirebaseIdentityProvider:
                 raise IdentityProviderUnavailable() from None
 
         await asyncio.to_thread(revoke)
+
+    async def set_user_disabled(self, uid: str, disabled: bool) -> None:
+        def update() -> None:
+            try:
+                auth.update_user(uid, disabled=disabled, app=firebase_app())
+            except auth.UserNotFoundError:
+                raise IdentityUserNotFound() from None
+            except (exceptions.FirebaseError, ValueError):
+                raise IdentityProviderUnavailable() from None
+
+        await asyncio.to_thread(update)
 
     async def delete_user(self, uid: str) -> None:
         def delete() -> None:
