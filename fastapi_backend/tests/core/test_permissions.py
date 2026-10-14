@@ -2,6 +2,7 @@ import pytest
 
 from app.core.permissions import (
     ADMIN_PERMISSIONS,
+    assert_can_grant,
     effective_permissions,
     validate_required,
 )
@@ -56,3 +57,40 @@ def test_validate_required_returns_the_declared_set():
         "users.read",
         "users.update",
     }
+
+
+def _actor(role, permissions):
+    from app.core.permissions import AdminContext
+
+    return AdminContext("a-1", role, frozenset(permissions))
+
+
+def test_grant_requires_admins_create():
+    assert not assert_can_grant(
+        _actor("admin", ["users.read"]), "admin", ["users.read"]
+    )
+
+
+def test_admin_can_grant_only_permissions_it_holds():
+    actor = _actor("admin", ["admins.create", "users.read"])
+    assert assert_can_grant(actor, "admin", ["users.read"])
+    assert not assert_can_grant(actor, "admin", ["users.read", "users.delete"])
+
+
+def test_admin_cannot_grant_wildcard_or_super_admin_to_anyone():
+    actor = _actor("admin", ["admins.create"])
+    assert not assert_can_grant(actor, "admin", ["*"])
+    assert not assert_can_grant(actor, "super_admin", [])
+
+
+def test_super_admin_may_grant_wildcard_and_super_admin():
+    actor = _actor("super_admin", sorted(ADMIN_PERMISSIONS))
+    assert assert_can_grant(actor, "super_admin", ["*"])
+
+
+@pytest.mark.parametrize(
+    "permissions", [None, "users.read", ["users.read", 3], ["nope.x"]]
+)
+def test_malformed_or_unknown_grants_are_refused(permissions):
+    actor = _actor("super_admin", sorted(ADMIN_PERMISSIONS))
+    assert not assert_can_grant(actor, "admin", permissions)

@@ -102,7 +102,8 @@ def test_sanitize_serialises_dates_and_bounds_size():
     )
     assert cleaned["at"] == when.isoformat()
     assert len(cleaned["long"]) == 500
-    assert len(cleaned["many"]) == 50
+    assert len(cleaned["many"]) == 51
+    assert cleaned["many"][-1] == "[TRUNCATED]"
     assert "[TRUNCATED]" in json.dumps(cleaned["deep"])
     json.dumps(cleaned)
 
@@ -124,3 +125,62 @@ async def test_invalid_action_is_rejected_and_nothing_is_written(action):
 async def test_invalid_resource_is_rejected(resource):
     with pytest.raises(ValueError):
         await record(resource=resource)
+
+
+async def test_unicode_look_alike_keys_are_redacted():
+    row = await record(
+        after={"ｐａｓｓｗｏｒｄ": "fullwidth", "pаssword": "cyrillic", "role": "x"}
+    )
+    after = row["metadata"]["after"]
+    assert after["role"] == "x"
+    blob = json.dumps(after)
+    assert "fullwidth" not in blob and "cyrillic" not in blob
+
+
+async def test_credential_looking_values_are_redacted_under_benign_keys():
+    row = await record(
+        details={
+            "note": "Bearer eyJhbGciOiJIUzI1NiJ9.abc",
+            "value": "token=abc123",
+            "uri": "otpauth://totp/x?secret=ABC",
+            "items": ["sk_live_abcdef", "fine"],
+            "otpauth_uri": "otpauth://totp/x",
+        }
+    )
+    details = row["metadata"]["details"]
+    assert details["items"] == [REDACTED, "fine"]
+    assert REDACTED == details["note"] == details["value"] == details["uri"]
+    assert details["otpauth_uri"] == REDACTED
+
+
+def test_nul_nan_and_oversized_input_stay_storable_and_marked():
+    cleaned = sanitize(
+        {
+            "a": "x\x00y",
+            "n": float("nan"),
+            "wide": dict.fromkeys(map(str, range(80)), 1),
+        }
+    )
+    assert cleaned["a"] == "xy"
+    assert cleaned["n"] == "nan"
+    assert cleaned["wide"]["_truncated"] is True
+    assert "\x00" not in json.dumps(cleaned)
+
+
+@pytest.mark.parametrize("action", ["admin.users.update\n"])
+async def test_trailing_newline_in_action_is_rejected(action):
+    with pytest.raises(ValueError):
+        await record(action=action)
+
+
+@pytest.mark.parametrize("bad", ["user\n9", "a" * 200, "x y", ""])
+async def test_target_ids_must_be_plain_identifiers(bad):
+    with pytest.raises(ValueError):
+        await record(resource_id=bad)
+    with pytest.raises(ValueError):
+        await record(organization_id=bad)
+
+
+async def test_user_agent_control_characters_are_removed():
+    row = await record(user_agent="agent\r\nforged: line\x00")
+    assert row["user_agent"] == "agentforged: line"

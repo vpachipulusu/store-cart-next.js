@@ -237,3 +237,24 @@ def test_declaring_no_or_unknown_permissions_fails_at_import_time():
         require_admin("*")
     with pytest.raises(ValueError):
         require_admin("users.reed")
+
+
+async def test_failed_audit_write_aborts_the_request_before_any_commit():
+    class FailingSession(FakeSession):
+        def __init__(self):
+            super().__init__()
+            self.commits = 0
+
+        async def flush(self):
+            raise RuntimeError("audit table unavailable")
+
+        async def commit(self):
+            self.commits += 1
+
+    app, _, _ = build(grant())
+    session = FailingSession()
+    app.dependency_overrides[get_session] = lambda: session
+    async with client(app) as http:
+        result = await http.post("/test-admin/update")
+    assert result.status_code == 500
+    assert session.commits == 0

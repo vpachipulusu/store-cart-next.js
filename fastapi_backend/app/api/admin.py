@@ -60,13 +60,20 @@ def require_admin(*permissions: str) -> Callable[..., Awaitable[AdminContext]]:
     ) -> AdminContext:
         grant = await repository.get_grant(identity.uid)
         if grant is None:
-            logger.warning("admin access denied: no admin record")
+            logger.warning(
+                "admin access denied: no admin record",
+                extra={"firebase_uid": identity.uid},
+            )
             raise HTTPException(403, FORBIDDEN)
         held = effective_permissions(grant.role, grant.permissions)
         if not required <= held:
             logger.warning(
                 "admin access denied: missing permission",
-                extra={"admin_user_id": grant.user_id},
+                extra={
+                    "admin_user_id": grant.user_id,
+                    "firebase_uid": identity.uid,
+                    "required": sorted(required),
+                },
             )
             raise HTTPException(403, FORBIDDEN)
         return AdminContext(grant.user_id, grant.role, held)

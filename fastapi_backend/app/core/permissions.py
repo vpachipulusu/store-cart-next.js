@@ -69,3 +69,23 @@ def validate_required(permissions: tuple[str, ...]) -> frozenset[str]:
     if unknown:
         raise ValueError(f"Unknown admin permission(s): {sorted(unknown)}")
     return frozenset(permissions)
+
+
+def assert_can_grant(actor: AdminContext, role: str, permissions: Any) -> bool:
+    """Whether ``actor`` may write ``role``/``permissions`` onto an admin record.
+
+    The guard for the grant endpoints (KAN-47) against KAN-124 self-escalation: the
+    actor needs ``admins.create``, only a ``super_admin`` may grant the
+    ``super_admin`` role or the wildcard, and nobody can grant a permission they do
+    not hold. Unknown or malformed input is refused.
+    """
+    if "admins.create" not in actor.permissions:
+        return False
+    if not isinstance(permissions, list) or not all(
+        isinstance(item, str) for item in permissions
+    ):
+        return False
+    wanted = set(permissions)
+    if role == ROLE_SUPER_ADMIN or WILDCARD in wanted:
+        return actor.role == ROLE_SUPER_ADMIN
+    return wanted <= ADMIN_PERMISSIONS and wanted <= actor.permissions
