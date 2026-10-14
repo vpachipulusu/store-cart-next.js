@@ -6,6 +6,7 @@ import { getAdminAuth } from '@/lib/firebase/admin';
 import { db } from '@/lib/db/client';
 import { logger } from '@/lib/logger';
 import { verifyVerifiedSessionCookie } from '@/lib/auth/verified-session';
+import { ADMIN_USER_DETAIL_SELECT, ADMIN_USER_SELECT } from '@/lib/admin/user-select';
 
 /**
  * Response type for admin user actions
@@ -113,10 +114,7 @@ export async function getAllUsersAction(
     const [users, totalCount] = await Promise.all([
       db.user.findMany({
         where,
-        include: {
-          adminUser: true,
-          settings: true,
-        },
+        select: { ...ADMIN_USER_SELECT, adminUser: { select: { id: true } } },
         orderBy: { createdAt: 'desc' },
         take: limit,
         skip: (page - 1) * limit,
@@ -129,7 +127,6 @@ export async function getAllUsersAction(
       data: {
         users: users.map((user) => ({
           id: user.id,
-          firebaseUid: user.firebaseUid,
           email: user.email,
           emailVerified: user.emailVerified,
           displayName: user.displayName,
@@ -172,18 +169,7 @@ export async function getUserByIdAction(userId: string): Promise<AdminUserAction
 
     const user = await db.user.findUnique({
       where: { id: userId },
-      include: {
-        settings: true,
-        adminUser: true,
-        loginHistory: {
-          orderBy: { loginAt: 'desc' },
-          take: 10,
-        },
-        notifications: {
-          orderBy: { createdAt: 'desc' },
-          take: 10,
-        },
-      },
+      select: ADMIN_USER_DETAIL_SELECT,
     });
 
     if (!user) {
@@ -252,6 +238,7 @@ export async function updateUserAction(
         subscriptionTier: data.subscriptionTier,
         subscriptionStatus: data.subscriptionStatus,
       },
+      select: ADMIN_USER_SELECT,
     });
 
     // Log audit
@@ -384,6 +371,7 @@ export async function grantAdminRoleAction(
         role: data.role,
         permissions: data.permissions,
       },
+      select: ADMIN_USER_DETAIL_SELECT.adminUser.select,
     });
 
     // Log audit
