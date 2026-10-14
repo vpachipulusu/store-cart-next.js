@@ -41,6 +41,33 @@ const SAFE_PROFILE_SELECT = {
 } as const;
 
 /**
+ * Logs the failure server-side and returns a stable generic message. Raw `error.message` text from
+ * Firebase, Prisma or other libraries must never reach the client (KAN-170).
+ */
+function fail(logMessage: string, error: unknown, publicMessage: string): UserActionResponse {
+  logger.error(logMessage, error);
+  return { success: false, error: publicMessage };
+}
+
+/**
+ * Like `fail`, for actions that handle passwords, TOTP secrets or codes. Prisma and Firebase
+ * errors can embed the arguments of the failing call (for example the `twoFactorSecret` being
+ * written), so only the error name and code are logged, never the message, stack or error object.
+ */
+function failSensitive(
+  logMessage: string,
+  error: unknown,
+  publicMessage: string
+): UserActionResponse {
+  const code = (error as { code?: unknown } | null)?.code;
+  logger.error(logMessage, {
+    errorName: error instanceof Error ? error.name : typeof error,
+    errorCode: typeof code === 'string' ? code : undefined,
+  });
+  return { success: false, error: publicMessage };
+}
+
+/**
  * Get user profile
  */
 export async function getUserProfileAction(): Promise<UserActionResponse> {
@@ -69,12 +96,8 @@ export async function getUserProfileAction(): Promise<UserActionResponse> {
       success: true,
       data: { user },
     };
-  } catch (error: any) {
-    logger.error('Get user profile error:', error);
-    return {
-      success: false,
-      error: error.message || 'Failed to get user profile',
-    };
+  } catch (error: unknown) {
+    return fail('Get user profile error:', error, 'Failed to get user profile');
   }
 }
 
@@ -119,12 +142,8 @@ export async function updateUserProfileAction(
       success: true,
       data: { user: updatedUser },
     };
-  } catch (error: any) {
-    logger.error('Update user profile error:', error);
-    return {
-      success: false,
-      error: error.message || 'Failed to update profile',
-    };
+  } catch (error: unknown) {
+    return fail('Update user profile error:', error, 'Failed to update profile');
   }
 }
 
@@ -161,12 +180,8 @@ export async function updateUserAvatarAction(avatarUrl: string): Promise<UserAct
       success: true,
       data: { avatarUrl: updatedUser.avatarUrl },
     };
-  } catch (error: any) {
-    logger.error('Update avatar error:', error);
-    return {
-      success: false,
-      error: error.message || 'Failed to update avatar',
-    };
+  } catch (error: unknown) {
+    return fail('Update avatar error:', error, 'Failed to update avatar');
   }
 }
 
@@ -198,12 +213,8 @@ export async function getUserSettingsAction(): Promise<UserActionResponse> {
       success: true,
       data: { settings },
     };
-  } catch (error: any) {
-    logger.error('Get user settings error:', error);
-    return {
-      success: false,
-      error: error.message || 'Failed to get settings',
-    };
+  } catch (error: unknown) {
+    return fail('Get user settings error:', error, 'Failed to get settings');
   }
 }
 
@@ -253,12 +264,8 @@ export async function updateUserSettingsAction(
       success: true,
       data: { settings },
     };
-  } catch (error: any) {
-    logger.error('Update user settings error:', error);
-    return {
-      success: false,
-      error: error.message || 'Failed to update settings',
-    };
+  } catch (error: unknown) {
+    return fail('Update user settings error:', error, 'Failed to update settings');
   }
 }
 
@@ -301,12 +308,8 @@ export async function getUserNotificationsAction(
         unreadCount,
       },
     };
-  } catch (error: any) {
-    logger.error('Get notifications error:', error);
-    return {
-      success: false,
-      error: error.message || 'Failed to get notifications',
-    };
+  } catch (error: unknown) {
+    return fail('Get notifications error:', error, 'Failed to get notifications');
   }
 }
 
@@ -347,12 +350,8 @@ export async function markNotificationReadAction(
       success: true,
       data: { message: 'Notification marked as read' },
     };
-  } catch (error: any) {
-    logger.error('Mark notification read error:', error);
-    return {
-      success: false,
-      error: error.message || 'Failed to mark notification as read',
-    };
+  } catch (error: unknown) {
+    return fail('Mark notification read error:', error, 'Failed to mark notification as read');
   }
 }
 
@@ -378,12 +377,12 @@ export async function markAllNotificationsReadAction(): Promise<UserActionRespon
       success: true,
       data: { message: 'All notifications marked as read' },
     };
-  } catch (error: any) {
-    logger.error('Mark all notifications read error:', error);
-    return {
-      success: false,
-      error: error.message || 'Failed to mark all notifications as read',
-    };
+  } catch (error: unknown) {
+    return fail(
+      'Mark all notifications read error:',
+      error,
+      'Failed to mark all notifications as read'
+    );
   }
 }
 
@@ -423,12 +422,8 @@ export async function deleteNotificationAction(
       success: true,
       data: { message: 'Notification deleted' },
     };
-  } catch (error: any) {
-    logger.error('Delete notification error:', error);
-    return {
-      success: false,
-      error: error.message || 'Failed to delete notification',
-    };
+  } catch (error: unknown) {
+    return fail('Delete notification error:', error, 'Failed to delete notification');
   }
 }
 
@@ -466,12 +461,8 @@ export async function getUserLoginHistoryAction(
         totalCount,
       },
     };
-  } catch (error: any) {
-    logger.error('Get login history error:', error);
-    return {
-      success: false,
-      error: error.message || 'Failed to get login history',
-    };
+  } catch (error: unknown) {
+    return fail('Get login history error:', error, 'Failed to get login history');
   }
 }
 
@@ -553,12 +544,8 @@ export async function changePasswordAction(
       success: true,
       data: { message: 'Password changed successfully' },
     };
-  } catch (error: any) {
-    logger.error('Change password error:', error);
-    return {
-      success: false,
-      error: error.message || 'Failed to change password',
-    };
+  } catch (error: unknown) {
+    return failSensitive('Change password error:', error, 'Failed to change password');
   }
 }
 
@@ -630,12 +617,8 @@ export async function exportUserDataAction(): Promise<UserActionResponse> {
       success: true,
       data: exportData,
     };
-  } catch (error: any) {
-    logger.error('Export data error:', error);
-    return {
-      success: false,
-      error: error.message || 'Failed to export data',
-    };
+  } catch (error: unknown) {
+    return fail('Export data error:', error, 'Failed to export data');
   }
 }
 
@@ -670,12 +653,8 @@ export async function getLoginHistoryAction(limit = 10, offset = 0): Promise<Use
         totalCount,
       },
     };
-  } catch (error: any) {
-    logger.error('Get login history error:', error);
-    return {
-      success: false,
-      error: error.message || 'Failed to get login history',
-    };
+  } catch (error: unknown) {
+    return fail('Get login history error:', error, 'Failed to get login history');
   }
 }
 
@@ -731,12 +710,8 @@ export async function deleteAccountAction(): Promise<UserActionResponse> {
       success: true,
       data: { message: 'Account deleted successfully' },
     };
-  } catch (error: any) {
-    logger.error('Delete account error:', error);
-    return {
-      success: false,
-      error: error.message || 'Failed to delete account',
-    };
+  } catch (error: unknown) {
+    return fail('Delete account error:', error, 'Failed to delete account');
   }
 }
 
@@ -768,9 +743,8 @@ export async function initiate2FASetupAction(): Promise<UserActionResponse> {
     });
 
     return { success: true, data: { uri, secret } };
-  } catch (error: any) {
-    logger.error('Initiate 2FA setup error:', error);
-    return { success: false, error: error.message || 'Failed to initiate 2FA setup' };
+  } catch (error: unknown) {
+    return failSensitive('Initiate 2FA setup error:', error, 'Failed to initiate 2FA setup');
   }
 }
 
@@ -796,9 +770,8 @@ export async function verify2FASetupAction(token: string): Promise<UserActionRes
     });
 
     return { success: true, data: { message: '2FA enabled successfully' } };
-  } catch (error: any) {
-    logger.error('Verify 2FA setup error:', error);
-    return { success: false, error: error.message || 'Failed to verify 2FA setup' };
+  } catch (error: unknown) {
+    return failSensitive('Verify 2FA setup error:', error, 'Failed to verify 2FA setup');
   }
 }
 
@@ -824,9 +797,8 @@ export async function disable2FAAction(token: string): Promise<UserActionRespons
     });
 
     return { success: true, data: { message: '2FA disabled successfully' } };
-  } catch (error: any) {
-    logger.error('Disable 2FA error:', error);
-    return { success: false, error: error.message || 'Failed to disable 2FA' };
+  } catch (error: unknown) {
+    return failSensitive('Disable 2FA error:', error, 'Failed to disable 2FA');
   }
 }
 
@@ -849,8 +821,7 @@ export async function get2FAStatusAction(): Promise<UserActionResponse> {
       success: true,
       data: { twoFactorEnabled: user.twoFactorEnabled },
     };
-  } catch (error: any) {
-    logger.error('Get 2FA status error:', error);
-    return { success: false, error: error.message || 'Failed to get 2FA status' };
+  } catch (error: unknown) {
+    return fail('Get 2FA status error:', error, 'Failed to get 2FA status');
   }
 }
