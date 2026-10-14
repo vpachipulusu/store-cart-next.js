@@ -138,7 +138,7 @@ export async function getSubscriptionStatusAction(): Promise<SubscriptionActionR
     logger.error('Get subscription status error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get subscription status',
+      error: 'Failed to get subscription status',
     };
   }
 }
@@ -267,7 +267,7 @@ export async function createCheckoutSessionAction(
     logger.error('Create checkout session error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to create checkout session',
+      error: 'Failed to create checkout session',
     };
   }
 }
@@ -346,7 +346,7 @@ export async function verifyUpgradeSessionAction(): Promise<
     logger.error('Verify upgrade session error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to verify upgrade session',
+      error: 'Failed to verify upgrade session',
     };
   }
 }
@@ -392,7 +392,7 @@ export async function createBillingPortalSessionAction(): Promise<SubscriptionAc
     logger.error('Create billing portal session error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to create billing portal session',
+      error: 'Failed to create billing portal session',
     };
   }
 }
@@ -441,7 +441,7 @@ export async function cancelSubscriptionAction(): Promise<SubscriptionActionResp
     logger.error('Cancel subscription error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to cancel subscription',
+      error: 'Failed to cancel subscription',
     };
   }
 }
@@ -523,7 +523,7 @@ export async function resumeSubscriptionAction(): Promise<SubscriptionActionResp
     logger.error('Resume subscription error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to resume subscription',
+      error: 'Failed to resume subscription',
     };
   }
 }
@@ -588,7 +588,7 @@ export async function updateSubscriptionAction(
     logger.error('Update subscription error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to update subscription',
+      error: 'Failed to update subscription',
     };
   }
 }
@@ -647,7 +647,7 @@ export async function getSubscriptionInvoicesAction(
     logger.error('Get invoices error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get invoices',
+      error: 'Failed to get invoices',
     };
   }
 }
@@ -695,7 +695,7 @@ export async function getUpcomingInvoiceAction(): Promise<SubscriptionActionResp
     logger.error('Get upcoming invoice error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get upcoming invoice',
+      error: 'Failed to get upcoming invoice',
     };
   }
 }
@@ -743,7 +743,7 @@ export async function hasActiveSubscriptionAction(): Promise<SubscriptionActionR
     logger.error('Check active subscription error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to check subscription status',
+      error: 'Failed to check subscription status',
     };
   }
 }
@@ -822,7 +822,7 @@ export async function getSubscriptionDetailsAction(): Promise<SubscriptionAction
     };
   } catch (error: any) {
     logger.error('Get subscription details error:', error);
-    return { success: false, error: error.message || 'Failed to get subscription details' };
+    return { success: false, error: 'Failed to get subscription details' };
   }
 }
 
@@ -875,7 +875,7 @@ export async function getPaymentMethodsAction(): Promise<SubscriptionActionRespo
     };
   } catch (error: any) {
     logger.error('Get payment methods error:', error);
-    return { success: false, error: error.message || 'Failed to get payment methods' };
+    return { success: false, error: 'Failed to get payment methods' };
   }
 }
 
@@ -939,7 +939,7 @@ export async function deletePaymentMethodAction(
     return { success: true, data: { message: 'Payment method removed' } };
   } catch (error: any) {
     logger.error('Delete payment method error:', error);
-    return { success: false, error: error.message || 'Failed to delete payment method' };
+    return { success: false, error: 'Failed to delete payment method' };
   }
 }
 
@@ -1002,6 +1002,6 @@ export async function setDefaultPaymentMethodAction(
     return { success: true, data: { message: 'Default payment method updated' } };
   } catch (error: any) {
     logger.error('Set default payment method error:', error);
-    return { success: false, error: error.message || 'Failed to set default payment method' };
+    return { success: false, error: 'Failed to set default payment method' };
   }
 }

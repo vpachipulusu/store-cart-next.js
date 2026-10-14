@@ -52,7 +52,7 @@ export async function getNotificationsAction(
     logger.error('Get notifications error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get notifications',
+      error: 'Failed to get notifications',
     };
   }
 }
@@ -101,7 +101,7 @@ export async function markNotificationAsReadAction(
     logger.error('Mark notification as read error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to mark notification as read',
+      error: 'Failed to mark notification as read',
     };
   }
 }
@@ -137,7 +137,7 @@ export async function markAllNotificationsAsReadAction(): Promise<NotificationAc
     logger.error('Mark all notifications as read error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to mark all notifications as read',
+      error: 'Failed to mark all notifications as read',
     };
   }
 }
@@ -185,7 +185,7 @@ export async function deleteNotificationAction(
     logger.error('Delete notification error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to delete notification',
+      error: 'Failed to delete notification',
     };
   }
 }

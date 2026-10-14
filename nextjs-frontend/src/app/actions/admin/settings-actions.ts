@@ -95,7 +95,7 @@ export async function getAllAppSettingsAction(
     logger.error('Get all app settings error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get app settings',
+      error: 'Failed to get app settings',
     };
   }
 }
@@ -132,7 +132,7 @@ export async function getAppSettingByKeyAction(key: string): Promise<AdminSettin
     logger.error('Get app setting by key error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get app setting',
+      error: 'Failed to get app setting',
     };
   }
 }
@@ -206,7 +206,7 @@ export async function upsertAppSettingAction(
     logger.error('Upsert app setting error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to save app setting',
+      error: 'Failed to save app setting',
     };
   }
 }
@@ -246,7 +246,7 @@ export async function deleteAppSettingAction(key: string): Promise<AdminSettings
     logger.error('Delete app setting error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to delete app setting',
+      error: 'Failed to delete app setting',
     };
   }
 }
@@ -279,7 +279,7 @@ export async function getSettingsByCategoryAction(
     logger.error('Get settings by category error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get settings',
+      error: 'Failed to get settings',
     };
   }
 }
@@ -319,7 +319,7 @@ export async function getAllFeatureFlagsAction(): Promise<AdminSettingsActionRes
     logger.error('Get all feature flags error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get feature flags',
+      error: 'Failed to get feature flags',
     };
   }
 }
@@ -350,7 +350,7 @@ export async function getFeatureFlagByNameAction(
     logger.error('Get feature flag by name error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get feature flag',
+      error: 'Failed to get feature flag',
     };
   }
 }
@@ -414,7 +414,7 @@ export async function upsertFeatureFlagAction(
     logger.error('Upsert feature flag error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to save feature flag',
+      error: 'Failed to save feature flag',
     };
   }
 }
@@ -469,7 +469,7 @@ export async function toggleFeatureFlagAction(name: string): Promise<AdminSettin
     logger.error('Toggle feature flag error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to toggle feature flag',
+      error: 'Failed to toggle feature flag',
     };
   }
 }
@@ -509,7 +509,7 @@ export async function deleteFeatureFlagAction(name: string): Promise<AdminSettin
     logger.error('Delete feature flag error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to delete feature flag',
+      error: 'Failed to delete feature flag',
     };
   }
 }
@@ -550,7 +550,7 @@ export async function getAllEmailTemplatesAction(): Promise<AdminSettingsActionR
     logger.error('Get all email templates error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get email templates',
+      error: 'Failed to get email templates',
     };
   }
 }
@@ -589,7 +589,7 @@ export async function getEmailTemplateByNameAction(
     logger.error('Get email template by name error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get email template',
+      error: 'Failed to get email template',
     };
   }
 }
@@ -655,7 +655,7 @@ export async function upsertEmailTemplateAction(
     logger.error('Upsert email template error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to save email template',
+      error: 'Failed to save email template',
     };
   }
 }
@@ -697,7 +697,7 @@ export async function deleteEmailTemplateAction(
     logger.error('Delete email template error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to delete email template',
+      error: 'Failed to delete email template',
     };
   }
 }
@@ -764,7 +764,7 @@ export async function getAuditLogsAction(
     logger.error('Get audit logs error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get audit logs',
+      error: 'Failed to get audit logs',
     };
   }
 }
@@ -816,7 +816,7 @@ export async function getSystemStatsAction(): Promise<AdminSettingsActionRespons
     logger.error('Get system stats error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get system statistics',
+      error: 'Failed to get system statistics',
     };
   }
 }
@@ -869,7 +869,8 @@ export async function bulkUpdateSettingsAction(
         successCount++;
       } catch (error: any) {
         errorCount++;
-        errors.push(`Failed to update ${setting.key}: ${error.message}`);
+        logger.error(`Bulk update setting error for key ${setting.key}:`, error);
+        errors.push(`Failed to update ${setting.key}`);
       }
     }
 
@@ -896,7 +897,7 @@ export async function bulkUpdateSettingsAction(
     logger.error('Bulk update settings error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to bulk update settings',
+      error: 'Failed to bulk update settings',
     };
   }
 }

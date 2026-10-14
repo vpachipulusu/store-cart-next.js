@@ -133,7 +133,7 @@ export async function getAllSubscriptionsAction(
     logger.error('Get all subscriptions error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get subscriptions',
+      error: 'Failed to get subscriptions',
     };
   }
 }
@@ -207,7 +207,7 @@ export async function getSubscriptionStatsAction(): Promise<AdminSubscriptionAct
     logger.error('Get subscription stats error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get subscription statistics',
+      error: 'Failed to get subscription statistics',
     };
   }
 }
@@ -288,7 +288,7 @@ export async function getUserSubscriptionDetailsAction(
     logger.error('Get user subscription details error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get subscription details',
+      error: 'Failed to get subscription details',
     };
   }
 }
@@ -358,7 +358,7 @@ export async function updateUserSubscriptionAction(
     logger.error('Update user subscription error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to update subscription',
+      error: 'Failed to update subscription',
     };
   }
 }
@@ -434,7 +434,7 @@ export async function cancelUserSubscriptionAction(
     logger.error('Cancel user subscription error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to cancel subscription',
+      error: 'Failed to cancel subscription',
     };
   }
 }
@@ -518,7 +518,7 @@ export async function refundSubscriptionPaymentAction(
     logger.error('Refund subscription payment error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to process refund',
+      error: 'Failed to process refund',
     };
   }
 }
@@ -580,7 +580,7 @@ export async function grantFreeSubscriptionAction(
     logger.error('Grant free subscription error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to grant subscription',
+      error: 'Failed to grant subscription',
     };
   }
 }
@@ -655,7 +655,7 @@ export async function getSubscriptionRevenueAction(
     logger.error('Get subscription revenue error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get revenue data',
+      error: 'Failed to get revenue data',
     };
   }
 }
@@ -716,7 +716,7 @@ export async function syncStripeSubscriptionsAction(): Promise<AdminSubscription
     logger.error('Sync Stripe subscriptions error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to sync subscriptions',
+      error: 'Failed to sync subscriptions',
     };
   }
 }
