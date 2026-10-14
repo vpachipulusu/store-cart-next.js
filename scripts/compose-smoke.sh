@@ -54,8 +54,9 @@ degraded() {
   body="$(curl --silent --max-time 15 "$FRONTEND/api/health")"
   # Generic body only: no backend URL, hostname, or error text may leak.
   [ "$body" = '{"status":"unavailable"}' ] || fail "frontend 503 body was not generic: $body"
-  [ "$(status_of "$BACKEND/health")" != 200 ] || fail "backend /health still answers 200 after stop"
-  echo "degraded: frontend /api/health 503 generic, backend /health down"
+  # Ask compose, not the host port: another local service may own BACKEND_PORT.
+  [ -z "$(docker compose ps --status running --quiet backend)" ] || fail "backend container is still running after stop"
+  echo "degraded: frontend /api/health 503 generic, backend container stopped"
 }
 
 down() { docker compose down --volumes --remove-orphans; }
