@@ -93,6 +93,9 @@ const mocks = vi.hoisted(() => ({
   findUnique: vi.fn(),
   update: vi.fn(),
   auditCreate: vi.fn(),
+  findMany: vi.fn(),
+  count: vi.fn(),
+  upsert: vi.fn(),
 }));
 
 vi.mock('next/headers', () => ({
@@ -106,13 +109,24 @@ vi.mock('@/lib/auth/verified-session', () => ({
 }));
 vi.mock('@/lib/db/client', () => ({
   db: {
-    user: { findUnique: mocks.findUnique, update: mocks.update },
+    user: {
+      findUnique: mocks.findUnique,
+      update: mocks.update,
+      findMany: mocks.findMany,
+      count: mocks.count,
+    },
+    adminUser: { upsert: mocks.upsert },
     auditLog: { create: mocks.auditCreate },
   },
 }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-import { getUserByIdAction, updateUserAction } from '@/app/actions/admin/user-actions';
+import {
+  getAllUsersAction,
+  getUserByIdAction,
+  grantAdminRoleAction,
+  updateUserAction,
+} from '@/app/actions/admin/user-actions';
 import {
   grantFreeSubscriptionAction,
   updateUserSubscriptionAction,
@@ -176,6 +190,35 @@ describe('KAN-169: admin user actions return only selected fields', () => {
     await updateUserAction('user-1', { displayName: 'Ada' });
 
     expect(mocks.update.mock.calls[0][0].select).toBe(ADMIN_USER_SELECT);
+  });
+
+  it('getAllUsersAction omits firebaseUid and selects explicitly', async () => {
+    mocks.findMany.mockImplementation(async ({ select }) => [applySelect(FULL_USER, select)]);
+    mocks.count.mockResolvedValue(1);
+
+    const result = await getAllUsersAction();
+
+    expect(result.success).toBe(true);
+    expect(result.data.users[0]).not.toHaveProperty('firebaseUid');
+    expect(result.data.users[0].isAdmin).toBe(true);
+    expect(mocks.findMany.mock.calls[0][0].include).toBeUndefined();
+    expect(mocks.findMany.mock.calls[0][0].select).toBeDefined();
+    expectNoSecrets(result);
+  });
+
+  it('grantAdminRoleAction selects explicitly', async () => {
+    mocks.upsert.mockImplementation(async ({ select }) =>
+      applySelect(FULL_USER.adminUser as never, select)
+    );
+
+    const result = await grantAdminRoleAction('user-1', {
+      role: 'admin',
+      permissions: ['users.read'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(mocks.upsert.mock.calls[0][0].select).toBeDefined();
+    expect(result.data.adminUser).not.toHaveProperty('userId');
   });
 
   it('the shared selects never name a secret column', () => {
