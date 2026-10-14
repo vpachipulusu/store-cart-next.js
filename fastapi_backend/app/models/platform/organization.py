@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import text
+from sqlalchemy import CheckConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.base import Base
@@ -11,6 +11,7 @@ class Organization(IdMixin, TimestampMixin, Base):
     """A merchant business. Subscription state lives here (ADR-010), not on User."""
 
     __tablename__ = "organizations"
+    __table_args__ = (CheckConstraint("slug = lower(slug)", name="slug_lowercase"),)
 
     name: Mapped[str]
     slug: Mapped[str] = mapped_column(unique=True)
