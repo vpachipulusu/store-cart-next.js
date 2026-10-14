@@ -14,6 +14,7 @@ from app.models.platform.membership import Membership, MembershipRole
 from app.models.platform.organization import Organization
 from app.models.platform.seo_meta import SeoMeta
 from app.models.platform.store import Store, StoreStatus
+from app.models.platform.stripe_event import StripeEvent
 from app.models.platform.url_redirect import UrlRedirect
 from app.models.platform.user import LoginHistory, Notification, User, UserSettings
 
@@ -33,6 +34,7 @@ __all__ = [
     "SeoMeta",
     "Store",
     "StoreStatus",
+    "StripeEvent",
     "UrlRedirect",
     "User",
     "UserSettings",

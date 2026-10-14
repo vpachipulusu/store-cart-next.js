@@ -24,6 +24,8 @@ EXPECTED_TABLES = {
     "memberships",
     "invitations",
     "stores",
+    # billing webhook (KAN-44)
+    "stripe_events",
 }
 
 BILLING_COLUMNS = {
