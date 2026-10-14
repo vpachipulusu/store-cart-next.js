@@ -96,7 +96,7 @@ export async function getAllSEOMetaAction(): Promise<AdminSEOActionResponse> {
     logger.error('Get all SEO meta error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get SEO meta',
+      error: 'Failed to get SEO meta',
     };
   }
 }
@@ -133,7 +133,7 @@ export async function getSEOMetaByPageAction(page: string): Promise<AdminSEOActi
     logger.error('Get SEO meta by page error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get SEO meta',
+      error: 'Failed to get SEO meta',
     };
   }
 }
@@ -211,7 +211,7 @@ export async function upsertSEOMetaAction(
     logger.error('Upsert SEO meta error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to save SEO meta',
+      error: 'Failed to save SEO meta',
     };
   }
 }
@@ -251,7 +251,7 @@ export async function deleteSEOMetaAction(page: string): Promise<AdminSEOActionR
     logger.error('Delete SEO meta error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to delete SEO meta',
+      error: 'Failed to delete SEO meta',
     };
   }
 }
@@ -291,7 +291,7 @@ export async function getAllURLRedirectsAction(): Promise<AdminSEOActionResponse
     logger.error('Get all URL redirects error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get URL redirects',
+      error: 'Failed to get URL redirects',
     };
   }
 }
@@ -349,7 +349,7 @@ export async function createURLRedirectAction(
     logger.error('Create URL redirect error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to create URL redirect',
+      error: 'Failed to create URL redirect',
     };
   }
 }
@@ -409,7 +409,7 @@ export async function updateURLRedirectAction(
     logger.error('Update URL redirect error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to update URL redirect',
+      error: 'Failed to update URL redirect',
     };
   }
 }
@@ -449,7 +449,7 @@ export async function deleteURLRedirectAction(id: string): Promise<AdminSEOActio
     logger.error('Delete URL redirect error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to delete URL redirect',
+      error: 'Failed to delete URL redirect',
     };
   }
 }
@@ -493,7 +493,7 @@ export async function toggleURLRedirectAction(id: string): Promise<AdminSEOActio
     logger.error('Toggle URL redirect error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to toggle URL redirect',
+      error: 'Failed to toggle URL redirect',
     };
   }
 }
@@ -525,7 +525,7 @@ export async function getActiveRedirectAction(fromPath: string): Promise<AdminSE
     logger.error('Get active redirect error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get redirect',
+      error: 'Failed to get redirect',
     };
   }
 }
@@ -592,7 +592,8 @@ export async function bulkImportSEOMetaAction(
         successCount++;
       } catch (error: any) {
         errorCount++;
-        errors.push(`Failed to import ${meta.page}: ${error.message}`);
+        logger.error(`Bulk import SEO meta error for page ${meta.page}:`, error);
+        errors.push(`Failed to import ${meta.page}`);
       }
     }
 
@@ -619,7 +620,7 @@ export async function bulkImportSEOMetaAction(
     logger.error('Bulk import SEO meta error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to bulk import SEO meta',
+      error: 'Failed to bulk import SEO meta',
     };
   }
 }

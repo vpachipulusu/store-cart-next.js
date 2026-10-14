@@ -149,7 +149,7 @@ export async function getAllUsersAction(
     logger.error('Get all users error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get users',
+      error: 'Failed to get users',
     };
   }
 }
@@ -187,7 +187,7 @@ export async function getUserByIdAction(userId: string): Promise<AdminUserAction
     logger.error('Get user by ID error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get user',
+      error: 'Failed to get user',
     };
   }
 }
@@ -260,7 +260,7 @@ export async function updateUserAction(
     logger.error('Update user error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to update user',
+      error: 'Failed to update user',
     };
   }
 }
@@ -321,7 +321,7 @@ export async function deleteUserAction(userId: string): Promise<AdminUserActionR
     logger.error('Delete user error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to delete user',
+      error: 'Failed to delete user',
     };
   }
 }
@@ -393,7 +393,7 @@ export async function grantAdminRoleAction(
     logger.error('Grant admin role error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to grant admin role',
+      error: 'Failed to grant admin role',
     };
   }
 }
@@ -434,7 +434,7 @@ export async function revokeAdminRoleAction(userId: string): Promise<AdminUserAc
     logger.error('Revoke admin role error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to revoke admin role',
+      error: 'Failed to revoke admin role',
     };
   }
 }
@@ -481,7 +481,7 @@ export async function getUserStatsAction(): Promise<AdminUserActionResponse> {
     logger.error('Get user stats error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to get user statistics',
+      error: 'Failed to get user statistics',
     };
   }
 }
@@ -537,7 +537,7 @@ export async function banUserAction(
     logger.error('Ban user error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to ban user',
+      error: 'Failed to ban user',
     };
   }
 }
@@ -589,7 +589,7 @@ export async function unbanUserAction(userId: string): Promise<AdminUserActionRe
     logger.error('Unban user error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to unban user',
+      error: 'Failed to unban user',
     };
   }
 }
@@ -629,7 +629,7 @@ export async function sendUserNotificationAction(
     logger.error('Send notification error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to send notification',
+      error: 'Failed to send notification',
     };
   }
 }

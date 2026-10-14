@@ -26,7 +26,7 @@ Items are listed by area. Each one is either tracked by a Jira key or marked as 
 ## Security
 
 - **Auth rate limiting is not real yet (deferred).** The limiter in `src/lib/middleware/rate-limit.ts` is an in-memory `Map`, which gives no protection on serverless (ADR-007). KAN-129 did not build a new one: it is replaced by the backend Redis/Upstash limiter (KAN-34, keyed by user/org/store). Until then, do not rely on it for brute-force protection.
-- **Other server actions still return raw `error.message`.** KAN-129 fixed `auth-actions.ts` only. `subscription-actions.ts`, `notification-actions.ts` and `admin/seo-actions.ts` still pass it through; they fall under the KAN-31 error envelope. `user-actions.ts` is covered by KAN-126.
+- **Legacy server actions returned raw `error.message` (fixed in KAN-172).** KAN-129 fixed `auth-actions.ts`, KAN-170 fixed `user-actions.ts`, and KAN-172 fixed `subscription-actions.ts`, `notification-actions.ts` and the four admin action files (`seo`, `settings`, `subscription`, `user`); they now return stable generic messages and log the cause server-side. Nothing in `src/app/actions/` returns a raw `error.message` any more. No `error.message` is returned by `src/app/api/` route handlers either. Remaining: only `auth-actions.ts` (KAN-125 will rework it) and client components that show the `error.message` of client-side exceptions in toasts, which is not server text.
 
 ## Backend
 
