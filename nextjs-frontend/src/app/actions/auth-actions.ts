@@ -58,11 +58,11 @@ export async function loginAction(email: string, password: string): Promise<Auth
       success: true,
       data: { message: 'Login validation successful' },
     };
-  } catch (error: any) {
+  } catch (error) {
     logger.error('Login action error:', error);
     return {
       success: false,
-      error: error.message || 'Login failed',
+      error: 'Login failed',
     };
   }
 }
@@ -91,11 +91,11 @@ export async function signUpAction(
       success: true,
       data: { message: 'Signup validation successful' },
     };
-  } catch (error: any) {
+  } catch (error) {
     logger.error('Signup action error:', error);
     return {
       success: false,
-      error: error.message || 'Signup failed',
+      error: 'Signup failed',
     };
   }
 }
@@ -127,11 +127,11 @@ export async function logoutAction(): Promise<AuthActionResponse> {
       success: true,
       data: { message: 'Logged out successfully' },
     };
-  } catch (error: any) {
+  } catch (error) {
     logger.error('Logout action error:', error);
     return {
       success: false,
-      error: error.message || 'Logout failed',
+      error: 'Logout failed',
     };
   }
 }
@@ -411,11 +411,11 @@ export async function verifyEmailAction(oobCode: string): Promise<AuthActionResp
       success: true,
       data: { message: 'Email verified successfully' },
     };
-  } catch (error: any) {
+  } catch (error) {
     logger.error('Email verification error:', error);
     return {
       success: false,
-      error: error.message || 'Email verification failed',
+      error: 'Email verification failed',
     };
   }
 }

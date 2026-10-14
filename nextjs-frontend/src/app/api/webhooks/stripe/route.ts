@@ -67,22 +67,6 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * OPTIONS /api/webhooks/stripe
- *
- * Handle CORS preflight
- */
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 200,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, stripe-signature',
-    },
-  });
-}
-
-/**
  * Next.js Route Config
  * Disable body parsing to get raw body for signature verification
  */
