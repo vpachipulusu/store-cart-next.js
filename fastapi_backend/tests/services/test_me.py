@@ -138,8 +138,8 @@ async def test_deletion_checks_owner_and_deletes_firebase_before_sql(context):
     [
         {"uid": "another"},
         {"email_verified": False},
-        {"auth_time": int(time.time()) - 301},
-        {"auth_time": int(time.time()) + 300},
+        {"auth_time": -301},
+        {"auth_time": 300},
         {"auth_time": True},
     ],
 )
@@ -147,6 +147,9 @@ async def test_stale_future_unverified_and_foreign_reauthentication_never_reache
     context, changed
 ):
     service, _, _, identity, events = context
+    if type(changed.get("auth_time")) is int:
+        # Offsets are resolved at run time: a suite longer than 300s must not age them.
+        changed = {"auth_time": int(time.time()) + changed["auth_time"]}
     identity.claims.update(changed)
     with pytest.raises(AuthenticationFailed):
         await service.delete_account(current(), "token")
