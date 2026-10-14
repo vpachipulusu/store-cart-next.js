@@ -162,8 +162,15 @@
     scroll-behavior: smooth;
   }
 
+  /* The one focus style (KAN-176): 3px outline, 2px offset, --ring (navy in light, gold in dark). */
   *:focus-visible {
-    @apply outline-none ring-2 ring-ring/50 ring-offset-2 ring-offset-background;
+    outline: 3px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  /* Inverse surfaces (sidebar, featured plan) use the brass CTA colour for the ring. */
+  .on-inverse *:focus-visible {
+    outline-color: hsl(var(--cta));
   }
 
   /* Heading defaults */

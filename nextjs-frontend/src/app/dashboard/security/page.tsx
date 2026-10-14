@@ -509,7 +509,6 @@ export default function SecurityPage() {
                           <Input value={twoFactorSecret} readOnly className="font-mono text-sm" />
                           <Button
                             variant="outline"
-                            size="sm"
                             onClick={() => {
                               navigator.clipboard.writeText(twoFactorSecret);
                               toast({

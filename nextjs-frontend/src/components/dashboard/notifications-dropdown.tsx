@@ -108,7 +108,6 @@ export function NotificationsDropdown({ notifications, unreadCount }: Notificati
           {unreadCount > 0 && (
             <Button
               variant="ghost"
-              size="sm"
               className="h-auto px-2 py-1 text-xs"
               onClick={handleMarkAllAsRead}
             >

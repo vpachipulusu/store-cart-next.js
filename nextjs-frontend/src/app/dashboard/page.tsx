@@ -418,7 +418,7 @@ export default async function DashboardPage({
                     </p>
                   </div>
                   {notification.link && (
-                    <Button asChild variant="ghost" size="sm">
+                    <Button asChild variant="ghost">
                       <Link href={notification.link}>View</Link>
                     </Button>
                   )}
