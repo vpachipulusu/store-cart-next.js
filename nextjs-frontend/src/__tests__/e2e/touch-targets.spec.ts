@@ -57,3 +57,43 @@ test('primary button on /login is 44px and focus ring is a 3px outline', async (
     )
     .toEqual({ width: '3px', offset: '2px', style: 'solid' });
 });
+
+/** Keyboard walkthrough: every Tab stop shows exactly one navy outline and no ring shadow (light mode). */
+const NAVY = 'rgb(15, 23, 41)'; // --ring 222 47% 11%
+const MAX_TAB_STOPS = 25;
+
+for (const path of ['/login', '/pricing'] as const) {
+  test(`tab order on ${path} shows one navy focus outline per stop`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'light' });
+    await page.goto(path);
+    await waitForPageReady(page);
+
+    const stops: string[] = [];
+    for (let i = 0; i < MAX_TAB_STOPS; i++) {
+      await page.keyboard.press('Tab');
+      const active = page.locator(':focus-visible');
+      if ((await active.count()) === 0) break;
+      // Past the page content: the TanStack devtools toggle only exists in dev builds.
+      if (await active.evaluate((el) => el.className.toString().includes('tsqd'))) break;
+      // Outline animates in via transition-all on buttons.
+      await expect
+        .poll(() => active.evaluate((el) => getComputedStyle(el).outlineWidth))
+        .toBe('3px');
+      const style = await active.evaluate((el) => {
+        const s = getComputedStyle(el);
+        return {
+          tag: el.tagName.toLowerCase(),
+          color: s.outlineColor,
+          style: s.outlineStyle,
+          offset: s.outlineOffset,
+          shadow: s.boxShadow,
+        };
+      });
+      expect([style.color, style.style, style.offset]).toEqual([NAVY, 'solid', '2px']);
+      // A Tailwind ring is a spread shadow ("0px 0px 0px 2px"); the normal shadow-sm is fine.
+      expect(style.shadow).not.toMatch(/0px 0px 0px [1-9]\d*px/);
+      stops.push(style.tag);
+    }
+    expect(stops.length).toBeGreaterThan(2);
+  });
+}
