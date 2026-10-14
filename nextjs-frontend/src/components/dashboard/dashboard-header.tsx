@@ -13,7 +13,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { logoutAction } from '@/app/actions/auth-actions';
-import { NotificationsDropdown } from './notifications-dropdown';
 
 interface DashboardHeaderProps {
   user: {
@@ -21,16 +20,6 @@ interface DashboardHeaderProps {
     picture?: string | null;
     dbDisplayName?: string | null;
     dbAvatarUrl?: string | null;
-    unreadNotificationCount: number;
-    recentNotifications: Array<{
-      id: string;
-      type: string;
-      title: string;
-      message: string;
-      read: boolean;
-      link: string | null;
-      createdAt: string; // Serialized from Date
-    }>;
   };
 }
 
@@ -42,11 +31,7 @@ export function DashboardHeader({ user }: DashboardHeaderProps) {
 
   return (
     <div className="flex items-center gap-4">
-      {/* Notifications */}
-      <NotificationsDropdown
-        notifications={user.recentNotifications}
-        unreadCount={user.unreadNotificationCount}
-      />
+      {/* Notifications dropdown: switched off until KAN-114 delivers notifications through the API. */}
 
       {/* User Menu */}
       <DropdownMenu>

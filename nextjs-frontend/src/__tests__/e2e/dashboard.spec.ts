@@ -315,7 +315,9 @@ test.describe('Customer Dashboard', () => {
         await expect(page.getByRole('button', { name: /change password/i })).toBeVisible();
       });
 
-      test('should display two-factor authentication section', async ({ page }) => {
+      // KAN-41: 2FA setup/disable are switched off (KAN-180 re-authentication dialog; hidden while KAN-125 is
+      // parked) and the 2FA status needs KAN-179. Re-enable this test with the controls.
+      test.skip('should display two-factor authentication section', async ({ page }) => {
         await expect(page.getByText(/two-factor authentication/i).first()).toBeVisible();
         await expect(page.getByText(/2fa status/i)).toBeVisible();
         await expect(page.getByText(/sign-in does not check its codes yet/i)).toBeVisible();
@@ -335,12 +337,14 @@ test.describe('Customer Dashboard', () => {
         await expect(page.getByText(/review recent activity/i)).toBeVisible();
       });
 
-      test('should display data export section', async ({ page }) => {
+      // KAN-41: data export is switched off until KAN-114.
+      test.skip('should display data export section', async ({ page }) => {
         await expect(page.getByText('Data Export')).toBeVisible();
         await expect(page.getByRole('button', { name: /export my data/i })).toBeVisible();
       });
 
-      test('should display danger zone with delete account button', async ({ page }) => {
+      // KAN-41: account deletion is switched off until the KAN-180 re-authentication dialog.
+      test.skip('should display danger zone with delete account button', async ({ page }) => {
         await expect(page.getByText('Danger Zone')).toBeVisible();
         await expect(page.getByRole('button', { name: /delete account/i })).toBeVisible();
       });
@@ -365,7 +369,8 @@ test.describe('Customer Dashboard', () => {
         await expect(page.getByLabel(/current password/i)).not.toBeVisible({ timeout: 3_000 });
       });
 
-      test('should open delete account dialog', async ({ page }) => {
+      // KAN-41: account deletion is switched off until KAN-180.
+      test.skip('should open delete account dialog', async ({ page }) => {
         await page.getByRole('button', { name: /delete account/i }).click();
 
         // Dialog should appear
@@ -375,7 +380,8 @@ test.describe('Customer Dashboard', () => {
         await expect(page.getByLabel(/type.*delete.*confirm/i)).toBeVisible();
       });
 
-      test('should require DELETE confirmation to enable delete button', async ({ page }) => {
+      // KAN-41: account deletion is switched off until KAN-180.
+      test.skip('should require DELETE confirmation to enable delete button', async ({ page }) => {
         await page.getByRole('button', { name: /delete account/i }).click();
         await expect(page.getByLabel(/type.*delete.*confirm/i)).toBeVisible({ timeout: 5_000 });
 

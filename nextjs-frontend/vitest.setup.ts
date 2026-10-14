@@ -7,6 +7,9 @@ afterEach(() => {
   cleanup();
 });
 
+// server-only throws outside a Server Component; unit tests import its guarded modules directly.
+vi.mock('server-only', () => ({}));
+
 // Mock Next.js navigation
 vi.mock('next/navigation', () => ({
   useRouter: () => ({

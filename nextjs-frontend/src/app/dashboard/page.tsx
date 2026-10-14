@@ -2,6 +2,9 @@ import { cookies } from 'next/headers';
 import { redirect, unstable_rethrow } from 'next/navigation';
 import { isEmailNotVerifiedError, verifyVerifiedSessionCookie } from '@/lib/auth/verified-session';
 import { db } from '@/lib/db/client';
+import { fetchLoginHistory, fetchProfile, toLoginHistoryEntry, toProfile } from '@/lib/api/account';
+import { isSessionRejected } from '@/lib/api/session-rejected';
+import { isSessionVerificationError, logRouteError } from '@/lib/auth/session-errors';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   User,
@@ -29,6 +32,13 @@ import { Suspense } from 'react';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+const RECENT_LOGIN_COUNT = 5;
+
+/**
+ * Profile and login history come from the API (KAN-41). The plan is still the legacy Prisma billing
+ * state until billing moves to organisations (KAN-45); a user with no legacy row is on the free plan.
+ * Notifications are switched off until KAN-114 delivers them through the API.
+ */
 async function getUserData() {
   try {
     const cookieStore = await cookies();
@@ -40,55 +50,59 @@ async function getUserData() {
 
     const decodedClaims = await verifyVerifiedSessionCookie(sessionCookie);
 
-    const user = await db.user.findUnique({
-      where: { firebaseUid: decodedClaims.uid },
-      include: {
-        settings: true,
-        loginHistory: {
-          orderBy: { loginAt: 'desc' },
-          take: 5,
-        },
-        notifications: {
-          where: { read: false },
-          take: 10,
-        },
-      },
-    });
+    const [profile, history, billing] = await Promise.all([
+      fetchProfile(),
+      fetchLoginHistory(RECENT_LOGIN_COUNT, 0),
+      db.user.findUnique({
+        where: { firebaseUid: decodedClaims.uid },
+        select: { subscriptionTier: true, subscriptionStatus: true, stripeCurrentPeriodEnd: true },
+      }),
+    ]);
 
-    return user;
+    // The backend rejected the session (401 "Invalid authentication"), or has no platform user for it
+    // (404, a session minted before the API cutover): sign in again. Anything else is an outage, not a
+    // reason to log the user out.
+    for (const result of [profile, history]) {
+      if (!result.success && isSessionRejected(result)) {
+        redirect('/api/auth/clear-session');
+      }
+      if (!result.success) {
+        throw new Error(`Dashboard API request failed (${result.status ?? 'unreachable'})`);
+      }
+    }
+    if (!profile.success || !history.success) {
+      return null;
+    }
+
+    return {
+      ...toProfile(profile.data),
+      loginHistory: history.data.login_history.map(toLoginHistoryEntry),
+      totalLogins: history.data.total_count,
+      lastLoginAt: history.data.login_history[0]?.login_at ?? null,
+      subscriptionTier: billing?.subscriptionTier ?? 'free',
+      subscriptionStatus: billing?.subscriptionStatus ?? 'inactive',
+      stripeCurrentPeriodEnd: billing?.stripeCurrentPeriodEnd ?? null,
+    };
   } catch (error) {
     unstable_rethrow(error);
     if (isEmailNotVerifiedError(error)) {
       redirect('/verify-email');
     }
-    // Expired/invalid session — clear cookies via route handler and redirect to login
-    redirect('/api/auth/clear-session');
+    if (isSessionVerificationError(error)) {
+      // Expired/invalid session — clear cookies via route handler and redirect to login
+      redirect('/api/auth/clear-session');
+    }
+    logRouteError('/dashboard', error);
+    throw error;
   }
 }
 
-async function getStats(user: any) {
-  const totalNotifications = await db.notification.count({
-    where: { userId: user.id },
-  });
-
-  const unreadNotifications = await db.notification.count({
-    where: { userId: user.id, read: false },
-  });
-
-  const totalLogins = await db.loginHistory.count({
-    where: { userId: user.id, successful: true },
-  });
-
+function getStats(user: { createdAt: string; totalLogins: number }) {
   const accountAge = Math.floor(
     (Date.now() - new Date(user.createdAt).getTime()) / (1000 * 60 * 60 * 24)
   );
 
-  return {
-    totalNotifications,
-    unreadNotifications,
-    totalLogins,
-    accountAge,
-  };
+  return { totalLogins: user.totalLogins, accountAge };
 }
 
 export default async function DashboardPage({
@@ -105,7 +119,7 @@ export default async function DashboardPage({
     redirect('/login');
   }
 
-  const stats = await getStats(user);
+  const stats = getStats(user);
 
   const isFreeTier = user.subscriptionTier === 'free';
   const hasActiveSubscription = user.subscriptionStatus === 'active' && !isFreeTier;
@@ -187,10 +201,9 @@ export default async function DashboardPage({
             <Bell className="h-4 w-4 text-theme-accent/70" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.unreadNotifications}</div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {stats.unreadNotifications === 1 ? 'Unread notification' : 'Unread notifications'}
-            </p>
+            {/* Counts are switched off until KAN-114 delivers notifications through the API. */}
+            <div className="text-2xl font-bold">&mdash;</div>
+            <p className="mt-1 text-xs text-muted-foreground">Coming soon</p>
           </CardContent>
         </Card>
 
@@ -348,7 +361,7 @@ export default async function DashboardPage({
           <CardContent>
             {user.loginHistory && user.loginHistory.length > 0 ? (
               <div className="space-y-3">
-                {user.loginHistory.map((login: any) => (
+                {user.loginHistory.map((login) => (
                   <div
                     key={login.id}
                     className="flex items-start justify-between border-b pb-3 last:border-0 last:pb-0"
@@ -388,47 +401,6 @@ export default async function DashboardPage({
         </Card>
       </div>
 
-      {/* Notifications Feed */}
-      {user.notifications && user.notifications.length > 0 && (
-        <Card className="theme-card">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Bell className="h-5 w-5" />
-              Recent Notifications
-            </CardTitle>
-            <CardDescription>
-              You have {stats.unreadNotifications} unread notifications
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {user.notifications.map((notification: any) => (
-                <div
-                  key={notification.id}
-                  className="flex items-start gap-3 rounded-lg border bg-card p-3"
-                >
-                  <div className="rounded-full bg-theme-accent/[0.08] p-2">
-                    <Bell className="h-4 w-4 text-theme-accent" />
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <p className="text-sm font-medium leading-none">{notification.title}</p>
-                    <p className="text-sm text-muted-foreground">{notification.message}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(notification.createdAt).toLocaleString()}
-                    </p>
-                  </div>
-                  {notification.link && (
-                    <Button asChild variant="ghost">
-                      <Link href={notification.link}>View</Link>
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Account Stats Summary */}
       <Card className="theme-card">
         <CardHeader>
@@ -452,8 +424,8 @@ export default async function DashboardPage({
             </div>
             <div className="space-y-2">
               <p className="text-sm text-muted-foreground">Notifications</p>
-              <p className="text-2xl font-bold">{stats.totalNotifications}</p>
-              <p className="text-xs text-muted-foreground">{stats.unreadNotifications} unread</p>
+              <p className="text-2xl font-bold">&mdash;</p>
+              <p className="text-xs text-muted-foreground">Coming soon</p>
             </div>
             <div className="space-y-2">
               <p className="text-sm text-muted-foreground">Current Plan</p>
