@@ -53,6 +53,7 @@ import {
   changePasswordAction,
   getLoginHistoryAction,
   getUserLoginHistoryAction,
+  getTwoFactorStatusAction,
   getUserProfileAction,
   getUserSettingsAction,
   updateUserAvatarAction,
@@ -100,6 +101,31 @@ describe('profile actions', () => {
     mocks.fetchProfile.mockResolvedValue(ok(API_PROFILE));
     mocks.fetchSettings.mockResolvedValue(ok(API_SETTINGS));
     mocks.patchProfile.mockResolvedValue(ok(API_PROFILE));
+  });
+
+  describe('getTwoFactorStatusAction (KAN-183)', () => {
+    it.each([true, false])('reports two_factor_enabled=%s and nothing else', async (enabled) => {
+      mocks.fetchProfile.mockResolvedValue(ok({ ...API_PROFILE, two_factor_enabled: enabled }));
+
+      const result = await getTwoFactorStatusAction();
+
+      expect(result).toEqual({ success: true, data: { enabled } });
+      expect(JSON.stringify(result)).not.toContain('JBSWY3DPEHPK3PXP');
+    });
+
+    it('answers Unauthorized when the API rejects the session', async () => {
+      mocks.fetchProfile.mockResolvedValue({ success: false, error: 'x', status: 401 });
+
+      expect(await getTwoFactorStatusAction()).toEqual({ success: false, error: 'Unauthorized' });
+    });
+
+    it('claims no status when the API is down', async () => {
+      mocks.fetchProfile.mockResolvedValue({ success: false, error: SECRET });
+
+      const result = await getTwoFactorStatusAction();
+
+      expect(result).toEqual({ success: false, error: 'Failed to get two-factor status' });
+    });
   });
 
   it('getUserProfileAction returns only the safe profile fields plus settings (KAN-126)', async () => {

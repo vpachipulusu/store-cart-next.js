@@ -1,7 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { changePasswordAction, getLoginHistoryAction } from '@/app/actions/user-actions';
+import {
+  changePasswordAction,
+  getLoginHistoryAction,
+  getTwoFactorStatusAction,
+} from '@/app/actions/user-actions';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -24,13 +28,15 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Key, Loader2, Clock } from 'lucide-react';
+import { Key, Loader2, Clock, ShieldCheck } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 export default function SecurityPage() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
   const [loginHistory, setLoginHistory] = useState<any[]>([]);
+  // null until the status loads, or when it could not be read (nothing is claimed in that case).
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState<boolean | null>(null);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
@@ -42,6 +48,17 @@ export default function SecurityPage() {
 
   useEffect(() => {
     let cancelled = false;
+
+    async function loadTwoFactorStatus() {
+      try {
+        const result = await getTwoFactorStatusAction();
+        if (!cancelled && result.success && result.data) {
+          setTwoFactorEnabled(result.data.enabled);
+        }
+      } catch (error) {
+        console.error('Load two-factor status error:', error);
+      }
+    }
 
     async function loadLoginHistory() {
       try {
@@ -56,6 +73,7 @@ export default function SecurityPage() {
       }
     }
 
+    loadTwoFactorStatus();
     loadLoginHistory();
     return () => {
       cancelled = true;
@@ -202,6 +220,28 @@ export default function SecurityPage() {
         </CardContent>
       </Card>
 
+      {/* Two-factor status (read-only; setup and disable return with KAN-180) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-theme-accent" />
+            Two-Factor Authentication
+          </CardTitle>
+          <CardDescription>An extra verification step when you sign in</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {twoFactorEnabled === null ? (
+            <p className="text-sm text-muted-foreground">Two-factor status unavailable</p>
+          ) : (
+            <p className="text-sm" data-testid="two-factor-status">
+              {twoFactorEnabled
+                ? 'Two-factor authentication is enabled'
+                : 'Two-factor authentication is not enabled'}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Login History */}
       <Card>
         <CardHeader>
@@ -255,7 +295,6 @@ export default function SecurityPage() {
         Switched off until their replacements land, with no Prisma access left behind:
         - Data export: KAN-114
         - Two-factor setup/disable (hidden while KAN-125 is parked) and account deletion: KAN-180 (re-authentication dialog)
-        - Two-factor status: KAN-179
       */}
     </div>
   );
