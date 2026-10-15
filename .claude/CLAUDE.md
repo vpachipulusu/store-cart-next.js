@@ -39,16 +39,19 @@ npm run typecheck        # TypeScript type check without emitting
 
 # Testing
 npm run test:unit        # Vitest unit tests only (src/__tests__/unit)
-npm run test:e2e         # Playwright E2E tests (requires dev server running)
+npm run test:e2e:local -- <spec>  # Playwright against a production build (see Testing Notes); needs a backend
+npm run test:e2e         # Raw Playwright (needs a server you started yourself)
 npm run test:e2e:ui      # Playwright with interactive UI
 npm run test:coverage    # Vitest with coverage (80% threshold)
 npm run test:all         # All Vitest + Playwright
 
-# Database
+# Generated API client (backend branches regenerate; frontend branches never do)
+npm run generate:client  # openapi.json -> src/lib/api/generated
+npm run check:client     # fails when the committed client is stale
+
+# Legacy Prisma (still used by files that move off it in KAN-48/49/50/51; add no new uses)
 npm run db:generate      # Regenerate Prisma client after schema changes
 npm run db:push          # Push schema to DB without migration (dev)
-npm run db:migrate       # Create and apply migration (production-safe)
-npm run db:studio        # Open Prisma Studio GUI
 npm run db:seed          # Seed database
 
 # Mobile (Capacitor)
@@ -57,6 +60,18 @@ npm run cap:sync         # Sync web assets to native projects
 npm run ios:build        # Build and open in Xcode
 npm run android:build    # Build and open in Android Studio
 ```
+
+### Backend (run from `fastapi_backend/`, uv)
+
+```bash
+uv run ruff check . && uv run ruff format --check .     # lint + format (CI runs both)
+uv run mypy                                              # blocking in CI
+uv run pytest --cov                                      # coverage ratchet in pyproject.toml
+uv run alembic upgrade head && uv run alembic check      # models must match migrations (head is 0005)
+uv run python -m commands.generate_openapi_schema        # writes ../nextjs-frontend/openapi.json; then npm run generate:client
+```
+
+Real-route tests need a throwaway local Postgres (`TEST_DATABASE_URL` pointing at a `*_test` database; see the docs in `docs/developer/backend-*.md`). Backend details: `fastapi_backend/CLAUDE.md`.
 
 ## Next.js 16 Proxy (Middleware Migration) — CRITICAL
 
@@ -69,24 +84,27 @@ The build will fail with "Proxy is missing expected function export name" if the
 
 ## Architecture Overview
 
+### Two apps, one direction
+
+The browser never calls FastAPI. Next.js server code (server components, server actions, route handlers) is the only caller (plan decision D14). Server-only wrappers in `src/lib/api/` call the generated SDK through `callBackend`, which sends `X-Internal-Key` (`BACKEND_INTERNAL_KEY`) and the current `session` cookie. ESLint forbids importing `@/lib/api/generated*` outside `src/lib/api/**` and tests.
+
 ### Authentication Flow
 
-Firebase handles authentication on both client and server:
-
 1. **Client**: Firebase client SDK (`src/lib/firebase/client.ts`) authenticates the user and returns an ID token.
-2. **Server**: `verifyTokenAction` in `src/app/actions/auth-actions.ts` verifies the token via Firebase Admin SDK, syncs the user to PostgreSQL, records login history, and sets two cookies:
-   - `session` (httpOnly) — Firebase session cookie, 5-day expiry
+2. **Server**: `verifyTokenAction` in `src/app/actions/auth-actions.ts` sends the token to the backend, which verifies it (Firebase Admin), syncs the user, records login history and returns the session; the action sets the httpOnly `session` cookie (Firebase session cookie, 5-day expiry). The backend owns users, sessions, login history and 2FA (`POST /v1/auth/session/refresh`, re-authentication for 2FA disable and account deletion).
    - The client-writable `email-verified` cookie is no longer issued or trusted (KAN-123). Verified email is enforced server-side from the signed `email_verified` claim in the session cookie, with revocation checking, by `src/lib/auth/verified-session.ts` (layouts, server actions, admin helpers).
 3. **Proxy** (`src/proxy.ts`) — handles session-presence route protection, rate limiting, CORS, and security headers at the edge.
 
-Admin role verification cannot be done in the proxy (Firebase token verification requires Node.js runtime). Admin access is verified server-side in each admin API route/page.
+Admin role verification cannot be done in the proxy (Firebase token verification requires Node.js runtime). Admin access is verified server-side in each admin API route/page. One ticket at a time may edit `auth-actions.ts`.
 
 ### Data Layer
 
-- **Prisma client singleton**: `src/lib/db/client.ts` — import `db` from `@/lib/db/client`
-- **Firebase Admin**: `src/lib/firebase/admin.ts` — import `adminAuth`
-- **Stripe**: `src/lib/stripe/` — lazy-initialized singleton; webhook handler validates signatures via `STRIPE_WEBHOOK_SECRET`
-- **Stripe prices** are fetched from the API and cached for 1 hour using `unstable_cache` in `src/config/subscriptions.ts`
+- **Platform data** (users, organisations, stores, billing) lives in the FastAPI platform database (SQLAlchemy async + Alembic, head 0005).
+- **Store data**: each store has its own database. Connection strings are encrypted at rest (`app/services/store_secrets.py`), opened only through `get_store_session` (`app/services/store_sessions.py`), and created by a `DatabaseProvisioner` (`app/services/store_provisioning.py`; `STORE_DB_PROVIDER` is `local` for development only, `neon` otherwise). A ruff TID251 rule bans creating engines anywhere else.
+- **Prisma** (`src/lib/db/client.ts`) is legacy: files still import it until KAN-48/49/50/51 move them to the API. Add no new uses.
+- **Firebase Admin**: `src/lib/firebase/admin.ts` — import `adminAuth` (session verification only)
+- **Stripe** is handled by the backend (webhook and Billing per organisation). The frontend calls the org billing API through `src/lib/api/billing.ts` and `src/app/actions/subscription-actions.ts`.
+- **Selected store**: the dashboard store selection is a cookie *preference*, validated on every request against the user's own stores by `getCurrentStoreSelection()`. It is not an authorization boundary: anything scoped by store must call it on the server and the backend must authorize the store id itself.
 
 ### Server Actions Pattern
 
@@ -96,7 +114,7 @@ All server actions are in `src/app/actions/` and follow this pattern:
 "use server";
 // Returns structured response
 type ActionResponse<T = any> = { success: boolean; data?: T; error?: string };
-// Validate with Zod, call db/services, revalidate cache with revalidatePath()
+// Validate with Zod, call the src/lib/api wrappers, revalidate cache with revalidatePath()
 ```
 
 ### Route Structure
@@ -115,7 +133,7 @@ src/app/
 
 ### Subscriptions
 
-Three tiers: `free`, `pro`, `enterprise`. Defined in `src/config/subscriptions.ts`. Stripe price IDs come from env vars (`STRIPE_PRICE_ID_PRO_MONTHLY`, etc.). Subscription state is stored on the `User` model alongside `stripeCustomerId` and `stripeSubscriptionId`.
+Three tiers: `free`, `pro`, `enterprise`. Plans and limits are defined in `src/config/subscriptions.ts` and the backend plans config. Stripe price IDs come from env vars (`STRIPE_PRICE_ID_PRO_MONTHLY`, etc.). Subscription state belongs to the **organisation** (billing is per organisation, read and changed through the backend org billing API), not to the user.
 
 ### Logging
 
@@ -147,12 +165,28 @@ BACKEND_INTERNAL_KEY                  # Sent as X-Internal-Key (server-only)
 SENTRY_AUTH_TOKEN                     # Optional; disables source maps if absent
 ```
 
+Backend-only variables (set on the FastAPI service, see `fastapi_backend/app/core/config.py` and `docs/developer/`):
+
+```env
+STORE_DB_ENCRYPTION_KEY               # base64url 32 bytes; required outside local/test/Vercel preview (store connection strings)
+STORE_DB_ENCRYPTION_KEY_PREVIOUS      # optional comma-separated retired keys, decrypt-only during rotation
+STORE_DB_PROVIDER                     # local (development only) or neon
+NEON_API_KEY, NEON_PROJECT_ID, NEON_BRANCH_ID, NEON_ROLE_NAME   # required when STORE_DB_PROVIDER=neon
+TOTP_ENCRYPTION_KEY                   # optional Fernet key for 2FA secrets
+BILLING_RETURN_URL_ORIGINS            # allowed origins for Stripe return URLs
+```
+
 ## Testing Notes
 
 - **E2E auth setup**: `src/__tests__/e2e/auth.setup.ts` runs before browser tests. Use `npm run test:setup` to create the test user.
-- **playwright.config.ts** starts `npm run dev` in `nextjs-frontend/` as its `webServer` (reused if one is already running).
-- After a clean install (`npm ci`), run `npm run db:generate` before `npm run typecheck` — the Prisma client is not generated automatically.
-- Vitest coverage thresholds are 80% for branches, functions, lines, and statements.
+- **Local E2E**: `npm run test:e2e:local -- <spec>` builds a production bundle and starts it on a per-checkout port (about 2 minutes cold, 30 seconds cached). Never use `next dev` for E2E (first-request compile times break auth setup). It needs a running backend: start your own throwaway Postgres 17 container and uvicorn on free ports (not other sessions' ports), then export `BACKEND_API_URL` and the same `BACKEND_INTERNAL_KEY` before running (`docs/developer/local-e2e.md`). Remove the node_modules link before deleting a worktree.
+- **CI**: only the `CI gate` check matters (Vercel checks are ignored). `E2E_ENABLED` stays `false` in CI, so every story's E2E specs are written and run locally, with the command and result in the PR description.
+- After a clean install (`npm ci`), run `npm run db:generate` before `npm run typecheck` — the Prisma client is not generated automatically (until KAN-51 removes Prisma).
+- Vitest coverage thresholds are 80% for branches, functions, lines, and statements. The backend has a coverage ratchet in `fastapi_backend/pyproject.toml`.
+
+## Review before merge
+
+Run the ECC reviewers on every PR diff before merging: `security-reviewer` for auth, payments, secrets, SQL and external calls; the language reviewer (`typescript-reviewer`, `python-reviewer`, `react-reviewer`, `fastapi-reviewer`); `database-reviewer` for migrations and queries. Fix CRITICAL and HIGH findings first. Coordinator-owned files that developer branches must not edit: `.env.example`, `.claude/CLAUDE.md`, `known-issues.md`.
 
 ## Package Manager
 
