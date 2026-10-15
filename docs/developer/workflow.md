@@ -40,6 +40,24 @@ Example: `fix(KAN-122): remove unused auth API routes and the client plan argume
 5. Merge once review is done and CI is green. CI is not in the repo yet (lands with KAN-27); until then, the author runs the checks in [testing.md](testing.md#before-you-open-a-pr) locally.
 6. Check the story's acceptance criteria against the merged code, then move the story to **Done**.
 
+## Local E2E is required for user-facing changes (KAN-165)
+
+CI never runs Playwright (`E2E_ENABLED=false`, and it stays false), so the PR author is the only gate. **Before opening the PR, run the relevant Playwright specs locally** when the change touches any of:
+
+- frontend pages, layouts, components or styles users see (`src/app/**`, `src/components/**`);
+- auth or session handling (login, signup, session cookie, 2FA, re-authentication, `src/proxy.ts`);
+- billing or subscriptions (pricing, checkout, org billing pages and actions);
+- the proxy, security headers, rate limiting or the health endpoint.
+
+**Exempt:** backend-only changes (they keep `pytest` and the real-route tests against a throwaway Postgres), docs-only and config-only changes (CI workflows, lint config). If you are unsure, run the specs.
+
+How:
+
+1. Run the focused specs for the area, for example `npm run test:e2e:local -- src/__tests__/e2e/dashboard.spec.ts`, from `nextjs-frontend/`. Setup, a backend and timings are in [local-e2e.md](local-e2e.md). Run the whole suite (no spec arguments) when the change is broad or touches auth, the proxy or shared layouts.
+2. **Report it in the PR description**, in the "E2E / real-route tests" line of the PR template: the exact command, the passed/skipped/failed counts, and the base SHA. If a spec could not run, say exactly what blocked it. A skipped test did not run, so name skipped tests that belong to your area.
+3. Reviewers (PM and Architect passes) check that line. A user-facing PR without it goes back to the author. Never edit an assertion to make a run green ([testing.md](testing.md#assertion-rule)).
+4. A test that fails on a clean `main` is quarantined, never skipped silently: `test.fixme(...)` with the Jira key in a comment beside it, listed under [Quarantined tests](local-e2e.md#quarantined-tests), and tracked on that ticket. A test that fails because of your change is yours to fix.
+
 ## Definition of done
 
 - The story's Jira **acceptance criteria are the definition of done**. Do not widen scope. Propose a new story for extra work.
