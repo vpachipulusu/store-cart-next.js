@@ -214,6 +214,10 @@ Required agent per kind of change (coordinator on every PR diff; developers on t
 - Coordinator-owned files that developer branches must not edit: `.env.example`, `.claude/CLAUDE.md`, `known-issues.md`.
 - Only the `CI gate` check matters; Vercel checks are ignored. E2E specs are written and run locally with the command and result in the PR; `E2E_ENABLED` is never flipped.
 
+### After a merge: pick the next task
+
+When a developer PR is merged and its Jira story is Done, the coordinator immediately picks the next task (bugs before features, allocated with `ecc:architect` and `ecc:planner` per the rules above) and starts its developer session. It does not wait for the owner's signal or ask them to click start. The owner merges PRs (`gh pr merge` is denied in `.claude/settings.json`), so after verifying a PR the coordinator gives the owner the PR number and full head SHA and continues once the merge is confirmed.
+
 ## Package Manager
 
 This project uses **npm** exclusively. Do not use `pnpm` or `yarn`.
