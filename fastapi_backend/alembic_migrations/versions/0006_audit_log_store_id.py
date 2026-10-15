@@ -4,6 +4,11 @@ Adds `audit_logs.store_id` (no foreign key, like the other ids: rows outlive sto
 and the indexes behind the admin list filters: store (with newest-first order) and
 plain newest-first. User, action and organisation indexes already exist.
 
+Size assumption: the plain (non-CONCURRENT) index builds and the backfill UPDATE take a
+lock that blocks writes to `audit_logs`. That is acceptable only while the table is
+small (pre-launch, well under a million rows). Once it is large, build any new index
+CONCURRENTLY inside an autocommit block instead.
+
 Revision ID: 0006
 Revises: 0005
 Create Date: 2026-10-15

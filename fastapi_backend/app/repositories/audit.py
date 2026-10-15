@@ -65,6 +65,8 @@ class AuditFilters:
     store_id: str | None = None
     user_id: str | None = None
     action: str | None = None
+    created_from: datetime | None = None
+    created_to: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -92,6 +94,12 @@ class AuditReader:
             )
             if value is not None
         ]
+        if filters.created_from is not None:
+            conditions.append(AuditLog.created_at >= filters.created_from)
+        if filters.created_to is not None:
+            conditions.append(AuditLog.created_at <= filters.created_to)
+        # One count(*) per page: an index scan on the filtered range, fine at pre-launch
+        # volumes (see docs/developer/backend-audit-logs.md for the scaling note).
         total = await self.session.scalar(
             select(func.count()).select_from(AuditLog).where(*conditions)
         )

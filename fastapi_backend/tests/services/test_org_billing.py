@@ -14,6 +14,7 @@ from app.services.org_billing import (
     OrganizationNotFound,
     OrgBillingService,
     PaymentMethodNotFound,
+    RequestOrigin,
     allowed_origins,
     validate_return_url,
 )
@@ -498,3 +499,41 @@ async def test_refused_or_failed_change_stages_no_audit_row():
         )
 
     assert session.added == []
+
+
+class FailingAuditSession(FakeCommitSession):
+    """A session whose commit fails, like a database outage after Stripe accepted."""
+
+    async def commit(self) -> None:
+        raise RuntimeError("database unavailable")
+
+
+async def test_audit_failure_after_stripe_accepts_is_logged_and_not_raised(caplog):
+    service, stripe, store, _ = build(subscribed_record())
+    session = FailingAuditSession()
+    service = OrgBillingService(store, session, stripe, PRICES, ORIGINS)  # type: ignore[arg-type]
+
+    with caplog.at_level("ERROR", logger="app.services.org_billing"):
+        await service.set_cancellation(
+            "org1", "u1", cancel=True, request_key="client-key-1"
+        )
+
+    record = caplog.records[-1]
+    assert session.rollbacks >= 2  # authorize, then the failed audit write
+    assert record.organization_id == "org1"  # type: ignore[attr-defined]
+    assert record.audit_action == "billing.cancel"  # type: ignore[attr-defined]
+    assert record.idempotency_key == "sc-cancel-org1-client-key-1"  # type: ignore[attr-defined]
+
+
+async def test_billing_audit_row_carries_request_context():
+    store = FakeBillingStore()
+    store.add(subscribed_record(), "u1", MembershipRole.OWNER)
+    session = FakeCommitSession()
+    origin = RequestOrigin("203.0.113.9", "pytestagent", "req-7")
+    service = OrgBillingService(store, session, FakeStripe(), PRICES, ORIGINS, origin)  # type: ignore[arg-type]
+
+    await service.set_cancellation("org1", "u1", cancel=True, request_key=None)
+
+    row = session.added[0]
+    assert (row.ip_address, row.user_agent) == ("203.0.113.9", "pytestagent")
+    assert row.metadata_ == {"request_id": "req-7"}
