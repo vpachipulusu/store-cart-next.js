@@ -1,3 +1,4 @@
+from dataclasses import replace
 from types import SimpleNamespace
 
 from sqlalchemy.dialects import postgresql
@@ -16,6 +17,9 @@ class Result:
     def scalar_one(self):
         return self.value
 
+    def one_or_none(self):
+        return self.value
+
     def scalars(self):
         return self
 
@@ -24,13 +28,16 @@ class Result:
 
 
 class Session:
-    def __init__(self, value):
+    def __init__(self, value, *later):
         self.value = value
+        self.later = list(later)
         self.statements = []
 
     async def execute(self, statement):
         self.statements.append(statement)
-        return Result(self.value)
+        return Result(
+            self.later.pop(0) if self.later and self.statements[1:] else self.value
+        )
 
 
 def sql(statement):
@@ -44,13 +51,22 @@ async def test_profile_lookup_uses_uid_and_lock_without_exposing_secret():
         two_factor_secret="private",
         firebase_uid="firebase-user",
     )
-    session = Session(user)
-    assert (
-        await MeRepository(session).get_profile("firebase-user", lock=True) == PROFILE
-    )
+    session = Session((user, "admin"))
+    profile = await MeRepository(session).get_profile("firebase-user", lock=True)
+    assert profile == replace(PROFILE, is_admin=True, admin_role="admin")
     text, params = sql(session.statements[0])
-    assert "users.firebase_uid =" in text and "FOR UPDATE" in text
+    assert "users.firebase_uid =" in text and "FOR UPDATE OF users" in text
+    assert "LEFT OUTER JOIN admin_users" in text
     assert "firebase-user" in params.values()
+
+
+async def test_user_without_admin_row_is_not_admin():
+    user = SimpleNamespace(
+        **{key: getattr(PROFILE, key) for key in PROFILE.__dataclass_fields__},
+    )
+    profile = await MeRepository(Session((user, None))).get_profile("firebase-user")
+    assert profile is not None
+    assert profile.is_admin is False and profile.admin_role is None
 
 
 async def test_missing_user_returns_none():
@@ -58,15 +74,16 @@ async def test_missing_user_returns_none():
 
 
 async def test_profile_update_and_delete_are_scoped_to_platform_id():
-    session = Session(PROFILE)
+    session = Session(PROFILE, "admin")
     repository = MeRepository(session)
-    assert (
-        await repository.update_profile("platform-user", {"bio": "new"})
-    ).id == "platform-user"
+    updated = await repository.update_profile("platform-user", {"bio": "new"})
+    assert updated.id == "platform-user"
+    assert updated.is_admin is True and updated.admin_role == "admin"
     await repository.delete_user("platform-user")
     for statement in session.statements:
         text, params = sql(statement)
-        assert "users.id =" in text and "platform-user" in params.values()
+        scope = "admin_users.user_id =" if "FROM admin_users" in text else "users.id ="
+        assert scope in text and "platform-user" in params.values()
 
 
 async def test_owner_membership_check_is_scoped_and_locked():

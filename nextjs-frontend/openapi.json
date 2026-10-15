@@ -8944,6 +8944,21 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "is_admin": {
+            "type": "boolean",
+            "title": "Is Admin"
+          },
+          "admin_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Admin Role"
           }
         },
         "type": "object",
@@ -8958,7 +8973,9 @@
           "location",
           "website",
           "phone_number",
-          "created_at"
+          "created_at",
+          "is_admin",
+          "admin_role"
         ],
         "title": "ProfileData"
       },

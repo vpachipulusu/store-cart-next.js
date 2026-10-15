@@ -933,6 +933,14 @@ export type ProfileData = {
      * Created At
      */
     created_at: string;
+    /**
+     * Is Admin
+     */
+    is_admin: boolean;
+    /**
+     * Admin Role
+     */
+    admin_role: string | null;
 };
 
 /**
