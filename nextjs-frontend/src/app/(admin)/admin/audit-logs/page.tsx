@@ -1,5 +1,8 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { db } from '@/lib/db/client';
+import { adminErrorMessage } from '@/lib/api/admin-errors';
+import { AUDIT_LOG_PAGE_SIZE, fetchAdminAuditLogs } from '@/lib/api/admin-audit-logs';
+import { EmptyCell } from '../_components/empty-cell';
+import { logger } from '@/lib/logger';
 import {
   Table,
   TableBody,
@@ -10,19 +13,13 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 
-async function getAuditLogs() {
-  const logs = await db.auditLog.findMany({
-    orderBy: {
-      createdAt: 'desc',
-    },
-    take: 100,
-  });
-
-  return logs;
-}
-
 export default async function AdminAuditLogsPage() {
-  const logs = await getAuditLogs();
+  const result = await fetchAdminAuditLogs();
+  if (!result.success) {
+    logger.error('Admin audit logs page: list failed', { status: result.status });
+  }
+  const logs = result.success ? result.data.entries : [];
+  const totalCount = result.success ? result.data.total_count : 0;
 
   return (
     <div className="space-y-6">
@@ -36,11 +33,19 @@ export default async function AdminAuditLogsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Recent Activity</CardTitle>
-          <CardDescription>Last 100 audit log entries</CardDescription>
+          <CardDescription>
+            {result.success
+              ? `Showing ${logs.length} of ${totalCount} entries (newest first, up to ${AUDIT_LOG_PAGE_SIZE})`
+              : 'Audit log entries'}
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          {logs.length > 0 ? (
-            <Table>
+          {!result.success ? (
+            <p role="alert" className="py-8 text-center text-sm text-destructive">
+              {adminErrorMessage(result)}
+            </p>
+          ) : logs.length > 0 ? (
+            <Table aria-label="Audit log entries">
               <TableHeader>
                 <TableRow>
                   <TableHead>Timestamp</TableHead>
@@ -51,20 +56,20 @@ export default async function AdminAuditLogsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {logs.map((log: any) => (
+                {logs.map((log) => (
                   <TableRow key={log.id}>
                     <TableCell className="text-sm text-muted-foreground">
-                      {new Date(log.createdAt).toLocaleString()}
+                      {new Date(log.created_at).toLocaleString()}
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline">{log.action}</Badge>
                     </TableCell>
                     <TableCell className="font-medium">{log.resource}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {log.userId || '—'}
+                      {log.user_id || <EmptyCell />}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {log.ipAddress || '—'}
+                      {log.ip_address || <EmptyCell />}
                     </TableCell>
                   </TableRow>
                 ))}
