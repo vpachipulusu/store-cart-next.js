@@ -21,3 +21,23 @@ Reserved names (`www`, `app`, `admin`, `api`, ...) are never stores. The list is
 ## Local development
 
 Browsers resolve `*.localhost` to loopback, so open `http://acme.localhost:3000` with no hosts-file entry. The store must exist and be ACTIVE in the platform database. E2E: `src/__tests__/e2e/storefront-subdomain.spec.ts` (seeds described in its header).
+
+## Preview-only path access: `/s/{slug}` (KAN-202, temporary)
+
+`*.vercel.app` has no wildcard subdomains, so until a custom wildcard domain exists a store can be demoed at `/s/{slug}` on the platform URL. **Remove this route once the wildcard domain is live**: delete `parseStorePath`, `isStorefrontPathPreviewEnabled`, `STORE_PATH_PREFIX` and `STORE_NOT_FOUND_SLUG` from `src/lib/storefront/host.ts`, `rewritePathPreview` and its call in `src/proxy.ts`, their unit tests, `src/__tests__/e2e/storefront-path-preview.spec.ts` and this section.
+
+- **Gating:** served only when `STOREFRONT_PATH_PREVIEW=true` and `VERCEL_ENV` is not `production`. `VERCEL_ENV` is unset off Vercel, so there the flag alone decides. Set the flag on the Vercel Preview environment only, never Production.
+- **Same lookup, same 404:** the proxy validates the slug with the host-routing validator and reserved list and sets `x-storefront-slug` itself (any inbound copy is stripped on every request). Flag off, production, unknown, suspended, reserved and malformed slugs all return the host-routing 404 body, because the proxy rewrites them to the internal route without the marker. `X-Client-IP` is forwarded by the same `callBackend` path.
+- **Not indexable:** every `/s/*` response carries `X-Robots-Tag: noindex`.
+- Direct `/storefront/{slug}` requests still 404. A store host takes precedence over the `/s` path.
+- E2E: `STOREFRONT_PATH_PREVIEW=true npm run test:e2e:local -- src/__tests__/e2e/storefront-path-preview.spec.ts` (same backend seed as `storefront-subdomain.spec.ts`).
+
+## Preview-only path access: `/s/{slug}` (KAN-202, temporary)
+
+`*.vercel.app` has no wildcard subdomains, so until a custom wildcard domain exists a store can be demoed at `/s/{slug}` on the platform URL. **Remove this route once the wildcard domain exists**: delete `parseStorePath`, `isStorefrontPathPreviewEnabled`, `STORE_PATH_PREFIX` and `STORE_NOT_FOUND_SLUG` from `src/lib/storefront/host.ts`, `rewritePathPreview` and its call in `src/proxy.ts`, their unit tests, `src/__tests__/e2e/storefront-path-preview.spec.ts` and this section.
+
+- **Gating:** served only when `STOREFRONT_PATH_PREVIEW=true` and `VERCEL_ENV` is not `production`. `VERCEL_ENV` is unset off Vercel, so there the flag alone decides. Set the flag on the Vercel Preview environment only, never Production.
+- **Same lookup, same 404:** the proxy validates the slug with the host-routing validator and reserved list and sets `x-storefront-slug` itself (any inbound copy is stripped on every request). Flag off, production, unknown, suspended, reserved and malformed slugs all return the host-routing 404 body, because the proxy rewrites them to the internal route without the marker. `X-Client-IP` is forwarded by the same `callBackend` path.
+- **Not indexable:** every `/s/*` response carries `X-Robots-Tag: noindex`.
+- Direct `/storefront/{slug}` requests still 404. A store host takes precedence over the `/s` path.
+- E2E: `STOREFRONT_PATH_PREVIEW=true npm run test:e2e:local -- src/__tests__/e2e/storefront-path-preview.spec.ts` (same backend seed as `storefront-subdomain.spec.ts`).

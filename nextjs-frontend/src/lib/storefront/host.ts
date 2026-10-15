@@ -146,6 +146,40 @@ export function parseStoreSlug(
 }
 
 /**
+ * KAN-202 (temporary): preview-only `/s/{slug}` access for deployments without a wildcard domain, such as
+ * `*.vercel.app`. Remove with the proxy branch and the e2e spec once the wildcard domain exists.
+ */
+export const STORE_PATH_PREFIX = '/s';
+
+/** Internal 404 target for `/s/*` requests that are not served; never a valid slug, so the route 404s. */
+export const STORE_NOT_FOUND_SLUG = 'not-found';
+
+/**
+ * Preview paths are served only when `STOREFRONT_PATH_PREVIEW` is exactly `true` and the deployment is not
+ * Vercel production. `VERCEL_ENV` is unset off Vercel (local development, local E2E), where the flag decides.
+ */
+export function isStorefrontPathPreviewEnabled(env: {
+  STOREFRONT_PATH_PREVIEW?: string;
+  VERCEL_ENV?: string;
+}): boolean {
+  return env.STOREFRONT_PATH_PREVIEW === 'true' && env.VERCEL_ENV !== 'production';
+}
+
+/**
+ * Splits `/s/{slug}[/rest]`. Null when the path is not under the preview prefix; `slug` is null when the
+ * segment is missing, malformed or reserved (same validator as host routing). Paths are case-sensitive, so
+ * `/s/Acme` is malformed rather than lower-cased.
+ */
+export function parseStorePath(pathname: string): { slug: string | null; rest: string } | null {
+  if (pathname !== STORE_PATH_PREFIX && !pathname.startsWith(`${STORE_PATH_PREFIX}/`)) return null;
+  const remainder = pathname.slice(STORE_PATH_PREFIX.length + 1);
+  const slash = remainder.indexOf('/');
+  const segment = slash === -1 ? remainder : remainder.slice(0, slash);
+  const rest = slash === -1 ? '' : remainder.slice(slash);
+  return { slug: isValidStoreSlug(segment) ? segment : null, rest };
+}
+
+/**
  * Internal request header the proxy sets to the store slug it rewrote to. The storefront route only renders
  * when it matches the path slug, so `/storefront/<slug>` on any other host is a 404. The proxy deletes any
  * client-supplied copy first, so it cannot be forged.
