@@ -1,12 +1,20 @@
+import asyncio
 import logging
 
 import asyncpg
 import pytest
 from sqlalchemy.exc import DBAPIError
 
+from app.core.db_url import CONNECT_TIMEOUT_SECONDS
 from app.repositories.health import HealthRepository
+from app.services import health
 from app.services.health import HealthService
-from tests.fakes import FakeSession, FakeSessionProvider, failing_session
+from tests.fakes import (
+    FakeResult,
+    FakeSession,
+    FakeSessionProvider,
+    failing_session,
+)
 
 
 async def test_database_ready_when_ping_succeeds() -> None:
@@ -76,3 +84,27 @@ async def test_logs_the_root_cause_type_without_the_driver_message(
     )
     assert record.exc_info is None
     assert "store_owner" not in caplog.text
+
+
+class StalledSession(FakeSession):
+    """Connects, then never answers the query."""
+
+    async def execute(self, statement: object) -> FakeResult:
+        self.statements.append(str(statement))
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+
+async def test_database_not_ready_when_the_ping_stalls_after_connecting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(health, "READINESS_TIMEOUT_SECONDS", 0.01)
+    provider = FakeSessionProvider(StalledSession())
+
+    async with provider.session() as session:
+        service = HealthService(HealthRepository(session))
+        assert await service.is_database_ready() is False
+
+
+def test_readiness_timeout_is_bounded_by_the_connect_timeout() -> None:
+    assert 0 < health.READINESS_TIMEOUT_SECONDS <= CONNECT_TIMEOUT_SECONDS
