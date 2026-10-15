@@ -1,3 +1,6 @@
+from typing import Literal
+from urllib.parse import urlparse
+
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -53,6 +56,15 @@ class Settings(BaseSettings):
     STORE_DB_ENCRYPTION_KEY: SecretStr | None = None
     STORE_DB_ENCRYPTION_KEY_PREVIOUS: SecretStr | None = None
 
+    # Store database provisioning (KAN-55): "local" (Docker Postgres, the default) or
+    # "neon". The NEON_* values are optional and checked only when "neon" is selected.
+    STORE_DB_PROVIDER: Literal["local", "neon"] = "local"
+    NEON_API_KEY: SecretStr | None = None
+    NEON_PROJECT_ID: str | None = None
+    NEON_BRANCH_ID: str | None = None
+    NEON_ROLE_NAME: str | None = None
+    NEON_API_BASE_URL: str = "https://console.neon.tech/api/v2"
+
     # Stripe Billing webhook (KAN-44). Unset means the webhook answers 503.
     STRIPE_WEBHOOK_SECRET: SecretStr | None = None
     STRIPE_PRICE_ID_PRO_MONTHLY: str | None = None
@@ -95,6 +107,24 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "TOTP_ENCRYPTION_KEY must be a valid Fernet key"
                 ) from None
+        return self
+
+    @property
+    def relaxed_environment(self) -> bool:
+        """True for local/test (and Vercel preview/development), where checks relax."""
+        if self.VERCEL_ENV:
+            return self.VERCEL_ENV in VERCEL_NON_PRODUCTION
+        return self.ENVIRONMENT in LOCAL_ENVIRONMENTS
+
+    @model_validator(mode="after")
+    def validate_neon_api_base_url(self) -> "Settings":
+        # The Bearer key goes to this URL: https and a neon.tech host only.
+        parsed = urlparse(self.NEON_API_BASE_URL)
+        host = parsed.hostname or ""
+        if parsed.scheme != "https" or not (
+            host == "neon.tech" or host.endswith(".neon.tech")
+        ):
+            raise ValueError("NEON_API_BASE_URL must be an https URL on neon.tech")
         return self
 
     @property
