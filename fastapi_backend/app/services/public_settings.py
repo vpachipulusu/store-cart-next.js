@@ -5,7 +5,8 @@ from typing import Any, Protocol
 CURRENCY_KEY = "currency"
 # Same default as getCurrencySymbol in nextjs-frontend/src/config/subscriptions.ts.
 DEFAULT_CURRENCY = "USD"
-# Codes the admin settings page offers (nextjs-frontend/src/config/currencies.ts).
+# Codes the admin settings page offers (nextjs-frontend/src/config/currencies.ts). Keep both
+# lists equal: tests/services/test_public_settings.py fails when they drift.
 SUPPORTED_CURRENCIES = frozenset(
     {"USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "CNY", "INR"}
 )

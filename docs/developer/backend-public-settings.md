@@ -23,6 +23,21 @@ list (`SUPPORTED_CURRENCIES` in `app/services/public_settings.py`, kept in step 
 `currencies.ts`) answers the default `USD`, the same default `getCurrencySymbol` uses. A
 database error is a 500 and is not cached.
 
+The server trims and upper-cases the stored code, while the legacy frontend
+(`fetchCurrencySymbol`) does an exact match on it. A stored `" eur"` therefore reads as `EUR`
+here but falls back to `$` in the old Prisma path; the admin page only stores clean codes.
+
+## Caching and consumers
+
+- `Cache-Control` is `public`, so no shared cache or CDN may sit in front of FastAPI (it would
+  replay the response to callers without `X-Internal-Key`). The value is non-sensitive, same
+  stance as the storefront lookup.
+- A currency change can take up to 60 s to show, plus up to 300 s of stale-while-revalidate.
+- The Next.js wrapper that calls this route must stay behind `unstable_cache` (the existing
+  1 h cache, tag `currency-setting`). The 120/min limiter is keyed by the client IP, which for
+  server-side calls is the shared Next.js server IP, so uncached per-render calls could
+  exhaust the bucket.
+
 ## Seeding
 
 The `app_settings` table exists since baseline `0001`. The `currency` row is written by the
