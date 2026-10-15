@@ -1,5 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { db } from '@/lib/db/client';
+import { adminErrorMessage } from '@/lib/api/admin-users';
+import { fetchAdminAuditLogs } from '@/lib/api/admin-audit-logs';
+import { logger } from '@/lib/logger';
 import {
   Table,
   TableBody,
@@ -10,19 +12,12 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 
-async function getAuditLogs() {
-  const logs = await db.auditLog.findMany({
-    orderBy: {
-      createdAt: 'desc',
-    },
-    take: 100,
-  });
-
-  return logs;
-}
-
 export default async function AdminAuditLogsPage() {
-  const logs = await getAuditLogs();
+  const result = await fetchAdminAuditLogs();
+  if (!result.success) {
+    logger.error('Admin audit logs page: list failed', { status: result.status });
+  }
+  const logs = result.success ? result.data.entries : [];
 
   return (
     <div className="space-y-6">
@@ -39,7 +34,11 @@ export default async function AdminAuditLogsPage() {
           <CardDescription>Last 100 audit log entries</CardDescription>
         </CardHeader>
         <CardContent>
-          {logs.length > 0 ? (
+          {!result.success ? (
+            <p role="alert" className="py-8 text-center text-sm text-destructive">
+              {adminErrorMessage(result)}
+            </p>
+          ) : logs.length > 0 ? (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -51,20 +50,20 @@ export default async function AdminAuditLogsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {logs.map((log: any) => (
+                {logs.map((log) => (
                   <TableRow key={log.id}>
                     <TableCell className="text-sm text-muted-foreground">
-                      {new Date(log.createdAt).toLocaleString()}
+                      {new Date(log.created_at).toLocaleString()}
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline">{log.action}</Badge>
                     </TableCell>
                     <TableCell className="font-medium">{log.resource}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {log.userId || '—'}
+                      {log.user_id || '—'}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {log.ipAddress || '—'}
+                      {log.ip_address || '—'}
                     </TableCell>
                   </TableRow>
                 ))}
