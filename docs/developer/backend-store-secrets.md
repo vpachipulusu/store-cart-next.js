@@ -5,10 +5,10 @@ an AES-256-GCM envelope in `stores.connection_string_encrypted` (migration `0005
 
 ## Configuration
 
-| Variable                           | Purpose                                                                                                   |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Variable                           | Purpose                                                                                                  |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | `STORE_DB_ENCRYPTION_KEY`          | Current key: base64url of 32 random bytes. **Required** outside local, test, Vercel preview/development. |
-| `STORE_DB_ENCRYPTION_KEY_PREVIOUS` | Optional comma separated retired keys, used only to decrypt during rotation.                              |
+| `STORE_DB_ENCRYPTION_KEY_PREVIOUS` | Optional comma separated retired keys, used only to decrypt during rotation.                             |
 
 Generate a key with `python -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())"`. Settings
 validation fails at startup when a key is missing (deployed) or malformed. Keep it in a secret manager, separate from
