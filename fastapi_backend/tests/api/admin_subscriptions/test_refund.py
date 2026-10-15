@@ -33,7 +33,9 @@ async def test_refund_without_an_amount_refunds_what_is_left_and_audits_once(
     org_id = await seed_org(engine, **paying())
 
     result = await client.post(
-        refund_url(org_id), json={"charge_id": "ch_1"}, headers=keyed("mgr")
+        refund_url(org_id),
+        json={"charge_id": "ch_1", "amount": 5000},
+        headers=keyed("mgr"),
     )
 
     assert result.status_code == 200
@@ -48,7 +50,7 @@ async def test_refund_without_an_amount_refunds_what_is_left_and_audits_once(
     }
     call = stripe.last("create_refund")
     assert call["amount"] == 5000 and call["organization_id"] == org_id
-    assert call["idempotency_key"] == f"sc-admin-refund-{org_id}-key-aaaa-0001"
+    assert call["idempotency_key"] == f"sc-admin-refund:{org_id}:key-aaaa-0001"
     entries = await audit_rows(engine, "admin.subscriptions.refund")
     assert len(entries) == 1
     assert entries[0][0] == admin_id and entries[0][4] == org_id
@@ -69,7 +71,7 @@ async def test_partial_refund_keeps_the_rest_refundable(client, engine):
     )
     rest = await client.post(
         refund_url(org_id),
-        json={"charge_id": "ch_1"},
+        json={"charge_id": "ch_1", "amount": 3800},
         headers=keyed("mgr", "key-part-0002"),
     )
     nothing_left = await client.post(
@@ -120,17 +122,17 @@ async def test_refund_retry_after_a_lost_audit_write_replays_stripe_and_audits_o
 
     monkeypatch.setattr(AuditRepository, "add", broken)
     failed = await client.post(
-        refund_url(org_id), json={"charge_id": "ch_1", "amount": 900}, headers=headers
+        refund_url(org_id), json={"charge_id": "ch_1", "amount": 5000}, headers=headers
     )
     monkeypatch.setattr(AuditRepository, "add", original)
 
     retry = await client.post(
-        refund_url(org_id), json={"charge_id": "ch_1", "amount": 900}, headers=headers
+        refund_url(org_id), json={"charge_id": "ch_1", "amount": 5000}, headers=headers
     )
 
     assert failed.status_code == 500
-    assert retry.status_code == 200 and retry.json()["data"]["amount"] == 900
-    assert stripe.charges["ch_1"].amount_refunded == 900  # Stripe replayed: one refund
+    assert retry.status_code == 200 and retry.json()["data"]["amount"] == 5000
+    assert stripe.charges["ch_1"].amount_refunded == 5000  # Stripe replayed: one refund
     assert len(await audit_rows(engine, "admin.subscriptions.refund")) == 1
 
 
@@ -151,7 +153,7 @@ async def test_refund_reusing_a_key_for_another_amount_is_409(client, engine, st
     assert len(await audit_rows(engine, "admin.subscriptions.refund")) == 1
 
 
-async def test_refund_more_than_refundable_is_409_before_any_stripe_write(
+async def test_refund_more_than_refundable_is_409_and_moves_no_money(
     client, engine, stripe
 ):
     await seed_user(engine, "mgr", "admin", MANAGER)
@@ -165,13 +167,15 @@ async def test_refund_more_than_refundable_is_409_before_any_stripe_write(
 
     assert result.status_code == 409
     assert result.json()["error"] == "Amount exceeds the refundable balance"
-    assert "create_refund" not in stripe.names()
+    assert stripe.charges["ch_1"].amount_refunded == 0
     assert await audit_rows(engine) == []
 
 
 @pytest.mark.parametrize(
     "body",
     [
+        {"charge_id": "ch_1"},
+        {"charge_id": "ch_1", "amount": None},
         {"charge_id": "ch_1", "amount": 0},
         {"charge_id": "ch_1", "amount": -5},
         {"charge_id": "ch_1", "amount": 10.5},
@@ -203,11 +207,13 @@ async def test_refund_of_another_customers_charge_is_rejected_like_an_unknown_on
     org_id = await seed_org(engine, **paying())
 
     other = await client.post(
-        refund_url(org_id), json={"charge_id": "ch_other"}, headers=keyed("mgr")
+        refund_url(org_id),
+        json={"charge_id": "ch_other", "amount": 100},
+        headers=keyed("mgr"),
     )
     unknown = await client.post(
         refund_url(org_id),
-        json={"charge_id": "ch_nope"},
+        json={"charge_id": "ch_nope", "amount": 100},
         headers=keyed("mgr", "key-aaaa-0002"),
     )
 
@@ -229,7 +235,9 @@ async def test_refund_for_an_organisation_without_a_customer_is_404(
     org_id = await seed_org(engine)
 
     result = await client.post(
-        refund_url(org_id), json={"charge_id": "ch_1"}, headers=keyed("mgr")
+        refund_url(org_id),
+        json={"charge_id": "ch_1", "amount": 5000},
+        headers=keyed("mgr"),
     )
 
     assert result.status_code == 404 and stripe.calls == []
@@ -243,11 +251,13 @@ async def test_refund_of_an_uncaptured_or_fully_refunded_charge_is_409(
     org_id = await seed_org(engine, **paying())
 
     result = await client.post(
-        refund_url(org_id), json={"charge_id": charge_id}, headers=keyed("mgr")
+        refund_url(org_id),
+        json={"charge_id": charge_id, "amount": 100},
+        headers=keyed("mgr"),
     )
 
     assert result.status_code == 409
-    assert "create_refund" not in stripe.names()
+    assert stripe.charges[charge_id].amount_refunded in (0, 5000)  # unchanged
     assert await audit_rows(engine) == []
 
 
@@ -255,7 +265,9 @@ async def test_refund_of_an_unknown_organisation_is_404(client, engine, stripe):
     await seed_user(engine, "mgr", "admin", MANAGER)
 
     result = await client.post(
-        refund_url("nope"), json={"charge_id": "ch_1"}, headers=keyed("mgr")
+        refund_url("nope"),
+        json={"charge_id": "ch_1", "amount": 5000},
+        headers=keyed("mgr"),
     )
 
     assert result.status_code == 404 and stripe.calls == []
@@ -266,7 +278,9 @@ async def test_refund_requires_an_idempotency_key(client, engine, stripe):
     org_id = await seed_org(engine, **paying())
 
     result = await client.post(
-        refund_url(org_id), json={"charge_id": "ch_1"}, headers=as_user("mgr")
+        refund_url(org_id),
+        json={"charge_id": "ch_1", "amount": 5000},
+        headers=as_user("mgr"),
     )
 
     assert result.status_code == 422 and stripe.calls == []
@@ -280,7 +294,9 @@ async def test_refund_stripe_outage_is_a_generic_502_with_no_audit_row(
     stripe.fail = True
 
     result = await client.post(
-        refund_url(org_id), json={"charge_id": "ch_1"}, headers=keyed("mgr")
+        refund_url(org_id),
+        json={"charge_id": "ch_1", "amount": 5000},
+        headers=keyed("mgr"),
     )
 
     assert result.status_code == 502
@@ -294,7 +310,9 @@ async def test_refund_stripe_refusal_is_a_generic_409(client, engine, stripe):
     stripe.reject = True
 
     result = await client.post(
-        refund_url(org_id), json={"charge_id": "ch_1"}, headers=keyed("mgr")
+        refund_url(org_id),
+        json={"charge_id": "ch_1", "amount": 5000},
+        headers=keyed("mgr"),
     )
 
     assert result.status_code == 409
@@ -308,7 +326,9 @@ async def test_refund_without_a_stripe_key_is_503(client, engine):
     org_id = await seed_org(engine, **paying())
 
     result = await client.post(
-        refund_url(org_id), json={"charge_id": "ch_1"}, headers=keyed("mgr")
+        refund_url(org_id),
+        json={"charge_id": "ch_1", "amount": 5000},
+        headers=keyed("mgr"),
     )
 
     assert result.status_code == 503 and await audit_rows(engine) == []

@@ -13,14 +13,18 @@ Money-moving calls (cancel, refund) take the caller's ``Idempotency-Key``:
   a hash of the key) tells a retry the work is already done, so it neither calls Stripe
   again nor writes a second audit row;
 * the audit row is staged after Stripe accepted and committed once. If that commit
-  fails the client retries with the same key: Stripe replays its answer and the audit
-  row is written then.
+  fails the client retries with the same key and Stripe's live state decides: a refund
+  is replayed by Stripe under the same key (the local balance never blocks it), and a
+  subscription Stripe already shows as cancelled is audited without a second call. The
+  audit row is then written. Stripe ignores idempotency keys on DELETE and keeps them
+  for 24 hours only, so a retry should come well within a day.
 
 Every change writes exactly one audit entry in the caller's transaction (see
 ``app.services.audit``); a refusal raises before any commit.
 """
 
 import hashlib
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -46,6 +50,9 @@ GRANTABLE_PLANS = frozenset({PlanKey.PRO, PlanKey.ENTERPRISE})
 CANCEL_ACTION = "admin.subscriptions.cancel"
 REFUND_ACTION = "admin.subscriptions.refund"
 GRANT_ACTION = "admin.subscriptions.grant"
+ENDED_STATUSES = frozenset({"canceled", "incomplete_expired"})
+
+logger = logging.getLogger("storecart.admin_subscriptions")
 
 
 class SubscriptionNotFound(Exception):
@@ -155,7 +162,7 @@ def request_ref(request_key: str) -> str:
 
 
 def _stripe_key(operation: str, organization_id: str, request_key: str) -> str:
-    return f"sc-admin-{operation}-{organization_id}-{request_key}"
+    return f"sc-admin-{operation}:{organization_id}:{request_key}"
 
 
 def _has_live_subscription(record: SubscriptionRecord) -> bool:
@@ -223,26 +230,31 @@ class AdminSubscriptionsService:
                 raise IdempotencyMismatch
             return CancelResult(immediately, already_applied=True)
         subscription_id = record.stripe_subscription_id
-        if subscription_id is None or not _has_live_subscription(record):
-            raise SubscriptionConflict
-        if not immediately and record.stripe_cancel_at_period_end:
+        if subscription_id is None or record.stripe_customer_id is None:
             raise SubscriptionConflict
         stripe = self._stripe()
         stripe_key = _stripe_key("cancel", organization_id, request_key)
         try:
+            # Stripe's live state decides, not the local copy the webhook may not have
+            # updated yet: this is also what lets a retry after a lost audit row succeed.
             subscription = await stripe.get_subscription(subscription_id)
             if subscription.customer_id != record.stripe_customer_id:
                 raise SubscriptionConflict
-            if immediately:
+            ended = (subscription.status or "") in ENDED_STATUSES
+            if ended and not immediately:
+                raise SubscriptionConflict
+            if immediately and not ended:
                 await stripe.cancel_subscription(
                     subscription_id, idempotency_key=stripe_key
                 )
-            else:
+            elif not immediately and not subscription.cancel_at_period_end:
                 await stripe.set_cancel_at_period_end(
                     subscription_id=subscription_id,
                     cancel=True,
                     idempotency_key=stripe_key,
                 )
+        except StripeNotFound:
+            raise SubscriptionConflict from None
         except StripeRejected:
             raise StripeRefused from None
         except StripeError:
@@ -270,7 +282,7 @@ class AdminSubscriptionsService:
         organization_id: str,
         *,
         charge_id: str,
-        amount: int | None,
+        amount: int,
         reason: str | None,
         request_key: str,
     ) -> RefundResult:
@@ -281,26 +293,29 @@ class AdminSubscriptionsService:
             REFUND_ACTION, organization_id, ref
         )
         if prior is not None:
-            return self._replayed_refund(prior, charge_id, amount)
+            return self._replayed_refund(prior, charge_id, amount, reason)
         customer_id = record.stripe_customer_id
         if customer_id is None:
             raise PaymentNotFound
         stripe = self._stripe()
         try:
             charge = await self._owned_charge(stripe, charge_id, customer_id)
-            refundable = charge.refundable
-            if refundable <= 0:
-                raise SubscriptionConflict
-            wanted = refundable if amount is None else amount
-            if wanted > refundable:
-                raise RefundExceedsBalance
-            refund = await stripe.create_refund(
-                charge_id=charge.id,
-                amount=wanted,
-                reason=reason,
-                organization_id=organization_id,
-                idempotency_key=_stripe_key("refund", organization_id, request_key),
-            )
+            # Stripe enforces the balance and replays an earlier request with the same
+            # key, so a refund whose audit row was lost still completes on retry. The
+            # local figure only chooses the message when Stripe refuses.
+            over_balance = amount > charge.refundable
+            try:
+                refund = await stripe.create_refund(
+                    charge_id=charge.id,
+                    amount=amount,
+                    reason=reason,
+                    organization_id=organization_id,
+                    idempotency_key=_stripe_key("refund", organization_id, request_key),
+                )
+            except StripeRejected:
+                if over_balance:
+                    raise RefundExceedsBalance from None
+                raise
         except StripeNotFound:
             raise PaymentNotFound from None
         except StripeRejected:
@@ -317,7 +332,6 @@ class AdminSubscriptionsService:
             details={
                 "request_ref": ref,
                 "charge_id": charge.id,
-                "requested_amount": amount,
                 "amount": refund.amount,
                 "currency": currency,
                 "refund_id": refund.id,
@@ -395,6 +409,9 @@ class AdminSubscriptionsService:
         try:
             return await self.stripe.list_charges(record.stripe_customer_id)
         except StripeError:
+            logger.warning(
+                "stripe charges unavailable", extra={"organization_id": record.id}
+            )
             return None
 
     @staticmethod
@@ -408,18 +425,24 @@ class AdminSubscriptionsService:
 
     @staticmethod
     def _replayed_refund(
-        prior: dict[str, Any], charge_id: str, amount: int | None
+        prior: dict[str, Any], charge_id: str, amount: int, reason: str | None
     ) -> RefundResult:
         if (
             prior.get("charge_id") != charge_id
-            or prior.get("requested_amount") != amount
+            or prior.get("amount") != amount
+            or prior.get("reason") != reason
         ):
             raise IdempotencyMismatch
+        refund_id = prior.get("refund_id")
+        currency = prior.get("currency")
+        if not isinstance(refund_id, str) or not isinstance(currency, str):
+            raise TypeError("Malformed audit details for a replayed refund")
+        status = prior.get("refund_status")
         return RefundResult(
-            refund_id=str(prior.get("refund_id")),
+            refund_id=refund_id,
             charge_id=charge_id,
-            amount=int(prior.get("amount") or 0),
-            currency=str(prior.get("currency") or ""),
-            status=prior.get("refund_status"),
+            amount=amount,
+            currency=currency,
+            status=status if isinstance(status, str) else None,
             already_applied=True,
         )

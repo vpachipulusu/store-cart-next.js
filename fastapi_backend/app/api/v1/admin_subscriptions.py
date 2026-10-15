@@ -170,8 +170,8 @@ class RefundRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     charge_id: str = Field(pattern=r"^ch_[A-Za-z0-9]{1,128}$")
-    # Minor units (pence, cents); omit to refund what is left on the charge.
-    amount: StrictInt | None = Field(default=None, ge=1, le=MAX_REFUND_MINOR_UNITS)
+    # Minor units (pence, cents). Required, so a retry sends Stripe the same request.
+    amount: StrictInt = Field(ge=1, le=MAX_REFUND_MINOR_UNITS)
     reason: Literal["duplicate", "fraudulent", "requested_by_customer"] | None = None
 
 
@@ -263,7 +263,7 @@ def _http_error(exc: Exception) -> HTTPException:
         return HTTPException(502, "Billing provider unavailable")
     if isinstance(exc, InvalidGrant):
         return HTTPException(422, "Invalid request")
-    return HTTPException(503, "Service temporarily unavailable", {"Retry-After": "5"})
+    return HTTPException(503, "Billing is not configured")
 
 
 def _no_store(response: Response) -> None:

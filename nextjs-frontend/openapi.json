@@ -8931,16 +8931,9 @@
             "title": "Charge Id"
           },
           "amount": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "maximum": 99999999.0,
-                "minimum": 1.0
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "integer",
+            "maximum": 99999999.0,
+            "minimum": 1.0,
             "title": "Amount"
           },
           "reason": {
@@ -8963,7 +8956,8 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "charge_id"
+          "charge_id",
+          "amount"
         ],
         "title": "RefundRequest"
       },

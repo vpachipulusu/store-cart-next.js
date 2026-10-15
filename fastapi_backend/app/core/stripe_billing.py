@@ -48,6 +48,8 @@ class StripeSubscription:
     customer_id: str
     item_id: str | None
     price_id: str | None
+    status: str | None = None
+    cancel_at_period_end: bool = False
 
 
 @dataclass(frozen=True)
@@ -267,6 +269,9 @@ class HttpStripeBilling:
             customer_id=_require_text(body.get("customer")),
             item_id=_text(first.get("id")),
             price_id=_text(_dict(first.get("price")).get("id")),
+            status=_text(body.get("status")),
+            cancel_at_period_end=body.get("cancel_at_period_end") is True
+            or isinstance(body.get("cancel_at"), int),
         )
 
     async def change_subscription_price(

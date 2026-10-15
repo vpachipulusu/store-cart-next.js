@@ -32,15 +32,19 @@ There is no `subscriptions.cancel` permission, so cancel uses `subscriptions.upd
   `refundable`, `currency`, `status`, `created`, `invoice_id`). No card, billing or email data is parsed or returned.
   `payments` is `[]` without a Stripe customer and `null` when Stripe is unconfigured or did not answer.
 - **Cancel.** Body `{"immediately": false}` (optional). Needs a live subscription (`active`, `trialing`, `past_due`,
-  `unpaid`, `incomplete`, `paused`) of the organisation's own customer, else 409. Nothing is written locally; the
-  webhook updates status, tier and `stripe_cancel_at_period_end` when Stripe's event arrives. Cancelling at period
-  end a subscription that is already ending is a 409.
-- **Refund.** Body `{"charge_id": "ch_...", "amount": 1200, "reason": "duplicate"}`. `amount` is optional, a strict
-  integer in minor units (1 to 99,999,999); omitted means everything still refundable. `reason` is Stripe's
+  `unpaid`, `incomplete`, `paused`) is not required locally: Stripe's live state of the organisation's own
+  subscription decides (a missing subscription or a customer mismatch is a 409). Nothing is written locally; the
+  webhook updates status, tier and `stripe_cancel_at_period_end` when Stripe's event arrives. If Stripe already
+  shows the requested end state (ending at period end, or ended for an immediate cancel) no Stripe call is made
+  and the request is still audited, which is what lets a retry after a lost audit row succeed. A period-end cancel
+  of a subscription Stripe shows as ended is a 409.
+- **Refund.** Body `{"charge_id": "ch_...", "amount": 1200, "reason": "duplicate"}`. `amount` is required, a strict
+  integer in minor units (1 to 99,999,999), so a retry sends Stripe an identical request. `reason` is Stripe's
   `duplicate`, `fraudulent` or `requested_by_customer`. There is no currency field: it comes from the charge. The
   charge is fetched from Stripe and must belong to the organisation's `stripe_customer_id`; an unknown charge and
-  another customer's charge return the same `404 Payment not found`. A charge that is not captured or is fully
-  refunded, or an amount above what is left, is a 409 and Stripe is not asked to refund.
+  another customer's charge return the same `404 Payment not found`. An amount above what is left
+  refundable (including a charge that is not captured or already fully refunded) is a 409: Stripe enforces the
+  balance and refuses, so no money moves.
 - **Grant.** Body `{"plan": "pro" | "enterprise", "expires_at": "<timezone-aware ISO 8601>"}`. The expiry must be
   in the future and at most 730 days away (422). Refused with 409 while the organisation has a live Stripe
   subscription, since a grant beside it could only contradict it. The same plan and expiry again is a no-op
@@ -60,12 +64,16 @@ merchant until it expires.
 ## Money safety
 
 - **Idempotency.** Cancel and refund require an `Idempotency-Key` header (8 to 64 of `A-Za-z0-9_-`; otherwise 422
-  before anything happens). The Stripe key is deterministic: `sc-admin-<cancel|refund>-<organisation id>-<client
+  before anything happens). The Stripe key is deterministic: `sc-admin-<cancel|refund>:<organisation id>:<client
   key>`. An advisory lock serialises requests with one key, and the audit row, found by a SHA-256 of the key (the
   key itself is never stored), tells a retry the work is done: same result with `already_applied: true`, no Stripe
   call, no second audit row. Reusing a key for another request (amount, charge or cancel mode) is a 409. If the
-  audit commit fails after Stripe accepted, the request is a 500; the retry makes Stripe replay its answer (the
-  same refund) and writes the audit row then.
+  audit commit fails after Stripe accepted, the request is a 500; the retry reaches Stripe, which replays a refund
+  under the same key (the local balance never blocks it) and shows a cancelled subscription as ended, and the
+  audit row is written then. Stripe keeps idempotency keys for 24 hours and ignores them on DELETE, so retry
+  well within a day. The request holds its database transaction (and the advisory lock, never the organisation
+  row, so the webhook is not blocked) across up to three Stripe calls of 10 seconds each; `NullPool` means one
+  connection per request, so keep `idle_in_transaction_session_timeout` above about 30 seconds.
 - **Audit (KAN-49).** One row per change: `admin.subscriptions.cancel`, `.refund`, `.grant`, `resource`
   `subscriptions`, `resource_id` and `organization_id` the organisation, details sanitized (ids and amounts, no card
   data). Grant and its audit row share one transaction; Stripe cannot join one, so cancel and refund stage the row

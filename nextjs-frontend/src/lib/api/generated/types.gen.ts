@@ -1015,7 +1015,7 @@ export type RefundRequest = {
     /**
      * Amount
      */
-    amount?: number | null;
+    amount: number;
     /**
      * Reason
      */

@@ -39,7 +39,9 @@ class FakeStripeAdmin:
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.fail = False
         self.reject = False
-        self.subscription = StripeSubscription("sub_1", "cus_1", "si_1", "price_pro_m")
+        self.subscription = StripeSubscription(
+            "sub_1", "cus_1", "si_1", "price_pro_m", "active", False
+        )
         self.charges: dict[str, StripeCharge] = {
             "ch_1": charge(),
             "ch_other": charge(id="ch_other", customer_id="cus_other"),
@@ -69,6 +71,7 @@ class FakeStripeAdmin:
 
     async def set_cancel_at_period_end(self, **kwargs: Any) -> None:
         self._record("set_cancel_at_period_end", **kwargs)
+        self.subscription = replace(self.subscription, cancel_at_period_end=True)
 
     async def cancel_subscription(
         self, subscription_id: str, *, idempotency_key: str
@@ -78,6 +81,7 @@ class FakeStripeAdmin:
             subscription_id=subscription_id,
             idempotency_key=idempotency_key,
         )
+        self.subscription = replace(self.subscription, status="canceled")
 
     async def list_charges(self, customer_id: str) -> list[StripeCharge]:
         self._record("list_charges", customer_id=customer_id)
@@ -113,6 +117,8 @@ class FakeStripeAdmin:
                 raise StripeRejected("Stripe request failed")
             return refund
         current = self.charges[charge_id]
+        if amount > current.refundable:
+            raise StripeRejected("Stripe request failed")
         refund = StripeRefund(
             f"re_{len(self._refunds) + 1}", amount, current.currency, "succeeded"
         )

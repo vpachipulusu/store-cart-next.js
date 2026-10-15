@@ -1,11 +1,13 @@
 """Admin subscriptions e2e (KAN-48): cancel a subscription. See the support module."""
 
 import json
+from dataclasses import replace
 
 import pytest
 from sqlalchemy import text
 
 from app.api.v1.admin_subscriptions import stripe_admin
+from app.repositories.audit import AuditRepository
 from tests.api.admin_subscriptions.support import (
     BASE,
     MANAGER,
@@ -45,7 +47,7 @@ async def test_cancel_at_period_end_asks_stripe_and_writes_one_audit_row(
     }
     call = stripe.last("set_cancel_at_period_end")
     assert call["subscription_id"] == "sub_1" and call["cancel"] is True
-    assert call["idempotency_key"] == f"sc-admin-cancel-{org_id}-key-aaaa-0001"
+    assert call["idempotency_key"] == f"sc-admin-cancel:{org_id}:key-aaaa-0001"
     entries = await audit_rows(engine, "admin.subscriptions.cancel")
     assert len(entries) == 1
     user_id, _, resource, resource_id, organization_id, metadata = entries[0]
@@ -123,16 +125,69 @@ async def test_cancel_retry_after_the_webhook_marked_it_cancelling_still_succeed
     assert len(await audit_rows(engine, "admin.subscriptions.cancel")) == 1
 
 
-async def test_cancel_with_another_key_when_already_cancelling_is_409(client, engine):
+async def test_cancel_when_stripe_already_shows_it_ending_is_audited_without_a_second_call(
+    client, engine, stripe
+):
     await seed_user(engine, "mgr", "admin", MANAGER)
     org_id = await seed_org(engine, **paying(stripe_cancel_at_period_end=True))
+    stripe.subscription = replace(stripe.subscription, cancel_at_period_end=True)
 
     result = await client.post(
         f"{BASE}/{org_id}/cancel", json={}, headers=keyed("mgr", "key-other-0001")
     )
 
+    assert result.status_code == 200
+    assert "set_cancel_at_period_end" not in stripe.names()
+    assert len(await audit_rows(engine, "admin.subscriptions.cancel")) == 1
+
+
+async def test_cancel_at_period_end_of_a_subscription_stripe_shows_ended_is_409(
+    client, engine, stripe
+):
+    await seed_user(engine, "mgr", "admin", MANAGER)
+    org_id = await seed_org(engine, **paying())
+    stripe.subscription = replace(stripe.subscription, status="canceled")
+
+    result = await client.post(f"{BASE}/{org_id}/cancel", json={}, headers=keyed("mgr"))
+
     assert result.status_code == 409
+    assert "set_cancel_at_period_end" not in stripe.names()
     assert await audit_rows(engine) == []
+
+
+async def test_immediate_cancel_retry_after_a_lost_audit_row_and_the_webhook_is_audited_once(
+    client, engine, stripe, monkeypatch
+):
+    await seed_user(engine, "mgr", "admin", MANAGER)
+    org_id = await seed_org(engine, **paying())
+    headers = keyed("mgr", "key-lost-0002")
+    original = AuditRepository.add
+
+    async def broken(self, **kwargs):
+        raise RuntimeError("audit store down")
+
+    monkeypatch.setattr(AuditRepository, "add", broken)
+    failed = await client.post(
+        f"{BASE}/{org_id}/cancel", json={"immediately": True}, headers=headers
+    )
+    monkeypatch.setattr(AuditRepository, "add", original)
+    async with engine.begin() as connection:  # the webhook applies the cancellation
+        await connection.execute(
+            text(
+                "UPDATE organizations SET subscription_status = 'canceled', "
+                "subscription_tier = 'free' WHERE id = :id"
+            ),
+            {"id": org_id},
+        )
+
+    retry = await client.post(
+        f"{BASE}/{org_id}/cancel", json={"immediately": True}, headers=headers
+    )
+
+    assert failed.status_code == 500
+    assert retry.status_code == 200
+    assert stripe.names().count("cancel_subscription") == 1
+    assert len(await audit_rows(engine, "admin.subscriptions.cancel")) == 1
 
 
 async def test_cancel_reusing_a_key_for_another_mode_is_409(client, engine):
@@ -192,8 +247,6 @@ async def test_cancel_rejects_unknown_body_fields(client, engine, stripe):
     [
         {},
         {"stripe_customer_id": "cus_1"},
-        {**paying(subscription_status="canceled")},
-        {**paying(subscription_status="incomplete_expired")},
     ],
 )
 async def test_cancel_without_a_live_subscription_is_409(
