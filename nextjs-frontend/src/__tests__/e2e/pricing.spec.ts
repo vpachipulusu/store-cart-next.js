@@ -309,6 +309,7 @@ test.describe('Pricing Page', () => {
   });
 
   test.describe('Current Plan Indicator (Authenticated Users)', () => {
+    // Skipped, tracked in KAN-197.
     test.skip('should show "Current Plan" only on active tier', async ({ page, context }) => {
       // This test requires authentication with a specific test user
       // Skipped - requires test user setup with Pro subscription
@@ -320,6 +321,7 @@ test.describe('Pricing Page', () => {
       // 5. Verify "Downgrade" shows on Free tier for paid users
     });
 
+    // Skipped, tracked in KAN-197.
     test.skip('should not show multiple "Current Plan" buttons', async ({ page }) => {
       // This test requires authentication
       // Skipped - requires test user setup

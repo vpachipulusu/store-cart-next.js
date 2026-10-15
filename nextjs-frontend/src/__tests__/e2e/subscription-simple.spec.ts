@@ -31,7 +31,12 @@ test.describe('Subscription Upgrade - Happy Path', () => {
     'Skipped: TEST_USER_EMAIL or STRIPE not configured'
   );
 
-  test('should successfully upgrade from free to pro tier', async ({ page, throwawayAccount }) => {
+  // Quarantined (KAN-165): fails on a clean main because the Stripe webhook cannot reach a local server. Tracked in
+  // KAN-157 (stripe listen locally). Remove .fixme when KAN-157 lands.
+  test.fixme('should successfully upgrade from free to pro tier', async ({
+    page,
+    throwawayAccount,
+  }) => {
     // Checkout, the Stripe webhook and the success handler's polling (up to 30 s) take longer than the 30 s default.
     test.setTimeout(150_000);
 
