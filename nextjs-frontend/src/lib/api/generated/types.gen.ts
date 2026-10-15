@@ -2969,13 +2969,13 @@ export type ListAuditLogsData = {
         /**
          * Created From
          *
-         * Only rows created at or after this instant (ISO 8601).
+         * Only rows created at or after this instant (ISO 8601 with a UTC offset, for example `2026-01-01T00:00:00Z`; a value without an offset is a 422).
          */
         created_from?: string | null;
         /**
          * Created To
          *
-         * Only rows created at or before this instant (ISO 8601).
+         * Only rows created at or before this instant (inclusive; ISO 8601 with a UTC offset; a date alone is not accepted).
          */
         created_to?: string | null;
         /**

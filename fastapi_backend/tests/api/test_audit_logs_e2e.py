@@ -420,16 +420,23 @@ async def test_migration_0006_adds_store_id_and_indexes_and_downgrades(
     assert "store_id" in columns
 
 
-async def test_missing_internal_key_is_rejected(
+async def test_missing_internal_key_is_rejected_but_the_valid_key_works(
     client: AsyncClient, engine: AsyncEngine
 ) -> None:
     await seed_user(engine, "root", ["audit.read"])
-    headers = {**as_user("root"), "X-Internal-Key": ""}
+    keyless = AsyncClient(transport=client._transport, base_url="http://test")
 
-    response = await client.get(URL, headers=headers)
+    async with keyless:
+        missing = await keyless.get(URL, headers=as_user("root"))
+        wrong = await keyless.get(
+            URL, headers={**as_user("root"), "X-Internal-Key": "wrong"}
+        )
+    valid = await client.get(URL, headers=as_user("root"))
 
-    assert response.status_code in (401, 403)
-    assert "entries" not in response.text
+    assert missing.status_code == 401
+    assert missing.json() == {"success": False, "error": "Unauthorized"}
+    assert wrong.status_code == 401
+    assert valid.status_code == 200
 
 
 async def test_default_limit_is_50_and_100_is_the_boundary(
@@ -445,6 +452,9 @@ async def test_default_limit_is_50_and_100_is_the_boundary(
     ).json()["data"]
     over = await client.get(URL, params={"limit": 101}, headers=as_user("root"))
 
+    assert (await client.get(URL, headers=as_user("root"))).headers[
+        "cache-control"
+    ] == "no-store"
     assert (default["limit"], len(default["entries"]), default["total_count"]) == (
         50,
         50,
@@ -516,3 +526,41 @@ async def test_created_from_after_created_to_is_422(
 
     assert response.status_code == 422
     assert response.json()["success"] is False
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"created_from": "2026-01-01T00:00:00"},
+        {"created_to": "2026-01-01T00:00:00"},
+        {"created_from": "2026-01-01T00:00:00", "created_to": "2026-02-01T00:00:00Z"},
+        {"created_from": "2026-01-01"},
+    ],
+)
+async def test_dates_without_a_utc_offset_are_422_not_500(
+    client: AsyncClient, engine: AsyncEngine, params: dict[str, str]
+) -> None:
+    await seed_user(engine, "root", ["audit.read"])
+
+    response = await client.get(URL, params=params, headers=as_user("root"))
+
+    assert response.status_code == 422
+
+
+async def test_created_to_equal_to_created_from_matches_that_instant(
+    client: AsyncClient, engine: AsyncEngine
+) -> None:
+    await seed_user(engine, "root", ["audit.read"])
+    exact = await seed_entry(engine, 10)
+    await seed_entry(engine, 11)
+    instant = (T0 + timedelta(minutes=10)).isoformat()
+
+    response = await client.get(
+        URL,
+        params={"created_from": instant, "created_to": instant},
+        headers=as_user("root"),
+    )
+
+    data = response.json()["data"]
+    assert [entry["id"] for entry in data["entries"]] == [exact]
+    assert data["total_count"] == 1

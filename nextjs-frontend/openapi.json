@@ -3177,10 +3177,10 @@
                   "type": "null"
                 }
               ],
-              "description": "Only rows created at or after this instant (ISO 8601).",
+              "description": "Only rows created at or after this instant (ISO 8601 with a UTC offset, for example `2026-01-01T00:00:00Z`; a value without an offset is a 422).",
               "title": "Created From"
             },
-            "description": "Only rows created at or after this instant (ISO 8601)."
+            "description": "Only rows created at or after this instant (ISO 8601 with a UTC offset, for example `2026-01-01T00:00:00Z`; a value without an offset is a 422)."
           },
           {
             "name": "created_to",
@@ -3196,10 +3196,10 @@
                   "type": "null"
                 }
               ],
-              "description": "Only rows created at or before this instant (ISO 8601).",
+              "description": "Only rows created at or before this instant (inclusive; ISO 8601 with a UTC offset; a date alone is not accepted).",
               "title": "Created To"
             },
-            "description": "Only rows created at or before this instant (ISO 8601)."
+            "description": "Only rows created at or before this instant (inclusive; ISO 8601 with a UTC offset; a date alone is not accepted)."
           },
           {
             "name": "limit",

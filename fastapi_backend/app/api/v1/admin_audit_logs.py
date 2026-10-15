@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field
 
 from app.api.admin import require_admin
 from app.api.auth import require_internal_key
@@ -75,12 +75,22 @@ ActionName = Annotated[
     ),
 ]
 CreatedFrom = Annotated[
-    datetime | None,
-    Query(description="Only rows created at or after this instant (ISO 8601)."),
+    AwareDatetime | None,
+    Query(
+        description=(
+            "Only rows created at or after this instant (ISO 8601 with a UTC offset, "
+            "for example `2026-01-01T00:00:00Z`; a value without an offset is a 422)."
+        )
+    ),
 ]
 CreatedTo = Annotated[
-    datetime | None,
-    Query(description="Only rows created at or before this instant (ISO 8601)."),
+    AwareDatetime | None,
+    Query(
+        description=(
+            "Only rows created at or before this instant (inclusive; ISO 8601 with a "
+            "UTC offset; a date alone is not accepted)."
+        )
+    ),
 ]
 
 
@@ -149,10 +159,12 @@ async def list_audit_logs(
     created_from: CreatedFrom = None,
     created_to: CreatedTo = None,
     limit: Annotated[
-        int, Query(ge=1, le=MAX_PAGE_SIZE, description="Page size (1 to 100).")
+        int,
+        Query(ge=1, le=MAX_PAGE_SIZE, description=f"Page size (1 to {MAX_PAGE_SIZE})."),
     ] = 50,
     offset: Annotated[
-        int, Query(ge=0, le=MAX_OFFSET, description="Rows to skip (0 to 10,000).")
+        int,
+        Query(ge=0, le=MAX_OFFSET, description=f"Rows to skip (0 to {MAX_OFFSET:,})."),
     ] = 0,
 ) -> AuditLogPageResponse:
     response.headers["Cache-Control"] = "no-store"

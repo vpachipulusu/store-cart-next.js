@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ids import new_id
 from app.core.plans import PLANS, Plan, PlanKey
+from app.core.sentry import report_exception
 from app.core.stripe_billing import (
     StripeBilling,
     StripeError,
@@ -437,11 +438,17 @@ class OrgBillingService:
                 else None,
             )
             await self._session.commit()
-        except Exception:
-            await self._session.rollback()
-            logger.exception(
+        except Exception as exc:  # noqa: BLE001 - Stripe already accepted; never fail the request
+            try:
+                await self._session.rollback()
+            except Exception:
+                logger.exception("Rollback failed after a billing audit write error")
+            # Type only, no traceback: driver errors can echo bound parameters (PII).
+            report_exception(exc)
+            logger.error(
                 "Billing audit write failed after Stripe accepted the change",
                 extra={
+                    "error_type": type(exc).__name__,
                     "organization_id": organization_id,
                     "audit_action": action,
                     "idempotency_key": idempotency_key,

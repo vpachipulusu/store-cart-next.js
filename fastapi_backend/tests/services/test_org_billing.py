@@ -509,20 +509,46 @@ class FailingAuditSession(FakeCommitSession):
 
 
 async def test_audit_failure_after_stripe_accepts_is_logged_and_not_raised(caplog):
-    service, stripe, store, _ = build(subscribed_record())
+    service, stripe, store, baseline = build(subscribed_record())
+    await service.set_cancellation("org1", "u1", cancel=True, request_key=None)
+    stripe.calls.clear()
     session = FailingAuditSession()
     service = OrgBillingService(store, session, stripe, PRICES, ORIGINS)  # type: ignore[arg-type]
 
     with caplog.at_level("ERROR", logger="app.services.org_billing"):
-        await service.set_cancellation(
+        result = await service.set_cancellation(
             "org1", "u1", cancel=True, request_key="client-key-1"
         )
 
-    record = caplog.records[-1]
-    assert session.rollbacks >= 2  # authorize, then the failed audit write
+    errors = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert result is None
+    assert [name for name, _ in stripe.calls].count("set_cancel_at_period_end") == 1
+    assert session.rollbacks == baseline.rollbacks + 1  # authorize + failed audit
+    assert len(errors) == 1
+    record = errors[0]
     assert record.organization_id == "org1"  # type: ignore[attr-defined]
     assert record.audit_action == "billing.cancel"  # type: ignore[attr-defined]
     assert record.idempotency_key == "sc-cancel-org1-client-key-1"  # type: ignore[attr-defined]
+    assert "cus_1" not in record.getMessage()
+
+
+class UnrollbackableSession(FailingAuditSession):
+    async def rollback(self) -> None:
+        self.rollbacks += 1
+        if self.rollbacks > 1:
+            raise RuntimeError("connection lost")
+
+
+async def test_failed_rollback_after_a_failed_audit_write_still_does_not_raise():
+    _, stripe, store, _ = build(subscribed_record())
+    session = UnrollbackableSession()
+    service = OrgBillingService(store, session, stripe, PRICES, ORIGINS)  # type: ignore[arg-type]
+
+    await service.change_plan(
+        "org1", "u1", plan=PlanKey.PRO, interval="yearly", request_key=None
+    )
+
+    assert session.rollbacks == 2
 
 
 async def test_billing_audit_row_carries_request_context():

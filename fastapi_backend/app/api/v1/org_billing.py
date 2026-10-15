@@ -198,6 +198,11 @@ def stripe_billing() -> StripeBilling:
         raise HTTPException(503, "Service temporarily unavailable") from None
 
 
+def _audit_ip(request: Request) -> str | None:
+    ip = client_ip(request)
+    return None if ip == "unknown" else ip
+
+
 def get_org_billing_service(
     request: Request,
     session: SessionDep,
@@ -210,7 +215,7 @@ def get_org_billing_service(
         price_catalogue(),
         allowed_origins(settings.BILLING_RETURN_URL_ORIGINS),
         RequestOrigin(
-            ip_address=client_ip(request),
+            ip_address=_audit_ip(request),
             user_agent=request.headers.get("user-agent"),
             request_id=getattr(request.state, "request_id", None),
         ),
