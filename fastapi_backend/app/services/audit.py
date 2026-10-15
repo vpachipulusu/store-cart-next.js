@@ -63,13 +63,16 @@ _SENSITIVE_PARTS = (
     "ssn",
     "iban",
     "cardnumber",
+    "connectionstring",
+    "databaseurl",
+    "dsn",
 )
 _SENSITIVE_EXACT = frozenset(
     {"key", "keys", "otp", "pin", "code", "hash", "pwd", "pass", "dob", "card", "pan"}
 )
 # Free-text values that look like credentials, wherever they appear.
 _SECRET_VALUE = re.compile(
-    r"(bearer\s+\S|eyJ[A-Za-z0-9_-]{8,}|otpauth://|\b(sk|rk|pk)_(live|test)_|whsec_"
+    r"(bearer\s+\S|eyJ[A-Za-z0-9_-]{8,}|otpauth://|\b(sk|rk|pk)_(live|test)_|whsec_|postgres(ql)?(\+\w+)?://"
     r"|(token|secret|password|passwd|api[_-]?key)\s*[=:])",
     re.IGNORECASE,
 )

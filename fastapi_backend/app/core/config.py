@@ -1,6 +1,7 @@
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.store_crypto import StoreSecretCodec, StoreSecretUnavailable
 from app.core.totp import TotpCodec, TotpUnavailable
 
 LOCAL_ENVIRONMENTS = frozenset({"local", "test"})
@@ -46,6 +47,12 @@ class Settings(BaseSettings):
     FIREBASE_ADMIN_PRIVATE_KEY: SecretStr | None = None
     TOTP_ENCRYPTION_KEY: SecretStr | None = None
 
+    # Store connection string encryption (KAN-53): base64url 32 byte AES-256-GCM key.
+    # Required outside local/test. PREVIOUS is a comma separated list of retired keys
+    # that may still decrypt existing rows during rotation.
+    STORE_DB_ENCRYPTION_KEY: SecretStr | None = None
+    STORE_DB_ENCRYPTION_KEY_PREVIOUS: SecretStr | None = None
+
     # Stripe Billing webhook (KAN-44). Unset means the webhook answers 503.
     STRIPE_WEBHOOK_SECRET: SecretStr | None = None
     STRIPE_PRICE_ID_PRO_MONTHLY: str | None = None
@@ -88,6 +95,41 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "TOTP_ENCRYPTION_KEY must be a valid Fernet key"
                 ) from None
+        return self
+
+    @property
+    def store_db_previous_keys(self) -> list[str]:
+        if self.STORE_DB_ENCRYPTION_KEY_PREVIOUS is None:
+            return []
+        raw = self.STORE_DB_ENCRYPTION_KEY_PREVIOUS.get_secret_value()
+        return [part.strip() for part in raw.split(",") if part.strip()]
+
+    @model_validator(mode="after")
+    def validate_store_db_encryption_config(self) -> "Settings":
+        relaxed = (
+            self.VERCEL_ENV in VERCEL_NON_PRODUCTION
+            if self.VERCEL_ENV
+            else self.ENVIRONMENT in LOCAL_ENVIRONMENTS
+        )
+        current = self.STORE_DB_ENCRYPTION_KEY
+        if current is None and self.STORE_DB_ENCRYPTION_KEY_PREVIOUS is not None:
+            raise ValueError(
+                "STORE_DB_ENCRYPTION_KEY is required when "
+                "STORE_DB_ENCRYPTION_KEY_PREVIOUS is set"
+            )
+        if current is None:
+            if not relaxed:
+                raise ValueError(
+                    "STORE_DB_ENCRYPTION_KEY must be set outside local and test"
+                )
+            return self
+        try:
+            StoreSecretCodec(current.get_secret_value(), self.store_db_previous_keys)
+        except StoreSecretUnavailable:
+            raise ValueError(
+                "STORE_DB_ENCRYPTION_KEY and STORE_DB_ENCRYPTION_KEY_PREVIOUS must "
+                "be base64url encoded 32 byte keys"
+            ) from None
         return self
 
     @model_validator(mode="after")
