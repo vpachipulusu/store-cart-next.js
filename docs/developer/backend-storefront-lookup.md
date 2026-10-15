@@ -39,6 +39,16 @@ reach the database. Slugs are matched case-insensitively and returned in canonic
 A suspension is therefore visible within about a minute (up to 6 with stale-while-revalidate).
 429 and 401 carry no cache header. Rate-limit headers are not sent on cacheable responses.
 
+## Deployment assumptions
+
+- **Only the Next.js server calls this and it is the only cache.** `Cache-Control: public` is safe
+  because the body is identical for every caller. Do not put a CDN or shared cache in front of
+  FastAPI for this route: it would replay responses to callers without `X-Internal-Key`. If one is
+  ever added, switch to `private` or add `Vary: X-Internal-Key`.
+- **The caller must forward `X-Client-IP`.** Without it the limit keys on the peer address, so every
+  lookup from the Next.js server would share one 120/min bucket. KAN-64 must send the end-user IP.
+- A store that becomes ACTIVE may still read as 404 for up to 30 s (the miss cache).
+
 ## Tests
 
 - `tests/api/test_storefront.py`: fake repository; field allowlist, headers, ETag/304, slug
