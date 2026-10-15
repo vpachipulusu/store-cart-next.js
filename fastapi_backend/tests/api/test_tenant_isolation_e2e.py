@@ -15,6 +15,7 @@ name ends in ``_test``. It builds its own platform database (tables from the mod
 store databases, and drops them afterwards; the shared test database is not touched.
 """
 
+import contextlib
 import os
 import time
 from collections.abc import AsyncIterator
@@ -46,8 +47,13 @@ from app.services.store_migrations import (
     migrate_active_stores,
     migrate_store,
 )
-from app.services.store_provisioning import LocalDatabaseProvisioner, database_name_for
+from app.services.store_provisioning import (
+    LocalDatabaseProvisioner,
+    ProvisioningError,
+    database_name_for,
+)
 from app.services.store_sessions import (
+    StoreDatabaseNotConfigured,
     StoreDatabaseUnavailable,
     StoreNotFound,
     open_store_session,
@@ -56,6 +62,7 @@ from app.services.store_sessions import (
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 KEY = "test-only-internal-service-key-not-for-deployment"
 STORE_SLUGS = ("north", "south", "east")
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 pytestmark = pytest.mark.skipif(
     not TEST_DATABASE_URL, reason="TEST_DATABASE_URL is not set"
@@ -190,7 +197,9 @@ class World:
 
     async def markers(self, store_id: str) -> list[str]:
         async with open_store_session(store_id, self.provider) as session:
-            rows = await session.execute(text("SELECT owner FROM marker"))
+            rows = await session.execute(
+                text("SELECT owner FROM marker ORDER BY owner")
+            )
             return [row[0] for row in rows]
 
     async def platform_value(self, sql: str, **params: str) -> object:
@@ -220,29 +229,38 @@ class World:
 
 @pytest.fixture
 async def world(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[World]:
-    assert TEST_DATABASE_URL is not None
-    assert (make_url(TEST_DATABASE_URL).database or "").endswith("_test")
+    if TEST_DATABASE_URL is None:
+        pytest.skip("TEST_DATABASE_URL is not set")
+    target = make_url(TEST_DATABASE_URL)
+    if not (target.database or "").endswith("_test") or target.host not in LOCAL_HOSTS:
+        pytest.fail(
+            "refusing to create and drop databases outside a local *_test server"
+        )
     server = create_async_engine(TEST_DATABASE_URL)
-    platform_name = f"ks58_{new_id()[:8]}_plat"
     admin = server.execution_options(isolation_level="AUTOCOMMIT")
-    async with admin.connect() as connection:
-        await connection.execute(text(f'CREATE DATABASE "{platform_name}"'))
+    quote = server.dialect.identifier_preparer.quote_identifier
+    platform_name = f"ks58_{new_id()[:8]}_plat"
     platform = create_async_engine(url_for(platform_name))
-    async with platform.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
     built = World(server, platform, [platform_name])
-    monkeypatch.setattr(store_secrets, "get_codec", lambda: built.codec)
-    await built.seed()
-    yield built
-    await platform.dispose()
-    for store_id in built.provisioned:
-        await built.provisioner.delete_database(store_id)
-    async with admin.connect() as connection:
-        for name in built.databases:
-            await connection.execute(
-                text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
-            )
-    await server.dispose()
+    try:
+        async with admin.connect() as connection:
+            await connection.execute(text(f"CREATE DATABASE {quote(platform_name)}"))
+        async with platform.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        monkeypatch.setattr(store_secrets, "get_codec", lambda: built.codec)
+        await built.seed()
+        yield built
+    finally:
+        await platform.dispose()
+        for store_id in built.provisioned:
+            with contextlib.suppress(ProvisioningError):
+                await built.provisioner.delete_database(store_id)
+        async with admin.connect() as connection:
+            for name in built.databases:
+                await connection.execute(
+                    text(f"DROP DATABASE IF EXISTS {quote(name)} WITH (FORCE)")
+                )
+        await server.dispose()
 
 
 @pytest.fixture
@@ -367,6 +385,90 @@ async def test_other_organisations_store_is_not_found_and_indistinguishable(
         "SELECT name FROM stores WHERE id = :i", i=store_id
     )
     assert name == f"b {slug}"
+
+
+async def test_owner_controls_prove_the_foreign_404s_are_not_routing_artifacts(
+    client: AsyncClient, world: World
+) -> None:
+    org = world.a.org_id
+    patch_org = await client.patch(
+        f"/v1/organizations/{org}", json={"name": "Renamed"}, headers=as_user("alice")
+    )
+    staff_patch = await client.patch(
+        f"/v1/organizations/{org}", json={"name": "Staff"}, headers=as_user("amy")
+    )
+
+    assert patch_org.status_code == 200
+    assert staff_patch.status_code == 403
+    assert (
+        staff_patch.json()
+        != (
+            await client.get(f"/v1/organizations/{new_id()}", headers=as_user("amy"))
+        ).json()
+    )
+
+
+@pytest.mark.parametrize("status", ["SUSPENDED", "PROVISIONING", "ARCHIVED"])
+async def test_foreign_store_in_any_status_is_still_plain_not_found(
+    client: AsyncClient, world: World, status: str
+) -> None:
+    store_id = world.b.stores["north"]
+    async with world.platform.begin() as connection:
+        await connection.execute(
+            text("UPDATE stores SET status = :s WHERE id = :i"),
+            {"s": status, "i": store_id},
+        )
+    missing = await client.patch(
+        f"/v1/stores/{new_id()}", json={"name": "x"}, headers=as_user("alice")
+    )
+
+    foreign = await client.patch(
+        f"/v1/stores/{store_id}", json={"name": "x"}, headers=as_user("alice")
+    )
+
+    same_failure(foreign, missing)
+    assert "not active" not in foreign.text
+
+
+async def test_ids_of_the_wrong_kind_and_other_tenants_attackers_find_nothing(
+    client: AsyncClient, world: World
+) -> None:
+    probes = [
+        (f"/v1/stores/{world.a.org_id}", "alice"),
+        (f"/v1/organizations/{world.a.stores['north']}", "alice"),
+        (f"/v1/stores/{world.a.stores['north']}", "bob"),
+        (f"/v1/organizations/{world.a.org_id}", "bob"),
+        (f"/v1/organizations/{world.a.org_id}/stores", "bob"),
+    ]
+
+    for path, user in probes:
+        response = await client.get(path, headers=as_user(user))
+        assert response.status_code == 404, path
+
+
+async def test_forged_ownership_fields_in_a_foreign_write_change_nothing(
+    client: AsyncClient, world: World
+) -> None:
+    target = world.b.stores["south"]
+    forged = {
+        "name": "Hijacked",
+        "slug": "hijacked",
+        "organization_id": world.a.org_id,
+        "status": "ACTIVE",
+        "connection_string_encrypted": "v1.x.y",
+    }
+
+    response = await client.patch(
+        f"/v1/stores/{target}", json=forged, headers=as_user("alice")
+    )
+
+    assert response.status_code in (404, 422)
+    row = await world.platform_value(
+        "SELECT name || '|' || slug || '|' || organization_id || '|' || "
+        "coalesce(connection_string_encrypted, '') FROM stores WHERE id = :i",
+        i=target,
+    )
+    assert row == f"b south|b-south|{world.b.org_id}|"
 
 
 async def test_owner_manages_every_own_store_but_never_a_foreign_one(
@@ -550,7 +652,7 @@ async def test_a_write_in_one_store_reaches_no_other_store(world: World) -> None
         await session.execute(text("CREATE TABLE orders (id int)"))
         await session.commit()
 
-    assert await world.markers(writer) == [writer, "secret-order"]
+    assert await world.markers(writer) == sorted([writer, "secret-order"])
     assert await world.store_value(writer, "SELECT to_regclass('orders')") is not None
     for other in set(world.every_store()) - {writer}:
         assert await world.markers(other) == [other]
@@ -578,7 +680,7 @@ async def test_a_store_session_cannot_query_another_database_or_the_platform(
     other_database = database_name_for(world.b.stores["north"])
 
     async with open_store_session(mine, world.provider) as session:
-        with pytest.raises(DBAPIError):
+        with pytest.raises(DBAPIError, match="cross-database"):
             await session.execute(
                 text(f'SELECT owner FROM "{other_database}".public.marker')
             )
@@ -647,6 +749,36 @@ async def test_a_copied_connection_string_is_refused_and_the_donor_stays_untouch
     assert await world.raw_markers(victim_id) == [victim_id]
 
 
+async def test_tampered_or_missing_connection_strings_open_no_session(
+    world: World,
+) -> None:
+    await world.provision_all()
+    tampered, unset = world.a.stores["north"], world.b.stores["north"]
+    envelope = str(
+        await world.platform_value(
+            "SELECT connection_string_encrypted FROM stores WHERE id = :i", i=tampered
+        )
+    )
+    flipped = envelope[:-2] + ("A" if envelope[-2] != "A" else "B") + envelope[-1]
+    async with world.platform.begin() as connection:
+        await connection.execute(
+            text("UPDATE stores SET connection_string_encrypted = :v WHERE id = :i"),
+            {"v": flipped, "i": tampered},
+        )
+        await connection.execute(
+            text("UPDATE stores SET connection_string_encrypted = NULL WHERE id = :i"),
+            {"i": unset},
+        )
+
+    with pytest.raises(StoreDatabaseUnavailable):
+        async with open_store_session(tampered, world.provider):
+            pass
+    with pytest.raises(StoreDatabaseNotConfigured):
+        async with open_store_session(unset, world.provider):
+            pass
+    assert await world.raw_markers(tampered) == [tampered]
+
+
 async def test_an_unknown_store_id_opens_no_session(world: World) -> None:
     await world.provision_all()
 
@@ -663,10 +795,16 @@ def make_tree(tmp_path: Path) -> Path:
     tree = tmp_path / "alembic_store"
     (tree / "versions").mkdir(parents=True)
     for name in ("env.py", "script.py.mako"):
-        (tree / name).write_text((real / name).read_text())
+        (tree / name).write_text(
+            (real / name).read_text(encoding="utf-8"), encoding="utf-8"
+        )
     baseline = real / "versions" / "0001_store_baseline.py"
-    (tree / "versions" / baseline.name).write_text(baseline.read_text())
-    (tree / "versions" / "0002_widgets.py").write_text(WIDGETS_REVISION)
+    (tree / "versions" / baseline.name).write_text(
+        baseline.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    (tree / "versions" / "0002_widgets.py").write_text(
+        WIDGETS_REVISION, encoding="utf-8"
+    )
     return tree
 
 
@@ -719,11 +857,17 @@ async def test_migrate_active_stores_skips_other_statuses_and_keeps_data(
     )
 
     assert report.succeeded
+    assert {k.value: v for k, v in report.skipped.items()} == {
+        "SUSPENDED": 1,
+        "PROVISIONING": 1,
+    }
     skipped = {suspended, provisioning}
     assert {r.store_id for r in report.migrated} == set(world.every_store()) - skipped
     for store_id in world.every_store():
         assert await has_widgets(world, store_id) is (store_id not in skipped)
         assert await world.markers(store_id) == [store_id]
+    for store_id in skipped:
+        assert await schema_version(world, store_id) == 0
 
 
 async def test_a_store_with_a_replayed_connection_string_fails_without_touching_donor(
