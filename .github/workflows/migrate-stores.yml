@@ -12,7 +12,8 @@ on:
         description: Stores migrated per batch
         required: false
         default: '50'
-        type: string
+        type: choice
+        options: ['10', '50', '100', '250', '500']
 
 permissions:
   contents: read

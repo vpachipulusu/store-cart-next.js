@@ -20,18 +20,22 @@ Rules:
   upgrade itself is idempotent.
 """
 
+import asyncio
 import logging
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, cast
 
 from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
+from alembic.util.exc import CommandError
 from sqlalchemy import func, select, text, update
-from sqlalchemy.engine import Connection
+from sqlalchemy.engine import Connection, CursorResult
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.core.database import (
     DefaultSessionProvider,
@@ -50,8 +54,31 @@ DEFAULT_BATCH_SIZE = 50
 # No other code may take an advisory lock with this key.
 _ADVISORY_LOCK_KEY = 5_735_701
 _SQLSTATE = re.compile(r"[0-9A-Z]{5}")
+MAX_BATCH_SIZE = 500
+# Waiting for another runner on the same store (a second run, or the provisioning job) is
+# not a DDL lock wait: it is polled with pg_try_advisory_xact_lock for up to this long.
+ADVISORY_LOCK_WAIT_SECONDS = 900.0
+ADVISORY_POLL_SECONDS = 0.5
+# Bounds for the DDL itself, applied only after the advisory lock is held.
 LOCK_TIMEOUT = "30s"
 STATEMENT_TIMEOUT = "10min"
+
+
+class StoreSchemaAhead(Exception):
+    """The store database is stamped with a revision this build does not know."""
+
+
+class AdvisoryLockTimeout(Exception):
+    """Another runner held the store's migration lock for the whole wait."""
+
+
+def safe_reason(exc: BaseException) -> str:
+    """Class name plus SQLSTATE when the driver gives one. Never ``str(exc)``."""
+    reason = type(exc).__name__
+    sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+    if isinstance(sqlstate, str) and _SQLSTATE.fullmatch(sqlstate):
+        reason = f"{reason} sqlstate={sqlstate}"
+    return reason
 
 
 class StoreMigrationFailed(Exception):
@@ -95,13 +122,18 @@ def _alembic_config(script_location: Path) -> Config:
 
 def _upgrade_to_head(connection: Connection, script_location: Path) -> int:
     """Runs inside ``AsyncConnection.run_sync``; returns the resulting schema version."""
-    # A stuck runner or revision must fail this store (and stop the run), not hang it.
-    connection.execute(text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'"))
-    connection.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
-    connection.execute(
-        text("SELECT pg_advisory_xact_lock(:key)"), {"key": _ADVISORY_LOCK_KEY}
-    )
     config = _alembic_config(script_location)
+    scripts = ScriptDirectory.from_config(config)
+    context = MigrationContext.configure(
+        connection, opts={"version_table": VERSION_TABLE}
+    )
+    stamped = context.get_current_revision()
+    if stamped is not None:
+        try:
+            scripts.get_revision(stamped)
+        except CommandError:
+            # A newer build already migrated this store (rolling deploy): never go back.
+            raise StoreSchemaAhead from None
     config.attributes["connection"] = connection
     command.upgrade(config, "head")
     current = MigrationContext.configure(
@@ -109,8 +141,43 @@ def _upgrade_to_head(connection: Connection, script_location: Path) -> int:
     ).get_current_revision()
     if current is None:
         return 0
-    scripts = ScriptDirectory.from_config(config)
+    # The count assumes a linear history; the single-head unit test keeps it that way.
     return len(list(scripts.walk_revisions(base="base", head=current)))
+
+
+async def _prepare_connection(connection: AsyncConnection) -> None:
+    """Take the per-database advisory lock, then bound the DDL that follows.
+
+    The lock is polled (``pg_try_advisory_xact_lock``) so waiting for another runner has
+    its own budget and never trips the DDL ``lock_timeout``. Both settings and the lock are
+    transaction scoped, so they are safe behind PgBouncer transaction pooling. The
+    ahead-of-code check that follows relies on READ COMMITTED (the default; every
+    statement sees a runner that committed while we waited): do not raise the isolation
+    level of store engines.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + ADVISORY_LOCK_WAIT_SECONDS
+    while True:
+        acquired = (
+            await connection.execute(
+                text("SELECT pg_try_advisory_xact_lock(:key)"),
+                {"key": _ADVISORY_LOCK_KEY},
+            )
+        ).scalar_one()
+        if acquired:
+            break
+        if loop.time() >= deadline:
+            raise AdvisoryLockTimeout
+        await asyncio.sleep(ADVISORY_POLL_SECONDS)
+    # A stuck revision must fail this store (and stop the run), not hang it.
+    for name, value in (
+        ("lock_timeout", LOCK_TIMEOUT),
+        ("statement_timeout", STATEMENT_TIMEOUT),
+    ):
+        await connection.execute(
+            text("SELECT set_config(:name, :value, true)"),
+            {"name": name, "value": value},
+        )
 
 
 async def migrate_store(
@@ -131,6 +198,7 @@ async def migrate_store(
     try:
         async with open_store_session(store_id, platform) as session:
             connection = await session.connection()
+            await _prepare_connection(connection)
             version = await connection.run_sync(_upgrade_to_head, script_location)
             await session.commit()
     except Exception as exc:  # noqa: BLE001 - includes StoreSessionError, collapsed too
@@ -146,10 +214,13 @@ async def _record_version(
     provider: SessionProvider, store_id: str, version: int
 ) -> None:
     async with provider.session() as session:
+        # GREATEST: an older build running late must never lower a newer build's stamp.
         result = await session.execute(
-            update(Store).where(Store.id == store_id).values(schema_version=version)
+            update(Store)
+            .where(Store.id == store_id)
+            .values(schema_version=func.greatest(Store.schema_version, version))
         )
-        if result.rowcount != 1:  # type: ignore[attr-defined]
+        if cast("CursorResult[Any]", result).rowcount != 1:
             raise StoreNotFound(store_id)
         await session.commit()
 
@@ -158,10 +229,7 @@ def _failure(
     kind: type[StoreMigrationFailed], store_id: str, exc: Exception
 ) -> StoreMigrationFailed:
     """Log and build a safe failure: class name and SQLSTATE only (never str(exc))."""
-    reason = type(exc).__name__
-    sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
-    if isinstance(sqlstate, str) and _SQLSTATE.fullmatch(sqlstate):
-        reason = f"{reason} sqlstate={sqlstate}"
+    reason = safe_reason(exc)
     logger.error("%s: %s", kind.__name__, reason, extra={"store_id": store_id})
     return kind(store_id, reason)
 
@@ -224,8 +292,8 @@ async def migrate_active_stores(
     script_location: Path = STORE_SCRIPT_LOCATION,
 ) -> MigrationReport:
     """Migrate every ACTIVE store in batches, stopping at the first failure."""
-    if batch_size < 1:
-        raise ValueError("batch_size must be at least 1")
+    if not 1 <= batch_size <= MAX_BATCH_SIZE:
+        raise ValueError(f"batch_size must be between 1 and {MAX_BATCH_SIZE}")
     platform = provider or DefaultSessionProvider(async_session_maker)
 
     async def migrate(store_id: str) -> int:

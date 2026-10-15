@@ -119,3 +119,8 @@ async def test_failure_reason_carries_sqlstate_but_never_the_message(
 
     assert caught.value.reason == "Wrapped sqlstate=55P03"
     assert "hunter2" not in str(caught.value)
+
+
+async def test_migrate_active_stores_rejects_a_batch_size_above_the_cap():
+    with pytest.raises(ValueError):
+        await migrate_active_stores(object(), batch_size=501)  # type: ignore[arg-type]

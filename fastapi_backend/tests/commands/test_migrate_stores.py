@@ -61,3 +61,30 @@ def test_exit_code_reflects_the_outcome(
     assert main(["--batch-size", "7"]) == code
     assert seen["batch_size"] == 7
     assert "migrated 0 store(s)" in capsys.readouterr().out
+
+
+def test_platform_failure_prints_class_and_sqlstate_but_no_traceback_or_message(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    class Driver(Exception):
+        sqlstate = "08006"
+
+    class OperationalError(Exception):
+        orig = Driver("connection to postgresql://u:hunter2@h/db failed")
+
+    async def fake(*, batch_size: int) -> MigrationReport:
+        raise OperationalError("SELECT ... postgresql://u:hunter2@h/db")
+
+    monkeypatch.setattr(migrate_stores, "migrate_active_stores", fake)
+
+    assert main([]) == 1
+    out = capsys.readouterr().out
+    assert "OperationalError sqlstate=08006" in out
+    assert "hunter2" not in out
+    assert "Traceback" not in out
+
+
+def test_batch_size_is_capped():
+    with pytest.raises(SystemExit):
+        parse_args(["--batch-size", "501"])
+    assert parse_args(["--batch-size", "500"]).batch_size == 500

@@ -56,6 +56,25 @@ lists them. Nothing triggers it
 automatically yet; run it after the backend deploy that ships a new store revision. Wiring it to the deploy event
 needs the production secrets to exist first, so it stays a separate decision. It never runs inside a request.
 
+The workflow maps the `DATABASE_URL_DIRECT` secret (the unpooled Neon endpoint) onto `DATABASE_URL`, falling back to the
+`DATABASE_URL` secret; the app itself never reads `DATABASE_URL_DIRECT`. The `production` environment (deployment
+branches: `main` only, required reviewers) and all its secrets must exist before the first run. The batch size input is a
+choice of 10 to 500 (the command caps `--batch-size` at 500).
+
+The runner has **no downgrade**: a bad revision that already shipped needs a forward fix (a new revision), never a manual
+downgrade of tenant databases. A store whose database is stamped with a revision this build does not know (an older
+build running during a rolling deploy) fails with `StoreSchemaAhead` and is not touched, and `schema_version` is never
+lowered (`GREATEST` on write).
+
+Waiting for another runner on the same store (a second run, or the provisioning job) is polled for up to 15 minutes (a
+holder's DDL may run up to the 10 min statement timeout) and is separate from the 30 s `lock_timeout` that bounds the DDL
+itself. The wait keeps one transaction open, so a store database with a short `idle_in_transaction_session_timeout` would
+fail that store. Running out of wait fails the store and stops the run: re-run it. Likewise a store already migrated by a
+newer build (`StoreSchemaAhead`) stops an older build's run on purpose; re-run with the new build. The check protects only
+runners that take the lock; a manual out-of-band migration bypasses it. `stores.schema_version` only ever increases, so
+after restoring a store from an older backup, reset it by hand.
+The batch-size choices in the workflow must be kept within the command's cap (`MAX_BATCH_SIZE`, 500).
+
 The job runs only for `refs/heads/main`. **Repository setting required before the first use:** configure the
 `production` environment with "Deployment branches: main only" and required reviewers; without that, anyone with write
 access could dispatch it on another branch. Migrations run as the store owner role on every tenant database, so treat

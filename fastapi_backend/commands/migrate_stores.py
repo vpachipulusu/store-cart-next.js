@@ -9,13 +9,17 @@ Output names stores by id only, never by connection string.
 
 import argparse
 import asyncio
+import contextlib
 import sys
 from collections.abc import Sequence
 
+from app.core.database import engine as platform_engine
 from app.services.store_migrations import (
     DEFAULT_BATCH_SIZE,
+    MAX_BATCH_SIZE,
     MigrationReport,
     migrate_active_stores,
+    safe_reason,
 )
 
 
@@ -42,18 +46,29 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Migrate every ACTIVE store database.")
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     args = parser.parse_args(argv)
-    if args.batch_size < 1:
-        parser.error("--batch-size must be at least 1")
+    if not 1 <= args.batch_size <= MAX_BATCH_SIZE:
+        parser.error(f"--batch-size must be between 1 and {MAX_BATCH_SIZE}")
     return args
+
+
+async def _run(batch_size: int) -> MigrationReport:
+    try:
+        return await migrate_active_stores(batch_size=batch_size)
+    finally:
+        # Close the platform engine while the event loop is still running.
+        with contextlib.suppress(Exception):  # never mask the real error
+            await platform_engine.dispose()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     try:
-        report = asyncio.run(migrate_active_stores(batch_size=args.batch_size))
+        report = asyncio.run(_run(args.batch_size))
     except Exception as exc:  # noqa: BLE001
-        # Platform-database errors can carry SQL, parameters or hosts: no traceback.
-        print(f"FAILED before or between stores: {type(exc).__name__}")
+        # Not a store-level failure (those are reported per store in the report). The
+        # platform database holds no store connection strings, so the class name and
+        # SQLSTATE are safe to show; the traceback and message (SQL, hosts) are not.
+        print(f"FAILED (platform or configuration): {safe_reason(exc)}")
         return 1
     for line in format_report(report):
         print(line)

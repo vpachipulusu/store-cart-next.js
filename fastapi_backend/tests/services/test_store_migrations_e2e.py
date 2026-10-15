@@ -9,6 +9,7 @@ database and its stores are never touched.
 import asyncio
 import os
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
@@ -207,15 +208,7 @@ async def test_rerun_is_idempotent_and_pending_revisions_are_applied(
     assert await migrate_store(store_id, world.provider) == 1
     assert await migrate_store(store_id, world.provider) == 1
 
-    tree = tmp_path / "alembic_store"
-    (tree / "versions").mkdir(parents=True)
-    real = Path(__file__).resolve().parents[2] / "alembic_store"
-    (tree / "env.py").write_text((real / "env.py").read_text())
-    (tree / "script.py.mako").write_text((real / "script.py.mako").read_text())
-    (tree / "versions" / "0001_store_baseline.py").write_text(
-        (real / "versions" / "0001_store_baseline.py").read_text()
-    )
-    (tree / "versions" / "0002_widgets.py").write_text(REVISION_0002)
+    tree = make_tree(tmp_path, REVISION_0002)
 
     assert await migrate_store(store_id, world.provider, script_location=tree) == 2
     assert await migrate_store(store_id, world.provider, script_location=tree) == 2
@@ -379,3 +372,120 @@ async def test_failed_version_write_is_repaired_by_the_next_run(
 
     assert await migrate_store(store_id, world.provider) == 1
     assert await world.schema_version(store_id) == 1
+
+
+async def test_store_database_ahead_of_the_code_is_refused_and_never_lowered(
+    world: "World", tmp_path: Path
+):
+    database = await world.store_database("a")
+    store_id = await world.add_store(url_for(database))
+    tree = make_tree(tmp_path, REVISION_0002)
+    # A newer build migrated this store to revision 0002 and stamped schema_version 2.
+    assert await migrate_store(store_id, world.provider, script_location=tree) == 2
+
+    # An older build (only knows 0001) runs late, as in a rolling deploy.
+    with pytest.raises(StoreMigrationFailed) as caught:
+        await migrate_store(store_id, world.provider)
+
+    assert caught.value.reason == "StoreSchemaAhead"
+    assert await world.stamped_revision(database) == "0002"
+    assert await world.schema_version(store_id) == 2
+
+
+async def test_recorded_schema_version_never_goes_backwards(world: "World"):
+    database = await world.store_database("a")
+    store_id = await world.add_store(url_for(database))
+    async with world.platform.begin() as connection:
+        await connection.execute(
+            text("UPDATE stores SET schema_version = 5 WHERE id = :i"), {"i": store_id}
+        )
+
+    assert await migrate_store(store_id, world.provider) == 1
+    assert await world.schema_version(store_id) == 5
+
+
+@asynccontextmanager
+async def lock_held_elsewhere(database: str) -> AsyncIterator[None]:
+    """Another runner holding the migration lock until the block exits."""
+    locked, release = asyncio.Event(), asyncio.Event()
+
+    async def hold() -> None:
+        engine = create_async_engine(url_for(database))
+        try:
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text("SELECT pg_advisory_xact_lock(:k)"),
+                    {"k": store_migrations._ADVISORY_LOCK_KEY},
+                )
+                locked.set()
+                await release.wait()
+        finally:
+            locked.set()
+            await engine.dispose()
+
+    holder = asyncio.create_task(hold())
+    try:
+        await asyncio.wait_for(locked.wait(), 10)
+        yield
+    finally:
+        release.set()
+        await holder
+
+
+async def test_a_long_held_lock_is_waited_for_not_failed_as_a_ddl_timeout(
+    world: "World", monkeypatch: pytest.MonkeyPatch
+):
+    # lock_timeout is 1s here; the other runner holds the lock for ~2.5s, so the wait
+    # must not be governed by the DDL lock_timeout.
+    monkeypatch.setattr(store_migrations, "LOCK_TIMEOUT", "1s")
+    monkeypatch.setattr(store_migrations, "ADVISORY_POLL_SECONDS", 0.2)
+    database = await world.store_database("a")
+    store_id = await world.add_store(url_for(database))
+    loop = asyncio.get_running_loop()
+
+    async with lock_held_elsewhere(database) as _:
+        started = loop.time()
+        migrating = asyncio.create_task(migrate_store(store_id, world.provider))
+        await asyncio.sleep(2.5)
+        assert not migrating.done()
+    version = await migrating
+
+    assert loop.time() - started >= 2.4
+    assert version == 1
+    assert await world.schema_version(store_id) == 1
+
+
+async def test_a_lock_held_past_the_wait_budget_fails_only_that_store(
+    world: "World", monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(store_migrations, "ADVISORY_LOCK_WAIT_SECONDS", 1.0)
+    monkeypatch.setattr(store_migrations, "ADVISORY_POLL_SECONDS", 0.2)
+    database = await world.store_database("a")
+    store_id = await world.add_store(url_for(database))
+
+    async with lock_held_elsewhere(database) as _:
+        with pytest.raises(StoreMigrationFailed) as caught:
+            await migrate_store(store_id, world.provider)
+
+    assert caught.value.reason == "AdvisoryLockTimeout"
+    assert await world.stamped_revision(database) is None
+
+
+async def test_ddl_timeouts_are_applied_after_the_lock(
+    world: "World", monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(store_migrations, "LOCK_TIMEOUT", "7s")
+    monkeypatch.setattr(store_migrations, "STATEMENT_TIMEOUT", "9s")
+    database = await world.store_database("a")
+    engine = create_async_engine(url_for(database))
+    try:
+        async with engine.connect() as connection:
+            await store_migrations._prepare_connection(connection)
+            seen = [
+                (await connection.execute(text(f"SHOW {name}"))).scalar_one()
+                for name in ("lock_timeout", "statement_timeout")
+            ]
+    finally:
+        await engine.dispose()
+
+    assert seen == ["7s", "9s"]
