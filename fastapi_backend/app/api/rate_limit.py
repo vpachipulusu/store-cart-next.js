@@ -153,6 +153,23 @@ def client_ip(request: Request) -> str:
         return request.client.host if request.client else "unknown"
 
 
+def limit_by_client_ip(policy: RateLimitPolicy) -> Callable[..., Awaitable[None]]:
+    """Dependency factory for unauthenticated routes with no user to key on.
+
+    Keyed by the forwarded client IP (see ``client_ip``). It sets rate-limit headers on
+    the injected response; a route that returns its own cacheable ``Response`` drops
+    them, so a shared cache never stores one client's counters.
+    """
+
+    async def dependency(
+        request: Request, response: Response, limiter: RateLimiterDep
+    ) -> None:
+        identifier = f"{policy.scope}:ip:{client_ip(request)}"
+        await enforce_rate_limit(request, response, limiter, policy, [identifier])
+
+    return dependency
+
+
 def email_digest(email: str) -> str:
     key = settings.RATE_LIMIT_EMAIL_KEY
     if not key:
