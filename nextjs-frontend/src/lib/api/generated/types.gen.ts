@@ -142,6 +142,89 @@ export type AdminUserSummary = {
 };
 
 /**
+ * AuditLogEntry
+ */
+export type AuditLogEntry = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * User Id
+     */
+    user_id: string | null;
+    /**
+     * Organization Id
+     */
+    organization_id: string | null;
+    /**
+     * Store Id
+     */
+    store_id: string | null;
+    /**
+     * Action
+     */
+    action: string;
+    /**
+     * Resource
+     */
+    resource: string;
+    /**
+     * Resource Id
+     */
+    resource_id: string | null;
+    /**
+     * Metadata
+     */
+    metadata: unknown;
+    /**
+     * Ip Address
+     */
+    ip_address: string | null;
+    /**
+     * User Agent
+     */
+    user_agent: string | null;
+};
+
+/**
+ * AuditLogPage
+ */
+export type AuditLogPage = {
+    /**
+     * Entries
+     */
+    entries: Array<AuditLogEntry>;
+    /**
+     * Total Count
+     */
+    total_count: number;
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Offset
+     */
+    offset: number;
+};
+
+/**
+ * AuditLogPageResponse
+ */
+export type AuditLogPageResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: AuditLogPage;
+};
+
+/**
  * AvatarRequest
  */
 export type AvatarRequest = {
@@ -2469,6 +2552,82 @@ export type UnbanUserResponses = {
 };
 
 export type UnbanUserResponse = UnbanUserResponses[keyof UnbanUserResponses];
+
+export type ListAuditLogsData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Organization Id
+         */
+        organization_id?: string | null;
+        /**
+         * Store Id
+         */
+        store_id?: string | null;
+        /**
+         * User Id
+         */
+        user_id?: string | null;
+        /**
+         * Action
+         */
+        action?: string | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Offset
+         */
+        offset?: number;
+    };
+    url: '/v1/admin/audit-logs';
+};
+
+export type ListAuditLogsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ListAuditLogsError = ListAuditLogsErrors[keyof ListAuditLogsErrors];
+
+export type ListAuditLogsResponses = {
+    /**
+     * Successful Response
+     */
+    200: AuditLogPageResponse;
+};
+
+export type ListAuditLogsResponse = ListAuditLogsResponses[keyof ListAuditLogsResponses];
 
 export type ReadBillingData = {
     body?: never;

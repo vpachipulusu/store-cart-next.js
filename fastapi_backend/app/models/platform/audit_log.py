@@ -19,10 +19,13 @@ class AuditLog(IdMixin, CreatedAtMixin, Base):
         Index(
             "ix_audit_logs_organization_id_created_at", "organization_id", "created_at"
         ),
+        Index("ix_audit_logs_store_id_created_at", "store_id", "created_at"),
+        Index("ix_audit_logs_created_at", "created_at"),
     )
 
     user_id: Mapped[str | None]
     organization_id: Mapped[str | None]
+    store_id: Mapped[str | None]
     action: Mapped[str]
     resource: Mapped[str]
     resource_id: Mapped[str | None]

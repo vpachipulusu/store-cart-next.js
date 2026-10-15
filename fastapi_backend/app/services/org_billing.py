@@ -4,6 +4,11 @@ Every method first calls ``authorize``: the caller must belong to the organisati
 (otherwise it is "not found", so one organisation cannot learn another exists) and
 hold the OWNER or ADMIN role (otherwise forbidden).
 
+Each accepted change (checkout, plan change, cancel, resume, payment method delete or
+default) writes one audit row after Stripe accepted it (KAN-49). Stripe and the database
+cannot share a transaction: if the audit write fails after Stripe succeeded, the request
+fails with a 500 and the change stands at Stripe.
+
 This service never writes subscription state. Checkout, plan changes and
 cancellation only ask Stripe to act; the Stripe webhook (KAN-44) is the single
 writer of tier, status and period. The one write here is saving the Stripe customer
@@ -28,7 +33,9 @@ from app.core.stripe_billing import (
     StripePaymentMethod,
 )
 from app.models.platform.membership import MembershipRole
+from app.repositories.audit import AuditRepository
 from app.repositories.org_billing import OrgBillingRecord
+from app.services.audit import sanitize
 
 BILLING_ROLES = frozenset({MembershipRole.OWNER, MembershipRole.ADMIN})
 # Stripe statuses where a subscription still exists (even if unpaid or paused): a new
@@ -151,6 +158,7 @@ class OrgBillingService:
         self._stripe = stripe
         self._prices = prices
         self._origins = origins
+        self._audit = AuditRepository(session)
 
     async def authorize(self, organization_id: str, user_id: str) -> OrgBillingRecord:
         role = await self._store.get_role(organization_id, user_id)
@@ -199,7 +207,7 @@ class OrgBillingService:
             raise BillingConflict
         price = self._price(plan, interval)
         customer = await self._ensure_customer(record)
-        return await _stripe_call(
+        url = await _stripe_call(
             self._stripe.create_checkout_session(
                 customer_id=customer,
                 price_id=price,
@@ -209,6 +217,10 @@ class OrgBillingService:
                 idempotency_key=_key("checkout", record.id, request_key),
             )
         )
+        await self._record(
+            user_id, "billing.checkout", record.id, {"plan": plan, "interval": interval}
+        )
+        return url
 
     async def open_portal(
         self,
@@ -263,6 +275,12 @@ class OrgBillingService:
                 idempotency_key=_key("change", record.id, request_key),
             )
         )
+        await self._record(
+            user_id,
+            "billing.change_plan",
+            record.id,
+            {"plan": plan, "interval": interval},
+        )
 
     async def set_cancellation(
         self,
@@ -284,6 +302,9 @@ class OrgBillingService:
                     "cancel" if cancel else "resume", record.id, request_key
                 ),
             )
+        )
+        await self._record(
+            user_id, "billing.cancel" if cancel else "billing.resume", record.id
         )
 
     async def invoices(self, organization_id: str, user_id: str) -> list[StripeInvoice]:
@@ -329,6 +350,12 @@ class OrgBillingService:
                 idempotency_key=_key("pm-delete", record.id, request_key),
             )
         )
+        await self._record(
+            user_id,
+            "billing.delete_payment_method",
+            record.id,
+            {"payment_method_id": payment_method_id},
+        )
 
     async def set_default_payment_method(
         self,
@@ -347,6 +374,32 @@ class OrgBillingService:
                 idempotency_key=_key("pm-default", record.id, request_key),
             )
         )
+        await self._record(
+            user_id,
+            "billing.set_default_payment_method",
+            record.id,
+            {"payment_method_id": payment_method_id},
+        )
+
+    async def _record(
+        self,
+        user_id: str,
+        action: str,
+        organization_id: str,
+        details: dict[str, str] | None = None,
+    ) -> None:
+        """Stage and commit one audit row (never card data, URLs or Stripe customer ids)."""
+        await self._audit.add(
+            user_id=user_id,
+            organization_id=organization_id,
+            action=action,
+            resource="organization",
+            resource_id=organization_id,
+            metadata={"details": sanitize(details)} if details else {},
+            ip_address=None,
+            user_agent=None,
+        )
+        await self._session.commit()
 
     async def _owned_customer(
         self, record: OrgBillingRecord, payment_method_id: str

@@ -843,3 +843,44 @@ async def test_non_member_write_does_not_wait_on_the_organisation_lock(
         )
 
     assert response.status_code == 404
+
+
+async def test_audit_entries_carry_user_organisation_and_store(
+    client: AsyncClient, engine: AsyncEngine
+) -> None:
+    await seed_user(engine, "ann")
+    created = await post_org(client, "ann", "Acme", "acme-corp")
+    org_id = created.json()["data"]["id"]
+    store = await post_store(client, "ann", org_id, "main-shop")
+    store_id = store.json()["data"]["id"]
+    # A new store is PROVISIONING; only an ACTIVE one can be renamed.
+    async with engine.begin() as connection:
+        await connection.execute(
+            text("UPDATE stores SET status = 'ACTIVE' WHERE id = :id"),
+            {"id": store_id},
+        )
+    renamed = await client.patch(
+        f"/v1/stores/{store_id}", json={"name": "Renamed"}, headers=as_user("ann")
+    )
+
+    assert renamed.status_code == 200
+    async with engine.connect() as connection:
+        rows = (
+            await connection.execute(
+                text(
+                    "SELECT action, user_id, organization_id, store_id "
+                    "FROM audit_logs ORDER BY created_at"
+                )
+            )
+        ).all()
+    by_action = {row.action: row for row in rows}
+    assert [row.action for row in rows] == [
+        "org.create",
+        "store.create",
+        "store.update",
+    ]
+    assert by_action["org.create"].store_id is None
+    for action in ("store.create", "store.update"):
+        assert by_action[action].store_id == store_id
+        assert by_action[action].organization_id == org_id
+    assert all(row.user_id for row in rows)

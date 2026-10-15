@@ -751,3 +751,114 @@ async def test_payment_method_changes_require_membership_role_and_key(
         422,
     )
     assert stripe.calls == []
+
+
+# --- audit trail (KAN-49) -----------------------------------------------------
+
+
+async def audit_rows(engine: AsyncEngine, org_id: str) -> list[Any]:
+    async with engine.connect() as connection:
+        result = await connection.execute(
+            text(
+                "SELECT action, resource, resource_id, user_id, store_id, metadata "
+                "FROM audit_logs WHERE organization_id = :org ORDER BY created_at"
+            ),
+            {"org": org_id},
+        )
+        return list(result.all())
+
+
+async def seed_audit_subscribed(engine: AsyncEngine) -> str:
+    return await seed_org(
+        engine,
+        "acme",
+        {"alice": "OWNER"},
+        customer="cus_1",
+        subscription="sub_1",
+        price=PRO_MONTHLY,
+        tier="pro",
+        status="active",
+    )
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "body", "action"),
+    [
+        ("post", "plan", {"plan": "pro", "interval": "yearly"}, "billing.change_plan"),
+        ("post", "cancel", None, "billing.cancel"),
+        ("post", "resume", None, "billing.resume"),
+        ("post", "checkout", "checkout", "billing.checkout"),
+    ],
+)
+async def test_billing_change_writes_exactly_one_audit_entry(
+    client, engine, stripe, method, path, body, action
+):
+    org = (
+        await seed_org(engine, "acme", {"alice": "OWNER"})
+        if path == "checkout"
+        else await seed_audit_subscribed(engine)
+    )
+
+    result = await client.request(
+        method.upper(),
+        f"/v1/organizations/{org}/billing/{path}",
+        json=checkout_body() if body == "checkout" else body,
+        headers=as_user("alice"),
+    )
+
+    assert result.status_code == 200, result.text
+    rows = await audit_rows(engine, org)
+    assert [row.action for row in rows] == [action]
+    assert rows[0].resource == "organization"
+    assert rows[0].resource_id == org
+    assert rows[0].user_id is not None
+    assert rows[0].store_id is None
+    assert "success_url" not in json.dumps(rows[0].metadata)
+
+
+async def test_payment_method_changes_are_audited_without_card_data(
+    client, engine, stripe
+):
+    org = await seed_audit_subscribed(engine)
+    stripe.payment_method_owners["pm_2"] = "cus_1"
+
+    headers = {**as_user("alice"), "Idempotency-Key": "k-12345678"}
+    default = await client.post(
+        f"/v1/organizations/{org}/billing/payment-methods/pm_2/default",
+        headers=headers,
+    )
+    deleted = await client.delete(
+        f"/v1/organizations/{org}/billing/payment-methods/pm_2",
+        headers={**headers, "Idempotency-Key": "k-87654321"},
+    )
+
+    assert (default.status_code, deleted.status_code) == (200, 200)
+    rows = await audit_rows(engine, org)
+    assert [row.action for row in rows] == [
+        "billing.set_default_payment_method",
+        "billing.delete_payment_method",
+    ]
+    blob = json.dumps([row.metadata for row in rows])
+    assert "4242" not in blob
+    assert "cus_1" not in blob
+
+
+async def test_refused_and_failed_billing_changes_write_no_audit_entry(
+    client, engine, stripe
+):
+    org = await seed_audit_subscribed(engine)
+    stripe.fail = True
+
+    failed = await client.post(
+        f"/v1/organizations/{org}/billing/cancel", headers=as_user("alice")
+    )
+    stripe.fail = False
+    refused = await client.post(
+        f"/v1/organizations/{org}/billing/plan",
+        json={"plan": "free", "interval": "monthly"},
+        headers=as_user("alice"),
+    )
+
+    assert failed.status_code == 502
+    assert refused.status_code in (409, 422)
+    assert await audit_rows(engine, org) == []

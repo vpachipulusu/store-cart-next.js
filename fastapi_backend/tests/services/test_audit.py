@@ -184,3 +184,11 @@ async def test_target_ids_must_be_plain_identifiers(bad):
 async def test_user_agent_control_characters_are_removed():
     row = await record(user_agent="agent\r\nforged: line\x00")
     assert row["user_agent"] == "agentforged: line"
+
+
+async def test_store_id_is_recorded_and_validated():
+    row = await record(store_id="store-1", organization_id="org-1")
+    assert row["store_id"] == "store-1"
+    assert (await record())["store_id"] is None
+    with pytest.raises(ValueError):
+        await record(store_id="bad id!")

@@ -284,6 +284,7 @@ class OrganizationsService:
             "store",
             store.id,
             organization_id,
+            store_id=store.id,
             after={"name": store.name, "slug": store.slug, "status": store.status},
             request_id=request_id,
         )
@@ -324,6 +325,7 @@ class OrganizationsService:
             "store",
             current.id,
             current.organization_id,
+            store_id=current.id,
             before={"name": current.name, "slug": current.slug},
             after={"name": updated.name, "slug": updated.slug},
             request_id=request_id,
@@ -398,6 +400,7 @@ class OrganizationsService:
         resource_id: str,
         organization_id: str,
         *,
+        store_id: str | None = None,
         before: dict[str, Any] | None = None,
         after: dict[str, Any] | None = None,
         request_id: str | None,
@@ -413,6 +416,7 @@ class OrganizationsService:
         await self._audit.add(
             user_id=user_id,
             organization_id=organization_id,
+            store_id=store_id,
             action=action,
             resource=resource,
             resource_id=resource_id,

@@ -150,6 +150,7 @@ class AuditWriter(Protocol):
         *,
         user_id: str,
         organization_id: str | None,
+        store_id: str | None,
         action: str,
         resource: str,
         resource_id: str | None,
@@ -171,6 +172,7 @@ class AuditService:
         resource: str,
         resource_id: str | None = None,
         organization_id: str | None = None,
+        store_id: str | None = None,
         before: Any = None,
         after: Any = None,
         details: Any = None,
@@ -188,7 +190,7 @@ class AuditService:
             raise ValueError("Invalid audit action")
         if not _RESOURCE_RE.fullmatch(resource):
             raise ValueError("Invalid audit resource")
-        for target in (resource_id, organization_id):
+        for target in (resource_id, organization_id, store_id):
             if target is not None and not _TARGET_ID_RE.fullmatch(target):
                 raise ValueError("Invalid audit target id")
         metadata: dict[str, Any] = {"actor_role": admin.role}
@@ -203,6 +205,7 @@ class AuditService:
         await self.repository.add(
             user_id=admin.user_id,
             organization_id=organization_id,
+            store_id=store_id,
             action=action,
             resource=resource,
             resource_id=resource_id,

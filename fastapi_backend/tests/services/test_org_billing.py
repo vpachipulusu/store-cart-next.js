@@ -170,7 +170,7 @@ async def test_checkout_creates_and_saves_the_customer_before_the_session():
     assert url == "https://checkout.stripe.test/session"
     assert stripe.names() == ["create_customer", "create_checkout_session"]
     assert store.orgs["org1"].stripe_customer_id == "cus_new"
-    assert session.commits == 1
+    assert session.commits == 2  # customer link, then the audit row
     sent = stripe.last("create_checkout_session")
     assert sent["customer_id"] == "cus_new"
     assert sent["price_id"] == "price_pro_y"
@@ -187,7 +187,7 @@ async def test_checkout_reuses_an_existing_customer():
 
     assert stripe.names() == ["create_checkout_session"]
     assert stripe.last("create_checkout_session")["customer_id"] == "cus_old"
-    assert session.commits == 0
+    assert session.commits == 1  # only the audit row
 
 
 async def test_checkout_without_client_key_generates_distinct_keys():
@@ -465,3 +465,36 @@ async def test_stripe_failure_while_checking_ownership_is_unavailable():
         await service.delete_payment_method(
             "org1", "u1", "pm_1", request_key="key-00001"
         )
+
+
+async def test_accepted_changes_each_stage_one_audit_row_without_secrets():
+    service, _, _, session = build(subscribed_record())
+
+    await service.change_plan(
+        "org1", "u1", plan=PlanKey.PRO, interval="yearly", request_key=None
+    )
+    await service.set_cancellation("org1", "u1", cancel=True, request_key=None)
+
+    assert [row.action for row in session.added] == [
+        "billing.change_plan",
+        "billing.cancel",
+    ]
+    assert all(
+        (row.user_id, row.organization_id, row.store_id) == ("u1", "org1", None)
+        for row in session.added
+    )
+    assert "cus_1" not in str([row.metadata_ for row in session.added])
+
+
+async def test_refused_or_failed_change_stages_no_audit_row():
+    service, stripe, _, session = build(subscribed_record())
+    stripe.fail = True
+
+    with pytest.raises(BillingUnavailable):
+        await service.set_cancellation("org1", "u1", cancel=True, request_key=None)
+    with pytest.raises(BillingConflict):
+        await service.change_plan(
+            "org1", "u1", plan=PlanKey.FREE, interval="monthly", request_key=None
+        )
+
+    assert session.added == []
