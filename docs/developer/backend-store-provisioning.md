@@ -25,15 +25,16 @@ never logged or placed in an exception; underlying driver and HTTP errors are dr
 
 | Variable            | Purpose                                                                                              |
 | ------------------- | ---------------------------------------------------------------------------------------------------- |
-| `STORE_DB_PROVIDER` | `local` (default) or `neon`. Optional; local needs nothing else.                                     |
+| `STORE_DB_PROVIDER` | `local` (default, development only) or `neon`. Any other value fails at startup.                     |
 | `NEON_API_KEY`      | Neon API key (secret). Required only when `neon` is selected.                                        |
 | `NEON_PROJECT_ID`   | Neon project that holds store databases. Required for `neon`.                                        |
 | `NEON_BRANCH_ID`    | Branch (for example `br-...`) the databases are created on. Required for `neon`.                     |
 | `NEON_ROLE_NAME`    | Role that owns the new databases and appears in the returned connection string. Required for `neon`. |
-| `NEON_API_BASE_URL` | Optional. Defaults to `https://console.neon.tech/api/v2`.                                            |
+| `NEON_API_BASE_URL` | Optional. Defaults to `https://console.neon.tech/api/v2`. Must be `https` on `neon.tech`.            |
 
-Settings stay optional at startup. Selecting `neon` without the required variables fails when the provisioner is built
-(`ProvisionerNotConfigured`), not at import.
+The `NEON_*` values stay optional at startup. Selecting `neon` without the required ones fails when the provisioner is
+built (`ProvisionerNotConfigured`, naming the missing variables), not at import. `NEON_API_BASE_URL` is validated at
+startup (https and a `neon.tech` host only) so the Bearer key can never go over plain http or to another host.
 
 ## Local provider
 
@@ -42,6 +43,11 @@ connection, because ruff `TID251` forbids creating engines outside `database.py`
 `CREATE DATABASE "store_<id>"` after checking `pg_database`, and `DROP DATABASE IF EXISTS ... WITH (FORCE)` on delete
 (Postgres 13+). The `DATABASE_URL` role therefore needs `CREATEDB` (the Docker superuser has it). The returned string is
 the platform URL with the database swapped, so it reuses the same host and credentials; it carries no `sslmode`.
+
+**Development only.** Because every store connection string carries the platform role's credentials, a leaked store
+string would expose the platform database. `get_database_provisioner` therefore refuses `STORE_DB_PROVIDER=local`
+outside local and test (and Vercel preview/development), raising `ProvisionerNotConfigured`. **Production must use Neon**
+(or, later, a per-store role).
 
 ## Neon provider
 
@@ -56,12 +62,19 @@ the platform URL with the database swapped, so it reuses the same host and crede
 
 The pooled URI matches the session factory, which turns off asyncpg's statement cache for PgBouncer (KAN-54). Neon runs
 these changes as asynchronous operations; a locked branch answers with an error that surfaces as `ProvisioningFailed`, and
-the caller may retry because `create_database` is idempotent. Tests use `httpx.MockTransport`; the real API is not called.
+the caller may retry because `create_database` is idempotent.
+
+**Partial failure.** `create_database` is two calls (create, then fetch the connection URI). If the create succeeds but
+the URI call fails, an empty database is left behind and `ProvisioningFailed` is raised. The caller must retry
+`create_database` (it finds the database and only fetches the URI) or call `delete_database` to clean up. Tests use `httpx.MockTransport`; the real API is not called.
 
 ## Tests
 
 - `tests/services/test_store_provisioning.py`: name validation and injection attempts, Neon create/exists/delete/
   idempotency/conflict/error paths with a mocked HTTP layer, no secrets in errors or logs, factory selection.
+- `tests/services/test_store_provisioning_local.py`: the local provider against a fake engine (exact quoted statements,
+  idempotency, the concurrent-create race, wrapped driver and connection errors), the factory and the settings validators.
+- `tests/services/test_store_provisioning_contract.py`: the same behaviours run over both providers.
 - `tests/services/test_store_provisioning_e2e.py`: the local provider on a real Postgres. Needs `TEST_DATABASE_URL`
   (database name ending `_test`, role with `CREATEDB`); skipped otherwise, and CI does not run it.
 

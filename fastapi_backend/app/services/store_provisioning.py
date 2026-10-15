@@ -35,8 +35,10 @@ logger = logging.getLogger("storecart.store_provisioning")
 # Ids are 24 character cuid2 values; legacy ids are cuid (25 characters).
 _STORE_ID_PATTERN = re.compile(r"^[a-z0-9]{8,40}$")
 DATABASE_NAME_PREFIX = "store_"
-NEON_API_BASE_URL = "https://console.neon.tech/api/v2"
 REQUEST_TIMEOUT_SECONDS = 30.0
+# Driver errors that must never escape raw: SQLAlchemy wraps DBAPI errors, but a refused
+# or reset connect can surface as an OSError.
+_LOCAL_ERRORS = (SQLAlchemyError, OSError)
 
 
 class ProvisioningError(Exception):
@@ -48,15 +50,26 @@ class ProvisioningError(Exception):
 
 
 class InvalidStoreId(ProvisioningError):
-    """The store id cannot be turned into a safe database name."""
+    """The store id cannot be turned into a safe database name.
+
+    The caller's input is echoed as a truncated ``repr`` so newlines and control
+    characters cannot forge log lines.
+    """
+
+    def __init__(self, store_id: str) -> None:
+        super().__init__(repr(store_id[:32]))
 
 
 class ProvisionerNotConfigured(ProvisioningError):
-    """The selected provider is missing configuration (``missing`` names the variables)."""
+    """The selected provider cannot be used (``missing`` names the variables to set)."""
 
-    def __init__(self, provider: str, missing: tuple[str, ...]) -> None:
+    def __init__(
+        self, provider: str, missing: tuple[str, ...], reason: str | None = None
+    ) -> None:
         Exception.__init__(
-            self, f"{provider} provisioner is not configured: set {', '.join(missing)}"
+            self,
+            reason
+            or f"{provider} provisioner is not configured: set {', '.join(missing)}",
         )
         self.store_id = ""
         self.provider = provider
@@ -114,7 +127,7 @@ class LocalDatabaseProvisioner:
         name = database_name_for(store_id)
         try:
             return await self._exists(name)
-        except SQLAlchemyError:
+        except _LOCAL_ERRORS:
             raise ProvisioningFailed(store_id) from None
 
     async def create_database(self, store_id: str) -> str:
@@ -125,12 +138,12 @@ class LocalDatabaseProvisioner:
                     await connection.execute(
                         text(f"CREATE DATABASE {self._quoted(name)}")
                     )
-        except SQLAlchemyError:
+        except _LOCAL_ERRORS:
             # A concurrent caller may have created it between the check and CREATE.
             try:
                 if await self._exists(name):
                     return self._connection_string(name)
-            except SQLAlchemyError:
+            except _LOCAL_ERRORS:
                 pass
             logger.error("local database creation failed", extra={"store_id": store_id})
             raise ProvisioningFailed(store_id) from None
@@ -143,7 +156,7 @@ class LocalDatabaseProvisioner:
                 await connection.execute(
                     text(f"DROP DATABASE IF EXISTS {self._quoted(name)} WITH (FORCE)")
                 )
-        except SQLAlchemyError:
+        except _LOCAL_ERRORS:
             logger.error("local database deletion failed", extra={"store_id": store_id})
             raise ProvisioningFailed(store_id) from None
 
@@ -166,19 +179,22 @@ class NeonDatabaseProvisioner:
         branch_id: str,
         role_name: str,
         *,
-        base_url: str = NEON_API_BASE_URL,
+        base_url: str,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self._api_key = api_key
-        self._project = quote(project_id, safe="")
-        self._branch = quote(branch_id, safe="")
+        self._project = project_id
+        self._branch = branch_id
         self._role = role_name
         self._base = base_url.rstrip("/")
         self._client = client
 
     @property
     def _databases_path(self) -> str:
-        return f"/projects/{self._project}/branches/{self._branch}/databases"
+        return (
+            f"/projects/{quote(self._project, safe='')}"
+            f"/branches/{quote(self._branch, safe='')}/databases"
+        )
 
     async def _send(
         self, client: httpx.AsyncClient, method: str, path: str, **kwargs: Any
@@ -235,7 +251,7 @@ class NeonDatabaseProvisioner:
         response = await self._request(
             store_id,
             "GET",
-            f"/projects/{self._project}/connection_uri",
+            f"/projects/{quote(self._project, safe='')}/connection_uri",
             params={
                 "branch_id": self._branch,
                 "database_name": name,
@@ -281,34 +297,38 @@ def get_database_provisioner(
 ) -> DatabaseProvisioner:
     """Provisioner chosen by ``settings.STORE_DB_PROVIDER`` ("local" or "neon").
 
-    Raises ProvisionerNotConfigured when "neon" is selected without its variables.
+    Raises ProvisionerNotConfigured when "neon" is selected without its variables, and
+    when "local" is selected outside local/test: the local provider hands every store
+    the platform role's credentials, so it is development only.
     ``engine`` defaults to the platform engine (imported lazily).
     """
-    provider = settings.STORE_DB_PROVIDER.strip().lower()
-    if provider == "local":
+    if settings.STORE_DB_PROVIDER == "local":
+        if not settings.relaxed_environment:
+            raise ProvisionerNotConfigured(
+                "local",
+                ("STORE_DB_PROVIDER",),
+                "the local provisioner is development only (it reuses the platform "
+                "role's credentials); set STORE_DB_PROVIDER=neon outside local and test",
+            )
         if engine is None:
             from app.core.database import engine as platform_engine
 
             engine = platform_engine
         return LocalDatabaseProvisioner(engine)
-    if provider == "neon":
-        api_key = (
-            settings.NEON_API_KEY.get_secret_value() if settings.NEON_API_KEY else ""
-        )
-        values = {
-            "NEON_API_KEY": api_key,
-            "NEON_PROJECT_ID": settings.NEON_PROJECT_ID or "",
-            "NEON_BRANCH_ID": settings.NEON_BRANCH_ID or "",
-            "NEON_ROLE_NAME": settings.NEON_ROLE_NAME or "",
-        }
-        missing = tuple(name for name, value in values.items() if not value)
-        if missing:
-            raise ProvisionerNotConfigured("neon", missing)
-        return NeonDatabaseProvisioner(
-            api_key,
-            values["NEON_PROJECT_ID"],
-            values["NEON_BRANCH_ID"],
-            values["NEON_ROLE_NAME"],
-            base_url=settings.NEON_API_BASE_URL,
-        )
-    raise ProvisionerNotConfigured(provider, ("STORE_DB_PROVIDER=local|neon",))
+    api_key = settings.NEON_API_KEY.get_secret_value() if settings.NEON_API_KEY else ""
+    values = {
+        "NEON_API_KEY": api_key,
+        "NEON_PROJECT_ID": settings.NEON_PROJECT_ID or "",
+        "NEON_BRANCH_ID": settings.NEON_BRANCH_ID or "",
+        "NEON_ROLE_NAME": settings.NEON_ROLE_NAME or "",
+    }
+    missing = tuple(name for name, value in values.items() if not value)
+    if missing:
+        raise ProvisionerNotConfigured("neon", missing)
+    return NeonDatabaseProvisioner(
+        api_key,
+        values["NEON_PROJECT_ID"],
+        values["NEON_BRANCH_ID"],
+        values["NEON_ROLE_NAME"],
+        base_url=settings.NEON_API_BASE_URL,
+    )
