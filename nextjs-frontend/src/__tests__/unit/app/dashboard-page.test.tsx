@@ -135,6 +135,35 @@ describe('DashboardPage', () => {
     expect(markup).not.toContain('Active until');
   });
 
+  it('clears the session when the billing call finds it rejected', async () => {
+    mocks.fetchBillingSummary.mockResolvedValue({
+      success: false,
+      error: 'Invalid authentication',
+      status: 401,
+    });
+
+    expect(redirectTarget(await rejection(page()))).toBe('/api/auth/clear-session');
+  });
+
+  it('does not render an invalid date when the period end is empty', async () => {
+    mocks.fetchBillingSummary.mockResolvedValue({
+      success: true,
+      data: {
+        plan: { key: 'pro', name: 'Pro', max_stores: null, max_products: null, max_staff: null },
+        subscription_status: 'active',
+        current_period_end: null,
+        has_billing_account: true,
+        has_subscription: true,
+        cancel_at_period_end: false,
+        interval: 'monthly',
+      },
+    });
+
+    const markup = renderToStaticMarkup((await page()) as React.ReactElement);
+
+    expect(markup).not.toContain('Invalid Date');
+  });
+
   it.each([
     [{ success: false, error: 'Backend unavailable' }, 'unreachable'],
     [{ success: false, error: 'Request failed', status: 500 }, '500'],

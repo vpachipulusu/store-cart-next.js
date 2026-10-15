@@ -2,8 +2,7 @@ import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { redirect, unstable_rethrow } from 'next/navigation';
 import { isEmailNotVerifiedError, verifyVerifiedSessionCookie } from '@/lib/auth/verified-session';
-import { fetchAdminAccess } from '@/lib/api/admin-access';
-import { isSessionRejected } from '@/lib/api/session-rejected';
+import { db } from '@/lib/db/client';
 import { isSessionVerificationError, logRouteError } from '@/lib/auth/session-errors';
 import {
   LayoutDashboard,
@@ -18,27 +17,24 @@ import {
 import { AdminHeader } from '@/components/admin/admin-header';
 
 /**
- * Every /admin route is per-user (session cookie + admin check) and reads the API, so none can be
+ * Every /admin route is per-user (session cookie + admin check) and reads Prisma, so none can be
  * prerendered. Declaring it here, before render, keeps `next build` from attempting a static render of
  * any child page and issuing its queries.
  */
 export const dynamic = 'force-dynamic';
 
-/** Resolves the caller's admin access through the API; anything but an explicit admin answer is a redirect. */
-async function checkAdminAccess() {
-  const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get('session')?.value;
-
-  if (!sessionCookie) {
-    redirect('/login');
-  }
-
+async function loadUserBySession(sessionCookie: string) {
   let uid: string | undefined;
-  let access: Awaited<ReturnType<typeof fetchAdminAccess>>;
   try {
     const decodedClaims = await verifyVerifiedSessionCookie(sessionCookie);
     uid = decodedClaims.uid;
-    access = await fetchAdminAccess();
+
+    return await db.user.findUnique({
+      where: { firebaseUid: uid },
+      include: {
+        adminUser: true,
+      },
+    });
   } catch (error) {
     unstable_rethrow(error);
     if (isEmailNotVerifiedError(error)) {
@@ -50,21 +46,27 @@ async function checkAdminAccess() {
     logRouteError('/admin', error, uid);
     throw error;
   }
+}
+
+async function checkAdminAccess() {
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get('session')?.value;
+
+  if (!sessionCookie) {
+    redirect('/login');
+  }
+
+  const user = await loadUserBySession(sessionCookie);
 
   // Outside the try so a non-admin goes straight to /dashboard and is never mistaken for a failed session.
-  if (!access.success) {
-    if (isSessionRejected(access)) {
-      redirect('/api/auth/clear-session');
-    }
-    const failure = new Error(`Admin access check failed (${access.status ?? 'unreachable'})`);
-    logRouteError('/admin', failure, uid);
-    throw failure;
-  }
-  if (!access.data) {
+  if (!user || !user.adminUser) {
     redirect('/dashboard');
   }
 
-  return access.data;
+  return {
+    user,
+    adminUser: user.adminUser,
+  };
 }
 
 const navItems = [
@@ -106,7 +108,7 @@ const navItems = [
 ];
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  const { user, adminRole } = await checkAdminAccess();
+  const { user, adminUser } = await checkAdminAccess();
 
   return (
     <div className="min-h-screen bg-background">
@@ -118,7 +120,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <span className="text-xl font-bold">Admin Portal</span>
           </div>
 
-          <AdminHeader user={user} adminRole={adminRole} />
+          <AdminHeader
+            user={{
+              email: user.email,
+              displayName: user.displayName,
+              avatarUrl: user.avatarUrl,
+            }}
+            adminRole={adminUser.role}
+          />
         </div>
       </div>
       <div className="h-px bg-gradient-to-r from-transparent via-theme-accent/20 to-transparent" />
