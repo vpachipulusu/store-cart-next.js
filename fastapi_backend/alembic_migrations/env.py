@@ -33,6 +33,8 @@ database_url = os.getenv("DATABASE_URL_DIRECT") or os.getenv("DATABASE_URL")
 if not database_url:
     raise ValueError("DATABASE_URL (or DATABASE_URL_DIRECT) is not set!")
 
+# Same connect args as the app engines (app.core.database.build_engine): TLS mode,
+# statement cache off (PgBouncer-safe) and the bounded connect timeout.
 db_target = to_async_target(database_url)
 
 

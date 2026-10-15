@@ -19,6 +19,9 @@ def build_engine(
 ) -> AsyncEngine:
     """Create the async engine, keeping the TLS mode from the URL (e.g. sslmode=require).
 
+    Every engine gets the pooler-safe connect args from ``to_async_target``
+    (statement cache off, bounded connect timeout).
+
     Only this module and ``app.services.store_sessions`` may call it (ruff TID251).
     """
     target = to_async_target(database_url)
