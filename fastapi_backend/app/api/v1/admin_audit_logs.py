@@ -105,9 +105,11 @@ class AuditLogEntry(BaseModel):
     resource_id: str | None
     metadata: Any = Field(
         description=(
-            "Sanitised JSON object, or null. Keys: `actor_role` and `request_id` (admin "
-            "routes), `before`, `after` and `details` (changed fields; secret-looking "
-            "keys and values are `[REDACTED]`). Billing rows carry `details` only."
+            "Sanitised JSON object, or null. Keys: `actor_role` (admin routes), "
+            "`request_id` (admin and billing routes), `before`, `after` and `details` "
+            "(changed fields; secret-looking keys and values are `[REDACTED]`). Billing "
+            "rows carry `request_id` and, for plan changes and payment method changes "
+            "only, `details`; checkout, cancel and resume rows have no `details`."
         ),
     )
     ip_address: str | None

@@ -87,6 +87,10 @@ class InvalidReturnUrl(Exception):
     """The return URL is not on the allow-list (422)."""
 
 
+class BillingAuditWriteFailed(Exception):
+    """Sentry surrogate for a failed billing audit write (error type only)."""
+
+
 class BillingUnavailable(Exception):
     """A Stripe call failed (502)."""
 
@@ -439,21 +443,33 @@ class OrgBillingService:
             )
             await self._session.commit()
         except Exception as exc:  # noqa: BLE001 - Stripe already accepted; never fail the request
+            # Invariant: nothing else is staged in this session when it rolls back
+            # (_ensure_customer commits its customer link before the audit write).
+            error_type = type(exc).__name__
             try:
                 await self._session.rollback()
-            except Exception:
-                logger.exception("Rollback failed after a billing audit write error")
-            # Type only, no traceback: driver errors can echo bound parameters (PII).
-            report_exception(exc)
+            except Exception as rollback_exc:  # noqa: BLE001
+                # Type only, no traceback: driver errors can echo bound parameters (PII).
+                logger.error(
+                    "Rollback failed after a billing audit write error: "
+                    "organization_id=%s audit_action=%s error_type=%s",
+                    organization_id,
+                    action,
+                    type(rollback_exc).__name__,
+                )
+            # A surrogate carrying only the type: the original message may hold PII.
+            report_exception(BillingAuditWriteFailed(error_type))
+            # The JSON log formatter copies only a fixed set of extras, so the
+            # reconciliation fields go in the message text.
             logger.error(
-                "Billing audit write failed after Stripe accepted the change",
-                extra={
-                    "error_type": type(exc).__name__,
-                    "organization_id": organization_id,
-                    "audit_action": action,
-                    "idempotency_key": idempotency_key,
-                    "request_id": self._origin.request_id,
-                },
+                "Billing audit write failed after Stripe accepted the change: "
+                "organization_id=%s audit_action=%s idempotency_key=%s "
+                "request_id=%s error_type=%s",
+                organization_id,
+                action,
+                idempotency_key,
+                self._origin.request_id,
+                error_type,
             )
 
     async def _owned_customer(

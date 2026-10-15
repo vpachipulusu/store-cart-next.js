@@ -49,7 +49,7 @@ pre-launch size; any later index on a large table must be built `CONCURRENTLY` i
 Transactions: the organisation, store and admin-user rows are staged in the same transaction as the change, so
 both commit or both roll back. Billing changes happen at Stripe, which cannot join a database transaction: the row
 is written after Stripe accepts the change. If that write fails (KAN-193) the session is rolled back, an error is
-logged with `organization_id`, `audit_action` and the Stripe `idempotency_key`, and the request still succeeds,
+logged (the fields are in the message text as `organization_id=... audit_action=... idempotency_key=... request_id=... error_type=...`, because the JSON formatter keeps only a fixed set of extras) and reported to Sentry as a surrogate carrying only the error type, and the request still succeeds,
 because the change stands at Stripe and a 500 would invite a repeat. Operators reconcile from that log line and the
 Stripe webhook (the source of truth for subscription state). Billing rows carry the client IP, user agent and
 request id, like admin rows. A client that retries a plan change, cancel, resume or checkout without an `Idempotency-Key` gets a fresh Stripe key, as before.
@@ -68,7 +68,7 @@ follow-up story if the owner wants them.
 
 Query: `organization_id`, `store_id`, `user_id` (exact ids), `action` (exact, for example `store.update`),
 `created_from` / `created_to` (ISO 8601, inclusive; 422 when `created_from` is after `created_to`), `limit`
-(1 to 100, default 50), `offset` (0 to 10,000). Newest first. Response:
+(1 to 100, default 50), `offset` (0 to 10,000; lowered from 1,000,000 in KAN-193, an accepted API change). Newest first. Response:
 `{success, data: {entries: [...], total_count, limit, offset}}` with `Cache-Control: no-store`. Listing writes no row.
 
 Tests: `tests/api/test_audit_logs_e2e.py` (real Postgres via `TEST_DATABASE_URL`, includes the 0006 downgrade

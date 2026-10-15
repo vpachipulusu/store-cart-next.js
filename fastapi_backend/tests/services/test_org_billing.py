@@ -525,11 +525,11 @@ async def test_audit_failure_after_stripe_accepts_is_logged_and_not_raised(caplo
     assert [name for name, _ in stripe.calls].count("set_cancel_at_period_end") == 1
     assert session.rollbacks == baseline.rollbacks + 1  # authorize + failed audit
     assert len(errors) == 1
-    record = errors[0]
-    assert record.organization_id == "org1"  # type: ignore[attr-defined]
-    assert record.audit_action == "billing.cancel"  # type: ignore[attr-defined]
-    assert record.idempotency_key == "sc-cancel-org1-client-key-1"  # type: ignore[attr-defined]
-    assert "cus_1" not in record.getMessage()
+    message = errors[0].getMessage()
+    assert "organization_id=org1" in message
+    assert "audit_action=billing.cancel" in message
+    assert "idempotency_key=sc-cancel-org1-client-key-1" in message
+    assert "cus_1" not in message
 
 
 class UnrollbackableSession(FailingAuditSession):
@@ -563,3 +563,115 @@ async def test_billing_audit_row_carries_request_context():
     row = session.added[0]
     assert (row.ip_address, row.user_agent) == ("203.0.113.9", "pytestagent")
     assert row.metadata_ == {"request_id": "req-7"}
+
+
+async def test_audit_repository_add_raising_is_reported_without_the_message(
+    monkeypatch, caplog
+):
+    reported = []
+    monkeypatch.setattr("app.services.org_billing.report_exception", reported.append)
+
+    class RaisingAddSession(FakeCommitSession):
+        def add(self, row):
+            raise RuntimeError("secret parameter 203.0.113.9 u1")
+
+    _, stripe, store, _ = build(subscribed_record())
+    session = RaisingAddSession()
+    service = OrgBillingService(store, session, stripe, PRICES, ORIGINS)  # type: ignore[arg-type]
+
+    with caplog.at_level("ERROR", logger="app.services.org_billing"):
+        await service.set_cancellation("org1", "u1", cancel=True, request_key=None)
+
+    assert [type(item).__name__ for item in reported] == ["BillingAuditWriteFailed"]
+    assert str(reported[0]) == "RuntimeError"
+    assert "203.0.113.9" not in caplog.text
+    assert session.commits == 0
+
+
+async def test_rollback_failure_logs_both_records_without_tracebacks(caplog):
+    _, stripe, store, _ = build(subscribed_record())
+    session = UnrollbackableSession()
+    service = OrgBillingService(store, session, stripe, PRICES, ORIGINS)  # type: ignore[arg-type]
+
+    with caplog.at_level("ERROR", logger="app.services.org_billing"):
+        await service.change_plan(
+            "org1", "u1", plan=PlanKey.PRO, interval="yearly", request_key="rk-0001"
+        )
+
+    messages = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    assert len(messages) == 2
+    assert messages[0].startswith("Rollback failed")
+    assert "error_type=RuntimeError" in messages[0]
+    assert messages[1].startswith("Billing audit write failed")
+    assert "idempotency_key=sc-change-org1-rk-0001" in messages[1]
+    assert all(r.exc_info is None for r in caplog.records)
+
+
+async def test_failure_log_survives_the_json_formatter(caplog):
+    import json
+
+    from app.core.logging import JsonFormatter
+
+    _, stripe, store, _ = build(subscribed_record())
+    session = FailingAuditSession()
+    origin = RequestOrigin(None, None, "req-9")
+    service = OrgBillingService(store, session, stripe, PRICES, ORIGINS, origin)  # type: ignore[arg-type]
+
+    with caplog.at_level("ERROR", logger="app.services.org_billing"):
+        await service.set_cancellation(
+            "org1", "u1", cancel=True, request_key="client-key-1"
+        )
+
+    rendered = json.loads(JsonFormatter().format(caplog.records[-1]))
+    for expected in (
+        "organization_id=org1",
+        "audit_action=billing.cancel",
+        "idempotency_key=sc-cancel-org1-client-key-1",
+        "request_id=req-9",
+        "error_type=RuntimeError",
+    ):
+        assert expected in rendered["message"]
+
+
+async def test_plan_change_row_has_request_id_and_details():
+    store = FakeBillingStore()
+    store.add(subscribed_record(), "u1", MembershipRole.OWNER)
+    session = FakeCommitSession()
+    service = OrgBillingService(
+        store,
+        session,
+        FakeStripe(),
+        PRICES,
+        ORIGINS,
+        RequestOrigin(None, None, "r-1"),  # type: ignore[arg-type]
+    )
+
+    await service.change_plan(
+        "org1", "u1", plan=PlanKey.PRO, interval="yearly", request_key=None
+    )
+
+    assert session.added[0].metadata_ == {
+        "request_id": "r-1",
+        "details": {"plan": "pro", "interval": "yearly"},
+    }
+
+
+async def test_user_agent_is_stripped_of_newlines_and_capped_at_512():
+    store = FakeBillingStore()
+    store.add(subscribed_record(), "u1", MembershipRole.OWNER)
+    session = FakeCommitSession()
+    agent = "evil\nagent\r" + "x" * 600
+    service = OrgBillingService(
+        store,
+        session,
+        FakeStripe(),
+        PRICES,
+        ORIGINS,
+        RequestOrigin(None, agent, None),  # type: ignore[arg-type]
+    )
+
+    await service.set_cancellation("org1", "u1", cancel=True, request_key=None)
+
+    stored = session.added[0].user_agent
+    assert stored.startswith("evilagent") and len(stored) == 512
+    assert "\n" not in stored and "\r" not in stored
