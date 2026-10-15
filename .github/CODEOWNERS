@@ -1,0 +1,9 @@
+# Review routing (KAN-187). The repository owner reviews everything; add narrower rules
+# below the catch-all as more reviewers join (last matching pattern wins).
+*                          @vpachipulusu
+
+# Areas that need extra care
+/fastapi_backend/alembic_migrations/   @vpachipulusu
+/fastapi_backend/app/core/             @vpachipulusu
+/nextjs-frontend/src/app/actions/      @vpachipulusu
+/.github/workflows/                    @vpachipulusu
