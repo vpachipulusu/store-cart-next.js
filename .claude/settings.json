@@ -35,7 +35,6 @@
       "Bash(npm publish:*)",
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
-      "Bash(gh pr merge:*)",
       "Read(./nextjs-frontend/.env.local)",
       "Read(./nextjs-frontend/.env.e2e.local)",
       "Read(./nextjs-frontend/.env.production)"

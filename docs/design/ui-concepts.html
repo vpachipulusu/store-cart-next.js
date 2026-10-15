@@ -1,0 +1,288 @@
+<title>StoreCart UI Concepts</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Hanken+Grotesk:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a sticky screen index over four stacked screen concepts, each drawn as a framed browser window. */
+:root {
+  --bg: #f6f3ec;          /* ivory, from the existing --background */
+  --surface: #fffdf8;
+  --surface-2: #efeadf;
+  --ink: #101a33;         /* deep navy, from the existing --foreground */
+  --ink-2: #4a5268;
+  --line: #ddd5c4;
+  --gold: #d9a441;        /* champagne gold, kept as the single accent */
+  --gold-ink: #7a5410;    /* gold usable as text on ivory (AA) */
+  --on-gold: #101a33;     /* navy on gold: ~8:1; white on gold was ~2.1:1 */
+  --good: #1f7a55;
+  --warn: #9a5b00;
+  --bad: #b3261e;
+  --f-display: "Fraunces", Georgia, serif;
+  --f-body: "Hanken Grotesk", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a1022; --surface: #0f1830; --surface-2: #16213f; --ink: #ece6d6; --ink-2: #9aa3b8;
+    --line: #22305a; --gold: #e0ad4e; --gold-ink: #e8bf6e; --on-gold: #101a33;
+    --good: #52c79a; --warn: #e0a24a; --bad: #f08a82; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0a1022; --surface: #0f1830; --surface-2: #16213f; --ink: #ece6d6; --ink-2: #9aa3b8;
+  --line: #22305a; --gold: #e0ad4e; --gold-ink: #e8bf6e; --on-gold: #101a33;
+  --good: #52c79a; --warn: #e0a24a; --bad: #f08a82; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 1120px; margin-inline: auto; padding: 24px 16px 64px; display: grid; gap: 40px; }
+h1, h2, h3 { font-family: var(--f-display); font-weight: 500; text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+p { margin: 0; }
+a { color: inherit; }
+.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.eyebrow { font-family: var(--f-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-2); }
+
+.top { display: grid; gap: 14px; }
+.top h1 { font-size: clamp(30px, 5vw, 46px); line-height: 1.05; }
+.top p { max-width: 62ch; color: var(--ink-2); }
+.index { display: flex; flex-wrap: wrap; gap: 8px; }
+.index a { border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; text-decoration: none; font-size: 13px; background: var(--surface); }
+.index a:hover, .index a:focus-visible { border-color: var(--gold); outline: 2px solid var(--gold); outline-offset: 2px; }
+
+.finding { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.finding div { border-top: 2px solid var(--ink); padding-top: 10px; min-width: 0; }
+.finding b { display: block; font-family: var(--f-display); font-weight: 500; font-size: 17px; margin-bottom: 4px; }
+.finding span { color: var(--ink-2); font-size: 14px; }
+
+.swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+.sw { width: 112px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.sw i { display: block; height: 44px; }
+.sw span { display: block; padding: 6px 8px; font-family: var(--f-mono); font-size: 11px; color: var(--ink-2); }
+
+.screen > header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px 16px; margin-bottom: 12px; }
+.screen > header h2 { font-size: 24px; }
+.screen > header p { color: var(--ink-2); font-size: 14px; max-width: 60ch; }
+.frame { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.frame .bar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--surface-2); font-family: var(--f-mono); font-size: 11px; color: var(--ink-2); }
+.frame .bar i { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+.frame .body { padding: 0; }
+
+.btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid transparent; border-radius: 6px; padding: 10px 16px; font: 600 14px var(--f-body); cursor: pointer; text-decoration: none; }
+.btn.gold { background: var(--gold); color: var(--on-gold); }
+.btn.ghost { border-color: var(--ink); color: var(--ink); background: transparent; }
+.btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.pill { display: inline-block; font-family: var(--f-mono); font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; }
+.pill.good { color: var(--good); } .pill.warn { color: var(--warn); } .pill.bad { color: var(--bad); }
+
+/* landing */
+.hero { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 32px; padding: 40px 32px; align-items: center; }
+.hero h3 { font-size: clamp(30px, 4.4vw, 52px); line-height: 1.04; }
+.hero h3 em { font-style: normal; color: var(--gold-ink); }
+.hero p { color: var(--ink-2); margin: 14px 0 22px; max-width: 46ch; font-size: 17px; }
+.hero .cta { display: flex; flex-wrap: wrap; gap: 10px; }
+.order { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); padding: 14px; display: grid; gap: 10px; min-width: 0; }
+.order .row { display: flex; justify-content: space-between; gap: 10px; align-items: center; border-bottom: 1px dashed var(--line); padding-bottom: 8px; }
+.order .row:last-child { border: 0; padding: 0; }
+.order .row span:first-child { min-width: 0; }
+.proof { display: flex; flex-wrap: wrap; gap: 8px 28px; padding: 16px 32px; border-top: 1px solid var(--line); background: var(--surface-2); color: var(--ink-2); font-size: 13px; }
+.proof b { color: var(--ink); font-family: var(--f-mono); font-weight: 500; }
+
+/* dashboard */
+.app { display: grid; grid-template-columns: 188px 1fr; min-height: 470px; }
+.side { border-right: 1px solid var(--line); padding: 14px 10px; display: grid; gap: 4px; align-content: start; background: var(--surface-2); }
+.side .store { font-family: var(--f-display); font-size: 17px; padding: 4px 8px 12px; }
+.side a { text-decoration: none; padding: 8px 10px; border-radius: 6px; font-size: 14px; color: var(--ink-2); }
+.side a[aria-current] { background: var(--surface); color: var(--ink); box-shadow: inset 3px 0 0 var(--gold); font-weight: 600; }
+.main { padding: 20px; display: grid; gap: 18px; align-content: start; min-width: 0; }
+.main h3 { font-size: 24px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0; border-block: 1px solid var(--line); }
+.kpis div { padding: 12px 14px; border-right: 1px solid var(--line); min-width: 0; }
+.kpis div:last-child { border-right: 0; }
+.kpis .n { font-family: var(--f-display); font-size: 28px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.kpis .d { font-family: var(--f-mono); font-size: 11px; color: var(--ink-2); }
+.twocol { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; }
+.twocol > * { min-width: 0; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th { text-align: left; font-family: var(--f-mono); font-weight: 400; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); padding: 6px 8px; border-bottom: 1px solid var(--line); }
+td { padding: 9px 8px; border-bottom: 1px solid var(--line); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--f-mono); }
+.scroll { overflow-x: auto; }
+.todo { display: grid; gap: 8px; align-content: start; }
+.todo .item { border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 6px; padding: 10px 12px; background: var(--bg); }
+.todo .item.ok { border-left-color: var(--good); }
+.todo b { display: block; font-size: 14px; }
+.todo span { color: var(--ink-2); font-size: 13px; }
+
+/* pricing */
+.plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0; }
+.plan { padding: 24px; border-right: 1px solid var(--line); display: grid; gap: 12px; align-content: start; min-width: 0; }
+.plan:last-child { border-right: 0; }
+.plan.pick { background: var(--surface-2); box-shadow: inset 0 3px 0 var(--gold); }
+.plan h3 { font-size: 22px; }
+.price { font-family: var(--f-display); font-size: 38px; line-height: 1; font-variant-numeric: tabular-nums; }
+.price small { font-family: var(--f-body); font-size: 13px; color: var(--ink-2); }
+.plan ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 14px; }
+.plan li::before { content: ""; display: inline-block; width: 8px; height: 2px; background: var(--gold-ink); margin-right: 8px; vertical-align: middle; }
+
+/* sign in */
+.auth { display: grid; grid-template-columns: 1fr 1fr; min-height: 420px; }
+.auth .art { background: var(--ink); color: var(--bg); padding: 32px; display: grid; align-content: space-between; gap: 24px; }
+.auth .art h3 { font-size: 30px; line-height: 1.1; }
+.auth .art p { color: color-mix(in srgb, var(--bg) 78%, transparent); max-width: 34ch; }
+.auth form { padding: 32px; display: grid; gap: 14px; align-content: center; max-width: 380px; width: 100%; margin-inline: auto; min-width: 0; }
+label { display: grid; gap: 4px; font-size: 13px; font-weight: 600; }
+input { font: 15px var(--f-body); padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); width: 100%; }
+input:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; border-color: var(--ink); }
+.err { color: var(--bad); font-size: 13px; }
+
+.notes { display: grid; gap: 10px; }
+.notes ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; max-width: 80ch; }
+
+@media (max-width: 760px) {
+  .hero, .auth, .twocol { grid-template-columns: 1fr; }
+  .app { grid-template-columns: 1fr; }
+  .side { grid-auto-flow: column; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  .side .store { display: none; }
+  .hero { padding: 24px 16px; }
+  .plan { border-right: 0; border-bottom: 1px solid var(--line); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .btn, .index a { transition: background-color .15s, border-color .15s; }
+}
+</style>
+
+<main class="wrap">
+  <section class="top">
+    <span class="eyebrow">StoreCart · interface direction · concept 1</span>
+    <h1>From boilerplate to a merchant's workspace</h1>
+    <p>These four screens keep the ivory, navy and champagne-gold identity already in the app and change what it is built around: the merchant's store, orders and plan. They are layout concepts drawn as HTML, not Figma files, and they have not yet been checked against the running app.</p>
+    <nav class="index" aria-label="Screens">
+      <a href="#landing">Landing</a><a href="#dashboard">Dashboard</a><a href="#pricing">Pricing</a><a href="#signin">Sign in</a><a href="#notes">Plan</a>
+    </nav>
+  </section>
+
+  <section aria-labelledby="found">
+    <h2 id="found" style="font-size:22px;margin-bottom:14px">What the code review found</h2>
+    <div class="finding">
+      <div><b>Landing is still the template</b><span>Hero says "Next.js 16 + React 19", links to a placeholder GitHub repo, and sells a boilerplate, not StoreCart.</span></div>
+      <div><b>White text on gold</b><span>14 buttons pair <span class="mono">bg-theme-accent</span> with <span class="mono">text-white</span>. Gold with white is about 2.1:1; navy on gold is about 8:1.</span></div>
+      <div><b>Headings fall back to Georgia</b><span><span class="mono">font-display</span> points at <span class="mono">--font-display</span>, which nothing defines. The serif is an accident, not a choice.</span></div>
+      <div><b>Account pages, not store pages</b><span>Dashboard is a top bar with five links and a stack of identical cards about the user's account.</span></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="tok">
+    <h2 id="tok" style="font-size:22px;margin-bottom:14px">Tokens</h2>
+    <div class="swatches">
+      <div class="sw"><i style="background:var(--bg)"></i><span>ivory · bg</span></div>
+      <div class="sw"><i style="background:var(--surface-2)"></i><span>sand · surface</span></div>
+      <div class="sw"><i style="background:var(--ink)"></i><span>navy · ink</span></div>
+      <div class="sw"><i style="background:var(--gold)"></i><span>gold · accent</span></div>
+      <div class="sw"><i style="background:var(--gold-ink)"></i><span>bronze · gold text</span></div>
+      <div class="sw"><i style="background:var(--good)"></i><span>good</span></div>
+      <div class="sw"><i style="background:var(--warn)"></i><span>warning</span></div>
+      <div class="sw"><i style="background:var(--bad)"></i><span>critical</span></div>
+    </div>
+    <p style="margin-top:12px;color:var(--ink-2);max-width:70ch">Display: Fraunces, used for headings and big numbers only. Body: Hanken Grotesk. Data and labels: IBM Plex Mono with tabular numerals. Gold is the one accent; success, warning and critical are separate semantic colours.</p>
+  </section>
+
+  <section class="screen" id="landing" aria-labelledby="h-land">
+    <header><h2 id="h-land">Landing</h2><p>Opens with the product itself: a live-looking order, not a feature grid.</p></header>
+    <div class="frame"><div class="bar"><i></i><i></i><i></i><span>storecart.app</span></div>
+      <div class="body">
+        <div class="hero">
+          <div>
+            <span class="eyebrow">Online stores for independent merchants</span>
+            <h3 style="margin-top:10px">Open a store. <em>Take the first order</em> this week.</h3>
+            <p>Set up products, shipping and payments in one workspace. Your customers check out on your own domain; you get paid through your own Stripe account.</p>
+            <div class="cta"><a class="btn gold" href="#signin">Start free</a><a class="btn ghost" href="#pricing">See plans</a></div>
+          </div>
+          <div class="order" aria-label="Example order">
+            <div class="eyebrow">Example order · #1042</div>
+            <div class="row"><span>Linen tote, natural × 2</span><span class="mono">£48.00</span></div>
+            <div class="row"><span>Shipping, tracked</span><span class="mono">£4.50</span></div>
+            <div class="row"><span><b>Paid</b> · card ending 4242</span><span class="pill good">Paid</span></div>
+          </div>
+        </div>
+        <div class="proof"><span><b>0%</b> platform fee on the Free plan</span><span><b>1 database</b> per store</span><span><b>Your domain</b>, SSL included</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="screen" id="dashboard" aria-labelledby="h-dash">
+    <header><h2 id="h-dash">Merchant dashboard</h2><p>Sidebar for the store, numbers first, then what needs action. Example figures.</p></header>
+    <div class="frame"><div class="bar"><i></i><i></i><i></i><span>storecart.app/dashboard</span></div>
+      <div class="app">
+        <nav class="side" aria-label="Store">
+          <div class="store">Linen &amp; Co.</div>
+          <a href="#dashboard" aria-current="page">Overview</a><a href="#dashboard">Orders</a><a href="#dashboard">Products</a><a href="#dashboard">Customers</a><a href="#dashboard">Settings</a>
+        </nav>
+        <div class="main">
+          <div><span class="eyebrow">Last 7 days</span><h3>Good morning, Priya</h3></div>
+          <div class="kpis">
+            <div><div class="eyebrow">Sales</div><div class="n">£3,482</div><div class="d">+12% vs prior week</div></div>
+            <div><div class="eyebrow">Orders</div><div class="n">64</div><div class="d">9 to fulfil</div></div>
+            <div><div class="eyebrow">Conversion</div><div class="n">2.8%</div><div class="d">−0.3 pts</div></div>
+            <div><div class="eyebrow">Plan usage</div><div class="n">38 / 50</div><div class="d">products on Free</div></div>
+          </div>
+          <div class="twocol">
+            <div class="scroll">
+              <table>
+                <thead><tr><th>Order</th><th>Customer</th><th>Status</th><th class="num">Total</th></tr></thead>
+                <tbody>
+                  <tr><td class="mono">#1042</td><td>A. Okafor</td><td><span class="pill good">Paid</span></td><td class="num">£52.50</td></tr>
+                  <tr><td class="mono">#1041</td><td>M. Lindqvist</td><td><span class="pill warn">To ship</span></td><td class="num">£89.00</td></tr>
+                  <tr><td class="mono">#1040</td><td>S. Brandt</td><td><span class="pill bad">Refund asked</span></td><td class="num">£34.00</td></tr>
+                  <tr><td class="mono">#1039</td><td>J. Park</td><td><span class="pill good">Delivered</span></td><td class="num">£120.00</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="todo">
+              <div class="eyebrow">Needs attention</div>
+              <div class="item"><b>9 orders to fulfil</b><span>Oldest is 2 days old.</span></div>
+              <div class="item"><b>1 refund request</b><span>#1040 · reply within 3 days.</span></div>
+              <div class="item ok"><b>Stripe connected</b><span>Payouts every 2 days.</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="screen" id="pricing" aria-labelledby="h-price">
+    <header><h2 id="h-price">Pricing</h2><p>One recommended plan marked by a gold rule, not by a different card shape. Limits come from the plan config (KAN-42).</p></header>
+    <div class="frame"><div class="bar"><i></i><i></i><i></i><span>storecart.app/pricing</span></div>
+      <div class="plans">
+        <div class="plan"><h3>Free</h3><div class="price">£0<small> / month</small></div><ul><li>1 store</li><li>50 products</li><li>1 staff account</li></ul><a class="btn ghost" href="#signin">Start free</a></div>
+        <div class="plan pick"><span class="eyebrow">Most stores choose this</span><h3>Pro</h3><div class="price">£29<small> / month</small></div><ul><li>3 stores</li><li>1,000 products</li><li>5 staff accounts</li></ul><a class="btn gold" href="#signin">Choose Pro</a></div>
+        <div class="plan"><h3>Enterprise</h3><div class="price">£99<small> / month</small></div><ul><li>Unlimited stores</li><li>Unlimited products</li><li>Unlimited staff</li></ul><a class="btn ghost" href="#signin">Talk to us</a></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="screen" id="signin" aria-labelledby="h-sign">
+    <header><h2 id="h-sign">Sign in</h2><p>Split layout with the error state shown, and room for the 2FA code step (KAN-125) as a second view of the same card.</p></header>
+    <div class="frame"><div class="bar"><i></i><i></i><i></i><span>storecart.app/login</span></div>
+      <div class="auth">
+        <div class="art"><span class="eyebrow" style="color:inherit;opacity:.8">StoreCart</span><div><h3>Welcome back to your store.</h3><p>Orders, products and payouts are where you left them.</p></div><span class="mono" style="font-size:12px;opacity:.7">Sessions last 5 days on this device.</span></div>
+        <form onsubmit="return false" aria-label="Sign in">
+          <h3 style="font-size:24px">Sign in</h3>
+          <label for="em">Email<input id="em" type="email" value="priya@linenandco.example" autocomplete="username"></label>
+          <label for="pw">Password<input id="pw" type="password" value="wrong-password" autocomplete="current-password" aria-invalid="true" aria-describedby="pwe"></label>
+          <p class="err" id="pwe" role="alert">Email or password is incorrect. Try again or reset your password.</p>
+          <button class="btn gold" type="submit" style="justify-content:center">Sign in</button>
+          <a href="#signin" style="font-size:13px">Forgot password?</a>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <section class="notes" id="notes" aria-labelledby="h-plan">
+    <h2 id="h-plan" style="font-size:22px">Proposed plan</h2>
+    <ol>
+      <li><b>Foundation:</b> define <span class="mono">--font-display</span>, fix accent button contrast (navy on gold), add status colours, keep both themes. About 14 button usages plus tokens.</li>
+      <li><b>Shell:</b> replace the dashboard top bar with a sidebar layout shared by the dashboard and admin.</li>
+      <li><b>Landing and pricing:</b> replace template copy with StoreCart copy; recommended-plan treatment.</li>
+      <li><b>Auth screens:</b> split layout, inline errors, and the 2FA step when KAN-125 lands.</li>
+      <li><b>Verification:</b> screenshots at 375, 768 and 1440 in both themes, keyboard and contrast checks, then Playwright visual baselines once E2E is on.</li>
+    </ol>
+  </section>
+</main>
