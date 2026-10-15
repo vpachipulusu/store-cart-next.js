@@ -25,13 +25,10 @@ function clients() {
 }
 
 describe('throwaway-account cleanup', () => {
-  it('verifies Firebase and database absence before fixture cleanup', async () => {
+  it('verifies Firebase absence before fixture cleanup', async () => {
     const testClients = clients();
     await expect(assertThrowawayAccountDeleted(testClients, account)).resolves.toBeUndefined();
     expect(testClients.auth.getUser).toHaveBeenCalledWith(account.uid);
-    expect(testClients.prisma.user.count).toHaveBeenCalledWith({
-      where: { firebaseUid: account.uid },
-    });
     expect(testClients.auth.deleteUser).not.toHaveBeenCalled();
     expect(testClients.prisma.user.deleteMany).not.toHaveBeenCalled();
   });
@@ -44,12 +41,11 @@ describe('throwaway-account cleanup', () => {
     );
   });
 
-  it('rejects residual database data after Firebase deletion', async () => {
+  it('does not look at the legacy database row: browser deletion goes through the API (KAN-180)', async () => {
     const testClients = clients();
     testClients.prisma.user.count.mockResolvedValue(1);
-    await expect(assertThrowawayAccountDeleted(testClients, account)).rejects.toThrow(
-      /database account still exists/
-    );
+    await expect(assertThrowawayAccountDeleted(testClients, account)).resolves.toBeUndefined();
+    expect(testClients.prisma.user.count).not.toHaveBeenCalled();
   });
 
   it('does not treat Firebase lookup outages as proof of account deletion', async () => {

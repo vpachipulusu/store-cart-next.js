@@ -13,7 +13,12 @@ const mocks = vi.hoisted(() => ({
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: mocks.toast }) }));
 vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn() } }));
+vi.mock('@/lib/firebase/client', () => ({ auth: { currentUser: null } }));
+vi.mock('firebase/auth', () => ({ signOut: vi.fn(), onAuthStateChanged: vi.fn(() => vi.fn()) }));
 vi.mock('@/app/actions/user-actions', () => ({
+  deleteAccountAction: vi.fn(),
+  disableTwoFactorAction: vi.fn(),
+  getTwoFactorStatusAction: vi.fn().mockResolvedValue({ success: true, data: { enabled: false } }),
   getUserSettingsAction: mocks.getUserSettingsAction,
   updateUserSettingsAction: vi.fn(),
   getLoginHistoryAction: mocks.getLoginHistoryAction,
