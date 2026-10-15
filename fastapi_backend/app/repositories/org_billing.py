@@ -22,6 +22,9 @@ class OrgBillingRecord:
     subscription_tier: str
     subscription_status: str
     stripe_cancel_at_period_end: bool = False
+    # The plan in force: the Stripe tier or a higher, unexpired admin grant (KAN-48).
+    # `subscription_tier` stays the raw Stripe-backed value.
+    effective_plan: str | None = None
 
 
 class OrgBillingRepository(BaseRepository):
@@ -52,15 +55,15 @@ class OrgBillingRepository(BaseRepository):
             organization.stripe_subscription_id,
             organization.stripe_price_id,
             organization.stripe_current_period_end,
-            # The plan in force: the Stripe tier or a higher, unexpired admin grant (KAN-48).
+            organization.subscription_tier,
+            organization.subscription_status,
+            organization.stripe_cancel_at_period_end,
             effective_plan_key(
                 organization.subscription_tier,
                 organization.granted_plan,
                 organization.granted_until,
                 datetime.now(UTC),
             ).value,
-            organization.subscription_status,
-            organization.stripe_cancel_at_period_end,
         )
 
     async def link_customer(self, organization_id: str, customer_id: str) -> str:

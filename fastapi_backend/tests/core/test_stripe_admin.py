@@ -112,6 +112,7 @@ async def test_create_refund_sends_charge_amount_reason_and_idempotency_key():
         amount=300,
         reason="requested_by_customer",
         organization_id="org1",
+        request_ref="ref123",
         idempotency_key="sc-admin-refund-org1-k",
     )
 
@@ -123,6 +124,7 @@ async def test_create_refund_sends_charge_amount_reason_and_idempotency_key():
         "amount": "300",
         "reason": "requested_by_customer",
         "metadata[organization_id]": "org1",
+        "metadata[request_ref]": "ref123",
     }
 
 
@@ -140,6 +142,7 @@ async def test_refund_without_a_reason_omits_it():
         amount=1,
         reason=None,
         organization_id="o",
+        request_ref="r",
         idempotency_key="k",
     )
 
@@ -155,6 +158,7 @@ async def test_refund_response_without_an_amount_is_a_stripe_error():
             amount=1,
             reason=None,
             organization_id="o",
+            request_ref="r",
             idempotency_key="k",
         )
 
@@ -203,3 +207,34 @@ def test_factory_builds_the_real_client(monkeypatch):
     monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", SecretStr(SECRET))
 
     assert isinstance(get_stripe_admin(), HttpStripeAdmin)
+
+
+async def test_find_refund_returns_the_refund_carrying_the_request_reference():
+    seen: list[httpx.Request] = []
+    body = {
+        "data": [
+            {"id": "re_0", "amount": 5, "currency": "gbp", "metadata": {}},
+            "junk",
+            {
+                "id": "re_1",
+                "amount": 300,
+                "currency": "gbp",
+                "status": "succeeded",
+                "metadata": {"request_ref": "ref123"},
+            },
+        ]
+    }
+    stripe = client_for(lambda r: httpx.Response(200, json=body), seen)
+
+    refund = await stripe.find_refund("ch_1", "ref123")
+
+    assert refund is not None and (refund.id, refund.amount) == ("re_1", 300)
+    assert dict(seen[0].url.params) == {"charge": "ch_1", "limit": "100"}
+
+
+async def test_find_refund_returns_none_when_no_refund_matches():
+    stripe = client_for(
+        lambda r: httpx.Response(200, json={"data": [{"id": "re_0", "amount": 5}]})
+    )
+
+    assert await stripe.find_refund("ch_1", "ref123") is None

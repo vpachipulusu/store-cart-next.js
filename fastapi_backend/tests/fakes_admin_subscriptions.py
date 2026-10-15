@@ -39,6 +39,9 @@ class FakeStripeAdmin:
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.fail = False
         self.reject = False
+        self.fail_refund = False  # only the refund write fails
+        self.missing_subscription = False
+        self.refund_refs: dict[str, StripeRefund] = {}
         self.subscription = StripeSubscription(
             "sub_1", "cus_1", "si_1", "price_pro_m", "active", False
         )
@@ -67,6 +70,8 @@ class FakeStripeAdmin:
 
     async def get_subscription(self, subscription_id: str) -> StripeSubscription:
         self._record("get_subscription", subscription_id=subscription_id)
+        if self.missing_subscription:
+            raise StripeNotFound("Stripe request failed")
         return self.subscription
 
     async def set_cancel_at_period_end(self, **kwargs: Any) -> None:
@@ -100,6 +105,7 @@ class FakeStripeAdmin:
         amount: int,
         reason: str | None,
         organization_id: str,
+        request_ref: str,
         idempotency_key: str,
     ) -> StripeRefund:
         self._record(
@@ -108,8 +114,11 @@ class FakeStripeAdmin:
             amount=amount,
             reason=reason,
             organization_id=organization_id,
+            request_ref=request_ref,
             idempotency_key=idempotency_key,
         )
+        if self.fail_refund:
+            raise StripeError("Stripe request failed")
         signature = (charge_id, amount)
         if idempotency_key in self._refunds:
             first, refund = self._refunds[idempotency_key]
@@ -123,7 +132,18 @@ class FakeStripeAdmin:
             f"re_{len(self._refunds) + 1}", amount, current.currency, "succeeded"
         )
         self._refunds[idempotency_key] = (signature, refund)
+        self.refund_refs[request_ref] = refund
         self.charges[charge_id] = replace(
             current, amount_refunded=current.amount_refunded + amount
         )
         return refund
+
+    async def find_refund(
+        self, charge_id: str, request_ref: str
+    ) -> StripeRefund | None:
+        self._record("find_refund", charge_id=charge_id, request_ref=request_ref)
+        return self.refund_refs.get(request_ref)
+
+    def forget_idempotency_keys(self) -> None:
+        """What Stripe does 24 hours after a request: the key no longer replays."""
+        self._refunds.clear()

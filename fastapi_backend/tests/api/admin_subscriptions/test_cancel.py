@@ -184,7 +184,7 @@ async def test_immediate_cancel_retry_after_a_lost_audit_row_and_the_webhook_is_
         f"{BASE}/{org_id}/cancel", json={"immediately": True}, headers=headers
     )
 
-    assert failed.status_code == 500
+    assert failed.status_code == 503
     assert retry.status_code == 200
     assert stripe.names().count("cancel_subscription") == 1
     assert len(await audit_rows(engine, "admin.subscriptions.cancel")) == 1
@@ -319,3 +319,16 @@ async def test_cancel_without_a_stripe_key_is_503(client, engine):
     result = await client.post(f"{BASE}/{org_id}/cancel", json={}, headers=keyed("mgr"))
 
     assert result.status_code == 503 and await audit_rows(engine) == []
+
+
+async def test_cancel_when_stripe_no_longer_knows_the_subscription_is_a_409(
+    client, engine, stripe
+):
+    await seed_user(engine, "mgr", "admin", MANAGER)
+    org_id = await seed_org(engine, **paying())
+    stripe.missing_subscription = True
+
+    result = await client.post(f"{BASE}/{org_id}/cancel", json={}, headers=keyed("mgr"))
+
+    assert result.status_code == 409
+    assert await audit_rows(engine) == []

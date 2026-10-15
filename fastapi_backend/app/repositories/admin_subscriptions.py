@@ -37,6 +37,19 @@ class SubscriptionRecord:
 
 
 @dataclass(frozen=True)
+class RequestRow:
+    """The audit row of an earlier cancel or refund request (found by its key hash)."""
+
+    id: str
+    metadata: dict[str, Any]
+
+    @property
+    def details(self) -> dict[str, Any]:
+        found = self.metadata.get("details")
+        return found if isinstance(found, dict) else {}
+
+
+@dataclass(frozen=True)
 class SubscriptionFilters:
     status: str | None = None
     plan: PlanKey | None = None
@@ -147,19 +160,33 @@ class AdminSubscriptionsRepository(BaseRepository):
             select(func.pg_advisory_xact_lock(func.hashtextextended(key, 0)))
         )
 
-    async def find_request_details(
+    async def find_request(
         self, action: str, organization_id: str, request_ref: str
-    ) -> dict[str, Any] | None:
-        """The audit details of an earlier request with the same reference, if any."""
+    ) -> RequestRow | None:
+        """The audit row of an earlier request with the same reference, if any."""
         details = AuditLog.metadata_["details"]
-        found = await self._session.scalar(
-            select(details)
-            .where(
-                AuditLog.action == action,
-                AuditLog.organization_id == organization_id,
-                details["request_ref"].as_string() == request_ref,
+        row = (
+            await self._session.execute(
+                select(AuditLog.id, AuditLog.metadata_)
+                .where(
+                    AuditLog.action == action,
+                    AuditLog.organization_id == organization_id,
+                    details["request_ref"].as_string() == request_ref,
+                )
+                .order_by(AuditLog.created_at, AuditLog.id)
+                .limit(1)
             )
-            .order_by(AuditLog.created_at, AuditLog.id)
-            .limit(1)
+        ).first()
+        if row is None or not isinstance(row[1], dict):
+            return None
+        return RequestRow(row[0], row[1])
+
+    async def update_request(self, row_id: str, metadata: dict[str, Any]) -> None:
+        """Move a refund intent row from pending to completed or failed.
+
+        The only update of an audit row: it rewrites the ``details`` of the row this
+        service itself staged before calling Stripe, never anyone else's.
+        """
+        await self._session.execute(
+            update(AuditLog).where(AuditLog.id == row_id).values(metadata_=metadata)
         )
-        return found if isinstance(found, dict) else None

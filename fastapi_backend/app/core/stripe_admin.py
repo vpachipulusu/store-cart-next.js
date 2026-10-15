@@ -16,9 +16,9 @@ from app.core.stripe_billing import (
     StripeError,
     StripeNotConfigured,
     StripeSubscription,
-    _int,
-    _require_text,
-    _text,
+    as_int,
+    as_text,
+    require_text,
 )
 
 CHARGE_LIST_LIMIT = 12
@@ -75,29 +75,46 @@ class StripeAdminBilling(Protocol):
         amount: int,
         reason: str | None,
         organization_id: str,
+        request_ref: str,
         idempotency_key: str,
     ) -> StripeRefund: ...
+
+    async def find_refund(
+        self, charge_id: str, request_ref: str
+    ) -> StripeRefund | None: ...
 
 
 def _id_of(value: Any) -> str | None:
     """An id that Stripe returns either bare or as an expanded object."""
     if isinstance(value, dict):
         value = value.get("id")
-    return _text(value)
+    return as_text(value)
 
 
 def _charge(row: dict[str, Any]) -> StripeCharge:
     return StripeCharge(
-        id=_require_text(row.get("id")),
+        id=require_text(row.get("id")),
         customer_id=_id_of(row.get("customer")),
-        amount=_int(row.get("amount")),
-        amount_captured=_int(row.get("amount_captured")),
-        amount_refunded=_int(row.get("amount_refunded")),
-        currency=_text(row.get("currency")) or "",
-        status=_text(row.get("status")),
+        amount=as_int(row.get("amount")),
+        amount_captured=as_int(row.get("amount_captured")),
+        amount_refunded=as_int(row.get("amount_refunded")),
+        currency=as_text(row.get("currency")) or "",
+        status=as_text(row.get("status")),
         captured=row.get("captured") is True,
-        created=_int(row.get("created")),
+        created=as_int(row.get("created")),
         invoice_id=_id_of(row.get("invoice")),
+    )
+
+
+def _refund(body: dict[str, Any]) -> StripeRefund:
+    refund_amount = as_int(body.get("amount"))
+    if refund_amount <= 0:
+        raise StripeError("Stripe response was unusable")
+    return StripeRefund(
+        id=require_text(body.get("id")),
+        amount=refund_amount,
+        currency=as_text(body.get("currency")) or "",
+        status=as_text(body.get("status")),
     )
 
 
@@ -129,27 +146,36 @@ class HttpStripeAdmin(HttpStripeBilling):
         amount: int,
         reason: str | None,
         organization_id: str,
+        request_ref: str,
         idempotency_key: str,
     ) -> StripeRefund:
         data = {
             "charge": charge_id,
             "amount": str(amount),
             "metadata[organization_id]": organization_id,
+            "metadata[request_ref]": request_ref,
         }
         if reason:
             data["reason"] = reason
         body = await self._call(
             "POST", "/refunds", data=data, idempotency_key=idempotency_key
         )
-        refund_amount = _int(body.get("amount"))
-        if refund_amount <= 0:
-            raise StripeError("Stripe response was unusable")
-        return StripeRefund(
-            id=_require_text(body.get("id")),
-            amount=refund_amount,
-            currency=_text(body.get("currency")) or "",
-            status=_text(body.get("status")),
+        return _refund(body)
+
+    async def find_refund(
+        self, charge_id: str, request_ref: str
+    ) -> StripeRefund | None:
+        body = await self._call(
+            "GET", "/refunds", params={"charge": charge_id, "limit": "100"}
         )
+        for row in body.get("data") or []:
+            metadata = row.get("metadata") if isinstance(row, dict) else None
+            if (
+                isinstance(metadata, dict)
+                and metadata.get("request_ref") == request_ref
+            ):
+                return _refund(row)
+        return None
 
 
 def get_stripe_admin() -> StripeAdminBilling:

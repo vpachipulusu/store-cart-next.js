@@ -5,27 +5,26 @@ single writer. Cancel and refund therefore only ask Stripe to act; the webhook r
 the outcome. A grant never touches Stripe state: it is stored apart (``granted_plan`` /
 ``granted_until``) and lifts the plan while it lasts (``effective_plan_key``).
 
-Money-moving calls (cancel, refund) take the caller's ``Idempotency-Key``:
+Money-moving calls (cancel, refund) take the caller's ``Idempotency-Key``. No database
+transaction, and so no connection, is held while Stripe is called.
 
-* the Stripe key is deterministic (``sc-admin-<operation>-<org>-<key>``), so a retry
-  reaches Stripe as the same request;
-* an advisory lock serialises requests with the same key, and the audit row (found by
-  a hash of the key) tells a retry the work is already done, so it neither calls Stripe
-  again nor writes a second audit row;
-* the audit row is staged after Stripe accepted and committed once. If that commit
-  fails the client retries with the same key and Stripe's live state decides: a refund
-  is replayed by Stripe under the same key (the local balance never blocks it), and a
-  subscription Stripe already shows as cancelled is audited without a second call. The
-  audit row is then written. Stripe ignores idempotency keys on DELETE and keeps them
-  for 24 hours only, so a retry should come well within a day.
-
-Every change writes exactly one audit entry in the caller's transaction (see
-``app.services.audit``); a refusal raises before any commit.
+* The Stripe key is deterministic (``sc-admin-<operation>:<org>:<key>``), and the audit
+  row is found again by a hash of the key, so a retry neither calls Stripe nor audits
+  twice once the result is recorded.
+* Refund writes a *pending* audit row (committed) before Stripe moves money, then moves
+  that same row to completed or failed. The trail therefore never depends on Stripe's
+  24 hour key window: a retry of a pending row first looks for a refund that carries
+  the request's reference in its metadata, and only creates one if there is none.
+* Cancel is decided by Stripe's live subscription state (Stripe ignores idempotency keys
+  on DELETE): a subscription already ended or ending is audited without a second call.
+* If recording the result fails after Stripe acted, the client gets a 503 and retries
+  with the same key; every step above is safe to repeat.
 """
 
 import hashlib
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
@@ -34,9 +33,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import AdminContext
 from app.core.plans import PlanKey, effective_plan_key
-from app.core.stripe_admin import StripeAdminBilling, StripeCharge
+from app.core.stripe_admin import StripeAdminBilling, StripeCharge, StripeRefund
 from app.core.stripe_billing import StripeError, StripeNotFound, StripeRejected
 from app.repositories.admin_subscriptions import (
+    RequestRow,
     SubscriptionFilters,
     SubscriptionPage,
     SubscriptionRecord,
@@ -90,6 +90,10 @@ class BillingNotConfigured(Exception):
     """No Stripe secret key is configured (503)."""
 
 
+class CommitFailed(Exception):
+    """The result could not be recorded after (or before) Stripe acted (503, retry)."""
+
+
 class InvalidGrant(Exception):
     """The grant plan or expiry is not allowed (422)."""
 
@@ -105,9 +109,10 @@ class SubscriptionsStore(Protocol):
         self, organization_id: str, plan: str, until: datetime
     ) -> None: ...
     async def lock_request(self, key: str) -> None: ...
-    async def find_request_details(
+    async def find_request(
         self, action: str, organization_id: str, request_ref: str
-    ) -> dict[str, Any] | None: ...
+    ) -> RequestRow | None: ...
+    async def update_request(self, row_id: str, metadata: dict[str, Any]) -> None: ...
 
 
 class AuditRecorder(Protocol):
@@ -165,6 +170,19 @@ def _stripe_key(operation: str, organization_id: str, request_key: str) -> str:
     return f"sc-admin-{operation}:{organization_id}:{request_key}"
 
 
+@contextmanager
+def _stripe_errors(not_found: type[Exception]) -> Iterator[None]:
+    """Turn Stripe failures into this service's errors (no Stripe text survives)."""
+    try:
+        yield
+    except StripeNotFound:
+        raise not_found from None
+    except StripeRejected:
+        raise StripeRefused from None
+    except StripeError:
+        raise BillingUnavailable from None
+
+
 def _has_live_subscription(record: SubscriptionRecord) -> bool:
     return (
         record.stripe_subscription_id is not None
@@ -220,21 +238,18 @@ class AdminSubscriptionsService:
         request_key: str,
     ) -> CancelResult:
         ref = request_ref(request_key)
-        await self.store.lock_request(f"{CANCEL_ACTION}:{organization_id}:{ref}")
         record = await self._require(organization_id)
-        prior = await self.store.find_request_details(
-            CANCEL_ACTION, organization_id, ref
-        )
+        prior = await self.store.find_request(CANCEL_ACTION, organization_id, ref)
+        # No transaction (so no connection) is held while Stripe is called.
+        await self.session.rollback()
         if prior is not None:
-            if prior.get("immediately") is not immediately:
-                raise IdempotencyMismatch
-            return CancelResult(immediately, already_applied=True)
+            return self._replayed_cancel(prior, immediately)
         subscription_id = record.stripe_subscription_id
         if subscription_id is None or record.stripe_customer_id is None:
             raise SubscriptionConflict
         stripe = self._stripe()
         stripe_key = _stripe_key("cancel", organization_id, request_key)
-        try:
+        with _stripe_errors(SubscriptionConflict):
             # Stripe's live state decides, not the local copy the webhook may not have
             # updated yet: this is also what lets a retry after a lost audit row succeed.
             subscription = await stripe.get_subscription(subscription_id)
@@ -253,27 +268,41 @@ class AdminSubscriptionsService:
                     cancel=True,
                     idempotency_key=stripe_key,
                 )
-        except StripeNotFound:
-            raise SubscriptionConflict from None
-        except StripeRejected:
-            raise StripeRefused from None
-        except StripeError:
-            raise BillingUnavailable from None
-        await self.auditor.record(
-            actor,
-            action=CANCEL_ACTION,
-            resource="subscriptions",
-            resource_id=organization_id,
-            organization_id=organization_id,
-            before={
-                "status": record.subscription_status,
-                "plan": record.subscription_tier,
-                "cancel_at_period_end": record.stripe_cancel_at_period_end,
-            },
-            after={"cancellation": "immediate" if immediately else "period_end"},
-            details={"immediately": immediately, "request_ref": ref},
-        )
-        await self.session.commit()
+        return await self._record_cancel(actor, record, ref, immediately)
+
+    async def _record_cancel(
+        self,
+        actor: AdminContext,
+        record: SubscriptionRecord,
+        ref: str,
+        immediately: bool,
+    ) -> CancelResult:
+        try:
+            await self.store.lock_request(f"{CANCEL_ACTION}:{record.id}:{ref}")
+            prior = await self.store.find_request(CANCEL_ACTION, record.id, ref)
+            if prior is not None:  # a concurrent request with this key finished first
+                await self.session.rollback()
+                return self._replayed_cancel(prior, immediately)
+            await self.auditor.record(
+                actor,
+                action=CANCEL_ACTION,
+                resource="subscriptions",
+                resource_id=record.id,
+                organization_id=record.id,
+                before={
+                    "status": record.subscription_status,
+                    "plan": record.subscription_tier,
+                    "cancel_at_period_end": record.stripe_cancel_at_period_end,
+                },
+                after={"cancellation": "immediate" if immediately else "period_end"},
+                details={"immediately": immediately, "request_ref": ref},
+            )
+            await self.session.commit()
+        except IdempotencyMismatch:
+            raise
+        except Exception:  # noqa: BLE001 - any recording failure means "retry"; logged by _abandon
+            await self._abandon("cancel")
+            raise CommitFailed from None
         return CancelResult(immediately, already_applied=False)
 
     async def refund(
@@ -286,60 +315,124 @@ class AdminSubscriptionsService:
         reason: str | None,
         request_key: str,
     ) -> RefundResult:
+        """Refund in three steps so the audit trail never depends on Stripe's key window.
+
+        1. A pending audit row is committed *before* Stripe is asked to move money.
+        2. Stripe is called without a transaction open; a retry of a pending row first
+           looks for a refund carrying this request's reference, so a refund whose
+           result was not recorded is found again even after Stripe forgot the key.
+        3. The row is updated to completed (or failed) and committed.
+        """
         ref = request_ref(request_key)
-        await self.store.lock_request(f"{REFUND_ACTION}:{organization_id}:{ref}")
         record = await self._require(organization_id)
-        prior = await self.store.find_request_details(
-            REFUND_ACTION, organization_id, ref
-        )
-        if prior is not None:
-            return self._replayed_refund(prior, charge_id, amount, reason)
+        prior = await self.store.find_request(REFUND_ACTION, organization_id, ref)
+        await self.session.rollback()
+        done = self._prior_refund(prior, charge_id, amount, reason)
+        if done is not None:
+            return done
         customer_id = record.stripe_customer_id
         if customer_id is None:
             raise PaymentNotFound
         stripe = self._stripe()
-        try:
+        with _stripe_errors(PaymentNotFound):
             charge = await self._owned_charge(stripe, charge_id, customer_id)
-            # Stripe enforces the balance and replays an earlier request with the same
-            # key, so a refund whose audit row was lost still completes on retry. The
-            # local figure only chooses the message when Stripe refuses.
-            over_balance = amount > charge.refundable
-            try:
-                refund = await stripe.create_refund(
-                    charge_id=charge.id,
-                    amount=amount,
-                    reason=reason,
-                    organization_id=organization_id,
-                    idempotency_key=_stripe_key("refund", organization_id, request_key),
-                )
-            except StripeRejected:
-                if over_balance:
-                    raise RefundExceedsBalance from None
-                raise
-        except StripeNotFound:
-            raise PaymentNotFound from None
-        except StripeRejected:
-            raise StripeRefused from None
-        except StripeError:
-            raise BillingUnavailable from None
-        currency = refund.currency or charge.currency
-        await self.auditor.record(
-            actor,
-            action=REFUND_ACTION,
-            resource="subscriptions",
-            resource_id=organization_id,
-            organization_id=organization_id,
-            details={
-                "request_ref": ref,
-                "charge_id": charge.id,
-                "amount": refund.amount,
-                "currency": currency,
-                "refund_id": refund.id,
-                "refund_status": refund.status,
-                "reason": reason,
-            },
+        if prior is None and amount > charge.refundable:
+            raise RefundExceedsBalance
+        done, resumed = await self._record_refund_intent(
+            actor, organization_id, ref, charge, amount, reason
         )
-        await self.session.commit()
+        if done is not None:
+            return done
+        try:
+            with _stripe_errors(PaymentNotFound):
+                refund = await stripe.find_refund(charge.id, ref) if resumed else None
+                if refund is None:
+                    refund = await stripe.create_refund(
+                        charge_id=charge.id,
+                        amount=amount,
+                        reason=reason,
+                        organization_id=organization_id,
+                        request_ref=ref,
+                        idempotency_key=_stripe_key(
+                            "refund", organization_id, request_key
+                        ),
+                    )
+        except (PaymentNotFound, StripeRefused, BillingUnavailable) as exc:
+            await self._mark_refund_failed(organization_id, ref)
+            if isinstance(exc, StripeRefused) and amount > charge.refundable:
+                raise RefundExceedsBalance from None
+            raise
+        return await self._complete_refund(organization_id, ref, charge, refund)
+
+    async def _record_refund_intent(
+        self,
+        actor: AdminContext,
+        organization_id: str,
+        ref: str,
+        charge: StripeCharge,
+        amount: int,
+        reason: str | None,
+    ) -> tuple[RefundResult | None, bool]:
+        """Commit the pending row. Returns (result of a finished twin or None, resumed)."""
+        try:
+            await self.store.lock_request(f"{REFUND_ACTION}:{organization_id}:{ref}")
+            await self.store.lock_request(f"refund-charge:{charge.id}")
+            prior = await self.store.find_request(REFUND_ACTION, organization_id, ref)
+            done = self._prior_refund(prior, charge.id, amount, reason)
+            if done is not None:
+                await self.session.rollback()
+                return done, True
+            if prior is None:
+                await self.auditor.record(
+                    actor,
+                    action=REFUND_ACTION,
+                    resource="subscriptions",
+                    resource_id=organization_id,
+                    organization_id=organization_id,
+                    details={
+                        "request_ref": ref,
+                        "charge_id": charge.id,
+                        "amount": amount,
+                        "currency": charge.currency,
+                        "reason": reason,
+                        "state": "pending",
+                    },
+                )
+            else:
+                await self._set_state(prior, "pending")
+            await self.session.commit()
+        except IdempotencyMismatch:
+            raise
+        except Exception:  # noqa: BLE001 - any recording failure means "retry"; logged by _abandon
+            await self._abandon("refund intent")
+            raise CommitFailed from None
+        return None, prior is not None
+
+    async def _complete_refund(
+        self, organization_id: str, ref: str, charge: StripeCharge, refund: StripeRefund
+    ) -> RefundResult:
+        currency = refund.currency or charge.currency
+        try:
+            await self.store.lock_request(f"{REFUND_ACTION}:{organization_id}:{ref}")
+            row = await self.store.find_request(REFUND_ACTION, organization_id, ref)
+            if row is None:
+                raise LookupError("refund intent row is missing")
+            finished = self._finished_refund(row)
+            if finished is not None:  # a concurrent request recorded it first
+                await self.session.rollback()
+                return finished
+            await self._set_state(
+                row,
+                "completed",
+                amount=refund.amount,
+                currency=currency,
+                refund_id=refund.id,
+                refund_status=refund.status,
+            )
+            await self.session.commit()
+        except Exception:  # noqa: BLE001 - any recording failure means "retry"; logged by _abandon
+            await self._abandon("refund result")
+            raise CommitFailed from None
         return RefundResult(
             refund.id,
             charge.id,
@@ -348,6 +441,27 @@ class AdminSubscriptionsService:
             refund.status,
             already_applied=False,
         )
+
+    async def _mark_refund_failed(self, organization_id: str, ref: str) -> None:
+        """Best effort: record that Stripe refused, so the row is not left 'pending'."""
+        try:
+            row = await self.store.find_request(REFUND_ACTION, organization_id, ref)
+            if row is not None and row.details.get("state") == "pending":
+                await self._set_state(row, "failed")
+            await self.session.commit()
+        except Exception:  # noqa: BLE001 - any recording failure means "retry"; logged by _abandon
+            await self._abandon("refund failure mark")
+
+    async def _set_state(self, row: RequestRow, state: str, **changes: Any) -> None:
+        details = {**row.details, **changes, "state": state}
+        await self.store.update_request(row.id, {**row.metadata, "details": details})
+
+    async def _abandon(self, what: str) -> None:
+        logger.exception("admin subscription %s was not recorded", what)
+        try:
+            await self.session.rollback()
+        except Exception:
+            logger.exception("rollback failed")
 
     async def grant(
         self,
@@ -424,25 +538,49 @@ class AdminSubscriptionsService:
         return charge
 
     @staticmethod
-    def _replayed_refund(
-        prior: dict[str, Any], charge_id: str, amount: int, reason: str | None
-    ) -> RefundResult:
+    def _replayed_cancel(prior: RequestRow, immediately: bool) -> CancelResult:
+        if prior.details.get("immediately") is not immediately:
+            raise IdempotencyMismatch
+        return CancelResult(immediately, already_applied=True)
+
+    @classmethod
+    def _prior_refund(
+        cls, prior: RequestRow | None, charge_id: str, amount: int, reason: str | None
+    ) -> RefundResult | None:
+        """The finished result of an earlier request with this key; None if unfinished."""
+        if prior is None:
+            return None
+        details = prior.details
         if (
-            prior.get("charge_id") != charge_id
-            or prior.get("amount") != amount
-            or prior.get("reason") != reason
+            details.get("charge_id") != charge_id
+            or details.get("amount") != amount
+            or details.get("reason") != reason
         ):
             raise IdempotencyMismatch
-        refund_id = prior.get("refund_id")
-        currency = prior.get("currency")
-        if not isinstance(refund_id, str) or not isinstance(currency, str):
-            raise TypeError("Malformed audit details for a replayed refund")
-        status = prior.get("refund_status")
+        return cls._finished_refund(prior)
+
+    @staticmethod
+    def _finished_refund(row: RequestRow) -> RefundResult | None:
+        details = row.details
+        if details.get("state") != "completed":
+            return None
+        refund_id = details.get("refund_id")
+        charge_id = details.get("charge_id")
+        currency = details.get("currency")
+        amount = details.get("amount")
+        status = details.get("refund_status")
+        if not (
+            isinstance(refund_id, str)
+            and isinstance(charge_id, str)
+            and isinstance(currency, str)
+            and isinstance(amount, int)
+        ):
+            raise IdempotencyMismatch  # a damaged row is never replayed as a result
         return RefundResult(
-            refund_id=refund_id,
-            charge_id=charge_id,
-            amount=amount,
-            currency=currency,
-            status=status if isinstance(status, str) else None,
+            refund_id,
+            charge_id,
+            amount,
+            currency,
+            status if isinstance(status, str) else None,
             already_applied=True,
         )

@@ -48,7 +48,7 @@ There is no `subscriptions.cancel` permission, so cancel uses `subscriptions.upd
 - **Grant.** Body `{"plan": "pro" | "enterprise", "expires_at": "<timezone-aware ISO 8601>"}`. The expiry must be
   in the future and at most 730 days away (422). Refused with 409 while the organisation has a live Stripe
   subscription, since a grant beside it could only contradict it. The same plan and expiry again is a no-op
-  (`changed: false`, no audit row). There is no revoke route (a possible follow-up).
+  (`changed: false`, no audit row). Revocation is not implemented (a follow-up story).
 
 ## Grant model (migration `0007`)
 
@@ -58,22 +58,30 @@ and no fake Stripe object exists. Both are NULL together or set together (CHECK 
 grant; the downgrade drops the columns. The plan in force is `effective_plan_key` (`app/core/plans.py`): the higher
 of the Stripe tier and an unexpired grant. It feeds the admin list, detail and `plan` filter (a SQL twin in
 `AdminSubscriptionsRepository`, kept equal by an e2e test), the organisation billing summary
-(`OrgBillingRepository.get`) and the store limit (`OrganizationsRepository`), so a grant takes effect for the
-merchant until it expires.
+(`OrgBillingRepository.get`, field `effective_plan`; `subscription_tier` stays the raw Stripe value) and the store limit
+(`OrganizationsRepository`, field `effective_plan`), so a grant takes effect for the merchant until it expires. A
+grant is not a Stripe subscription: change plan, cancel, resume and portal still need a live Stripe subscription or
+customer and answer 409 for a grant-only organisation (covered by a test); the webhook reads only the raw tier.
 
 ## Money safety
 
 - **Idempotency.** Cancel and refund require an `Idempotency-Key` header (8 to 64 of `A-Za-z0-9_-`; otherwise 422
   before anything happens). The Stripe key is deterministic: `sc-admin-<cancel|refund>:<organisation id>:<client
-  key>`. An advisory lock serialises requests with one key, and the audit row, found by a SHA-256 of the key (the
-  key itself is never stored), tells a retry the work is done: same result with `already_applied: true`, no Stripe
-  call, no second audit row. Reusing a key for another request (amount, charge or cancel mode) is a 409. If the
-  audit commit fails after Stripe accepted, the request is a 500; the retry reaches Stripe, which replays a refund
-  under the same key (the local balance never blocks it) and shows a cancelled subscription as ended, and the
-  audit row is written then. Stripe keeps idempotency keys for 24 hours and ignores them on DELETE, so retry
-  well within a day. The request holds its database transaction (and the advisory lock, never the organisation
-  row, so the webhook is not blocked) across up to three Stripe calls of 10 seconds each; `NullPool` means one
-  connection per request, so keep `idle_in_transaction_session_timeout` above about 30 seconds.
+  key>`. The audit row, found by a SHA-256 of the key (the key itself is never stored), tells a retry the work is
+  done: same result with `already_applied: true`, no Stripe call, no second audit row. Reusing a key for another
+  request (amount, charge, reason or cancel mode) is a 409; a damaged stored row is also a 409, never a 500.
+  Advisory locks (never the organisation row, so the webhook is not blocked) serialise requests with one key and,
+  for a refund, one charge.
+- **Refund order (audit never depends on Stripe's 24 hour key window).** (1) A *pending* audit row (`state`) is
+  committed before Stripe moves money. (2) Stripe is called with no transaction open, so no connection is held across
+  the (up to 10 second) calls. The refund carries the request reference in its Stripe metadata (`request_ref`); a retry
+  of a pending or failed row first looks for a refund with that reference and only creates one if there is none, so a
+  refund whose result was not recorded is found again even after Stripe forgot the key. (3) The same row becomes
+  `completed` (or `failed` when Stripe refused or was unreachable) and is committed. If recording fails after Stripe
+  acted, the response is a 503 `retry with the same Idempotency-Key`. A new key is a new request. This is the only
+  update of an audit row, and only of the row the service itself staged.
+- **Cancel** needs no intent row: Stripe's live state decides (a subscription already ended or ending is audited
+  without a second call), and the audit row is written after Stripe acted, with the same 503 retry on failure.
 - **Audit (KAN-49).** One row per change: `admin.subscriptions.cancel`, `.refund`, `.grant`, `resource`
   `subscriptions`, `resource_id` and `organization_id` the organisation, details sanitized (ids and amounts, no card
   data). Grant and its audit row share one transaction; Stripe cannot join one, so cancel and refund stage the row

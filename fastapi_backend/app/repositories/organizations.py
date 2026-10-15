@@ -26,6 +26,7 @@ class OrganizationRecord:
     name: str
     slug: str
     subscription_tier: str
+    effective_plan: str
     created_at: datetime
     updated_at: datetime
 
@@ -46,6 +47,7 @@ def _org(row: Organization) -> OrganizationRecord:
         row.id,
         row.name,
         row.slug,
+        row.subscription_tier,
         # The plan in force: the Stripe tier or a higher, unexpired admin grant (KAN-48).
         effective_plan_key(
             row.subscription_tier,

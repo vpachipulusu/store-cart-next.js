@@ -1,10 +1,13 @@
 """Admin subscriptions e2e (KAN-48): refund a payment. See the support module."""
 
+import asyncio
 import json
 
 import pytest
+from sqlalchemy import text
 
 from app.api.v1.admin_subscriptions import stripe_admin
+from app.repositories.admin_subscriptions import AdminSubscriptionsRepository
 from app.repositories.audit import AuditRepository
 from tests.api.admin_subscriptions.support import (
     MANAGER,
@@ -106,33 +109,6 @@ async def test_refund_retry_with_the_same_key_does_not_refund_twice(
     assert again.json()["data"]["already_applied"] is True
     assert stripe.calls == []
     assert stripe.charges["ch_1"].amount_refunded == 700
-    assert len(await audit_rows(engine, "admin.subscriptions.refund")) == 1
-
-
-async def test_refund_retry_after_a_lost_audit_write_replays_stripe_and_audits_once(
-    client, engine, stripe, monkeypatch
-):
-    await seed_user(engine, "mgr", "admin", MANAGER)
-    org_id = await seed_org(engine, **paying())
-    headers = keyed("mgr", "key-lost-0001")
-    original = AuditRepository.add
-
-    async def broken(self, **kwargs):
-        raise RuntimeError("audit store down")
-
-    monkeypatch.setattr(AuditRepository, "add", broken)
-    failed = await client.post(
-        refund_url(org_id), json={"charge_id": "ch_1", "amount": 5000}, headers=headers
-    )
-    monkeypatch.setattr(AuditRepository, "add", original)
-
-    retry = await client.post(
-        refund_url(org_id), json={"charge_id": "ch_1", "amount": 5000}, headers=headers
-    )
-
-    assert failed.status_code == 500
-    assert retry.status_code == 200 and retry.json()["data"]["amount"] == 5000
-    assert stripe.charges["ch_1"].amount_refunded == 5000  # Stripe replayed: one refund
     assert len(await audit_rows(engine, "admin.subscriptions.refund")) == 1
 
 
@@ -332,3 +308,170 @@ async def test_refund_without_a_stripe_key_is_503(client, engine):
     )
 
     assert result.status_code == 503 and await audit_rows(engine) == []
+
+
+async def test_refund_commit_failure_after_stripe_acted_is_a_503_and_the_retry_completes(
+    client, engine, stripe, monkeypatch
+):
+    await seed_user(engine, "mgr", "admin", MANAGER)
+    org_id = await seed_org(engine, **paying())
+    headers = keyed("mgr", "key-lost-0001")
+    original = AdminSubscriptionsRepository.update_request
+
+    async def broken(self, row_id, metadata):
+        raise RuntimeError("audit store down")
+
+    monkeypatch.setattr(AdminSubscriptionsRepository, "update_request", broken)
+    failed = await client.post(
+        refund_url(org_id), json={"charge_id": "ch_1", "amount": 5000}, headers=headers
+    )
+    monkeypatch.setattr(AdminSubscriptionsRepository, "update_request", original)
+
+    pending = await audit_rows(engine, "admin.subscriptions.refund")
+    retry = await client.post(
+        refund_url(org_id), json={"charge_id": "ch_1", "amount": 5000}, headers=headers
+    )
+
+    assert failed.status_code == 503
+    assert "retry with the same Idempotency-Key" in failed.json()["error"]
+    assert pending[0][5]["details"]["state"] == "pending"  # intent survived
+    assert retry.status_code == 200 and retry.json()["data"]["amount"] == 5000
+    assert stripe.charges["ch_1"].amount_refunded == 5000  # one refund only
+    final = await audit_rows(engine, "admin.subscriptions.refund")
+    assert len(final) == 1 and final[0][5]["details"]["state"] == "completed"
+
+
+async def test_refund_retry_after_stripe_forgot_the_key_finds_the_refund_not_a_second_one(
+    client, engine, stripe, monkeypatch
+):
+    await seed_user(engine, "mgr", "admin", MANAGER)
+    org_id = await seed_org(engine, **paying())
+    headers = keyed("mgr", "key-late-0001")
+    body = {"charge_id": "ch_1", "amount": 2000}
+
+    async def broken(self, row_id, metadata):
+        raise RuntimeError("audit store down")
+
+    monkeypatch.setattr(AdminSubscriptionsRepository, "update_request", broken)
+    failed = await client.post(refund_url(org_id), json=body, headers=headers)
+    monkeypatch.undo()
+    stripe.forget_idempotency_keys()  # the 24 hour window has passed
+
+    retry = await client.post(refund_url(org_id), json=body, headers=headers)
+
+    assert failed.status_code == 503 and retry.status_code == 200
+    assert stripe.names().count("create_refund") == 1
+    assert stripe.charges["ch_1"].amount_refunded == 2000
+    assert len(await audit_rows(engine, "admin.subscriptions.refund")) == 1
+
+
+async def test_refund_intent_is_written_before_stripe_is_asked_to_move_money(
+    client, engine, stripe, monkeypatch
+):
+    await seed_user(engine, "mgr", "admin", MANAGER)
+    org_id = await seed_org(engine, **paying())
+    seen: list[int] = []
+    original = stripe.create_refund
+
+    async def spy(**kwargs):
+        seen.append(len(await audit_rows(engine, "admin.subscriptions.refund")))
+        return await original(**kwargs)
+
+    monkeypatch.setattr(stripe, "create_refund", spy)
+
+    result = await client.post(
+        refund_url(org_id),
+        json={"charge_id": "ch_1", "amount": 500},
+        headers=keyed("mgr"),
+    )
+
+    assert result.status_code == 200 and seen == [1]
+
+
+async def test_refund_intent_that_cannot_be_written_is_a_503_and_stripe_is_not_asked(
+    client, engine, stripe, monkeypatch
+):
+    await seed_user(engine, "mgr", "admin", MANAGER)
+    org_id = await seed_org(engine, **paying())
+
+    async def broken(self, **kwargs):
+        raise RuntimeError("audit store down")
+
+    monkeypatch.setattr(AuditRepository, "add", broken)
+    result = await client.post(
+        refund_url(org_id),
+        json={"charge_id": "ch_1", "amount": 500},
+        headers=keyed("mgr"),
+    )
+
+    assert result.status_code == 503
+    assert "create_refund" not in stripe.names()
+    assert stripe.charges["ch_1"].amount_refunded == 0
+
+
+async def test_refund_stripe_failure_after_the_intent_leaves_a_failed_row_and_can_be_retried(
+    client, engine, stripe
+):
+    await seed_user(engine, "mgr", "admin", MANAGER)
+    org_id = await seed_org(engine, **paying())
+    headers = keyed("mgr", "key-fail-0001")
+    body = {"charge_id": "ch_1", "amount": 500}
+    stripe.fail_refund = True
+
+    failed = await client.post(refund_url(org_id), json=body, headers=headers)
+    rows_after = await audit_rows(engine, "admin.subscriptions.refund")
+    stripe.fail_refund = False
+    retry = await client.post(refund_url(org_id), json=body, headers=headers)
+
+    assert failed.status_code == 502
+    assert len(rows_after) == 1 and rows_after[0][5]["details"]["state"] == "failed"
+    assert retry.status_code == 200 and retry.json()["data"]["already_applied"] is False
+    final = await audit_rows(engine, "admin.subscriptions.refund")
+    assert len(final) == 1 and final[0][5]["details"]["state"] == "completed"
+    assert stripe.charges["ch_1"].amount_refunded == 500
+
+
+async def test_a_damaged_completed_audit_row_is_a_409_not_a_server_error(
+    client, engine
+):
+    await seed_user(engine, "mgr", "admin", MANAGER)
+    org_id = await seed_org(engine, **paying())
+    headers = keyed("mgr", "key-bad-00001")
+    body = {"charge_id": "ch_1", "amount": 500}
+    await client.post(refund_url(org_id), json=body, headers=headers)
+    async with engine.begin() as connection:
+        await connection.execute(
+            text(
+                "UPDATE audit_logs SET metadata = jsonb_set(metadata, "
+                "'{details,refund_id}', '123'::jsonb) WHERE action = :a"
+            ),
+            {"a": "admin.subscriptions.refund"},
+        )
+
+    again = await client.post(refund_url(org_id), json=body, headers=headers)
+
+    assert again.status_code == 409
+
+
+async def test_simultaneous_refunds_with_one_key_refund_and_audit_once(
+    client, engine, stripe
+):
+    await seed_user(engine, "mgr", "admin", MANAGER)
+    org_id = await seed_org(engine, **paying())
+    headers = keyed("mgr", "key-race-0001")
+    body = {"charge_id": "ch_1", "amount": 1000}
+
+    results = await asyncio.gather(
+        *(client.post(refund_url(org_id), json=body, headers=headers) for _ in range(4))
+    )
+
+    assert [r.status_code for r in results] == [200] * 4
+    assert sorted(r.json()["data"]["already_applied"] for r in results) == [
+        False,
+        True,
+        True,
+        True,
+    ]
+    assert stripe.names().count("create_refund") == 1
+    assert stripe.charges["ch_1"].amount_refunded == 1000
+    assert len(await audit_rows(engine, "admin.subscriptions.refund")) == 1

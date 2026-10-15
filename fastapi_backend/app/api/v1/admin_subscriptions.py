@@ -9,7 +9,7 @@ message: no Stripe text, card data or secrets reach a response.
 """
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Response
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictInt
@@ -39,6 +39,7 @@ from app.services.admin_subscriptions import (
     AdminSubscriptionsService,
     BillingNotConfigured,
     BillingUnavailable,
+    CommitFailed,
     IdempotencyMismatch,
     InvalidGrant,
     PaymentNotFound,
@@ -108,7 +109,7 @@ class SubscriptionSummary(BaseModel):
     current_period_end: datetime | None
     cancel_at_period_end: bool
     has_stripe_subscription: bool
-    granted_plan: str | None
+    granted_plan: GrantablePlan | None
     granted_until: datetime | None
     created_at: datetime
 
@@ -124,7 +125,7 @@ class PaymentData(BaseModel):
     invoice_id: str | None
 
 
-class SubscriptionDetail(SubscriptionSummary):
+class SubscriptionDetailData(SubscriptionSummary):
     stripe_customer_id: str | None
     stripe_subscription_id: str | None
     updated_at: datetime
@@ -146,7 +147,7 @@ class SubscriptionsPageResponse(BaseModel):
 
 class SubscriptionDetailResponse(BaseModel):
     success: Literal[True] = True
-    data: SubscriptionDetail
+    data: SubscriptionDetailData
 
 
 class CancelRequest(BaseModel):
@@ -199,7 +200,7 @@ class GrantRequest(BaseModel):
 
 class GrantData(BaseModel):
     organization_id: str
-    granted_plan: str
+    granted_plan: GrantablePlan
     granted_until: datetime
     changed: bool
 
@@ -240,6 +241,7 @@ HANDLED = (
     StripeRefused,
     BillingUnavailable,
     BillingNotConfigured,
+    CommitFailed,
     InvalidGrant,
 )
 
@@ -263,11 +265,21 @@ def _http_error(exc: Exception) -> HTTPException:
         return HTTPException(502, "Billing provider unavailable")
     if isinstance(exc, InvalidGrant):
         return HTTPException(422, "Invalid request")
+    if isinstance(exc, CommitFailed):
+        return HTTPException(
+            503,
+            "The result could not be recorded; retry with the same Idempotency-Key",
+            {"Retry-After": "1"},
+        )
     return HTTPException(503, "Billing is not configured")
 
 
 def _no_store(response: Response) -> None:
     response.headers["Cache-Control"] = "no-store"
+
+
+def _grantable(plan: str | None) -> GrantablePlan | None:
+    return cast(GrantablePlan, plan) if plan in ("pro", "enterprise") else None
 
 
 def _summary(record: SubscriptionRecord, plan: PlanKey) -> SubscriptionSummary:
@@ -280,7 +292,7 @@ def _summary(record: SubscriptionRecord, plan: PlanKey) -> SubscriptionSummary:
         current_period_end=record.stripe_current_period_end,
         cancel_at_period_end=record.stripe_cancel_at_period_end,
         has_stripe_subscription=record.stripe_subscription_id is not None,
-        granted_plan=record.granted_plan,
+        granted_plan=_grantable(record.granted_plan),
         granted_until=record.granted_until,
         created_at=record.created_at,
     )
@@ -342,7 +354,7 @@ async def read_subscription(
         None if detail.payments is None else [_payment(c) for c in detail.payments]
     )
     return SubscriptionDetailResponse(
-        data=SubscriptionDetail(
+        data=SubscriptionDetailData(
             **_summary(record, service.plan_of(record)).model_dump(),
             stripe_customer_id=record.stripe_customer_id,
             stripe_subscription_id=record.stripe_subscription_id,
@@ -432,7 +444,7 @@ async def grant_subscription(
     return GrantResponse(
         data=GrantData(
             organization_id=organization_id,
-            granted_plan=result.granted_plan,
+            granted_plan=cast(GrantablePlan, result.granted_plan),
             granted_until=result.granted_until,
             changed=result.changed,
         )

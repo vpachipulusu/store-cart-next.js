@@ -487,7 +487,7 @@ export type GrantData = {
     /**
      * Granted Plan
      */
-    granted_plan: string;
+    granted_plan: 'pro' | 'enterprise';
     /**
      * Granted Until
      */
@@ -1207,9 +1207,9 @@ export type StoreResponse = {
 export type StoreStatus = 'PROVISIONING' | 'ACTIVE' | 'SUSPENDED' | 'ARCHIVED';
 
 /**
- * SubscriptionDetail
+ * SubscriptionDetailData
  */
-export type SubscriptionDetail = {
+export type SubscriptionDetailData = {
     /**
      * Organization Id
      */
@@ -1242,7 +1242,7 @@ export type SubscriptionDetail = {
     /**
      * Granted Plan
      */
-    granted_plan: string | null;
+    granted_plan: 'pro' | 'enterprise' | null;
     /**
      * Granted Until
      */
@@ -1277,7 +1277,7 @@ export type SubscriptionDetailResponse = {
      * Success
      */
     success?: true;
-    data: SubscriptionDetail;
+    data: SubscriptionDetailData;
 };
 
 /**
@@ -1316,7 +1316,7 @@ export type SubscriptionSummary = {
     /**
      * Granted Plan
      */
-    granted_plan: string | null;
+    granted_plan: 'pro' | 'enterprise' | null;
     /**
      * Granted Until
      */

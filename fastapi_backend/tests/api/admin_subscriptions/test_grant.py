@@ -1,11 +1,10 @@
 """Admin subscriptions e2e (KAN-48): grant a plan and its effect on the merchant side."""
 
-import asyncio
-
 import pytest
 from sqlalchemy import text
 
 from app.api.v1.org_billing import stripe_billing
+from app.core.config import settings
 from app.repositories.audit import AuditRepository
 from tests.api.admin_subscriptions.support import (
     BASE,
@@ -15,10 +14,8 @@ from tests.api.admin_subscriptions.support import (
     audit_rows,
     grant_url,
     in_days,
-    keyed,
     org_columns,
     paying,
-    refund_url,
     seed_org,
     seed_owner,
     seed_user,
@@ -221,30 +218,6 @@ async def test_grant_and_its_audit_row_commit_or_roll_back_together(
     assert (await org_columns(engine, org_id))[4] is None
 
 
-async def test_simultaneous_refunds_with_one_key_refund_and_audit_once(
-    client, engine, stripe
-):
-    await seed_user(engine, "mgr", "admin", MANAGER)
-    org_id = await seed_org(engine, **paying())
-    headers = keyed("mgr", "key-race-0001")
-    body = {"charge_id": "ch_1", "amount": 1000}
-
-    results = await asyncio.gather(
-        *(client.post(refund_url(org_id), json=body, headers=headers) for _ in range(4))
-    )
-
-    assert [r.status_code for r in results] == [200] * 4
-    assert sorted(r.json()["data"]["already_applied"] for r in results) == [
-        False,
-        True,
-        True,
-        True,
-    ]
-    assert stripe.names().count("create_refund") == 1
-    assert stripe.charges["ch_1"].amount_refunded == 1000
-    assert len(await audit_rows(engine, "admin.subscriptions.refund")) == 1
-
-
 # ------------------------------------------------- the grant is read by the merchant side
 
 
@@ -300,3 +273,42 @@ async def test_a_grant_raises_the_store_limit_until_it_expires(client, engine):
             {"id": org_id},
         )
     assert (await new_store("third")).status_code == 409
+
+
+async def test_an_organisation_with_only_a_grant_cannot_use_the_paid_plan_flows(
+    client, engine, monkeypatch
+):
+    """A grant is not a Stripe subscription: change-plan, cancel, resume and portal refuse."""
+    monkeypatch.setattr(
+        settings, "BILLING_RETURN_URL_ORIGINS", "https://app.example.com"
+    )
+    client.app.dependency_overrides[stripe_billing] = lambda: FakeStripe()  # type: ignore[attr-defined]
+    await seed_user(engine, "mgr", "admin", MANAGER)
+    org_id = await seed_org(engine)
+    await seed_owner(engine, org_id)
+    await client.put(
+        grant_url(org_id),
+        json={"plan": "enterprise", "expires_at": in_days(30)},
+        headers=as_user("mgr"),
+    )
+    base = f"/v1/organizations/{org_id}/billing"
+    owner = {**as_user("owner"), "Idempotency-Key": "key-owner-0001"}
+
+    summary = await client.get(base, headers=as_user("owner"))
+    change = await client.post(
+        f"{base}/plan", json={"plan": "pro", "interval": "monthly"}, headers=owner
+    )
+    cancel = await client.post(f"{base}/cancel", headers=owner)
+    resume = await client.post(f"{base}/resume", headers=owner)
+    portal = await client.post(
+        f"{base}/portal",
+        json={"return_url": "https://app.example.com/billing"},
+        headers=owner,
+    )
+
+    assert summary.json()["data"]["plan"]["key"] == "enterprise"
+    assert summary.json()["data"]["has_subscription"] is False
+    assert [change.status_code, cancel.status_code, resume.status_code] == [409] * 3
+    assert portal.status_code == 409
+    row = await org_columns(engine, org_id)
+    assert row[0] == "free"  # the raw Stripe-backed tier is untouched

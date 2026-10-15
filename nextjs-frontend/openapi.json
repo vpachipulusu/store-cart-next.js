@@ -8006,6 +8006,10 @@
           },
           "granted_plan": {
             "type": "string",
+            "enum": [
+              "pro",
+              "enterprise"
+            ],
             "title": "Granted Plan"
           },
           "granted_until": {
@@ -9231,7 +9235,7 @@
         ],
         "title": "StoreStatus"
       },
-      "SubscriptionDetail": {
+      "SubscriptionDetailData": {
         "properties": {
           "organization_id": {
             "type": "string",
@@ -9275,7 +9279,11 @@
           "granted_plan": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "enum": [
+                  "pro",
+                  "enterprise"
+                ]
               },
               {
                 "type": "null"
@@ -9360,7 +9368,7 @@
           "updated_at",
           "payments"
         ],
-        "title": "SubscriptionDetail"
+        "title": "SubscriptionDetailData"
       },
       "SubscriptionDetailResponse": {
         "properties": {
@@ -9371,7 +9379,7 @@
             "default": true
           },
           "data": {
-            "$ref": "#/components/schemas/SubscriptionDetail"
+            "$ref": "#/components/schemas/SubscriptionDetailData"
           }
         },
         "type": "object",
@@ -9424,7 +9432,11 @@
           "granted_plan": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "enum": [
+                  "pro",
+                  "enterprise"
+                ]
               },
               {
                 "type": "null"

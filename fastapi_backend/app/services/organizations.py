@@ -269,7 +269,7 @@ class OrganizationsService:
             raise OrgForbidden
         clean_name = normalize_name(name)
         clean_slug = normalize_slug(slug)
-        limit = self._max_stores(organization.subscription_tier)
+        limit = self._max_stores(organization.effective_plan)
         if (
             limit is not None
             and await self._store.count_stores(organization_id) >= limit
