@@ -40,7 +40,9 @@ Claude uses separate PM and Architect subagents. If you have no subagents, do th
 - **Security pass** (auth, payments, input, secrets): authorization, validation, no secrets, no data leaks.
 - Then read `git diff main...HEAD` once more before asking for a merge.
 
-CI: the **CI gate** job must be green. The Playwright e2e job is outside the gate. Historical baseline failures are tracked under KAN-154 to KAN-158; inspect the current run and report its actual failures before attributing them to that baseline. The latest run's state is recorded in the baton.
+CI: the **CI gate** job must be green. The Playwright e2e job is outside the gate and `E2E_ENABLED` stays `false`, so CI never runs Playwright.
+
+**Local E2E is required for user-facing changes** (frontend pages and components, auth/session, billing, proxy, health). Before opening the PR run the relevant specs with `npm run test:e2e:local -- <spec...>` from `nextjs-frontend/` (setup and backend in [`docs/developer/local-e2e.md`](docs/developer/local-e2e.md)) and put the exact command, the passed/skipped/failed counts and the base SHA in the PR description. Reviewers check that line and send the PR back without it. Backend-only, docs-only and config-only changes are exempt (backend keeps pytest). A test that fails on a clean `main` is quarantined with a Jira key (see [`workflow.md`](docs/developer/workflow.md#local-e2e-is-required-for-user-facing-changes-kan-165)), never silently skipped, and its assertion is never edited to get green.
 
 ## Jira
 

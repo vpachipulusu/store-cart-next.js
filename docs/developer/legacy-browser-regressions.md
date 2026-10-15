@@ -50,4 +50,4 @@ npx playwright test --config playwright.baseline.config.ts account-lifecycle.spe
 The new specs are included in the existing baseline's spec selection. The repository
 variable `E2E_ENABLED` remains unchanged; adding these tests does not enable the
 disabled CI browser job. Report focused results separately from the full baseline,
-which retains its tracked KAN-154–158 issues.
+which retains its tracked KAN-154–158 issues (all Done; see local-e2e.md for the current quarantine list).

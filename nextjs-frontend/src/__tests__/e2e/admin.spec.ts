@@ -158,7 +158,8 @@ test.describe('Admin Dashboard', () => {
       await expect(page.getByText('No users found')).toBeVisible();
     });
 
-    test('should display users table with correct columns', async ({ page }) => {
+    // Quarantined (KAN-165): strict-mode violation on locator('table') when the page has many users. Tracked in KAN-196.
+    test.fixme('should display users table with correct columns', async ({ page }) => {
       await expect(page.getByText('All Users')).toBeVisible();
 
       // Table headers
@@ -208,7 +209,8 @@ test.describe('Admin Dashboard', () => {
     test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
     test.use({ storageState: STORAGE_STATE.admin });
 
-    test('should display 404 for non-existent user', async ({ page }) => {
+    // Quarantined (KAN-165): flaky, waitForHydration times out on the not-found page (3 of 5 repeats). Tracked in KAN-198.
+    test.fixme('should display 404 for non-existent user', async ({ page }) => {
       await page.goto('/admin/users/nonexistent-id');
       await waitForPageReady(page);
 

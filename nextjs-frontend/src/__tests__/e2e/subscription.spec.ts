@@ -83,7 +83,7 @@ test.describe('Subscription Upgrade Flow', () => {
   test.describe('Authenticated User - Subscription Upgrade', () => {
     test.skip(
       !process.env.TEST_USER_EMAIL || !process.env.STRIPE_PUBLISHABLE_KEY,
-      'Skipped: TEST_USER_EMAIL or STRIPE keys not configured'
+      'Skipped: TEST_USER_EMAIL or STRIPE keys not configured (STRIPE_PUBLISHABLE_KEY is never set locally; tracked in KAN-197)'
     );
 
     // Test user (should be on free tier), session saved by auth.setup.ts. Tests that open Stripe checkout get a
