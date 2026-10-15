@@ -1,9 +1,13 @@
 // @vitest-environment node
 /**
- * KAN-41: the dashboard home page reads profile and login history through the API; only the plan still
- * comes from the legacy billing row, and a user without one is on the free plan.
+ * KAN-41 / KAN-50: the dashboard home page reads profile, login history and the plan through the API; an
+ * account with no billing organisation is on the free plan.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { NO_BILLING_ORGANIZATION_MESSAGE } from '@/lib/api/billing';
 import { navigationMock, redirectTarget, rejection } from './route-test-helpers';
 
 const mocks = vi.hoisted(() => ({
@@ -11,7 +15,8 @@ const mocks = vi.hoisted(() => ({
   verifySessionCookie: vi.fn(),
   fetchProfile: vi.fn(),
   fetchLoginHistory: vi.fn(),
-  billingFindUnique: vi.fn(),
+  fetchBillingSummary: vi.fn(),
+  dbFindUnique: vi.fn(),
   loggerError: vi.fn(),
 }));
 
@@ -20,7 +25,12 @@ vi.mock('next/headers', () => ({ cookies: async () => ({ get: mocks.cookieGet })
 vi.mock('@/lib/firebase/admin', () => ({
   getAdminAuth: () => ({ verifySessionCookie: mocks.verifySessionCookie }),
 }));
-vi.mock('@/lib/db/client', () => ({ db: { user: { findUnique: mocks.billingFindUnique } } }));
+// verified-session.ts (not part of this ticket) still imports the client for its own lookups.
+vi.mock('@/lib/db/client', () => ({ db: { user: { findUnique: mocks.dbFindUnique } } }));
+vi.mock('@/lib/api/billing', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/api/billing')>('@/lib/api/billing');
+  return { ...actual, fetchBillingSummary: mocks.fetchBillingSummary };
+});
 vi.mock('@/lib/logger', () => ({ logger: { error: mocks.loggerError } }));
 vi.mock('@/components/dashboard/subscription-success-handler', () => ({
   SubscriptionSuccessHandler: () => null,
@@ -71,10 +81,17 @@ describe('DashboardPage', () => {
     mocks.verifySessionCookie.mockResolvedValue({ uid: 'uid-1', email_verified: true });
     mocks.fetchProfile.mockResolvedValue({ success: true, data: PROFILE });
     mocks.fetchLoginHistory.mockResolvedValue({ success: true, data: HISTORY });
-    mocks.billingFindUnique.mockResolvedValue({
-      subscriptionTier: 'pro',
-      subscriptionStatus: 'active',
-      stripeCurrentPeriodEnd: new Date('2027-01-01T00:00:00Z'),
+    mocks.fetchBillingSummary.mockResolvedValue({
+      success: true,
+      data: {
+        plan: { key: 'pro', name: 'Pro', max_stores: null, max_products: null, max_staff: null },
+        subscription_status: 'active',
+        current_period_end: '2027-01-01T00:00:00Z',
+        has_billing_account: true,
+        has_subscription: true,
+        cancel_at_period_end: false,
+        interval: 'monthly',
+      },
     });
   });
 
@@ -89,16 +106,49 @@ describe('DashboardPage', () => {
 
     expect(tree).toBeDefined();
     expect(mocks.fetchLoginHistory).toHaveBeenCalledWith(5, 0);
-    expect(mocks.billingFindUnique).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { firebaseUid: 'uid-1' } })
-    );
+    expect(mocks.fetchBillingSummary).toHaveBeenCalledTimes(1);
+    expect(mocks.dbFindUnique).not.toHaveBeenCalled();
   });
 
-  it('treats a user without a legacy billing row as free instead of failing', async () => {
-    mocks.billingFindUnique.mockResolvedValue(null);
+  it('does not import the database client itself', () => {
+    const source = readFileSync(join(process.cwd(), 'src/app/dashboard/page.tsx'), 'utf8');
 
-    await expect(page()).resolves.toBeDefined();
+    expect(source).not.toContain('@/lib/db/client');
   });
+
+  it('shows the plan and status read from the billing API', async () => {
+    const markup = renderToStaticMarkup((await page()) as React.ReactElement);
+
+    expect(markup).toContain('pro');
+    expect(markup).toContain('Active until');
+  });
+
+  it('treats an account with no billing organisation as free instead of failing', async () => {
+    mocks.fetchBillingSummary.mockResolvedValue({
+      success: false,
+      error: NO_BILLING_ORGANIZATION_MESSAGE,
+    });
+
+    const markup = renderToStaticMarkup((await page()) as React.ReactElement);
+
+    expect(markup).toContain('free');
+    expect(markup).not.toContain('Active until');
+  });
+
+  it.each([
+    [{ success: false, error: 'Backend unavailable' }, 'unreachable'],
+    [{ success: false, error: 'Request failed', status: 500 }, '500'],
+  ])(
+    'rethrows when the billing API is down (%o) instead of showing a wrong plan',
+    async (failure, detail) => {
+      mocks.fetchBillingSummary.mockResolvedValue(failure);
+
+      const error = await rejection(page());
+
+      expect(String(error)).toContain(detail);
+      expect(navigationMock.redirect).not.toHaveBeenCalled();
+    }
+  );
 
   it('sends an unverified user to /verify-email', async () => {
     mocks.verifySessionCookie.mockResolvedValue({ uid: 'uid-1', email_verified: false });

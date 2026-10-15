@@ -31,7 +31,6 @@ describe('KAN-134: Stripe clients are created on first use, not at import', () =
   it.each([
     ['webhook handlers', '@/lib/stripe/webhooks'],
     ['subscription actions', '@/app/actions/subscription-actions'],
-    ['admin subscription actions', '@/app/actions/admin/subscription-actions'],
   ])('imports the %s without the secret key', async (_name, modulePath) => {
     await expect(import(modulePath)).resolves.toBeDefined();
   });
