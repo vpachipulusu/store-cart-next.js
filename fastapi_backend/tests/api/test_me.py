@@ -33,6 +33,8 @@ PROFILE = ProfileData(
     None,
     None,
     datetime(2026, 1, 1, tzinfo=UTC),
+    True,
+    "admin",
 )
 
 
@@ -123,6 +125,17 @@ async def test_profile_has_only_safe_fields_and_uses_session_uid(context):
     assert result.json()["data"]["id"] == "platform-user"
     assert me.uids == ["firebase-user"]
     assert set(result.json()["data"]) == set(PROFILE.__dataclass_fields__)
+    assert result.json()["data"]["is_admin"] is True
+    assert result.json()["data"]["admin_role"] == "admin"
+
+
+async def test_profile_defaults_to_not_admin(context):
+    app, me, _, _ = context
+    me.profile = replace(PROFILE, is_admin=False, admin_role=None)
+    async with client(app) as http:
+        result = await http.get("/v1/me")
+    assert result.json()["data"]["is_admin"] is False
+    assert result.json()["data"]["admin_role"] is None
 
 
 async def test_profile_patch_preserves_omitted_fields_and_clears_explicit_null(context):
@@ -140,6 +153,8 @@ async def test_profile_patch_preserves_omitted_fields_and_clears_explicit_null(c
         {},
         {"email": "other@example.com"},
         {"two_factor_secret": "secret"},
+        {"is_admin": True},
+        {"admin_role": "super_admin"},
         {"display_name": "x" * 101},
         {"bio": "x" * 501},
         {"phone_number": "x" * 21},

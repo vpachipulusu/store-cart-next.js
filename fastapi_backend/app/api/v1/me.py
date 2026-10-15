@@ -53,6 +53,10 @@ class ProfileData(BaseModel):
     website: str | None
     phone_number: str | None
     created_at: datetime
+    # UI hint only: true when the caller has a platform admin record. It does not mean
+    # every admin route is allowed; each route still checks its own permissions.
+    is_admin: bool
+    admin_role: str | None
 
 
 class ProfileResponse(BaseModel):

@@ -135,6 +135,8 @@ describe('account wrappers', () => {
         website: null,
         phone_number: '123',
         created_at: '2026-01-01T00:00:00Z',
+        is_admin: false,
+        admin_role: null,
       })
     ).toMatchObject({ emailVerified: true, displayName: 'Ada', phoneNumber: '123' });
     expect(
