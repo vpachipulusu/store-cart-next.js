@@ -170,9 +170,17 @@ class AdminStoresService:
         if record.status not in MIGRATABLE_STATUSES or store_id in _migrating:
             await self._abort(StoreConflict())
         _migrating.add(store_id)
+        context = {"store_id": store_id, "admin_user_id": actor.user_id}
         try:
             # End the read transaction: no connection is held while the store is migrated.
-            await self.session.rollback()
+            try:
+                await self.session.rollback()
+            except Exception as exc:  # noqa: BLE001
+                self._log_rollback_failure(exc, context)
+                raise CommitFailed from None
+            # The audit row is written only after the migration ends, so a request that
+            # dies mid-migration leaves no row: this log line is the trace of the attempt.
+            logger.info("admin store migration started", extra=context)
             version = await self._run_migration(actor, record)
         finally:
             _migrating.discard(store_id)
@@ -182,6 +190,10 @@ class AdminStoresService:
             MIGRATE_ACTION,
             before={"schema_version": record.schema_version},
             after={"schema_version": version},
+        )
+        logger.info(
+            "admin store migration finished",
+            extra={**context, "schema_version": version},
         )
         return MigrateResult(record.schema_version, version)
 
@@ -265,12 +277,23 @@ class AdminStoresService:
                     "admin_user_id": actor.user_id,
                 },
             )
-            await self.session.rollback()
+            await self._safe_rollback({"store_id": record.id})
             raise CommitFailed from None
+
+    @staticmethod
+    def _log_rollback_failure(exc: Exception, context: dict[str, str]) -> None:
+        logger.error("admin store rollback failed: %s", safe_reason(exc), extra=context)
+
+    async def _safe_rollback(self, context: dict[str, str]) -> None:
+        """Roll back; a failing rollback is logged, never a raw 500 over the real outcome."""
+        try:
+            await self.session.rollback()
+        except Exception as exc:  # noqa: BLE001
+            self._log_rollback_failure(exc, context)
 
     async def _abort(self, error: Exception) -> NoReturn:
         """Release the row lock, then leave without a change."""
-        await self.session.rollback()
+        await self._safe_rollback({})
         raise error
 
     async def _transition(
@@ -285,7 +308,7 @@ class AdminStoresService:
         if record is None:
             await self._abort(AdminStoreNotFound())
         if record.status is target:
-            await self.session.rollback()
+            await self._safe_rollback({"store_id": store_id})
             return StatusResult(target, changed=False)
         if record.status is not source:
             await self._abort(StoreConflict())

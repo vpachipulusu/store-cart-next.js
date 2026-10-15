@@ -55,3 +55,7 @@ responses do not (they hold no store data). Rate limited by subject
 - **Rate limit.** Migrate shares the generic per-subject `API_POLICY` with the read routes. A stricter limit for it
   is deliberately not part of this story; the per-store single-flight guard and the 60 second bound are the only
   protection against many concurrent migrations by one admin.
+- **Limits.** The single-flight guard is per process: a second worker that gets the same store waits on the
+  per-database advisory lock instead of answering 409 (bounded by the 60 second deadline). A migration is logged when
+  it starts and when it finishes (`store_id`, `admin_user_id`), because a request that dies mid-migration writes no
+  audit row. `ILIKE '%term%'` search and deep `offset` values are not indexed; both are fine at current sizes.

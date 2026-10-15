@@ -393,3 +393,30 @@ async def test_a_cancelled_store_session_rolls_back_and_releases_its_lock(engine
             )
         )
         assert leaked.scalar_one() == 0  # the cancelled transaction was rolled back
+
+
+async def test_search_treats_percent_and_underscore_literally_and_ignores_case(
+    client, engine
+):
+    await seed_admin(engine, "reader", ["stores.read"])
+    await seed_store(engine, "orgA", "a_b")
+    await seed_store(engine, "orgA", "axb")
+    await seed_store(engine, "orgA", "50%off")
+
+    async def found(path: str, term: str) -> list[str]:
+        result = await client.get(
+            path, params={"search": term}, headers=as_user("reader")
+        )
+        return result.json()["data"]
+
+    def slugs(data: dict) -> list[str]:
+        return sorted(s["slug"] for s in data["stores"])
+
+    assert slugs(await found("/v1/admin/stores", "a_b")) == ["a_b"]  # not axb
+    assert slugs(await found("/v1/admin/stores", "50%")) == ["50%off"]
+    assert slugs(await found("/v1/admin/stores", "A_B")) == ["a_b"]  # case-insensitive
+    orgs = await found("/v1/admin/organizations", "org_")  # no org has a literal _
+    assert orgs["total_count"] == 0
+    orgs = await found("/v1/admin/organizations", "ORG-ORGA")  # slug, any case
+    assert [o["id"] for o in orgs["organizations"]] == ["orgA"]
+    assert (await found("/v1/admin/organizations", "%"))["total_count"] == 0

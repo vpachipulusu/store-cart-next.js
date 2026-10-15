@@ -237,27 +237,27 @@ export const unbanUser = <ThrowOnError extends boolean = false>(options: Options
 export const listAuditLogs = <ThrowOnError extends boolean = false>(options?: Options<ListAuditLogsData, ThrowOnError>) => (options?.client ?? client).get<ListAuditLogsResponses, ListAuditLogsErrors, ThrowOnError>({ url: '/v1/admin/audit-logs', ...options });
 
 /**
- * Admin List Organizations
+ * List organisations with their store counts
  */
 export const adminListOrganizations = <ThrowOnError extends boolean = false>(options?: Options<AdminListOrganizationsData, ThrowOnError>) => (options?.client ?? client).get<AdminListOrganizationsResponses, AdminListOrganizationsErrors, ThrowOnError>({ url: '/v1/admin/organizations', ...options });
 
 /**
- * Admin List Stores
+ * List stores with status and schema version
  */
 export const adminListStores = <ThrowOnError extends boolean = false>(options?: Options<AdminListStoresData, ThrowOnError>) => (options?.client ?? client).get<AdminListStoresResponses, AdminListStoresErrors, ThrowOnError>({ url: '/v1/admin/stores', ...options });
 
 /**
- * Admin Suspend Store
+ * Suspend a store
  */
 export const adminSuspendStore = <ThrowOnError extends boolean = false>(options: Options<AdminSuspendStoreData, ThrowOnError>) => (options.client ?? client).post<AdminSuspendStoreResponses, AdminSuspendStoreErrors, ThrowOnError>({ url: '/v1/admin/stores/{store_id}/suspend', ...options });
 
 /**
- * Admin Unsuspend Store
+ * Unsuspend a store
  */
 export const adminUnsuspendStore = <ThrowOnError extends boolean = false>(options: Options<AdminUnsuspendStoreData, ThrowOnError>) => (options.client ?? client).post<AdminUnsuspendStoreResponses, AdminUnsuspendStoreErrors, ThrowOnError>({ url: '/v1/admin/stores/{store_id}/unsuspend', ...options });
 
 /**
- * Admin Migrate Store
+ * Re-run a store's database migrations
  */
 export const adminMigrateStore = <ThrowOnError extends boolean = false>(options: Options<AdminMigrateStoreData, ThrowOnError>) => (options.client ?? client).post<AdminMigrateStoreResponses, AdminMigrateStoreErrors, ThrowOnError>({ url: '/v1/admin/stores/{store_id}/migrate', ...options });
 

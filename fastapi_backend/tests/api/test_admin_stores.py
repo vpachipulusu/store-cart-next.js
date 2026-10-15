@@ -338,3 +338,28 @@ async def test_unexpected_migration_error_is_a_generic_502_and_audited(harness):
     assert result.status_code == 502
     assert "postgres" not in result.text
     assert harness.auditor.rows[0]["details"] == {"reason": "RuntimeError"}
+
+
+async def test_second_migrate_while_one_is_running_is_409_and_runs_once(harness):
+    started, release = asyncio.Event(), asyncio.Event()
+    calls: list[str] = []
+
+    async def slow(store_id: str) -> int:
+        calls.append(store_id)
+        started.set()
+        await release.wait()
+        return 5
+
+    harness.app.dependency_overrides[get_admin_stores_service] = lambda: (
+        AdminStoresService(harness.repository, harness.session, harness.auditor, slow)
+    )
+    async with harness.client("migrator") as client:
+        first = asyncio.create_task(client.post("/v1/admin/stores/live/migrate"))
+        await started.wait()
+        second = await client.post("/v1/admin/stores/live/migrate")
+        release.set()
+        done = await first
+
+    assert second.status_code == 409
+    assert done.status_code == 200
+    assert calls == ["live"]

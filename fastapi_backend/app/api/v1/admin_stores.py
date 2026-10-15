@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.api.admin import AuditorDep, require_admin
 from app.api.auth import require_internal_key
@@ -77,16 +77,22 @@ MigrateAdmin = Annotated[AdminContext, Depends(require_admin("stores.migrate"))]
 _NOT_FOUND: dict[int | str, dict[str, Any]] = {
     404: {"model": ErrorResponse, "description": "No such store."}
 }
-_CONFLICT: dict[int | str, dict[str, Any]] = {
+_STATUS_CONFLICT: dict[int | str, dict[str, Any]] = {
     409: {
         "model": ErrorResponse,
-        "description": "The store's status does not allow this operation, or this "
-        "process is already migrating it.",
+        "description": "The store's status does not allow this operation.",
+    }
+}
+_MIGRATE_CONFLICT: dict[int | str, dict[str, Any]] = {
+    409: {
+        "model": ErrorResponse,
+        "description": "The store is PROVISIONING or ARCHIVED, or this process is "
+        "already migrating it.",
     }
 }
 _STATUS_RESPONSES: dict[int | str, dict[str, Any]] = {
     **_NOT_FOUND,
-    **_CONFLICT,
+    **_STATUS_CONFLICT,
     503: {
         "model": ErrorResponse,
         "description": "The change or its audit row could not be recorded and was "
@@ -96,7 +102,7 @@ _STATUS_RESPONSES: dict[int | str, dict[str, Any]] = {
 }
 _MIGRATE_RESPONSES: dict[int | str, dict[str, Any]] = {
     **_NOT_FOUND,
-    **_CONFLICT,
+    **_MIGRATE_CONFLICT,
     502: {
         "model": ErrorResponse,
         "description": "The store database could not be migrated. Generic body; the "
@@ -117,13 +123,13 @@ class OrganizationSummary(BaseModel):
     id: str
     name: str
     slug: str
-    store_count: int
+    store_count: int = Field(description="Stores of the organisation, any status.")
     created_at: datetime
 
 
 class OrganizationsPage(BaseModel):
     organizations: list[OrganizationSummary]
-    total_count: int
+    total_count: int = Field(description="Organisations matching `search`, all pages.")
     limit: int
     offset: int
 
@@ -140,14 +146,14 @@ class StoreSummary(BaseModel):
     name: str
     slug: str
     status: StoreStatus
-    schema_version: int
+    schema_version: int = Field(description="Store migrations applied.")
     created_at: datetime
     updated_at: datetime
 
 
 class AdminStoresPage(BaseModel):
     stores: list[StoreSummary]
-    total_count: int
+    total_count: int = Field(description="Stores matching the filters, all pages.")
     limit: int
     offset: int
 
@@ -160,7 +166,7 @@ class AdminStoresPageResponse(BaseModel):
 class StoreStatusData(BaseModel):
     store_id: str
     status: StoreStatus
-    changed: bool
+    changed: bool = Field(description="False when the store was already in that state.")
 
 
 class StoreStatusResponse(BaseModel):
@@ -262,16 +268,27 @@ async def _change_status(
     )
 
 
-@router.get("/organizations", response_model=OrganizationsPageResponse)
+@router.get(
+    "/organizations",
+    response_model=OrganizationsPageResponse,
+    summary="List organisations with their store counts",
+)
 async def admin_list_organizations(
     response: Response,
     _admin: ReadAdmin,
     service: ServiceDep,
     search: Annotated[
-        str | None, Query(max_length=SEARCH_MAX_LENGTH, pattern=SEARCH_PATTERN)
+        str | None,
+        Query(
+            max_length=SEARCH_MAX_LENGTH,
+            pattern=SEARCH_PATTERN,
+            description="Case-insensitive match on name or slug; % and _ are literal.",
+        ),
     ] = None,
-    limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
-    offset: Annotated[int, Query(ge=0, le=MAX_OFFSET)] = 0,
+    limit: Annotated[
+        int, Query(ge=1, le=MAX_PAGE_SIZE, description="Page size.")
+    ] = DEFAULT_PAGE_SIZE,
+    offset: Annotated[int, Query(ge=0, le=MAX_OFFSET, description="Rows to skip.")] = 0,
 ) -> OrganizationsPageResponse:
     _no_store(response)
     page = await service.list_organizations(search, limit, offset)
@@ -285,23 +302,39 @@ async def admin_list_organizations(
     )
 
 
-@router.get("/stores", response_model=AdminStoresPageResponse)
+@router.get(
+    "/stores",
+    response_model=AdminStoresPageResponse,
+    summary="List stores with status and schema version",
+)
 async def admin_list_stores(
     response: Response,
     _admin: ReadAdmin,
     service: ServiceDep,
-    status: StoreStatus | None = None,
+    status: Annotated[
+        StoreStatus | None, Query(description="Only stores in this status.")
+    ] = None,
     organization_id: Annotated[
         str | None,
         Query(
-            min_length=1, max_length=IDENTIFIER_MAX_LENGTH, pattern=IDENTIFIER_PATTERN
+            min_length=1,
+            max_length=IDENTIFIER_MAX_LENGTH,
+            pattern=IDENTIFIER_PATTERN,
+            description="Only stores of this organisation.",
         ),
     ] = None,
     search: Annotated[
-        str | None, Query(max_length=SEARCH_MAX_LENGTH, pattern=SEARCH_PATTERN)
+        str | None,
+        Query(
+            max_length=SEARCH_MAX_LENGTH,
+            pattern=SEARCH_PATTERN,
+            description="Case-insensitive match on name or slug; % and _ are literal.",
+        ),
     ] = None,
-    limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
-    offset: Annotated[int, Query(ge=0, le=MAX_OFFSET)] = 0,
+    limit: Annotated[
+        int, Query(ge=1, le=MAX_PAGE_SIZE, description="Page size.")
+    ] = DEFAULT_PAGE_SIZE,
+    offset: Annotated[int, Query(ge=0, le=MAX_OFFSET, description="Rows to skip.")] = 0,
 ) -> AdminStoresPageResponse:
     _no_store(response)
     filters = StoreFilters(status, organization_id, search)
@@ -318,6 +351,7 @@ async def admin_list_stores(
 
 @router.post(
     "/stores/{store_id}/suspend",
+    summary="Suspend a store",
     response_model=StoreStatusResponse,
     responses=_STATUS_RESPONSES,
 )
@@ -329,6 +363,7 @@ async def admin_suspend_store(
 
 @router.post(
     "/stores/{store_id}/unsuspend",
+    summary="Unsuspend a store",
     response_model=StoreStatusResponse,
     responses=_STATUS_RESPONSES,
 )
@@ -340,6 +375,7 @@ async def admin_unsuspend_store(
 
 @router.post(
     "/stores/{store_id}/migrate",
+    summary="Re-run a store's database migrations",
     response_model=StoreMigrationResponse,
     responses=_MIGRATE_RESPONSES,
 )

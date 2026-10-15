@@ -3331,7 +3331,7 @@
         "tags": [
           "admin-stores"
         ],
-        "summary": "Admin List Organizations",
+        "summary": "List organisations with their store counts",
         "operationId": "admin_list_organizations",
         "parameters": [
           {
@@ -3349,8 +3349,10 @@
                   "type": "null"
                 }
               ],
+              "description": "Case-insensitive match on name or slug; % and _ are literal.",
               "title": "Search"
-            }
+            },
+            "description": "Case-insensitive match on name or slug; % and _ are literal."
           },
           {
             "name": "limit",
@@ -3360,9 +3362,11 @@
               "type": "integer",
               "maximum": 100,
               "minimum": 1,
+              "description": "Page size.",
               "default": 20,
               "title": "Limit"
-            }
+            },
+            "description": "Page size."
           },
           {
             "name": "offset",
@@ -3372,9 +3376,11 @@
               "type": "integer",
               "maximum": 1000000,
               "minimum": 0,
+              "description": "Rows to skip.",
               "default": 0,
               "title": "Offset"
-            }
+            },
+            "description": "Rows to skip."
           },
           {
             "name": "X-Internal-Key",
@@ -3488,7 +3494,7 @@
         "tags": [
           "admin-stores"
         ],
-        "summary": "Admin List Stores",
+        "summary": "List stores with status and schema version",
         "operationId": "admin_list_stores",
         "parameters": [
           {
@@ -3504,8 +3510,10 @@
                   "type": "null"
                 }
               ],
+              "description": "Only stores in this status.",
               "title": "Status"
-            }
+            },
+            "description": "Only stores in this status."
           },
           {
             "name": "organization_id",
@@ -3523,8 +3531,10 @@
                   "type": "null"
                 }
               ],
+              "description": "Only stores of this organisation.",
               "title": "Organization Id"
-            }
+            },
+            "description": "Only stores of this organisation."
           },
           {
             "name": "search",
@@ -3541,8 +3551,10 @@
                   "type": "null"
                 }
               ],
+              "description": "Case-insensitive match on name or slug; % and _ are literal.",
               "title": "Search"
-            }
+            },
+            "description": "Case-insensitive match on name or slug; % and _ are literal."
           },
           {
             "name": "limit",
@@ -3552,9 +3564,11 @@
               "type": "integer",
               "maximum": 100,
               "minimum": 1,
+              "description": "Page size.",
               "default": 20,
               "title": "Limit"
-            }
+            },
+            "description": "Page size."
           },
           {
             "name": "offset",
@@ -3564,9 +3578,11 @@
               "type": "integer",
               "maximum": 1000000,
               "minimum": 0,
+              "description": "Rows to skip.",
               "default": 0,
               "title": "Offset"
-            }
+            },
+            "description": "Rows to skip."
           },
           {
             "name": "X-Internal-Key",
@@ -3680,7 +3696,7 @@
         "tags": [
           "admin-stores"
         ],
-        "summary": "Admin Suspend Store",
+        "summary": "Suspend a store",
         "operationId": "admin_suspend_store",
         "parameters": [
           {
@@ -3810,7 +3826,7 @@
             }
           },
           "409": {
-            "description": "The store's status does not allow this operation, or this process is already migrating it.",
+            "description": "The store's status does not allow this operation.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3827,7 +3843,7 @@
         "tags": [
           "admin-stores"
         ],
-        "summary": "Admin Unsuspend Store",
+        "summary": "Unsuspend a store",
         "operationId": "admin_unsuspend_store",
         "parameters": [
           {
@@ -3957,7 +3973,7 @@
             }
           },
           "409": {
-            "description": "The store's status does not allow this operation, or this process is already migrating it.",
+            "description": "The store's status does not allow this operation.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3974,7 +3990,7 @@
         "tags": [
           "admin-stores"
         ],
-        "summary": "Admin Migrate Store",
+        "summary": "Re-run a store's database migrations",
         "operationId": "admin_migrate_store",
         "parameters": [
           {
@@ -4104,7 +4120,7 @@
             }
           },
           "409": {
-            "description": "The store's status does not allow this operation, or this process is already migrating it.",
+            "description": "The store is PROVISIONING or ARCHIVED, or this process is already migrating it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8177,7 +8193,8 @@
           },
           "total_count": {
             "type": "integer",
-            "title": "Total Count"
+            "title": "Total Count",
+            "description": "Stores matching the filters, all pages."
           },
           "limit": {
             "type": "integer",
@@ -9492,7 +9509,8 @@
           },
           "store_count": {
             "type": "integer",
-            "title": "Store Count"
+            "title": "Store Count",
+            "description": "Stores of the organisation, any status."
           },
           "created_at": {
             "type": "string",
@@ -9521,7 +9539,8 @@
           },
           "total_count": {
             "type": "integer",
-            "title": "Total Count"
+            "title": "Total Count",
+            "description": "Organisations matching `search`, all pages."
           },
           "limit": {
             "type": "integer",
@@ -10406,7 +10425,8 @@
           },
           "changed": {
             "type": "boolean",
-            "title": "Changed"
+            "title": "Changed",
+            "description": "False when the store was already in that state."
           }
         },
         "type": "object",
@@ -10462,7 +10482,8 @@
           },
           "schema_version": {
             "type": "integer",
-            "title": "Schema Version"
+            "title": "Schema Version",
+            "description": "Store migrations applied."
           },
           "created_at": {
             "type": "string",

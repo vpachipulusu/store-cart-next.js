@@ -241,16 +241,18 @@ async def test_audit_failure_after_a_migration_is_a_retryable_commit_failure():
 
 
 async def test_second_concurrent_migration_of_the_same_store_is_a_conflict():
-    service, _, _, auditor, migrator = build(store("a"))
-    migrator.delay = 0.05
+    service, _, _, auditor, _ = build(store("a"))
+    gated = GatedMigrator()
+    service._migrate = gated
 
     first = asyncio.create_task(service.migrate(ADMIN, "a"))
-    await asyncio.sleep(0.01)
+    await gated.started.wait()
     with pytest.raises(StoreConflict):
         await service.migrate(ADMIN, "a")
+    gated.release.set()
     await first
 
-    assert migrator.calls == ["a"]
+    assert gated.calls == ["a"]
     assert len(auditor.rows) == 1
     await service.migrate(ADMIN, "a")  # free again once the first one ended
 
@@ -289,7 +291,7 @@ async def test_claim_is_released_when_ending_the_read_transaction_fails():
 
     session.rollback = broken_rollback
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(CommitFailed):  # the documented 503, not a raw 500
         await service.migrate(ADMIN, "a")
 
     session.rollback = FakeSession().rollback
@@ -510,3 +512,51 @@ async def test_unexpected_error_is_raised_without_a_cause_chain():
         await service.migrate(ADMIN, "a")
 
     assert raised.value.__cause__ is None and raised.value.__suppress_context__
+
+
+async def test_migration_start_and_finish_are_logged_with_store_and_admin(caplog):
+    service, *_ = build(store("a"))
+
+    with caplog.at_level("INFO", logger="storecart.admin_stores"):
+        await service.migrate(ADMIN, "a")
+
+    started, finished = [
+        r for r in caplog.records if r.name == "storecart.admin_stores"
+    ]
+    assert started.getMessage() == "admin store migration started"
+    assert (started.store_id, started.admin_user_id) == ("a", "adm")
+    assert finished.getMessage() == "admin store migration finished"
+    assert finished.schema_version == 3
+
+
+async def test_failing_rollback_after_a_failed_audit_write_is_still_a_503():
+    service, _, session, auditor, _ = build(store("a"))
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("audit store down")
+
+    async def broken_rollback() -> None:
+        raise RuntimeError("connection lost")
+
+    auditor.record = broken
+    session.rollback = broken_rollback
+
+    with pytest.raises(CommitFailed):
+        await service.suspend(ADMIN, "a")
+
+
+async def test_failing_rollback_does_not_hide_a_conflict_or_a_no_op():
+    service, _, session, _, _ = build(
+        store("a", status=StoreStatus.ARCHIVED), store("b")
+    )
+
+    async def broken_rollback() -> None:
+        raise RuntimeError("connection lost")
+
+    session.rollback = broken_rollback
+
+    with pytest.raises(StoreConflict):
+        await service.suspend(ADMIN, "a")
+    with pytest.raises(AdminStoreNotFound):
+        await service.suspend(ADMIN, "missing")
+    assert (await service.unsuspend(ADMIN, "b")).changed is False

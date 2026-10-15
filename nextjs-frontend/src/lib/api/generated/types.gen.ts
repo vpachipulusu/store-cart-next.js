@@ -43,6 +43,8 @@ export type AdminStoresPage = {
     stores: Array<StoreSummary>;
     /**
      * Total Count
+     *
+     * Stores matching the filters, all pages.
      */
     total_count: number;
     /**
@@ -813,6 +815,8 @@ export type OrganizationSummary = {
     slug: string;
     /**
      * Store Count
+     *
+     * Stores of the organisation, any status.
      */
     store_count: number;
     /**
@@ -831,6 +835,8 @@ export type OrganizationsPage = {
     organizations: Array<OrganizationSummary>;
     /**
      * Total Count
+     *
+     * Organisations matching `search`, all pages.
      */
     total_count: number;
     /**
@@ -1348,6 +1354,8 @@ export type StoreStatusData = {
     status: StoreStatus;
     /**
      * Changed
+     *
+     * False when the store was already in that state.
      */
     changed: boolean;
 };
@@ -1390,6 +1398,8 @@ export type StoreSummary = {
     status: StoreStatus;
     /**
      * Schema Version
+     *
+     * Store migrations applied.
      */
     schema_version: number;
     /**
@@ -3238,14 +3248,20 @@ export type AdminListOrganizationsData = {
     query?: {
         /**
          * Search
+         *
+         * Case-insensitive match on name or slug; % and _ are literal.
          */
         search?: string | null;
         /**
          * Limit
+         *
+         * Page size.
          */
         limit?: number;
         /**
          * Offset
+         *
+         * Rows to skip.
          */
         offset?: number;
     };
@@ -3306,22 +3322,32 @@ export type AdminListStoresData = {
     query?: {
         /**
          * Status
+         *
+         * Only stores in this status.
          */
         status?: StoreStatus | null;
         /**
          * Organization Id
+         *
+         * Only stores of this organisation.
          */
         organization_id?: string | null;
         /**
          * Search
+         *
+         * Case-insensitive match on name or slug; % and _ are literal.
          */
         search?: string | null;
         /**
          * Limit
+         *
+         * Page size.
          */
         limit?: number;
         /**
          * Offset
+         *
+         * Rows to skip.
          */
         offset?: number;
     };
@@ -3402,7 +3428,7 @@ export type AdminSuspendStoreErrors = {
      */
     404: ErrorResponse;
     /**
-     * The store's status does not allow this operation, or this process is already migrating it.
+     * The store's status does not allow this operation.
      */
     409: ErrorResponse;
     /**
@@ -3470,7 +3496,7 @@ export type AdminUnsuspendStoreErrors = {
      */
     404: ErrorResponse;
     /**
-     * The store's status does not allow this operation, or this process is already migrating it.
+     * The store's status does not allow this operation.
      */
     409: ErrorResponse;
     /**
@@ -3538,7 +3564,7 @@ export type AdminMigrateStoreErrors = {
      */
     404: ErrorResponse;
     /**
-     * The store's status does not allow this operation, or this process is already migrating it.
+     * The store is PROVISIONING or ARCHIVED, or this process is already migrating it.
      */
     409: ErrorResponse;
     /**
