@@ -176,32 +176,25 @@ test.describe('Admin Dashboard', () => {
     });
 
     test('should display user action dropdown menu', async ({ page }) => {
-      // Click the first action button in the table
-      const actionButton = page.locator('table tbody tr').first().getByRole('button');
-      // Wait for the table row to render (isVisible() alone does not wait, so the test passed without checking).
-      const isVisible = await actionButton
-        .waitFor({ state: 'visible' })
-        .then(() => true)
-        .catch(() => false);
+      // The signed-in admin is itself a user, so the table always has at least one row.
+      const firstRow = page.getByRole('table').getByRole('row').nth(1);
+      await expect(firstRow).toBeVisible();
 
-      if (isVisible) {
-        await actionButton.click();
+      await firstRow.getByRole('button', { name: /open menu/i }).click();
 
-        await expect(page.getByText(/view details/i)).toBeVisible({ timeout: 3_000 });
-        await expect(page.getByText(/edit user/i)).toBeVisible();
-        await expect(page.getByText(/suspend user/i)).toBeVisible();
-      }
+      await expect(page.getByRole('menuitem', { name: /view details/i })).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: /edit user/i })).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: /suspend user/i })).toBeVisible();
     });
 
     test('should show verification badges for users', async ({ page }) => {
-      // Users should have either "Verified" or "Unverified" badge
-      const table = page.locator('table tbody');
-      const verifiedBadge = table.getByText(/verified|unverified/i);
-      const hasBadge = await verifiedBadge
-        .first()
-        .isVisible()
-        .catch(() => false);
-      expect(hasBadge || true).toBeTruthy();
+      // Every user row carries a "Verified" or "Unverified" badge.
+      const rows = page.getByRole('table').getByRole('row');
+      await expect(rows.nth(1)).toBeVisible();
+      const dataRowCount = (await rows.count()) - 1;
+      await expect(page.getByRole('table').getByText(/^(verified|unverified)$/i)).toHaveCount(
+        dataRowCount
+      );
     });
   });
 
@@ -213,17 +206,21 @@ test.describe('Admin Dashboard', () => {
       await page.goto('/admin/users/nonexistent-id');
       await waitForPageReady(page);
 
-      // Should show not found or redirect
-      const notFound = page.getByText(/not found/i);
-      const hasNotFound = await notFound.isVisible().catch(() => false);
-      // Accept either 404 or redirect
-      expect(hasNotFound || page.url().includes('/admin/users')).toBeTruthy();
+      // notFound() streams after the 200 headers are sent, so the status is not asserted; the page content is.
+      await expect(page).toHaveURL(/\/admin\/users\/nonexistent-id$/);
+      await expect(page.getByText(/page not found/i).first()).toBeVisible();
+      await expect(page.getByRole('heading', { name: /user details/i })).toHaveCount(0);
     });
 
     test('should show the user read through the API', async ({ page }) => {
       await page.goto('/admin/users');
       await waitForPageReady(page);
-      await page.locator('table tbody tr').first().getByRole('button').click();
+      await page
+        .getByRole('table')
+        .getByRole('row')
+        .nth(1)
+        .getByRole('button', { name: /open menu/i })
+        .click();
       await page.getByRole('menuitem', { name: /view details/i }).click();
 
       await expect(page).toHaveURL(/\/admin\/users\/[^/]+$/);
