@@ -287,6 +287,45 @@ export type BillingResponse = {
 };
 
 /**
+ * CancelData
+ */
+export type CancelData = {
+    /**
+     * Organization Id
+     */
+    organization_id: string;
+    /**
+     * Immediately
+     */
+    immediately: boolean;
+    /**
+     * Already Applied
+     */
+    already_applied: boolean;
+};
+
+/**
+ * CancelRequest
+ */
+export type CancelRequest = {
+    /**
+     * Immediately
+     */
+    immediately?: boolean;
+};
+
+/**
+ * CancelResponse
+ */
+export type CancelResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: CancelData;
+};
+
+/**
  * ChangePlanRequest
  */
 export type ChangePlanRequest = {
@@ -435,6 +474,53 @@ export type GrantAdminRequest = {
      * Permissions
      */
     permissions: Array<string>;
+};
+
+/**
+ * GrantData
+ */
+export type GrantData = {
+    /**
+     * Organization Id
+     */
+    organization_id: string;
+    /**
+     * Granted Plan
+     */
+    granted_plan: string;
+    /**
+     * Granted Until
+     */
+    granted_until: string;
+    /**
+     * Changed
+     */
+    changed: boolean;
+};
+
+/**
+ * GrantRequest
+ */
+export type GrantRequest = {
+    /**
+     * Plan
+     */
+    plan: 'pro' | 'enterprise';
+    /**
+     * Expires At
+     */
+    expires_at: string;
+};
+
+/**
+ * GrantResponse
+ */
+export type GrantResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: GrantData;
 };
 
 /**
@@ -675,6 +761,44 @@ export type OrganizationResponse = {
 };
 
 /**
+ * PaymentData
+ */
+export type PaymentData = {
+    /**
+     * Charge Id
+     */
+    charge_id: string;
+    /**
+     * Amount
+     */
+    amount: number;
+    /**
+     * Amount Refunded
+     */
+    amount_refunded: number;
+    /**
+     * Refundable
+     */
+    refundable: number;
+    /**
+     * Currency
+     */
+    currency: string;
+    /**
+     * Status
+     */
+    status: string | null;
+    /**
+     * Created
+     */
+    created: number;
+    /**
+     * Invoice Id
+     */
+    invoice_id: string | null;
+};
+
+/**
  * PaymentMethodData
  */
 export type PaymentMethodData = {
@@ -743,6 +867,11 @@ export type PlanData = {
      */
     max_staff: number | null;
 };
+
+/**
+ * PlanKey
+ */
+export type PlanKey = 'free' | 'pro' | 'enterprise';
 
 /**
  * PortalRequest
@@ -839,6 +968,69 @@ export type ProfileResponse = {
      */
     success?: true;
     data: ProfileData;
+};
+
+/**
+ * RefundData
+ */
+export type RefundData = {
+    /**
+     * Organization Id
+     */
+    organization_id: string;
+    /**
+     * Refund Id
+     */
+    refund_id: string;
+    /**
+     * Charge Id
+     */
+    charge_id: string;
+    /**
+     * Amount
+     */
+    amount: number;
+    /**
+     * Currency
+     */
+    currency: string;
+    /**
+     * Status
+     */
+    status: string | null;
+    /**
+     * Already Applied
+     */
+    already_applied: boolean;
+};
+
+/**
+ * RefundRequest
+ */
+export type RefundRequest = {
+    /**
+     * Charge Id
+     */
+    charge_id: string;
+    /**
+     * Amount
+     */
+    amount?: number | null;
+    /**
+     * Reason
+     */
+    reason?: 'duplicate' | 'fraudulent' | 'requested_by_customer' | null;
+};
+
+/**
+ * RefundResponse
+ */
+export type RefundResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: RefundData;
 };
 
 /**
@@ -1013,6 +1205,160 @@ export type StoreResponse = {
  * StoreStatus
  */
 export type StoreStatus = 'PROVISIONING' | 'ACTIVE' | 'SUSPENDED' | 'ARCHIVED';
+
+/**
+ * SubscriptionDetail
+ */
+export type SubscriptionDetail = {
+    /**
+     * Organization Id
+     */
+    organization_id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Slug
+     */
+    slug: string;
+    plan: PlanKey;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Current Period End
+     */
+    current_period_end: string | null;
+    /**
+     * Cancel At Period End
+     */
+    cancel_at_period_end: boolean;
+    /**
+     * Has Stripe Subscription
+     */
+    has_stripe_subscription: boolean;
+    /**
+     * Granted Plan
+     */
+    granted_plan: string | null;
+    /**
+     * Granted Until
+     */
+    granted_until: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Stripe Customer Id
+     */
+    stripe_customer_id: string | null;
+    /**
+     * Stripe Subscription Id
+     */
+    stripe_subscription_id: string | null;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+    /**
+     * Payments
+     */
+    payments: Array<PaymentData> | null;
+};
+
+/**
+ * SubscriptionDetailResponse
+ */
+export type SubscriptionDetailResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: SubscriptionDetail;
+};
+
+/**
+ * SubscriptionSummary
+ */
+export type SubscriptionSummary = {
+    /**
+     * Organization Id
+     */
+    organization_id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Slug
+     */
+    slug: string;
+    plan: PlanKey;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Current Period End
+     */
+    current_period_end: string | null;
+    /**
+     * Cancel At Period End
+     */
+    cancel_at_period_end: boolean;
+    /**
+     * Has Stripe Subscription
+     */
+    has_stripe_subscription: boolean;
+    /**
+     * Granted Plan
+     */
+    granted_plan: string | null;
+    /**
+     * Granted Until
+     */
+    granted_until: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * SubscriptionsPage
+ */
+export type SubscriptionsPage = {
+    /**
+     * Subscriptions
+     */
+    subscriptions: Array<SubscriptionSummary>;
+    /**
+     * Total Count
+     */
+    total_count: number;
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Offset
+     */
+    offset: number;
+};
+
+/**
+ * SubscriptionsPageResponse
+ */
+export type SubscriptionsPageResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: SubscriptionsPage;
+};
 
 /**
  * TotpChangedResponse
@@ -2629,6 +2975,389 @@ export type ListAuditLogsResponses = {
 
 export type ListAuditLogsResponse = ListAuditLogsResponses[keyof ListAuditLogsResponses];
 
+export type ListSubscriptionsData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Status
+         */
+        status?: 'inactive' | 'active' | 'trialing' | 'past_due' | 'canceled' | 'unpaid' | 'incomplete' | 'incomplete_expired' | 'paused' | null;
+        /**
+         * Plan
+         */
+        plan?: PlanKey | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Offset
+         */
+        offset?: number;
+    };
+    url: '/v1/admin/subscriptions';
+};
+
+export type ListSubscriptionsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ListSubscriptionsError = ListSubscriptionsErrors[keyof ListSubscriptionsErrors];
+
+export type ListSubscriptionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: SubscriptionsPageResponse;
+};
+
+export type ListSubscriptionsResponse = ListSubscriptionsResponses[keyof ListSubscriptionsResponses];
+
+export type ReadSubscriptionData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+    };
+    query?: never;
+    url: '/v1/admin/subscriptions/{organization_id}';
+};
+
+export type ReadSubscriptionErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ReadSubscriptionError = ReadSubscriptionErrors[keyof ReadSubscriptionErrors];
+
+export type ReadSubscriptionResponses = {
+    /**
+     * Successful Response
+     */
+    200: SubscriptionDetailResponse;
+};
+
+export type ReadSubscriptionResponse = ReadSubscriptionResponses[keyof ReadSubscriptionResponses];
+
+export type CancelSubscriptionData = {
+    /**
+     * Body
+     */
+    body?: CancelRequest | null;
+    headers: {
+        /**
+         * Idempotency-Key
+         */
+        'Idempotency-Key': string;
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+    };
+    query?: never;
+    url: '/v1/admin/subscriptions/{organization_id}/cancel';
+};
+
+export type CancelSubscriptionErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type CancelSubscriptionError = CancelSubscriptionErrors[keyof CancelSubscriptionErrors];
+
+export type CancelSubscriptionResponses = {
+    /**
+     * Successful Response
+     */
+    200: CancelResponse;
+};
+
+export type CancelSubscriptionResponse = CancelSubscriptionResponses[keyof CancelSubscriptionResponses];
+
+export type RefundPaymentData = {
+    body: RefundRequest;
+    headers: {
+        /**
+         * Idempotency-Key
+         */
+        'Idempotency-Key': string;
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+    };
+    query?: never;
+    url: '/v1/admin/subscriptions/{organization_id}/refunds';
+};
+
+export type RefundPaymentErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type RefundPaymentError = RefundPaymentErrors[keyof RefundPaymentErrors];
+
+export type RefundPaymentResponses = {
+    /**
+     * Successful Response
+     */
+    200: RefundResponse;
+};
+
+export type RefundPaymentResponse = RefundPaymentResponses[keyof RefundPaymentResponses];
+
+export type GrantSubscriptionData = {
+    body: GrantRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+    };
+    query?: never;
+    url: '/v1/admin/subscriptions/{organization_id}/grant';
+};
+
+export type GrantSubscriptionErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type GrantSubscriptionError = GrantSubscriptionErrors[keyof GrantSubscriptionErrors];
+
+export type GrantSubscriptionResponses = {
+    /**
+     * Successful Response
+     */
+    200: GrantResponse;
+};
+
+export type GrantSubscriptionResponse = GrantSubscriptionResponses[keyof GrantSubscriptionResponses];
+
 export type ReadBillingData = {
     body?: never;
     headers?: {
@@ -2929,7 +3658,7 @@ export type ChangePlanResponses = {
 
 export type ChangePlanResponse = ChangePlanResponses[keyof ChangePlanResponses];
 
-export type CancelSubscriptionData = {
+export type CancelSubscription2Data = {
     body?: never;
     headers?: {
         /**
@@ -2955,7 +3684,7 @@ export type CancelSubscriptionData = {
     url: '/v1/organizations/{organization_id}/billing/cancel';
 };
 
-export type CancelSubscriptionErrors = {
+export type CancelSubscription2Errors = {
     /**
      * Unauthorized
      */
@@ -2994,16 +3723,16 @@ export type CancelSubscriptionErrors = {
     503: ErrorResponse;
 };
 
-export type CancelSubscriptionError = CancelSubscriptionErrors[keyof CancelSubscriptionErrors];
+export type CancelSubscription2Error = CancelSubscription2Errors[keyof CancelSubscription2Errors];
 
-export type CancelSubscriptionResponses = {
+export type CancelSubscription2Responses = {
     /**
      * Successful Response
      */
     200: OkResponse;
 };
 
-export type CancelSubscriptionResponse = CancelSubscriptionResponses[keyof CancelSubscriptionResponses];
+export type CancelSubscription2Response = CancelSubscription2Responses[keyof CancelSubscription2Responses];
 
 export type ResumeSubscriptionData = {
     body?: never;

@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { BanUserData, BanUserErrors, BanUserResponses, CancelSubscriptionData, CancelSubscriptionErrors, CancelSubscriptionResponses, ChangePlanData, ChangePlanErrors, ChangePlanResponses, CreateCheckoutData, CreateCheckoutErrors, CreateCheckoutResponses, CreateOrganizationData, CreateOrganizationErrors, CreateOrganizationResponses, CreatePortalData, CreatePortalErrors, CreatePortalResponses, CreateSessionData, CreateSessionErrors, CreateSessionResponses, CreateStoreData, CreateStoreErrors, CreateStoreResponses, DeleteAccountData, DeleteAccountErrors, DeleteAccountResponses, DeletePaymentMethodData, DeletePaymentMethodErrors, DeletePaymentMethodResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DeleteUserData, DeleteUserErrors, DeleteUserResponses, DisableData, DisableErrors, DisableResponses, EnrollData, EnrollErrors, EnrollResponses, GrantAdminData, GrantAdminErrors, GrantAdminResponses, HealthCheckData, HealthCheckErrors, HealthCheckResponses, ListAuditLogsData, ListAuditLogsErrors, ListAuditLogsResponses, ListInvoicesData, ListInvoicesErrors, ListInvoicesResponses, ListOrganizationsData, ListOrganizationsErrors, ListOrganizationsResponses, ListOrganizationStoresData, ListOrganizationStoresErrors, ListOrganizationStoresResponses, ListPaymentMethodsData, ListPaymentMethodsErrors, ListPaymentMethodsResponses, ListUsersData, ListUsersErrors, ListUsersResponses, ReadBillingData, ReadBillingErrors, ReadBillingResponses, ReadHistoryData, ReadHistoryErrors, ReadHistoryResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, ReadOrganizationData, ReadOrganizationErrors, ReadOrganizationResponses, ReadProfileData, ReadProfileErrors, ReadProfileResponses, ReadSessionData, ReadSessionErrors, ReadSessionResponses, ReadSettingsData, ReadSettingsErrors, ReadSettingsResponses, ReadStoreData, ReadStoreErrors, ReadStoreResponses, ReadUserData, ReadUserErrors, ReadUserResponses, RefreshSessionData, RefreshSessionErrors, RefreshSessionResponses, ResumeSubscriptionData, ResumeSubscriptionErrors, ResumeSubscriptionResponses, RevokeAdminData, RevokeAdminErrors, RevokeAdminResponses, SetDefaultPaymentMethodData, SetDefaultPaymentMethodErrors, SetDefaultPaymentMethodResponses, UnbanUserData, UnbanUserErrors, UnbanUserResponses, UpdateAvatarData, UpdateAvatarErrors, UpdateAvatarResponses, UpdateOrganizationData, UpdateOrganizationErrors, UpdateOrganizationResponses, UpdateProfileData, UpdateProfileErrors, UpdateProfileResponses, UpdateSettingsData, UpdateSettingsErrors, UpdateSettingsResponses, UpdateStoreData, UpdateStoreErrors, UpdateStoreResponses, UpdateUserData, UpdateUserErrors, UpdateUserResponses, VerifyData, VerifyErrors, VerifyResponses } from './types.gen';
+import type { BanUserData, BanUserErrors, BanUserResponses, CancelSubscription2Data, CancelSubscription2Errors, CancelSubscription2Responses, CancelSubscriptionData, CancelSubscriptionErrors, CancelSubscriptionResponses, ChangePlanData, ChangePlanErrors, ChangePlanResponses, CreateCheckoutData, CreateCheckoutErrors, CreateCheckoutResponses, CreateOrganizationData, CreateOrganizationErrors, CreateOrganizationResponses, CreatePortalData, CreatePortalErrors, CreatePortalResponses, CreateSessionData, CreateSessionErrors, CreateSessionResponses, CreateStoreData, CreateStoreErrors, CreateStoreResponses, DeleteAccountData, DeleteAccountErrors, DeleteAccountResponses, DeletePaymentMethodData, DeletePaymentMethodErrors, DeletePaymentMethodResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DeleteUserData, DeleteUserErrors, DeleteUserResponses, DisableData, DisableErrors, DisableResponses, EnrollData, EnrollErrors, EnrollResponses, GrantAdminData, GrantAdminErrors, GrantAdminResponses, GrantSubscriptionData, GrantSubscriptionErrors, GrantSubscriptionResponses, HealthCheckData, HealthCheckErrors, HealthCheckResponses, ListAuditLogsData, ListAuditLogsErrors, ListAuditLogsResponses, ListInvoicesData, ListInvoicesErrors, ListInvoicesResponses, ListOrganizationsData, ListOrganizationsErrors, ListOrganizationsResponses, ListOrganizationStoresData, ListOrganizationStoresErrors, ListOrganizationStoresResponses, ListPaymentMethodsData, ListPaymentMethodsErrors, ListPaymentMethodsResponses, ListSubscriptionsData, ListSubscriptionsErrors, ListSubscriptionsResponses, ListUsersData, ListUsersErrors, ListUsersResponses, ReadBillingData, ReadBillingErrors, ReadBillingResponses, ReadHistoryData, ReadHistoryErrors, ReadHistoryResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, ReadOrganizationData, ReadOrganizationErrors, ReadOrganizationResponses, ReadProfileData, ReadProfileErrors, ReadProfileResponses, ReadSessionData, ReadSessionErrors, ReadSessionResponses, ReadSettingsData, ReadSettingsErrors, ReadSettingsResponses, ReadStoreData, ReadStoreErrors, ReadStoreResponses, ReadSubscriptionData, ReadSubscriptionErrors, ReadSubscriptionResponses, ReadUserData, ReadUserErrors, ReadUserResponses, RefreshSessionData, RefreshSessionErrors, RefreshSessionResponses, RefundPaymentData, RefundPaymentErrors, RefundPaymentResponses, ResumeSubscriptionData, ResumeSubscriptionErrors, ResumeSubscriptionResponses, RevokeAdminData, RevokeAdminErrors, RevokeAdminResponses, SetDefaultPaymentMethodData, SetDefaultPaymentMethodErrors, SetDefaultPaymentMethodResponses, UnbanUserData, UnbanUserErrors, UnbanUserResponses, UpdateAvatarData, UpdateAvatarErrors, UpdateAvatarResponses, UpdateOrganizationData, UpdateOrganizationErrors, UpdateOrganizationResponses, UpdateProfileData, UpdateProfileErrors, UpdateProfileResponses, UpdateSettingsData, UpdateSettingsErrors, UpdateSettingsResponses, UpdateStoreData, UpdateStoreErrors, UpdateStoreResponses, UpdateUserData, UpdateUserErrors, UpdateUserResponses, VerifyData, VerifyErrors, VerifyResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -235,6 +235,52 @@ export const unbanUser = <ThrowOnError extends boolean = false>(options: Options
 export const listAuditLogs = <ThrowOnError extends boolean = false>(options?: Options<ListAuditLogsData, ThrowOnError>) => (options?.client ?? client).get<ListAuditLogsResponses, ListAuditLogsErrors, ThrowOnError>({ url: '/v1/admin/audit-logs', ...options });
 
 /**
+ * List Subscriptions
+ */
+export const listSubscriptions = <ThrowOnError extends boolean = false>(options?: Options<ListSubscriptionsData, ThrowOnError>) => (options?.client ?? client).get<ListSubscriptionsResponses, ListSubscriptionsErrors, ThrowOnError>({ url: '/v1/admin/subscriptions', ...options });
+
+/**
+ * Read Subscription
+ */
+export const readSubscription = <ThrowOnError extends boolean = false>(options: Options<ReadSubscriptionData, ThrowOnError>) => (options.client ?? client).get<ReadSubscriptionResponses, ReadSubscriptionErrors, ThrowOnError>({ url: '/v1/admin/subscriptions/{organization_id}', ...options });
+
+/**
+ * Cancel Subscription
+ */
+export const cancelSubscription = <ThrowOnError extends boolean = false>(options: Options<CancelSubscriptionData, ThrowOnError>) => (options.client ?? client).post<CancelSubscriptionResponses, CancelSubscriptionErrors, ThrowOnError>({
+    url: '/v1/admin/subscriptions/{organization_id}/cancel',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Refund Payment
+ */
+export const refundPayment = <ThrowOnError extends boolean = false>(options: Options<RefundPaymentData, ThrowOnError>) => (options.client ?? client).post<RefundPaymentResponses, RefundPaymentErrors, ThrowOnError>({
+    url: '/v1/admin/subscriptions/{organization_id}/refunds',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Grant Subscription
+ */
+export const grantSubscription = <ThrowOnError extends boolean = false>(options: Options<GrantSubscriptionData, ThrowOnError>) => (options.client ?? client).put<GrantSubscriptionResponses, GrantSubscriptionErrors, ThrowOnError>({
+    url: '/v1/admin/subscriptions/{organization_id}/grant',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
  * Read Billing
  */
 export const readBilling = <ThrowOnError extends boolean = false>(options: Options<ReadBillingData, ThrowOnError>) => (options.client ?? client).get<ReadBillingResponses, ReadBillingErrors, ThrowOnError>({ url: '/v1/organizations/{organization_id}/billing', ...options });
@@ -278,7 +324,7 @@ export const changePlan = <ThrowOnError extends boolean = false>(options: Option
 /**
  * Cancel Subscription
  */
-export const cancelSubscription = <ThrowOnError extends boolean = false>(options: Options<CancelSubscriptionData, ThrowOnError>) => (options.client ?? client).post<CancelSubscriptionResponses, CancelSubscriptionErrors, ThrowOnError>({ url: '/v1/organizations/{organization_id}/billing/cancel', ...options });
+export const cancelSubscription2 = <ThrowOnError extends boolean = false>(options: Options<CancelSubscription2Data, ThrowOnError>) => (options.client ?? client).post<CancelSubscription2Responses, CancelSubscription2Errors, ThrowOnError>({ url: '/v1/organizations/{organization_id}/billing/cancel', ...options });
 
 /**
  * Resume Subscription

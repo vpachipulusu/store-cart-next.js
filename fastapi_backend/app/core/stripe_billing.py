@@ -23,6 +23,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 STRIPE_API = "https://api.stripe.com/v1"
 REQUEST_TIMEOUT_SECONDS = 10.0
 LIST_LIMIT = 12
+REJECTED_STATUSES = frozenset({400, 402, 409})
 
 
 class StripeError(Exception):
@@ -35,6 +36,10 @@ class StripeNotConfigured(StripeError):
 
 class StripeNotFound(StripeError):
     """Stripe has no such object (HTTP 404)."""
+
+
+class StripeRejected(StripeError):
+    """Stripe refused the request itself (HTTP 400, 402 or 409), not an outage."""
 
 
 @dataclass(frozen=True)
@@ -193,6 +198,8 @@ class HttpStripeBilling:
                 logger.warning("stripe call failed: status=%s", response.status_code)
                 if response.status_code == 404:
                     raise StripeNotFound("Stripe request failed")
+                if response.status_code in REJECTED_STATUSES:
+                    raise StripeRejected("Stripe request failed")
                 raise StripeError("Stripe request failed")
             body = response.json()
         except (httpx.HTTPError, ValueError) as exc:
