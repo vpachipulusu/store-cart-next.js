@@ -13,6 +13,33 @@ import {
   RATE_LIMIT_CONFIGS,
   RateLimitConfig,
 } from '@/lib/middleware/rate-limit';
+import {
+  parseStoreSlug,
+  resolvePlatformRootDomain,
+  STORE_SLUG_HEADER,
+} from '@/lib/storefront/host';
+
+/** Security headers shared by every response the proxy lets through. */
+function applySecurityHeaders(response: NextResponse): void {
+  response.headers.set('X-Content-Type-Options', 'nosniff');
+  response.headers.set('X-Frame-Options', 'DENY');
+  response.headers.set('X-XSS-Protection', '1; mode=block');
+  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+}
+
+/**
+ * KAN-64: `{slug}.<PLATFORM_ROOT_DOMAIN>` is a store. Rewrite every path on that host under the internal
+ * `/storefront/{slug}` route, so root-domain routes (dashboard, admin, API) are never reachable from a store
+ * host. The proxy does not call the backend; the route looks the store up and 404s unknown or suspended ones.
+ */
+function rewriteToStorefront(request: NextRequest, slug: string, headers: Headers): NextResponse {
+  const url = request.nextUrl.clone();
+  url.pathname = `/storefront/${slug}${url.pathname === '/' ? '' : url.pathname}`;
+  headers.set(STORE_SLUG_HEADER, slug);
+  const response = NextResponse.rewrite(url, { request: { headers } });
+  applySecurityHeaders(response);
+  return response;
+}
 
 /**
  * Apply rate limiting to request
@@ -52,6 +79,18 @@ function applyRateLimit(request: NextRequest, pathname: string): NextResponse | 
  */
 export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
+
+  // The slug marker is proxy-only: drop any client-supplied copy before anything else sees the request.
+  const forwardedHeaders = new Headers(request.headers);
+  forwardedHeaders.delete(STORE_SLUG_HEADER);
+
+  const storeSlug = parseStoreSlug(
+    request.headers.get('host'),
+    resolvePlatformRootDomain(process.env.PLATFORM_ROOT_DOMAIN)
+  );
+  if (storeSlug) {
+    return rewriteToStorefront(request, storeSlug, forwardedHeaders);
+  }
 
   // Apply rate limiting to API routes
   if (pathname.startsWith('/api/')) {
@@ -132,13 +171,8 @@ export async function proxy(request: NextRequest) {
   }
 
   // Add security headers
-  const response = NextResponse.next();
-
-  // Security headers
-  response.headers.set('X-Content-Type-Options', 'nosniff');
-  response.headers.set('X-Frame-Options', 'DENY');
-  response.headers.set('X-XSS-Protection', '1; mode=block');
-  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  const response = NextResponse.next({ request: { headers: forwardedHeaders } });
+  applySecurityHeaders(response);
 
   // CORS headers for API routes
   if (pathname.startsWith('/api/')) {

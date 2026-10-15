@@ -21,6 +21,7 @@ Indexes for the list filters: `(user_id, created_at)`, `(action, created_at)`, `
 | Action | Written by | Organisation | Store |
 | --- | --- | --- | --- |
 | `admin.users.update`, `.delete`, `.ban`, `.unban`, `.grant_admin`, `.revoke_admin` | `AdminUsersService` | no | no |
+| `admin.subscriptions.cancel`, `.refund`, `.grant` | `AdminSubscriptionsService` | yes | no |
 | `org.create`, `org.update` | `OrganizationsService` | yes | no |
 | `store.create`, `store.update` | `OrganizationsService` | yes | yes |
 | `billing.checkout`, `billing.change_plan`, `billing.cancel`, `billing.resume` | `OrgBillingService` | yes | no |
