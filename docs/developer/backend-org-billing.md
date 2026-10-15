@@ -12,19 +12,55 @@ All under `/v1/organizations/{organization_id}/billing`. Every route needs `X-In
 (`X-Session-Token`, verified email) and is rate limited by subject (`API_POLICY`). Responses use the usual
 `{"success": true, "data": ...}` envelope with `Cache-Control: no-store`.
 
-| Method and path         | Purpose                                                                        | Success                          |
-| ----------------------- | ------------------------------------------------------------------------------ | -------------------------------- |
-| `GET  /`                | Plan (limits from `app/core/plans.py`), subscription status, period end, flags | `plan`, `subscription_status`... |
-| `POST /checkout`        | Stripe Checkout session for `plan` (`pro`/`enterprise`) and `interval`         | `{url}`                          |
-| `POST /portal`          | Stripe customer-portal session                                                 | `{url}`                          |
-| `POST /plan`            | Swap the price on the live subscription (prorated)                             | `{success: true}`                |
-| `POST /cancel`          | Cancel at period end                                                           | `{success: true}`                |
-| `POST /resume`          | Undo a pending cancellation                                                    | `{success: true}`                |
-| `GET  /invoices`        | Latest 12 invoices (id, number, status, amounts, currency, hosted/PDF links)   | list                             |
-| `GET  /payment-methods` | Saved cards (brand, last4, expiry only)                                        | list                             |
+| Method and path                         | Purpose                                                                                                            | Success                          |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------- |
+| `GET  /`                                | Plan (limits from `app/core/plans.py`), subscription status, period end, flags, `cancel_at_period_end`, `interval` | `plan`, `subscription_status`... |
+| `POST /checkout`                        | Stripe Checkout session for `plan` (`pro`/`enterprise`) and `interval`                                             | `{url}`                          |
+| `POST /portal`                          | Stripe customer-portal session                                                                                     | `{url}`                          |
+| `POST /plan`                            | Swap the price on the live subscription (prorated)                                                                 | `{success: true}`                |
+| `POST /cancel`                          | Cancel at period end                                                                                               | `{success: true}`                |
+| `POST /resume`                          | Undo a pending cancellation                                                                                        | `{success: true}`                |
+| `GET  /invoices`                        | Latest 12 invoices (id, number, status, amounts, currency, hosted/PDF links)                                       | list                             |
+| `GET  /payment-methods`                 | Saved cards (brand, last4, expiry, `is_default`)                                                                   | list                             |
+| `DELETE /payment-methods/{pm_id}`       | Detach a saved card (KAN-182)                                                                                      | `{success: true}`                |
+| `POST /payment-methods/{pm_id}/default` | Make a saved card the customer's default (KAN-182)                                                                 | `{success: true}`                |
 
 Checkout and portal bodies carry `success_url`/`cancel_url` and `return_url`. Optional `Idempotency-Key` header
 (8 to 64 characters of `A-Za-z0-9_-`) lets a client make a retry replay-safe; without it the server generates one.
+
+## Renewal state, interval and cards (KAN-182)
+
+- **`cancel_at_period_end`** (`GET /`) is the stored column `organizations.stripe_cancel_at_period_end` (migration
+  `0004`). The webhook is still the only writer: `parse_subscription` reads Stripe's `cancel_at_period_end`, falling
+  back to a scheduled `cancel_at`, and `plan_change` stores it under the existing ordering and tie rules. An ended
+  subscription (or a `deleted` event) stores `false`. `/cancel` and `/resume` do not write it; the flag changes when
+  Stripe's `customer.subscription.updated` event arrives.
+- **`interval`** (`monthly`, `yearly` or `null`) is derived on every read by looking `stripe_price_id` up in
+  `price_catalogue()` (the `STRIPE_PRICE_ID_*` settings). It is `null` when the price is unmapped. **If a price id is
+  rotated in settings, subscriptions still on the old price read `null` until their price changes**; keep old ids
+  configured, or accept `null`, during a rotation. The tier is unaffected.
+- **`is_default`** (`GET /payment-methods`) is read live from the Stripe customer's
+  `invoice_settings.default_payment_method`; nothing is stored. An extra Stripe call is made per list.
+- **`DELETE /payment-methods/{pm_id}`** and **`POST /payment-methods/{pm_id}/default`**: OWNER or ADMIN only, and the
+  `Idempotency-Key` header is **required** (missing or malformed: 422, before any Stripe call). `pm_id` must look like
+  `pm_...`. Ownership is checked against Stripe: the payment method's customer must equal the organisation's
+  `stripe_customer_id`. A payment method that is unknown, belongs to another customer, or an organisation with no
+  customer all return the same **404** `Payment method not found` (byte-identical), so an admin cannot detach or probe
+  another customer's card. Deleting the **default** card while the subscription is live (any status that still has a
+  subscription, as for checkout) returns **409**, because it would make renewal fail; set another default first or
+  use the portal. Stripe failures are the usual generic 502.
+
+### Backfill for organisations subscribed before migration `0004`
+
+The migration cannot call Stripe, so the column is added `NOT NULL DEFAULT false` and existing rows read `false`. An
+organisation that had already scheduled cancellation shows "will renew" until Stripe sends its next
+`customer.subscription.updated` event (any subscription change, including the one Stripe sends at renewal). To
+correct them sooner, once per environment after the migration, either: in the Stripe dashboard resend the latest
+`customer.subscription.updated` event for each subscription that is set to cancel (an event with the same `created`
+second as the stored one is applied, an older one is ignored), or touch the subscription in Stripe (for example
+update its metadata) to emit a new event. Find the affected rows with
+`SELECT id FROM organizations WHERE stripe_subscription_id IS NOT NULL` and check each in Stripe. New and changed
+subscriptions are always correct because the webhook stores the flag.
 
 ## Authorisation
 
@@ -42,12 +78,12 @@ The merchant authorisation dependency planned as KAN-52 does not exist yet, so t
 
 ## Rules and errors
 
-| Status | When                                                                                                                                                                                  |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status | When                                                                                                                                                                                                                                                             |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 409    | Checkout while a subscription is live (any status except `canceled`/`incomplete_expired`, including `unpaid`, `incomplete`, `paused`: use the portal); plan change, cancel, resume without one; portal without a customer; same-price plan change; the free plan |
-| 422    | Return URL not on the allow-list, malformed body or `Idempotency-Key`                                                                                                                 |
-| 502    | Any Stripe failure. The body is always `Billing provider unavailable`                                                                                     |
-| 503    | `STRIPE_SECRET_KEY` empty or unset, or the requested `STRIPE_PRICE_ID_*` not set                                                                                                                                                         |
+| 422    | Return URL not on the allow-list, malformed body or `Idempotency-Key`                                                                                                                                                                                            |
+| 502    | Any Stripe failure. The body is always `Billing provider unavailable`                                                                                                                                                                                            |
+| 503    | `STRIPE_SECRET_KEY` empty or unset, or the requested `STRIPE_PRICE_ID_*` not set                                                                                                                                                                                 |
 
 **Return URLs** must be `http(s)`, without credentials, whitespace or backslashes, and their origin
 (`scheme://host[:port]`) must be in `BILLING_RETURN_URL_ORIGINS`. An empty setting rejects every URL.
@@ -84,7 +120,9 @@ to `.env.example` and Vercel (the coordinator owns `.env.example`).
 - `tests/api/test_org_billing_e2e.py`: the real app, dependency chain and Postgres (same `TEST_DATABASE_URL` contract
   as the webhook end-to-end test) with a fake Stripe client: 401, unverified email, cross-organisation 404, STAFF 403,
   OWNER and ADMIN happy paths, customer linking and concurrency, invalid return URL, Stripe failure, and a signed
-  webhook upgrading the organisation after checkout.
+  webhook upgrading the organisation after checkout. KAN-182 adds the webhook-stored flag (set, cleared, `cancel_at`,
+  stale event), `interval` (including an unmapped price), `is_default`, and delete and set-default (ownership 404
+  identical to unknown, 409 on the default card, STAFF 403, missing key 422).
 
 ## Not verified here
 

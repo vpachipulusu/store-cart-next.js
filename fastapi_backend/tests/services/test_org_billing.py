@@ -13,6 +13,7 @@ from app.services.org_billing import (
     InvalidReturnUrl,
     OrganizationNotFound,
     OrgBillingService,
+    PaymentMethodNotFound,
     allowed_origins,
     validate_return_url,
 )
@@ -393,3 +394,74 @@ async def test_read_transaction_is_ended_before_stripe_is_called():
     await service.invoices("org1", "u1")
 
     assert session.rollbacks == 1
+
+
+async def test_summary_reports_cancel_at_period_end_and_interval():
+    service, *_ = build(
+        subscribed_record(
+            stripe_cancel_at_period_end=True, stripe_price_id="price_pro_y"
+        )
+    )
+
+    summary = await service.summary("org1", "u1")
+
+    assert summary.cancel_at_period_end is True
+    assert summary.interval == "yearly"
+
+
+@pytest.mark.parametrize("price", [None, "price_rotated_away"])
+async def test_interval_is_null_when_the_price_is_not_in_the_catalogue(price):
+    service, *_ = build(subscribed_record(stripe_price_id=price))
+
+    assert (await service.summary("org1", "u1")).interval is None
+
+
+async def test_payment_methods_flag_the_customers_default_card():
+    service, stripe, *_ = build(subscribed_record())
+    stripe.payment_methods = [
+        replace(stripe.payment_methods[0], id="pm_a"),
+        replace(stripe.payment_methods[0], id="pm_b"),
+    ]
+    stripe.default_payment_method = "pm_b"
+
+    methods = await service.payment_methods("org1", "u1")
+
+    assert [(m.id, m.is_default) for m in methods] == [("pm_a", False), ("pm_b", True)]
+
+
+async def test_delete_payment_method_of_another_customer_is_not_found():
+    service, stripe, *_ = build(subscribed_record())
+
+    with pytest.raises(PaymentMethodNotFound):
+        await service.delete_payment_method(
+            "org1", "u1", "pm_other", request_key="key-00001"
+        )
+    assert "detach_payment_method" not in stripe.names()
+
+
+async def test_payment_method_without_a_billing_account_is_not_found():
+    service, stripe, *_ = build()
+
+    with pytest.raises(PaymentMethodNotFound):
+        await service.set_default_payment_method(
+            "org1", "u1", "pm_1", request_key="key-00001"
+        )
+    assert stripe.calls == []
+
+
+async def test_default_card_can_be_deleted_without_a_live_subscription():
+    service, stripe, *_ = build(subscribed_record(subscription_status="canceled"))
+
+    await service.delete_payment_method("org1", "u1", "pm_1", request_key="key-00001")
+
+    assert stripe.last("detach_payment_method")["payment_method_id"] == "pm_1"
+
+
+async def test_stripe_failure_while_checking_ownership_is_unavailable():
+    service, stripe, *_ = build(subscribed_record())
+    stripe.fail = True
+
+    with pytest.raises(BillingUnavailable):
+        await service.delete_payment_method(
+            "org1", "u1", "pm_1", request_key="key-00001"
+        )

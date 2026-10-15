@@ -11,6 +11,7 @@ from app.core.stripe_billing import (
     HttpStripeBilling,
     StripeError,
     StripeNotConfigured,
+    StripeNotFound,
     get_stripe_billing,
 )
 
@@ -280,3 +281,52 @@ def test_factory_treats_an_empty_key_as_not_configured(monkeypatch):
 
     with pytest.raises(StripeNotConfigured):
         get_stripe_billing()
+
+
+@pytest.mark.parametrize(
+    ("setting", "expected"),
+    [
+        ("pm_1", "pm_1"),
+        ({"id": "pm_2", "object": "payment_method"}, "pm_2"),
+        (None, None),
+    ],
+)
+async def test_default_payment_method_is_read_from_the_customer(setting, expected):
+    seen: list[httpx.Request] = []
+    body = {"id": "cus_1", "invoice_settings": {"default_payment_method": setting}}
+    stripe = client_for(lambda r: json_response(body), seen)
+
+    assert await stripe.get_default_payment_method_id("cus_1") == expected
+    assert (seen[0].method, seen[0].url.path) == ("GET", "/v1/customers/cus_1")
+
+
+@pytest.mark.parametrize(
+    ("customer", "expected"),
+    [("cus_1", "cus_1"), ({"id": "cus_2"}, "cus_2"), (None, None)],
+)
+async def test_payment_method_owner_is_read_from_the_payment_method(customer, expected):
+    stripe = client_for(lambda r: json_response({"id": "pm_1", "customer": customer}))
+
+    assert await stripe.get_payment_method_customer_id("pm_1") == expected
+
+
+async def test_a_missing_payment_method_is_stripe_not_found():
+    stripe = client_for(lambda r: json_response({"error": {}}, 404))
+
+    with pytest.raises(StripeNotFound):
+        await stripe.get_payment_method_customer_id("pm_missing")
+
+
+async def test_detach_and_set_default_send_the_expected_requests():
+    seen: list[httpx.Request] = []
+    stripe = client_for(lambda r: json_response({"id": "x"}), seen)
+
+    await stripe.detach_payment_method(payment_method_id="pm_1", idempotency_key="k-1")
+    await stripe.set_default_payment_method(
+        customer_id="cus_1", payment_method_id="pm_2", idempotency_key="k-2"
+    )
+
+    assert seen[0].url.path == "/v1/payment_methods/pm_1/detach"
+    assert seen[0].headers["Idempotency-Key"] == "k-1"
+    assert seen[1].url.path == "/v1/customers/cus_1"
+    assert form(seen[1]) == {"invoice_settings[default_payment_method]": "pm_2"}

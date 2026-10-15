@@ -31,6 +31,7 @@ class BillingChange:
     stripe_subscription_event_at: datetime
     subscription_tier: str
     subscription_status: str
+    stripe_cancel_at_period_end: bool = False
 
 
 class StripeEventRepository:
@@ -103,5 +104,6 @@ class OrganizationBillingRepository:
                 stripe_subscription_event_at=change.stripe_subscription_event_at,
                 subscription_tier=change.subscription_tier,
                 subscription_status=change.subscription_status,
+                stripe_cancel_at_period_end=change.stripe_cancel_at_period_end,
             )
         )

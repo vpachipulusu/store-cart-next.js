@@ -131,6 +131,8 @@ async def test_summary_returns_plan_limits_from_the_catalogue(harness):
     }
     assert data["subscription_status"] == "active"
     assert data["has_subscription"] is True
+    assert data["cancel_at_period_end"] is False
+    assert data["interval"] == "monthly"
     assert "cus_1" not in str(data)
     assert "sub_1" not in str(data)
 
@@ -284,6 +286,7 @@ async def test_invoices_and_payment_methods_expose_only_the_summary_fields(harne
             "last4": "4242",
             "exp_month": 12,
             "exp_year": 2030,
+            "is_default": True,
         }
     ]
 
@@ -331,3 +334,81 @@ def test_price_catalogue_reads_settings(monkeypatch):
         (PlanKey.PRO, "monthly"): "price_a",
         (PlanKey.ENTERPRISE, "monthly"): "price_b",
     }
+
+
+PM = f"{BASE}/payment-methods"
+IDEMPOTENT = {"Idempotency-Key": "pm-key-0001"}
+
+
+async def test_delete_payment_method_detaches_it_with_the_client_key(harness):
+    harness.stripe.default_payment_method = "pm_other_default"
+    harness.stripe.payment_method_owners["pm_2"] = "cus_1"
+    async with client(harness) as http:
+        result = await http.delete(f"{PM}/pm_2", headers=IDEMPOTENT)
+
+    assert result.status_code == 200
+    assert result.json() == {"success": True}
+    assert harness.stripe.last("detach_payment_method") == {
+        "payment_method_id": "pm_2",
+        "idempotency_key": "sc-pm-delete-org1-pm-key-0001",
+    }
+
+
+async def test_set_default_payment_method_updates_the_customer(harness):
+    async with client(harness, "admin") as http:
+        result = await http.post(f"{PM}/pm_1/default", headers=IDEMPOTENT)
+
+    assert result.status_code == 200
+    assert harness.stripe.last("set_default_payment_method") == {
+        "customer_id": "cus_1",
+        "payment_method_id": "pm_1",
+        "idempotency_key": "sc-pm-default-org1-pm-key-0001",
+    }
+
+
+async def test_payment_method_changes_need_an_idempotency_key(harness):
+    async with client(harness) as http:
+        deleted = await http.delete(f"{PM}/pm_1")
+        default = await http.post(f"{PM}/pm_1/default")
+
+    assert (deleted.status_code, default.status_code) == (422, 422)
+    assert harness.stripe.calls == []
+
+
+async def test_foreign_and_unknown_payment_methods_get_the_same_404(harness):
+    async with client(harness) as http:
+        foreign = await http.delete(f"{PM}/pm_other", headers=IDEMPOTENT)
+        unknown = await http.delete(f"{PM}/pm_nope", headers=IDEMPOTENT)
+        foreign_default = await http.post(f"{PM}/pm_other/default", headers=IDEMPOTENT)
+
+    assert foreign.status_code == unknown.status_code == 404
+    assert foreign.content == unknown.content
+    assert foreign_default.status_code == 404
+    assert "detach_payment_method" not in harness.stripe.names()
+    assert "set_default_payment_method" not in harness.stripe.names()
+
+
+async def test_deleting_the_default_card_of_a_live_subscription_is_409(harness):
+    async with client(harness) as http:
+        result = await http.delete(f"{PM}/pm_1", headers=IDEMPOTENT)
+
+    assert result.status_code == 409
+    assert "detach_payment_method" not in harness.stripe.names()
+
+
+async def test_payment_method_changes_are_owner_or_admin_only(harness):
+    async with client(harness, "staff") as staff:
+        a = await staff.delete(f"{PM}/pm_1", headers=IDEMPOTENT)
+        b = await staff.post(f"{PM}/pm_1/default", headers=IDEMPOTENT)
+    async with client(harness, "other-owner") as stranger:
+        c = await stranger.delete(f"{PM}/pm_1", headers=IDEMPOTENT)
+
+    assert (a.status_code, b.status_code, c.status_code) == (403, 403, 404)
+    assert harness.stripe.calls == []
+
+
+async def test_malformed_payment_method_id_is_422(harness):
+    async with client(harness) as http:
+        result = await http.delete(f"{PM}/not-a-pm", headers=IDEMPOTENT)
+
+    assert result.status_code == 422

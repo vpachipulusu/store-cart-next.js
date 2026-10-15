@@ -33,6 +33,10 @@ class StripeNotConfigured(StripeError):
     """STRIPE_SECRET_KEY is not set."""
 
 
+class StripeNotFound(StripeError):
+    """Stripe has no such object (HTTP 404)."""
+
+
 @dataclass(frozen=True)
 class StripeSubscription:
     id: str
@@ -61,6 +65,7 @@ class StripePaymentMethod:
     last4: str | None
     exp_month: int | None
     exp_year: int | None
+    is_default: bool = False
 
 
 class StripeBilling(Protocol):
@@ -103,6 +108,22 @@ class StripeBilling(Protocol):
     async def list_payment_methods(
         self, customer_id: str
     ) -> list[StripePaymentMethod]: ...
+
+    async def get_default_payment_method_id(self, customer_id: str) -> str | None: ...
+
+    async def get_payment_method_customer_id(
+        self, payment_method_id: str
+    ) -> str | None:
+        """The customer a payment method is attached to; StripeNotFound if unknown."""
+        ...
+
+    async def detach_payment_method(
+        self, *, payment_method_id: str, idempotency_key: str
+    ) -> None: ...
+
+    async def set_default_payment_method(
+        self, *, customer_id: str, payment_method_id: str, idempotency_key: str
+    ) -> None: ...
 
 
 def _int(value: Any) -> int:
@@ -170,6 +191,8 @@ class HttpStripeBilling:
                     )
             if response.status_code >= 400:
                 logger.warning("stripe call failed: status=%s", response.status_code)
+                if response.status_code == 404:
+                    raise StripeNotFound("Stripe request failed")
                 raise StripeError("Stripe request failed")
             body = response.json()
         except (httpx.HTTPError, ValueError) as exc:
@@ -311,6 +334,40 @@ class HttpStripeBilling:
                 )
             )
         return methods
+
+    async def get_default_payment_method_id(self, customer_id: str) -> str | None:
+        body = await self._call("GET", f"/customers/{customer_id}")
+        default = _dict(body.get("invoice_settings")).get("default_payment_method")
+        # Stripe returns an id, or the whole object when expanded.
+        return _text(_dict(default).get("id") if isinstance(default, dict) else default)
+
+    async def get_payment_method_customer_id(
+        self, payment_method_id: str
+    ) -> str | None:
+        body = await self._call("GET", f"/payment_methods/{payment_method_id}")
+        customer = body.get("customer")
+        if isinstance(customer, dict):
+            customer = customer.get("id")
+        return _text(customer)
+
+    async def detach_payment_method(
+        self, *, payment_method_id: str, idempotency_key: str
+    ) -> None:
+        await self._call(
+            "POST",
+            f"/payment_methods/{payment_method_id}/detach",
+            idempotency_key=idempotency_key,
+        )
+
+    async def set_default_payment_method(
+        self, *, customer_id: str, payment_method_id: str, idempotency_key: str
+    ) -> None:
+        await self._call(
+            "POST",
+            f"/customers/{customer_id}",
+            data={"invoice_settings[default_payment_method]": payment_method_id},
+            idempotency_key=idempotency_key,
+        )
 
 
 def get_stripe_billing() -> StripeBilling:
