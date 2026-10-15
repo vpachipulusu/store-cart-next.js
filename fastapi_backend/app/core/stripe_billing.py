@@ -23,6 +23,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 STRIPE_API = "https://api.stripe.com/v1"
 REQUEST_TIMEOUT_SECONDS = 10.0
 LIST_LIMIT = 12
+REJECTED_STATUSES = frozenset({400, 402, 409})
 
 
 class StripeError(Exception):
@@ -37,12 +38,18 @@ class StripeNotFound(StripeError):
     """Stripe has no such object (HTTP 404)."""
 
 
+class StripeRejected(StripeError):
+    """Stripe refused the request itself (HTTP 400, 402 or 409), not an outage."""
+
+
 @dataclass(frozen=True)
 class StripeSubscription:
     id: str
     customer_id: str
     item_id: str | None
     price_id: str | None
+    status: str | None = None
+    cancel_at_period_end: bool = False
 
 
 @dataclass(frozen=True)
@@ -126,21 +133,21 @@ class StripeBilling(Protocol):
     ) -> None: ...
 
 
-def _int(value: Any) -> int:
+def as_int(value: Any) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
-def _text(value: Any) -> str | None:
+def as_text(value: Any) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _require_text(value: Any) -> str:
+def require_text(value: Any) -> str:
     if not isinstance(value, str) or not value:
         raise StripeError("Stripe response was unusable")
     return value
 
 
-def _dict(value: Any) -> dict[str, Any]:
+def as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
@@ -193,6 +200,8 @@ class HttpStripeBilling:
                 logger.warning("stripe call failed: status=%s", response.status_code)
                 if response.status_code == 404:
                     raise StripeNotFound("Stripe request failed")
+                if response.status_code in REJECTED_STATUSES:
+                    raise StripeRejected("Stripe request failed")
                 raise StripeError("Stripe request failed")
             body = response.json()
         except (httpx.HTTPError, ValueError) as exc:
@@ -211,7 +220,7 @@ class HttpStripeBilling:
             data={"name": name[:256], "metadata[organization_id]": organization_id},
             idempotency_key=idempotency_key,
         )
-        return _require_text(body.get("id"))
+        return require_text(body.get("id"))
 
     async def create_checkout_session(
         self,
@@ -238,7 +247,7 @@ class HttpStripeBilling:
             },
             idempotency_key=idempotency_key,
         )
-        return _require_text(body.get("url"))
+        return require_text(body.get("url"))
 
     async def create_portal_session(
         self, *, customer_id: str, return_url: str, idempotency_key: str
@@ -249,17 +258,20 @@ class HttpStripeBilling:
             data={"customer": customer_id, "return_url": return_url},
             idempotency_key=idempotency_key,
         )
-        return _require_text(body.get("url"))
+        return require_text(body.get("url"))
 
     async def get_subscription(self, subscription_id: str) -> StripeSubscription:
         body = await self._call("GET", f"/subscriptions/{subscription_id}")
-        items = _dict(body.get("items")).get("data") or []
-        first = _dict(items[0]) if items else {}
+        items = as_dict(body.get("items")).get("data") or []
+        first = as_dict(items[0]) if items else {}
         return StripeSubscription(
-            id=_require_text(body.get("id")),
-            customer_id=_require_text(body.get("customer")),
-            item_id=_text(first.get("id")),
-            price_id=_text(_dict(first.get("price")).get("id")),
+            id=require_text(body.get("id")),
+            customer_id=require_text(body.get("customer")),
+            item_id=as_text(first.get("id")),
+            price_id=as_text(as_dict(first.get("price")).get("id")),
+            status=as_text(body.get("status")),
+            cancel_at_period_end=body.get("cancel_at_period_end") is True
+            or isinstance(body.get("cancel_at"), int),
         )
 
     async def change_subscription_price(
@@ -299,15 +311,15 @@ class HttpStripeBilling:
         )
         return [
             StripeInvoice(
-                id=_require_text(row.get("id")),
-                number=_text(row.get("number")),
-                status=_text(row.get("status")),
-                amount_due=_int(row.get("amount_due")),
-                amount_paid=_int(row.get("amount_paid")),
-                currency=_text(row.get("currency")) or "",
-                created=_int(row.get("created")),
-                hosted_invoice_url=_text(row.get("hosted_invoice_url")),
-                invoice_pdf=_text(row.get("invoice_pdf")),
+                id=require_text(row.get("id")),
+                number=as_text(row.get("number")),
+                status=as_text(row.get("status")),
+                amount_due=as_int(row.get("amount_due")),
+                amount_paid=as_int(row.get("amount_paid")),
+                currency=as_text(row.get("currency")) or "",
+                created=as_int(row.get("created")),
+                hosted_invoice_url=as_text(row.get("hosted_invoice_url")),
+                invoice_pdf=as_text(row.get("invoice_pdf")),
             )
             for row in body.get("data") or []
             if isinstance(row, dict)
@@ -323,23 +335,25 @@ class HttpStripeBilling:
         for row in body.get("data") or []:
             if not isinstance(row, dict):
                 continue
-            card = _dict(row.get("card"))
+            card = as_dict(row.get("card"))
             methods.append(
                 StripePaymentMethod(
-                    id=_require_text(row.get("id")),
-                    brand=_text(card.get("brand")),
-                    last4=_text(card.get("last4")),
-                    exp_month=_int(card.get("exp_month")) or None,
-                    exp_year=_int(card.get("exp_year")) or None,
+                    id=require_text(row.get("id")),
+                    brand=as_text(card.get("brand")),
+                    last4=as_text(card.get("last4")),
+                    exp_month=as_int(card.get("exp_month")) or None,
+                    exp_year=as_int(card.get("exp_year")) or None,
                 )
             )
         return methods
 
     async def get_default_payment_method_id(self, customer_id: str) -> str | None:
         body = await self._call("GET", f"/customers/{customer_id}")
-        default = _dict(body.get("invoice_settings")).get("default_payment_method")
+        default = as_dict(body.get("invoice_settings")).get("default_payment_method")
         # Stripe returns an id, or the whole object when expanded.
-        return _text(_dict(default).get("id") if isinstance(default, dict) else default)
+        return as_text(
+            as_dict(default).get("id") if isinstance(default, dict) else default
+        )
 
     async def get_payment_method_customer_id(
         self, payment_method_id: str
@@ -348,7 +362,7 @@ class HttpStripeBilling:
         customer = body.get("customer")
         if isinstance(customer, dict):
             customer = customer.get("id")
-        return _text(customer)
+        return as_text(customer)
 
     async def detach_payment_method(
         self, *, payment_method_id: str, idempotency_key: str

@@ -12,6 +12,7 @@ unlimited. ``platform_fee_bps`` is reserved for a future per-order platform fee
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from types import MappingProxyType
 
@@ -72,3 +73,28 @@ def get_plan(key: str) -> Plan:
 def is_within_limit(current: int, limit: int | None) -> bool:
     """True if one more item can be added under ``limit`` (None is unlimited)."""
     return limit is None or current < limit
+
+
+_RANK = {PlanKey.FREE: 0, PlanKey.PRO: 1, PlanKey.ENTERPRISE: 2}
+
+
+def _known(key: str | None) -> PlanKey | None:
+    try:
+        return PlanKey(key) if key is not None else None
+    except ValueError:
+        return None
+
+
+def effective_plan_key(
+    tier: str, granted_plan: str | None, granted_until: datetime | None, now: datetime
+) -> PlanKey:
+    """The plan an organisation gets: the Stripe-backed tier, or an unexpired admin grant if higher.
+
+    A grant never replaces Stripe state (the webhook writes ``tier``); it only lifts
+    the plan while it lasts. An unknown tier or grant counts as free.
+    """
+    stripe_plan = _known(tier) or PlanKey.FREE
+    granted = _known(granted_plan)
+    if granted is None or granted_until is None or granted_until <= now:
+        return stripe_plan
+    return granted if _RANK[granted] > _RANK[stripe_plan] else stripe_plan

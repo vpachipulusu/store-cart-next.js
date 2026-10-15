@@ -6,12 +6,13 @@ with exactly one row and a clean "taken" answer instead of an exception. Row loc
 """
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
+from app.core.plans import effective_plan_key
 from app.models.platform.membership import Membership, MembershipRole
 from app.models.platform.organization import Organization
 from app.models.platform.store import Store, StoreStatus
@@ -25,6 +26,7 @@ class OrganizationRecord:
     name: str
     slug: str
     subscription_tier: str
+    effective_plan: str
     created_at: datetime
     updated_at: datetime
 
@@ -46,6 +48,13 @@ def _org(row: Organization) -> OrganizationRecord:
         row.name,
         row.slug,
         row.subscription_tier,
+        # The plan in force: the Stripe tier or a higher, unexpired admin grant (KAN-48).
+        effective_plan_key(
+            row.subscription_tier,
+            row.granted_plan,
+            row.granted_until,
+            datetime.now(UTC),
+        ).value,
         row.created_at,
         row.updated_at,
     )

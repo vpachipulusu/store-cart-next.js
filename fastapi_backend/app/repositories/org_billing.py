@@ -1,8 +1,9 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import select, update
 
+from app.core.plans import effective_plan_key
 from app.models.platform.membership import Membership, MembershipRole
 from app.models.platform.organization import Organization
 from app.repositories.base import BaseRepository
@@ -21,6 +22,9 @@ class OrgBillingRecord:
     subscription_tier: str
     subscription_status: str
     stripe_cancel_at_period_end: bool = False
+    # The plan in force: the Stripe tier or a higher, unexpired admin grant (KAN-48).
+    # `subscription_tier` stays the raw Stripe-backed value.
+    effective_plan: str | None = None
 
 
 class OrgBillingRepository(BaseRepository):
@@ -54,6 +58,12 @@ class OrgBillingRepository(BaseRepository):
             organization.subscription_tier,
             organization.subscription_status,
             organization.stripe_cancel_at_period_end,
+            effective_plan_key(
+                organization.subscription_tier,
+                organization.granted_plan,
+                organization.granted_until,
+                datetime.now(UTC),
+            ).value,
         )
 
     async def link_customer(self, organization_id: str, customer_id: str) -> str:

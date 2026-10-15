@@ -9,7 +9,12 @@ from app.models.platform.mixins import CreatedAtMixin, IdMixin
 
 
 class AuditLog(IdMixin, CreatedAtMixin, Base):
-    """Append-only trail. No foreign keys, so rows outlive users and organisations."""
+    """Append-only trail. No foreign keys, so rows outlive users and organisations.
+
+    One exception (KAN-48): a refund writes its row as ``state: pending`` before Stripe
+    moves money and the same row is then updated to ``completed`` or ``failed``
+    (``AdminSubscriptionsRepository.update_request``). Nothing else updates or deletes a row.
+    """
 
     __tablename__ = "audit_logs"
     __table_args__ = (
