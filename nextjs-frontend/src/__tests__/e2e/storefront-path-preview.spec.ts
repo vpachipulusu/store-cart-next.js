@@ -46,6 +46,19 @@ test.describe('storefront path preview', () => {
     expect(await page.content()).toBe(ghostBody);
   });
 
+  test('a trailing slash and sub-paths never serve a different store view', async ({ page }) => {
+    const trailing = await page.goto(previewUrl('/s/e2e-live/'));
+    expect(trailing?.status()).toBe(200);
+    expect(new URL(page.url()).pathname).toBe('/s/e2e-live');
+
+    const ghost = await page.goto(previewUrl('/s/e2e-ghost'));
+    const ghostBody = await page.content();
+    expect(ghost?.status()).toBe(404);
+    const sub = await page.goto(previewUrl('/s/e2e-live/products'));
+    expect(sub?.status()).toBe(404);
+    expect(await page.content()).toBe(ghostBody);
+  });
+
   test('the 404 body matches host routing', async ({ page }) => {
     await page.goto(previewUrl('/s/e2e-ghost'));
     const pathBody = await page.content();

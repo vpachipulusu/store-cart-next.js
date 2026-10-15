@@ -16,8 +16,8 @@ const rewritePath = (response: Response) => new URL(rewriteTarget(response)!).pa
 
 function configure(flag: string | undefined, vercelEnv: string | undefined) {
   vi.stubEnv('PLATFORM_ROOT_DOMAIN', ROOT_HOST);
-  vi.stubEnv('STOREFRONT_PATH_PREVIEW', flag as string);
-  vi.stubEnv('VERCEL_ENV', vercelEnv as string);
+  vi.stubEnv('STOREFRONT_PATH_PREVIEW', flag);
+  vi.stubEnv('VERCEL_ENV', vercelEnv);
 }
 
 afterEach(() => {
@@ -34,13 +34,23 @@ describe('/s/{slug} when the preview is enabled', () => {
     expect(overridden(response, STORE_SLUG_HEADER)).toBe('acme');
   });
 
-  it('keeps the query and the rest of the path', async () => {
-    const response = await proxy(request(ROOT_HOST, '/s/acme/products?x=1'));
+  it('keeps the query on the store root', async () => {
+    const response = await proxy(request(ROOT_HOST, '/s/acme?x=1'));
 
     const target = new URL(rewriteTarget(response)!);
-    expect(target.pathname).toBe('/storefront/acme/products');
+    expect(target.pathname).toBe('/storefront/acme');
     expect(target.search).toBe('?x=1');
   });
+
+  it.each(['/s/acme/products', '/s/acme//x', '/s/acme/%2e%2e/x', '/s/ac%6De'])(
+    'serves no sub-path or encoded slug: %s',
+    async (path) => {
+      const response = await proxy(request(ROOT_HOST, path));
+
+      expect(rewritePath(response)).toBe('/storefront/not_found');
+      expect(overridden(response, STORE_SLUG_HEADER)).toBeNull();
+    }
+  );
 
   it('marks the response noindex and keeps the security headers', async () => {
     const response = await proxy(request(ROOT_HOST, '/s/acme'));
@@ -58,7 +68,7 @@ describe('/s/{slug} when the preview is enabled', () => {
   it('applies no root-domain auth redirects or API gate', async () => {
     const response = await proxy(request(ROOT_HOST, '/s/acme/login', { cookie: 'session=abc' }));
     expect(response.headers.get('location')).toBeNull();
-    expect(rewritePath(response)).toBe('/storefront/acme/login');
+    expect(rewritePath(response)).toBe('/storefront/not_found');
   });
 
   it.each(['/s', '/s/', '/s/ab', '/s/Acme', '/s/acme--x', '/s/www', '/s/admin', '/s/a_b_c'])(
@@ -66,7 +76,7 @@ describe('/s/{slug} when the preview is enabled', () => {
     async (path) => {
       const response = await proxy(request(ROOT_HOST, path, { [STORE_SLUG_HEADER]: 'acme' }));
 
-      expect(rewritePath(response)).toBe('/storefront/not-found');
+      expect(rewritePath(response)).toBe('/storefront/not_found');
       expect(overridden(response, STORE_SLUG_HEADER)).toBeNull();
       expect(response.headers.get('X-Robots-Tag')).toBe('noindex');
     }
@@ -91,7 +101,7 @@ describe.each([
   it('rewrites a valid slug to the not-found target without a slug marker', async () => {
     const response = await proxy(request(ROOT_HOST, '/s/acme', { [STORE_SLUG_HEADER]: 'acme' }));
 
-    expect(rewritePath(response)).toBe('/storefront/not-found');
+    expect(rewritePath(response)).toBe('/storefront/not_found');
     expect(overridden(response, STORE_SLUG_HEADER)).toBeNull();
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex');
   });
