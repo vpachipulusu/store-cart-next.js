@@ -1,5 +1,6 @@
 import { headers } from 'next/headers';
-import { fetchStorefront } from '@/lib/api/storefront';
+import { fetchStorefront, type PublicStorefront } from '@/lib/api/storefront';
+import { logger } from '@/lib/logger';
 import { STORE_SLUG_HEADER } from '@/lib/storefront/host';
 import { renderDocument } from '@/lib/storefront/html';
 
@@ -38,10 +39,14 @@ export async function GET(
   // The proxy sets this header from the Host it rewrote; a direct `/storefront/<slug>` hit has none.
   if ((await headers()).get(STORE_SLUG_HEADER) !== slug) return notFoundResponse();
 
-  let store;
+  let store: PublicStorefront | null;
   try {
     store = await fetchStorefront(slug);
-  } catch {
+  } catch (error) {
+    logger.error('Storefront lookup failed', {
+      slug,
+      message: error instanceof Error ? error.message : 'unknown',
+    });
     // An outage is not "store does not exist": answer 503 so it is never cached or indexed as a missing store.
     return new Response(
       renderDocument(

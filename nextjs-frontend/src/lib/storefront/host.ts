@@ -16,7 +16,7 @@ const HOST_PATTERN = /^[a-z0-9.-]+$/;
 const PORT_PATTERN = /^\d{1,5}$/;
 
 /** Copy of the backend's RESERVED_SLUGS: names that are platform hosts and never stores. */
-const RESERVED_SLUGS: ReadonlySet<string> = new Set([
+export const RESERVED_SLUGS: ReadonlySet<string> = new Set([
   'www',
   'admin',
   'api',
@@ -104,9 +104,23 @@ function normaliseHost(value: string): string | null {
   return withoutDot && HOST_PATTERN.test(withoutDot) ? withoutDot : null;
 }
 
-/** The configured platform root domain (`PLATFORM_ROOT_DOMAIN`), normalised; `localhost` when unset or invalid. */
+let warnedRootDomain = false;
+
+/**
+ * The configured platform root domain (`PLATFORM_ROOT_DOMAIN`), normalised; `localhost` when unset or invalid.
+ * In production that fallback means store subdomains silently stop working, so it warns once (never throws,
+ * and uses console because the proxy bundle must not import the Winston logger).
+ */
 export function resolvePlatformRootDomain(value: string | undefined): string {
-  return (value && normaliseHost(value)) || DEFAULT_PLATFORM_ROOT_DOMAIN;
+  const resolved = value ? normaliseHost(value) : null;
+  if (resolved) return resolved;
+  if (process.env.NODE_ENV === 'production' && !warnedRootDomain) {
+    warnedRootDomain = true;
+    console.warn(
+      '[storefront] PLATFORM_ROOT_DOMAIN is unset or invalid; falling back to "localhost", so store subdomains will not resolve.'
+    );
+  }
+  return DEFAULT_PLATFORM_ROOT_DOMAIN;
 }
 
 export function isValidStoreSlug(slug: string): boolean {

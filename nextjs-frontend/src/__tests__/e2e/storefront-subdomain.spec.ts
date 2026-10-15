@@ -30,10 +30,11 @@ test.describe('store subdomains', () => {
     const suspended = await page.goto(storeUrl('e2e-suspended'));
     const suspendedBody = await page.content();
     const unknown = await page.goto(storeUrl('e2e-ghost'));
+    const unknownBody = await page.content();
 
     expect(suspended?.status()).toBe(404);
     expect(unknown?.status()).toBe(404);
-    expect(suspendedBody).not.toContain('e2e-suspended');
+    expect(suspendedBody).toBe(unknownBody);
   });
 
   test('root-domain routes are not reachable from a store host', async ({ page }) => {

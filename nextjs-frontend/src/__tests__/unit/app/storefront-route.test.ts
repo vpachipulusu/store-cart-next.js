@@ -10,6 +10,11 @@ vi.mock('@/lib/api/storefront', () => ({
   fetchStorefront: (slug: string) => fetchStorefront(slug),
 }));
 
+const loggerError = vi.fn();
+vi.mock('@/lib/logger', () => ({
+  logger: { error: (...args: unknown[]) => loggerError(...args) },
+}));
+
 import { GET } from '@/app/storefront/[slug]/route';
 import { escapeHtml } from '@/lib/storefront/html';
 
@@ -73,6 +78,10 @@ describe('storefront route', () => {
     const response = await call('acme');
 
     expect(response.status).toBe(503);
+    expect(loggerError).toHaveBeenCalledWith('Storefront lookup failed', {
+      slug: 'acme',
+      message: 'Storefront lookup failed',
+    });
     expect(response.headers.get('Retry-After')).toBe('30');
   });
 });
