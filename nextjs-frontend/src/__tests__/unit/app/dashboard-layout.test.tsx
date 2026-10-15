@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   verifySessionCookie: vi.fn(),
   fetchProfile: vi.fn(),
   loggerError: vi.fn(),
+  currentStoreSelection: vi.fn(),
 }));
 
 vi.mock('next/navigation', () => navigationMock);
@@ -21,9 +22,11 @@ vi.mock('@/lib/firebase/admin', () => ({
   getAdminAuth: () => ({ verifySessionCookie: mocks.verifySessionCookie }),
 }));
 vi.mock('@/lib/api/account', () => ({ fetchProfile: mocks.fetchProfile }));
+vi.mock('@/lib/stores/current', () => ({ getCurrentStoreSelection: mocks.currentStoreSelection }));
 vi.mock('@/lib/logger', () => ({ logger: { error: mocks.loggerError } }));
 vi.mock('@/components/providers/session-provider', () => ({ SessionProvider: () => null }));
 vi.mock('@/components/dashboard/dashboard-header', () => ({ DashboardHeader: () => null }));
+vi.mock('@/components/dashboard/store-switcher', () => ({ StoreSwitcher: () => null }));
 
 import DashboardLayout from '@/app/dashboard/layout';
 
@@ -40,6 +43,26 @@ function findHeaderUser(node: unknown): Record<string, unknown> | undefined {
   return undefined;
 }
 
+/** True when any element in the rendered tree carries the given prop value. */
+function hasProp(node: unknown, prop: string, value: unknown): boolean {
+  if (!node || typeof node !== 'object') return false;
+  const props = (node as { props?: Record<string, unknown> }).props;
+  if (props?.[prop] === value) return true;
+  const children = props?.children;
+  return (Array.isArray(children) ? children : [children]).some((child) =>
+    hasProp(child, prop, value)
+  );
+}
+
+const STORE = {
+  id: 'tz4a98xxat96iws9zmbrgj3a',
+  name: 'Alpha',
+  slug: 'alpha',
+  status: 'ACTIVE',
+  organizationId: 'org-1',
+  organizationName: 'Org',
+};
+
 describe('DashboardLayout session check', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -54,6 +77,45 @@ describe('DashboardLayout session check', () => {
     mocks.fetchProfile.mockResolvedValue({
       success: true,
       data: { display_name: null, avatar_url: null },
+    });
+    mocks.currentStoreSelection.mockResolvedValue({
+      available: true,
+      stores: [STORE],
+      selected: STORE,
+    });
+  });
+
+  describe('KAN-61: store scope', () => {
+    it('scopes the main area to the selected store', async () => {
+      const tree = await DashboardLayout({ children: null });
+
+      expect(hasProp(tree, 'data-store-id', STORE.id)).toBe(true);
+      expect(hasProp(tree, 'data-testid', 'no-stores')).toBe(false);
+    });
+
+    it('shows the empty state, not a store scope, when the user has no stores', async () => {
+      mocks.currentStoreSelection.mockResolvedValue({
+        available: true,
+        stores: [],
+        selected: null,
+      });
+
+      const tree = await DashboardLayout({ children: null });
+
+      expect(hasProp(tree, 'data-testid', 'no-stores')).toBe(true);
+      expect(hasProp(tree, 'data-store-id', STORE.id)).toBe(false);
+    });
+
+    it('keeps the dashboard usable when the store list cannot be loaded', async () => {
+      mocks.currentStoreSelection.mockResolvedValue({
+        available: false,
+        error: 'Backend unavailable',
+      });
+
+      const tree = await DashboardLayout({ children: null });
+
+      expect(tree).toBeDefined();
+      expect(hasProp(tree, 'data-testid', 'no-stores')).toBe(false);
     });
   });
 

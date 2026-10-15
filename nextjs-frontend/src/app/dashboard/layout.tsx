@@ -8,6 +8,8 @@ import Link from 'next/link';
 import { LayoutDashboard } from 'lucide-react';
 import { SessionProvider } from '@/components/providers/session-provider';
 import { DashboardHeader } from '@/components/dashboard/dashboard-header';
+import { StoreSwitcher } from '@/components/dashboard/store-switcher';
+import { getCurrentStoreSelection } from '@/lib/stores/current';
 
 /**
  * Every /dashboard route is per-user (session cookie) and reads Prisma, so none can be prerendered.
@@ -73,6 +75,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
     redirect('/login');
   }
 
+  const storeSelection = await getCurrentStoreSelection();
+  const selectedStore = storeSelection.available ? storeSelection.selected : null;
+
   return (
     <div className="flex min-h-screen flex-col">
       {/* Header */}
@@ -105,21 +110,39 @@ export default async function DashboardLayout({ children }: { children: React.Re
             </nav>
           </div>
 
-          <DashboardHeader
-            user={{
-              email: user.email,
-              picture: user.picture,
-              dbDisplayName: user.dbDisplayName,
-              dbAvatarUrl: user.dbAvatarUrl,
-            }}
-          />
+          <div className="flex items-center gap-4">
+            {selectedStore && storeSelection.available && (
+              <StoreSwitcher stores={storeSelection.stores} selectedStoreId={selectedStore.id} />
+            )}
+            <DashboardHeader
+              user={{
+                email: user.email,
+                picture: user.picture,
+                dbDisplayName: user.dbDisplayName,
+                dbAvatarUrl: user.dbAvatarUrl,
+              }}
+            />
+          </div>
         </div>
       </header>
       <div className="h-px bg-gradient-to-r from-transparent via-theme-accent/15 to-transparent" />
 
       {/* Main Content */}
       <SessionProvider>
-        <main className="flex-1">
+        <main className="flex-1" data-store-id={selectedStore?.id}>
+          {!storeSelection.available && (
+            <div role="status" className="container pt-6 text-sm text-muted-foreground">
+              Your stores could not be loaded. Reload the page to try again.
+            </div>
+          )}
+          {storeSelection.available && !selectedStore && (
+            <div role="status" data-testid="no-stores" className="container pt-6 text-sm">
+              <p className="font-medium">You do not have a store yet.</p>
+              <p className="text-muted-foreground">
+                Store setup is the next step for new merchants and will be available here soon.
+              </p>
+            </div>
+          )}
           <div className="container py-8 lg:py-10">{children}</div>
         </main>
       </SessionProvider>
