@@ -333,3 +333,45 @@ async def test_a_permission_free_admin_gets_403_and_nothing_changes(client, engi
 
     assert result.status_code == 403
     assert state[0][0] == "ACTIVE"
+
+
+async def test_organisations_page_first_and_count_stores_only_for_the_page(
+    client, engine
+):
+    await seed_admin(engine, "reader", ["stores.read"])
+    for index, org in enumerate(["orgA", "orgB", "orgC"]):
+        await seed_store(engine, org, f"s{index}a")
+        if org != "orgC":
+            await seed_store(engine, org, f"s{index}b", status="ARCHIVED")
+    async with engine.begin() as connection:
+        await connection.execute(
+            text(
+                "UPDATE organizations SET created_at = now() - make_interval(days => "
+                "CASE id WHEN 'orgA' THEN 3 WHEN 'orgB' THEN 2 ELSE 1 END)"
+            )
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO organizations (id, name, slug, created_at) "
+                "VALUES ('orgD', 'Empty', 'org-empty', now() - interval '10 days')"
+            )
+        )
+
+    first = await client.get(
+        "/v1/admin/organizations", params={"limit": 2}, headers=as_user("reader")
+    )
+    second = await client.get(
+        "/v1/admin/organizations",
+        params={"limit": 2, "offset": 2},
+        headers=as_user("reader"),
+    )
+    searched = await client.get(
+        "/v1/admin/organizations", params={"search": "empty"}, headers=as_user("reader")
+    )
+
+    order = [(o["id"], o["store_count"]) for o in first.json()["data"]["organizations"]]
+    tail = [(o["id"], o["store_count"]) for o in second.json()["data"]["organizations"]]
+    assert order == [("orgC", 1), ("orgB", 2)]  # newest first, counts for page rows
+    assert tail == [("orgA", 2), ("orgD", 0)]  # an organisation without stores is 0
+    assert first.json()["data"]["total_count"] == 4
+    assert [o["id"] for o in searched.json()["data"]["organizations"]] == ["orgD"]

@@ -39,3 +39,14 @@ permission). Responses use `{"success": true, "data": ...}` and `Cache-Control: 
   commit together; a failed or timed-out migration writes its failure row after the migration ended.
   If the audit row of a finished migration cannot be written, the admin gets a 503 (re-run) and the failure is logged
   with the store id and admin id; the store database cannot be rolled back with the platform audit write.
+- **Cancelled requests.** A request cancelled mid-migration (client disconnect, shutdown) writes no audit row, and
+  neither does a process that dies. Re-running is safe: the upgrade is idempotent and re-stamps `schema_version`. By
+  design the store DDL, the advisory lock (`pg_try_advisory_xact_lock`) and the timeouts share one store transaction,
+  so a cancelled store session rolls back and its lock goes with it; this is not covered by an automated test (the
+  cancel path needs a provisioned store database), so treat it as expected rather than verified. The 60 second deadline
+  uses `asyncio.timeout()`, so a `TimeoutError` raised inside the migration is audited as an ordinary failure (502),
+  not as a deadline expiry. An unexpected error is audited with its class name and is a 502.
+- **Audit details.** `details.reason` appears only on `admin.stores.migrate_failed` rows. The status check in `migrate`
+  is unlocked, which is benign because both ACTIVE and SUSPENDED stores may be migrated.
+- **Failed commits.** If a suspend or unsuspend (or the audit row of a migration) cannot be committed, the transaction
+  is rolled back, the failure is logged with a safe reason and the admin gets a 503 with `Retry-After: 5`.

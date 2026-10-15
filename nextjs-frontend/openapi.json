@@ -3415,7 +3415,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OrganizationsPageResponse"
+                  "$ref": "#/components/schemas/AdminOrganizationsPageResponse"
                 }
               }
             }
@@ -3451,14 +3451,14 @@
             }
           },
           "503": {
+            "description": "Rate limiter unavailable",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Service Unavailable"
+            }
           },
           "401": {
             "content": {
@@ -3479,36 +3479,6 @@
               }
             },
             "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflict"
-          },
-          "502": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad Gateway"
           }
         }
       }
@@ -3637,7 +3607,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StoresPageResponse"
+                  "$ref": "#/components/schemas/AdminStoresPageResponse"
                 }
               }
             }
@@ -3673,14 +3643,14 @@
             }
           },
           "503": {
+            "description": "Rate limiter unavailable",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Service Unavailable"
+            }
           },
           "401": {
             "content": {
@@ -3701,36 +3671,6 @@
               }
             },
             "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflict"
-          },
-          "502": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad Gateway"
           }
         }
       }
@@ -3794,7 +3734,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
+                  "$ref": "#/components/schemas/StoreStatusResponse"
                 }
               }
             }
@@ -3830,14 +3770,14 @@
             }
           },
           "503": {
+            "description": "The change could not be recorded (Retry-After: 5; retrying is safe), or the rate limiter is unavailable",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Service Unavailable"
+            }
           },
           "401": {
             "content": {
@@ -3860,34 +3800,24 @@
             "description": "Forbidden"
           },
           "404": {
+            "description": "No such store",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Not Found"
+            }
           },
           "409": {
+            "description": "The status does not allow this, or a migration is already running",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Conflict"
-          },
-          "502": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad Gateway"
+            }
           }
         }
       }
@@ -3951,7 +3881,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StatusResponse"
+                  "$ref": "#/components/schemas/StoreStatusResponse"
                 }
               }
             }
@@ -3987,14 +3917,14 @@
             }
           },
           "503": {
+            "description": "The change could not be recorded (Retry-After: 5; retrying is safe), or the rate limiter is unavailable",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Service Unavailable"
+            }
           },
           "401": {
             "content": {
@@ -4017,34 +3947,24 @@
             "description": "Forbidden"
           },
           "404": {
+            "description": "No such store",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Not Found"
+            }
           },
           "409": {
+            "description": "The status does not allow this, or a migration is already running",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Conflict"
-          },
-          "502": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad Gateway"
+            }
           }
         }
       }
@@ -4108,7 +4028,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MigrateResponse"
+                  "$ref": "#/components/schemas/StoreMigrationResponse"
                 }
               }
             }
@@ -4144,14 +4064,14 @@
             }
           },
           "503": {
+            "description": "The migration did not finish within 60 seconds (Retry-After: 30; the outcome is unknown, re-running is safe and repairs the version), or the result could not be recorded (Retry-After: 5), or the rate limiter is unavailable",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Service Unavailable"
+            }
           },
           "401": {
             "content": {
@@ -4174,34 +4094,34 @@
             "description": "Forbidden"
           },
           "404": {
+            "description": "No such store",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Not Found"
+            }
           },
           "409": {
+            "description": "The status does not allow this, or a migration is already running",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Conflict"
+            }
           },
           "502": {
+            "description": "The store database could not be migrated; no driver text is returned",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Bad Gateway"
+            }
           }
         }
       }
@@ -8246,6 +8166,192 @@
         ],
         "title": "AdminGrantResponse"
       },
+      "AdminOrganizationSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "store_count": {
+            "type": "integer",
+            "title": "Store Count"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "store_count",
+          "created_at"
+        ],
+        "title": "AdminOrganizationSummary"
+      },
+      "AdminOrganizationsPage": {
+        "properties": {
+          "organizations": {
+            "items": {
+              "$ref": "#/components/schemas/AdminOrganizationSummary"
+            },
+            "type": "array",
+            "title": "Organizations"
+          },
+          "total_count": {
+            "type": "integer",
+            "title": "Total Count"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "organizations",
+          "total_count",
+          "limit",
+          "offset"
+        ],
+        "title": "AdminOrganizationsPage"
+      },
+      "AdminOrganizationsPageResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true,
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/AdminOrganizationsPage"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "AdminOrganizationsPageResponse"
+      },
+      "AdminStoreSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "organization_id": {
+            "type": "string",
+            "title": "Organization Id"
+          },
+          "organization_name": {
+            "type": "string",
+            "title": "Organization Name"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "status": {
+            "$ref": "#/components/schemas/StoreStatus"
+          },
+          "schema_version": {
+            "type": "integer",
+            "title": "Schema Version"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "organization_id",
+          "organization_name",
+          "name",
+          "slug",
+          "status",
+          "schema_version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AdminStoreSummary"
+      },
+      "AdminStoresPage": {
+        "properties": {
+          "stores": {
+            "items": {
+              "$ref": "#/components/schemas/AdminStoreSummary"
+            },
+            "type": "array",
+            "title": "Stores"
+          },
+          "total_count": {
+            "type": "integer",
+            "title": "Total Count"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "stores",
+          "total_count",
+          "limit",
+          "offset"
+        ],
+        "title": "AdminStoresPage"
+      },
+      "AdminStoresPageResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true,
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/AdminStoresPage"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "AdminStoresPageResponse"
+      },
       "AdminUserDetail": {
         "properties": {
           "id": {
@@ -9388,47 +9494,6 @@
         ],
         "title": "MembershipRole"
       },
-      "MigrateData": {
-        "properties": {
-          "store_id": {
-            "type": "string",
-            "title": "Store Id"
-          },
-          "previous_schema_version": {
-            "type": "integer",
-            "title": "Previous Schema Version"
-          },
-          "schema_version": {
-            "type": "integer",
-            "title": "Schema Version"
-          }
-        },
-        "type": "object",
-        "required": [
-          "store_id",
-          "previous_schema_version",
-          "schema_version"
-        ],
-        "title": "MigrateData"
-      },
-      "MigrateResponse": {
-        "properties": {
-          "success": {
-            "type": "boolean",
-            "const": true,
-            "title": "Success",
-            "default": true
-          },
-          "data": {
-            "$ref": "#/components/schemas/MigrateData"
-          }
-        },
-        "type": "object",
-        "required": [
-          "data"
-        ],
-        "title": "MigrateResponse"
-      },
       "OkResponse": {
         "properties": {
           "success": {
@@ -9547,89 +9612,6 @@
           "data"
         ],
         "title": "OrganizationResponse"
-      },
-      "OrganizationSummary": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "title": "Id"
-          },
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "slug": {
-            "type": "string",
-            "title": "Slug"
-          },
-          "store_count": {
-            "type": "integer",
-            "title": "Store Count"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "name",
-          "slug",
-          "store_count",
-          "created_at"
-        ],
-        "title": "OrganizationSummary"
-      },
-      "OrganizationsPage": {
-        "properties": {
-          "organizations": {
-            "items": {
-              "$ref": "#/components/schemas/OrganizationSummary"
-            },
-            "type": "array",
-            "title": "Organizations"
-          },
-          "total_count": {
-            "type": "integer",
-            "title": "Total Count"
-          },
-          "limit": {
-            "type": "integer",
-            "title": "Limit"
-          },
-          "offset": {
-            "type": "integer",
-            "title": "Offset"
-          }
-        },
-        "type": "object",
-        "required": [
-          "organizations",
-          "total_count",
-          "limit",
-          "offset"
-        ],
-        "title": "OrganizationsPage"
-      },
-      "OrganizationsPageResponse": {
-        "properties": {
-          "success": {
-            "type": "boolean",
-            "const": true,
-            "title": "Success",
-            "default": true
-          },
-          "data": {
-            "$ref": "#/components/schemas/OrganizationsPage"
-          }
-        },
-        "type": "object",
-        "required": [
-          "data"
-        ],
-        "title": "OrganizationsPageResponse"
       },
       "PaymentData": {
         "properties": {
@@ -10317,46 +10299,6 @@
         ],
         "title": "SettingsResponse"
       },
-      "StatusData": {
-        "properties": {
-          "store_id": {
-            "type": "string",
-            "title": "Store Id"
-          },
-          "status": {
-            "$ref": "#/components/schemas/StoreStatus"
-          },
-          "changed": {
-            "type": "boolean",
-            "title": "Changed"
-          }
-        },
-        "type": "object",
-        "required": [
-          "store_id",
-          "status",
-          "changed"
-        ],
-        "title": "StatusData"
-      },
-      "StatusResponse": {
-        "properties": {
-          "success": {
-            "type": "boolean",
-            "const": true,
-            "title": "Success",
-            "default": true
-          },
-          "data": {
-            "$ref": "#/components/schemas/StatusData"
-          }
-        },
-        "type": "object",
-        "required": [
-          "data"
-        ],
-        "title": "StatusResponse"
-      },
       "StoreData": {
         "properties": {
           "id": {
@@ -10438,6 +10380,47 @@
         ],
         "title": "StoreListResponse"
       },
+      "StoreMigrationData": {
+        "properties": {
+          "store_id": {
+            "type": "string",
+            "title": "Store Id"
+          },
+          "previous_schema_version": {
+            "type": "integer",
+            "title": "Previous Schema Version"
+          },
+          "schema_version": {
+            "type": "integer",
+            "title": "Schema Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "store_id",
+          "previous_schema_version",
+          "schema_version"
+        ],
+        "title": "StoreMigrationData"
+      },
+      "StoreMigrationResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true,
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/StoreMigrationData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "StoreMigrationResponse"
+      },
       "StoreResponse": {
         "properties": {
           "success": {
@@ -10466,59 +10449,45 @@
         ],
         "title": "StoreStatus"
       },
-      "StoreSummary": {
+      "StoreStatusData": {
         "properties": {
-          "id": {
+          "store_id": {
             "type": "string",
-            "title": "Id"
-          },
-          "organization_id": {
-            "type": "string",
-            "title": "Organization Id"
-          },
-          "organization_name": {
-            "type": "string",
-            "title": "Organization Name"
-          },
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "slug": {
-            "type": "string",
-            "title": "Slug"
+            "title": "Store Id"
           },
           "status": {
             "$ref": "#/components/schemas/StoreStatus"
           },
-          "schema_version": {
-            "type": "integer",
-            "title": "Schema Version"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Updated At"
+          "changed": {
+            "type": "boolean",
+            "title": "Changed"
           }
         },
         "type": "object",
         "required": [
-          "id",
-          "organization_id",
-          "organization_name",
-          "name",
-          "slug",
+          "store_id",
           "status",
-          "schema_version",
-          "created_at",
-          "updated_at"
+          "changed"
         ],
-        "title": "StoreSummary"
+        "title": "StoreStatusData"
+      },
+      "StoreStatusResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true,
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/StoreStatusData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "StoreStatusResponse"
       },
       "StorefrontData": {
         "properties": {
@@ -10556,55 +10525,6 @@
           "data"
         ],
         "title": "StorefrontResponse"
-      },
-      "StoresPage": {
-        "properties": {
-          "stores": {
-            "items": {
-              "$ref": "#/components/schemas/StoreSummary"
-            },
-            "type": "array",
-            "title": "Stores"
-          },
-          "total_count": {
-            "type": "integer",
-            "title": "Total Count"
-          },
-          "limit": {
-            "type": "integer",
-            "title": "Limit"
-          },
-          "offset": {
-            "type": "integer",
-            "title": "Offset"
-          }
-        },
-        "type": "object",
-        "required": [
-          "stores",
-          "total_count",
-          "limit",
-          "offset"
-        ],
-        "title": "StoresPage"
-      },
-      "StoresPageResponse": {
-        "properties": {
-          "success": {
-            "type": "boolean",
-            "const": true,
-            "title": "Success",
-            "default": true
-          },
-          "data": {
-            "$ref": "#/components/schemas/StoresPage"
-          }
-        },
-        "type": "object",
-        "required": [
-          "data"
-        ],
-        "title": "StoresPageResponse"
       },
       "SubscriptionDetailData": {
         "properties": {

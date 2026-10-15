@@ -34,6 +34,137 @@ export type AdminGrantResponse = {
 };
 
 /**
+ * AdminOrganizationSummary
+ */
+export type AdminOrganizationSummary = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Slug
+     */
+    slug: string;
+    /**
+     * Store Count
+     */
+    store_count: number;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * AdminOrganizationsPage
+ */
+export type AdminOrganizationsPage = {
+    /**
+     * Organizations
+     */
+    organizations: Array<AdminOrganizationSummary>;
+    /**
+     * Total Count
+     */
+    total_count: number;
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Offset
+     */
+    offset: number;
+};
+
+/**
+ * AdminOrganizationsPageResponse
+ */
+export type AdminOrganizationsPageResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: AdminOrganizationsPage;
+};
+
+/**
+ * AdminStoreSummary
+ */
+export type AdminStoreSummary = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Organization Id
+     */
+    organization_id: string;
+    /**
+     * Organization Name
+     */
+    organization_name: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Slug
+     */
+    slug: string;
+    status: StoreStatus;
+    /**
+     * Schema Version
+     */
+    schema_version: number;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+};
+
+/**
+ * AdminStoresPage
+ */
+export type AdminStoresPage = {
+    /**
+     * Stores
+     */
+    stores: Array<AdminStoreSummary>;
+    /**
+     * Total Count
+     */
+    total_count: number;
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Offset
+     */
+    offset: number;
+};
+
+/**
+ * AdminStoresPageResponse
+ */
+export type AdminStoresPageResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: AdminStoresPage;
+};
+
+/**
  * AdminUserDetail
  */
 export type AdminUserDetail = {
@@ -681,35 +812,6 @@ export type InvoicesResponse = {
 export type MembershipRole = 'OWNER' | 'ADMIN' | 'STAFF';
 
 /**
- * MigrateData
- */
-export type MigrateData = {
-    /**
-     * Store Id
-     */
-    store_id: string;
-    /**
-     * Previous Schema Version
-     */
-    previous_schema_version: number;
-    /**
-     * Schema Version
-     */
-    schema_version: number;
-};
-
-/**
- * MigrateResponse
- */
-export type MigrateResponse = {
-    /**
-     * Success
-     */
-    success?: true;
-    data: MigrateData;
-};
-
-/**
  * OkResponse
  */
 export type OkResponse = {
@@ -789,65 +891,6 @@ export type OrganizationResponse = {
      */
     success?: true;
     data: OrganizationData;
-};
-
-/**
- * OrganizationSummary
- */
-export type OrganizationSummary = {
-    /**
-     * Id
-     */
-    id: string;
-    /**
-     * Name
-     */
-    name: string;
-    /**
-     * Slug
-     */
-    slug: string;
-    /**
-     * Store Count
-     */
-    store_count: number;
-    /**
-     * Created At
-     */
-    created_at: string;
-};
-
-/**
- * OrganizationsPage
- */
-export type OrganizationsPage = {
-    /**
-     * Organizations
-     */
-    organizations: Array<OrganizationSummary>;
-    /**
-     * Total Count
-     */
-    total_count: number;
-    /**
-     * Limit
-     */
-    limit: number;
-    /**
-     * Offset
-     */
-    offset: number;
-};
-
-/**
- * OrganizationsPageResponse
- */
-export type OrganizationsPageResponse = {
-    /**
-     * Success
-     */
-    success?: true;
-    data: OrganizationsPage;
 };
 
 /**
@@ -1232,32 +1275,6 @@ export type SettingsResponse = {
 };
 
 /**
- * StatusData
- */
-export type StatusData = {
-    /**
-     * Store Id
-     */
-    store_id: string;
-    status: StoreStatus;
-    /**
-     * Changed
-     */
-    changed: boolean;
-};
-
-/**
- * StatusResponse
- */
-export type StatusResponse = {
-    /**
-     * Success
-     */
-    success?: true;
-    data: StatusData;
-};
-
-/**
  * StoreData
  */
 export type StoreData = {
@@ -1315,6 +1332,35 @@ export type StoreListResponse = {
 };
 
 /**
+ * StoreMigrationData
+ */
+export type StoreMigrationData = {
+    /**
+     * Store Id
+     */
+    store_id: string;
+    /**
+     * Previous Schema Version
+     */
+    previous_schema_version: number;
+    /**
+     * Schema Version
+     */
+    schema_version: number;
+};
+
+/**
+ * StoreMigrationResponse
+ */
+export type StoreMigrationResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: StoreMigrationData;
+};
+
+/**
  * StoreResponse
  */
 export type StoreResponse = {
@@ -1331,42 +1377,29 @@ export type StoreResponse = {
 export type StoreStatus = 'PROVISIONING' | 'ACTIVE' | 'SUSPENDED' | 'ARCHIVED';
 
 /**
- * StoreSummary
+ * StoreStatusData
  */
-export type StoreSummary = {
+export type StoreStatusData = {
     /**
-     * Id
+     * Store Id
      */
-    id: string;
-    /**
-     * Organization Id
-     */
-    organization_id: string;
-    /**
-     * Organization Name
-     */
-    organization_name: string;
-    /**
-     * Name
-     */
-    name: string;
-    /**
-     * Slug
-     */
-    slug: string;
+    store_id: string;
     status: StoreStatus;
     /**
-     * Schema Version
+     * Changed
      */
-    schema_version: number;
+    changed: boolean;
+};
+
+/**
+ * StoreStatusResponse
+ */
+export type StoreStatusResponse = {
     /**
-     * Created At
+     * Success
      */
-    created_at: string;
-    /**
-     * Updated At
-     */
-    updated_at: string;
+    success?: true;
+    data: StoreStatusData;
 };
 
 /**
@@ -1394,39 +1427,6 @@ export type StorefrontResponse = {
      */
     success?: true;
     data: StorefrontData;
-};
-
-/**
- * StoresPage
- */
-export type StoresPage = {
-    /**
-     * Stores
-     */
-    stores: Array<StoreSummary>;
-    /**
-     * Total Count
-     */
-    total_count: number;
-    /**
-     * Limit
-     */
-    limit: number;
-    /**
-     * Offset
-     */
-    offset: number;
-};
-
-/**
- * StoresPageResponse
- */
-export type StoresPageResponse = {
-    /**
-     * Success
-     */
-    success?: true;
-    data: StoresPage;
 };
 
 /**
@@ -3262,14 +3262,6 @@ export type AdminListOrganizationsErrors = {
      */
     403: ErrorResponse;
     /**
-     * Not Found
-     */
-    404: ErrorResponse;
-    /**
-     * Conflict
-     */
-    409: ErrorResponse;
-    /**
      * Invalid request
      */
     422: ErrorResponse;
@@ -3282,11 +3274,7 @@ export type AdminListOrganizationsErrors = {
      */
     500: ErrorResponse;
     /**
-     * Bad Gateway
-     */
-    502: ErrorResponse;
-    /**
-     * Service Unavailable
+     * Rate limiter unavailable
      */
     503: ErrorResponse;
 };
@@ -3297,7 +3285,7 @@ export type AdminListOrganizationsResponses = {
     /**
      * Successful Response
      */
-    200: OrganizationsPageResponse;
+    200: AdminOrganizationsPageResponse;
 };
 
 export type AdminListOrganizationsResponse = AdminListOrganizationsResponses[keyof AdminListOrganizationsResponses];
@@ -3350,14 +3338,6 @@ export type AdminListStoresErrors = {
      */
     403: ErrorResponse;
     /**
-     * Not Found
-     */
-    404: ErrorResponse;
-    /**
-     * Conflict
-     */
-    409: ErrorResponse;
-    /**
      * Invalid request
      */
     422: ErrorResponse;
@@ -3370,11 +3350,7 @@ export type AdminListStoresErrors = {
      */
     500: ErrorResponse;
     /**
-     * Bad Gateway
-     */
-    502: ErrorResponse;
-    /**
-     * Service Unavailable
+     * Rate limiter unavailable
      */
     503: ErrorResponse;
 };
@@ -3385,7 +3361,7 @@ export type AdminListStoresResponses = {
     /**
      * Successful Response
      */
-    200: StoresPageResponse;
+    200: AdminStoresPageResponse;
 };
 
 export type AdminListStoresResponse = AdminListStoresResponses[keyof AdminListStoresResponses];
@@ -3422,11 +3398,11 @@ export type AdminSuspendStoreErrors = {
      */
     403: ErrorResponse;
     /**
-     * Not Found
+     * No such store
      */
     404: ErrorResponse;
     /**
-     * Conflict
+     * The status does not allow this, or a migration is already running
      */
     409: ErrorResponse;
     /**
@@ -3442,11 +3418,7 @@ export type AdminSuspendStoreErrors = {
      */
     500: ErrorResponse;
     /**
-     * Bad Gateway
-     */
-    502: ErrorResponse;
-    /**
-     * Service Unavailable
+     * The change could not be recorded (Retry-After: 5; retrying is safe), or the rate limiter is unavailable
      */
     503: ErrorResponse;
 };
@@ -3457,7 +3429,7 @@ export type AdminSuspendStoreResponses = {
     /**
      * Successful Response
      */
-    200: StatusResponse;
+    200: StoreStatusResponse;
 };
 
 export type AdminSuspendStoreResponse = AdminSuspendStoreResponses[keyof AdminSuspendStoreResponses];
@@ -3494,11 +3466,11 @@ export type AdminUnsuspendStoreErrors = {
      */
     403: ErrorResponse;
     /**
-     * Not Found
+     * No such store
      */
     404: ErrorResponse;
     /**
-     * Conflict
+     * The status does not allow this, or a migration is already running
      */
     409: ErrorResponse;
     /**
@@ -3514,11 +3486,7 @@ export type AdminUnsuspendStoreErrors = {
      */
     500: ErrorResponse;
     /**
-     * Bad Gateway
-     */
-    502: ErrorResponse;
-    /**
-     * Service Unavailable
+     * The change could not be recorded (Retry-After: 5; retrying is safe), or the rate limiter is unavailable
      */
     503: ErrorResponse;
 };
@@ -3529,7 +3497,7 @@ export type AdminUnsuspendStoreResponses = {
     /**
      * Successful Response
      */
-    200: StatusResponse;
+    200: StoreStatusResponse;
 };
 
 export type AdminUnsuspendStoreResponse = AdminUnsuspendStoreResponses[keyof AdminUnsuspendStoreResponses];
@@ -3566,11 +3534,11 @@ export type AdminMigrateStoreErrors = {
      */
     403: ErrorResponse;
     /**
-     * Not Found
+     * No such store
      */
     404: ErrorResponse;
     /**
-     * Conflict
+     * The status does not allow this, or a migration is already running
      */
     409: ErrorResponse;
     /**
@@ -3586,11 +3554,11 @@ export type AdminMigrateStoreErrors = {
      */
     500: ErrorResponse;
     /**
-     * Bad Gateway
+     * The store database could not be migrated; no driver text is returned
      */
     502: ErrorResponse;
     /**
-     * Service Unavailable
+     * The migration did not finish within 60 seconds (Retry-After: 30; the outcome is unknown, re-running is safe and repairs the version), or the result could not be recorded (Retry-After: 5), or the rate limiter is unavailable
      */
     503: ErrorResponse;
 };
@@ -3601,7 +3569,7 @@ export type AdminMigrateStoreResponses = {
     /**
      * Successful Response
      */
-    200: MigrateResponse;
+    200: StoreMigrationResponse;
 };
 
 export type AdminMigrateStoreResponse = AdminMigrateStoreResponses[keyof AdminMigrateStoreResponses];

@@ -5,10 +5,12 @@ admin record and permission (403, one generic body). Reads need ``stores.read``,
 suspend and unsuspend ``stores.suspend`` and migrate ``stores.migrate``. Responses never
 include the store database reference or connection string. Every change is audited by
 ``AdminStoresService``; a migration failure is a generic 502 with no driver text.
+``Cache-Control: no-store`` is set on success responses only.
 """
 
+from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from pydantic import BaseModel
@@ -36,9 +38,17 @@ from app.services.admin_stores import (
     CommitFailed,
     MigrationFailed,
     MigrationTimeout,
+    StatusResult,
     StoreConflict,
 )
 from app.services.store_migrations import migrate_store
+
+DEFAULT_PAGE_SIZE = 20
+MAX_OFFSET = 1_000_000
+MAX_SEARCH_LENGTH = 100
+ID_PATTERN = r"^[A-Za-z0-9_-]+$"
+# Postgres text cannot hold NUL.
+SEARCH_PATTERN = r"^[^\x00]*$"
 
 router = APIRouter(
     prefix="/v1/admin",
@@ -51,23 +61,46 @@ router = APIRouter(
         **RATE_LIMIT_FAIL_CLOSED_RESPONSES,
         401: {"model": ErrorResponse},
         403: {"model": ErrorResponse},
-        404: {"model": ErrorResponse},
-        409: {"model": ErrorResponse},
-        502: {"model": ErrorResponse},
-        503: {"model": ErrorResponse},
     },
 )
 
-Identifier = Annotated[
-    str, Path(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
-]
+NOT_FOUND = {"model": ErrorResponse, "description": "No such store"}
+CONFLICT = {
+    "model": ErrorResponse,
+    "description": "The status does not allow this, or a migration is already running",
+}
+UNAVAILABLE_RETRY = {
+    "model": ErrorResponse,
+    "description": (
+        "The change could not be recorded (Retry-After: 5; retrying is safe), or the "
+        "rate limiter is unavailable"
+    ),
+}
+MIGRATE_FAILED = {
+    "model": ErrorResponse,
+    "description": "The store database could not be migrated; no driver text is returned",
+}
+MIGRATE_UNAVAILABLE = {
+    "model": ErrorResponse,
+    "description": (
+        "The migration did not finish within 60 seconds (Retry-After: 30; the outcome is "
+        "unknown, re-running is safe and repairs the version), or the result could not "
+        "be recorded (Retry-After: 5), or the rate limiter is unavailable"
+    ),
+}
+
+Identifier = Annotated[str, Path(min_length=1, max_length=128, pattern=ID_PATTERN)]
 ReadAdmin = Annotated[AdminContext, Depends(require_admin("stores.read"))]
 SuspendAdmin = Annotated[AdminContext, Depends(require_admin("stores.suspend"))]
 MigrateAdmin = Annotated[AdminContext, Depends(require_admin("stores.migrate"))]
-SEARCH_PATTERN = r"^[^\x00]*$"  # Postgres text cannot hold NUL
+SearchQuery = Annotated[
+    str | None, Query(max_length=MAX_SEARCH_LENGTH, pattern=SEARCH_PATTERN)
+]
+LimitQuery = Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)]
+OffsetQuery = Annotated[int, Query(ge=0, le=MAX_OFFSET)]
 
 
-class OrganizationSummary(BaseModel):
+class AdminOrganizationSummary(BaseModel):
     id: str
     name: str
     slug: str
@@ -75,19 +108,19 @@ class OrganizationSummary(BaseModel):
     created_at: datetime
 
 
-class OrganizationsPage(BaseModel):
-    organizations: list[OrganizationSummary]
+class AdminOrganizationsPage(BaseModel):
+    organizations: list[AdminOrganizationSummary]
     total_count: int
     limit: int
     offset: int
 
 
-class OrganizationsPageResponse(BaseModel):
+class AdminOrganizationsPageResponse(BaseModel):
     success: Literal[True] = True
-    data: OrganizationsPage
+    data: AdminOrganizationsPage
 
 
-class StoreSummary(BaseModel):
+class AdminStoreSummary(BaseModel):
     id: str
     organization_id: str
     organization_name: str
@@ -99,38 +132,38 @@ class StoreSummary(BaseModel):
     updated_at: datetime
 
 
-class StoresPage(BaseModel):
-    stores: list[StoreSummary]
+class AdminStoresPage(BaseModel):
+    stores: list[AdminStoreSummary]
     total_count: int
     limit: int
     offset: int
 
 
-class StoresPageResponse(BaseModel):
+class AdminStoresPageResponse(BaseModel):
     success: Literal[True] = True
-    data: StoresPage
+    data: AdminStoresPage
 
 
-class StatusData(BaseModel):
+class StoreStatusData(BaseModel):
     store_id: str
     status: StoreStatus
     changed: bool
 
 
-class StatusResponse(BaseModel):
+class StoreStatusResponse(BaseModel):
     success: Literal[True] = True
-    data: StatusData
+    data: StoreStatusData
 
 
-class MigrateData(BaseModel):
+class StoreMigrationData(BaseModel):
     store_id: str
     previous_schema_version: int
     schema_version: int
 
 
-class MigrateResponse(BaseModel):
+class StoreMigrationResponse(BaseModel):
     success: Literal[True] = True
-    data: MigrateData
+    data: StoreMigrationData
 
 
 def get_admin_stores_service(
@@ -146,41 +179,39 @@ def get_admin_stores_service(
 
 ServiceDep = Annotated[AdminStoresService, Depends(get_admin_stores_service)]
 
-HANDLED = (
-    AdminStoreNotFound,
-    StoreConflict,
-    MigrationFailed,
-    MigrationTimeout,
-    CommitFailed,
-)
+# One entry per service error: (status, detail, headers). An unmapped error is a bug.
+ERRORS: dict[type[Exception], tuple[int, str, dict[str, str] | None]] = {
+    AdminStoreNotFound: (404, "Store not found", None),
+    StoreConflict: (409, "Operation not allowed in the current state", None),
+    MigrationFailed: (502, "Store migration failed", None),
+    CommitFailed: (
+        503,
+        "The result could not be recorded; retry",
+        {"Retry-After": "5"},
+    ),
+    MigrationTimeout: (
+        503,
+        "Store migration did not finish in time; re-run it",
+        {"Retry-After": "30"},
+    ),
+}
+HANDLED = tuple(ERRORS)
 
 
 def _http_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, AdminStoreNotFound):
-        return HTTPException(404, "Store not found")
-    if isinstance(exc, StoreConflict):
-        return HTTPException(409, "Operation not allowed in the current state")
-    if isinstance(exc, MigrationFailed):
-        return HTTPException(502, "Store migration failed")
-    if isinstance(exc, CommitFailed):
-        return HTTPException(
-            503,
-            "The result could not be recorded; re-run the migration",
-            headers={"Retry-After": "5"},
-        )
-    return HTTPException(
-        503,
-        "Store migration did not finish in time; re-run it",
-        headers={"Retry-After": "30"},
-    )
+    try:
+        status, detail, headers = ERRORS[type(exc)]
+    except KeyError:
+        raise TypeError(f"No HTTP mapping for {type(exc).__name__}") from None
+    return HTTPException(status, detail, headers)
 
 
 def _no_store(response: Response) -> None:
     response.headers["Cache-Control"] = "no-store"
 
 
-def _organization(record: OrganizationRecord) -> OrganizationSummary:
-    return OrganizationSummary(
+def _organization(record: OrganizationRecord) -> AdminOrganizationSummary:
+    return AdminOrganizationSummary(
         id=record.id,
         name=record.name,
         slug=record.slug,
@@ -189,8 +220,8 @@ def _organization(record: OrganizationRecord) -> OrganizationSummary:
     )
 
 
-def _store(record: StoreRecord) -> StoreSummary:
-    return StoreSummary(
+def _store(record: StoreRecord) -> AdminStoreSummary:
+    return AdminStoreSummary(
         id=record.id,
         organization_id=record.organization_id,
         organization_name=record.organization_name,
@@ -203,19 +234,19 @@ def _store(record: StoreRecord) -> StoreSummary:
     )
 
 
-@router.get("/organizations", response_model=OrganizationsPageResponse)
+@router.get("/organizations", response_model=AdminOrganizationsPageResponse)
 async def admin_list_organizations(
     response: Response,
     _admin: ReadAdmin,
     service: ServiceDep,
-    search: Annotated[str | None, Query(max_length=100, pattern=SEARCH_PATTERN)] = None,
-    limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
-    offset: Annotated[int, Query(ge=0, le=1_000_000)] = 0,
-) -> OrganizationsPageResponse:
+    search: SearchQuery = None,
+    limit: LimitQuery = DEFAULT_PAGE_SIZE,
+    offset: OffsetQuery = 0,
+) -> AdminOrganizationsPageResponse:
     _no_store(response)
     page = await service.list_organizations(search, limit, offset)
-    return OrganizationsPageResponse(
-        data=OrganizationsPage(
+    return AdminOrganizationsPageResponse(
+        data=AdminOrganizationsPage(
             organizations=[_organization(item) for item in page.items],
             total_count=page.total_count,
             limit=limit,
@@ -224,24 +255,24 @@ async def admin_list_organizations(
     )
 
 
-@router.get("/stores", response_model=StoresPageResponse)
+@router.get("/stores", response_model=AdminStoresPageResponse)
 async def admin_list_stores(
     response: Response,
     _admin: ReadAdmin,
     service: ServiceDep,
     status: StoreStatus | None = None,
     organization_id: Annotated[
-        str | None, Query(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+        str | None, Query(min_length=1, max_length=128, pattern=ID_PATTERN)
     ] = None,
-    search: Annotated[str | None, Query(max_length=100, pattern=SEARCH_PATTERN)] = None,
-    limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
-    offset: Annotated[int, Query(ge=0, le=1_000_000)] = 0,
-) -> StoresPageResponse:
+    search: SearchQuery = None,
+    limit: LimitQuery = DEFAULT_PAGE_SIZE,
+    offset: OffsetQuery = 0,
+) -> AdminStoresPageResponse:
     _no_store(response)
     filters = StoreFilters(status, organization_id, search)
     page = await service.list_stores(filters, limit, offset)
-    return StoresPageResponse(
-        data=StoresPage(
+    return AdminStoresPageResponse(
+        data=AdminStoresPage(
             stores=[_store(item) for item in page.items],
             total_count=page.total_count,
             limit=limit,
@@ -250,45 +281,76 @@ async def admin_list_stores(
     )
 
 
-@router.post("/stores/{store_id}/suspend", response_model=StatusResponse)
+async def _change_status(
+    response: Response,
+    store_id: str,
+    change: Callable[[str], Awaitable[StatusResult]],
+) -> StoreStatusResponse:
+    _no_store(response)
+    try:
+        result = await change(store_id)
+    except HANDLED as exc:
+        raise _http_error(exc) from None
+    return StoreStatusResponse(
+        data=StoreStatusData(
+            store_id=store_id, status=result.status, changed=result.changed
+        )
+    )
+
+
+STATUS_RESPONSES: dict[int | str, dict[str, Any]] = {
+    404: NOT_FOUND,
+    409: CONFLICT,
+    503: UNAVAILABLE_RETRY,
+}
+
+
+@router.post(
+    "/stores/{store_id}/suspend",
+    response_model=StoreStatusResponse,
+    responses=STATUS_RESPONSES,
+)
 async def admin_suspend_store(
     store_id: Identifier, response: Response, admin: SuspendAdmin, service: ServiceDep
-) -> StatusResponse:
-    _no_store(response)
-    try:
-        result = await service.suspend(admin, store_id)
-    except HANDLED as exc:
-        raise _http_error(exc) from None
-    return StatusResponse(
-        data=StatusData(store_id=store_id, status=result.status, changed=result.changed)
+) -> StoreStatusResponse:
+    return await _change_status(
+        response, store_id, lambda sid: service.suspend(admin, sid)
     )
 
 
-@router.post("/stores/{store_id}/unsuspend", response_model=StatusResponse)
+@router.post(
+    "/stores/{store_id}/unsuspend",
+    response_model=StoreStatusResponse,
+    responses=STATUS_RESPONSES,
+)
 async def admin_unsuspend_store(
     store_id: Identifier, response: Response, admin: SuspendAdmin, service: ServiceDep
-) -> StatusResponse:
-    _no_store(response)
-    try:
-        result = await service.unsuspend(admin, store_id)
-    except HANDLED as exc:
-        raise _http_error(exc) from None
-    return StatusResponse(
-        data=StatusData(store_id=store_id, status=result.status, changed=result.changed)
+) -> StoreStatusResponse:
+    return await _change_status(
+        response, store_id, lambda sid: service.unsuspend(admin, sid)
     )
 
 
-@router.post("/stores/{store_id}/migrate", response_model=MigrateResponse)
+@router.post(
+    "/stores/{store_id}/migrate",
+    response_model=StoreMigrationResponse,
+    responses={
+        404: NOT_FOUND,
+        409: CONFLICT,
+        502: MIGRATE_FAILED,
+        503: MIGRATE_UNAVAILABLE,
+    },
+)
 async def admin_migrate_store(
     store_id: Identifier, response: Response, admin: MigrateAdmin, service: ServiceDep
-) -> MigrateResponse:
+) -> StoreMigrationResponse:
     _no_store(response)
     try:
         result = await service.migrate(admin, store_id)
     except HANDLED as exc:
         raise _http_error(exc) from None
-    return MigrateResponse(
-        data=MigrateData(
+    return StoreMigrationResponse(
+        data=StoreMigrationData(
             store_id=store_id,
             previous_schema_version=result.previous_version,
             schema_version=result.schema_version,

@@ -89,6 +89,7 @@ async def test_suspend_active_store_sets_status_and_audits_in_same_commit():
             "store_id": "a",
             "before": {"status": "ACTIVE"},
             "after": {"status": "SUSPENDED"},
+            "details": None,
         }
     ]
 
@@ -252,3 +253,79 @@ async def test_second_concurrent_migration_of_the_same_store_is_a_conflict():
     assert migrator.calls == ["a"]
     assert len(auditor.rows) == 1
     await service.migrate(ADMIN, "a")  # free again once the first one ended
+
+
+async def test_concurrent_migrations_yielding_in_rollback_conflict_exactly_once():
+    service, _, session, auditor, migrator = build(store("a"))
+    migrator.delay = 0.05
+
+    async def slow_rollback() -> None:
+        await asyncio.sleep(0)
+        session.rollbacks += 1
+
+    session.rollback = slow_rollback
+    results = await asyncio.gather(
+        *(service.migrate(ADMIN, "a") for _ in range(4)), return_exceptions=True
+    )
+
+    conflicts = [r for r in results if isinstance(r, StoreConflict)]
+    assert len(conflicts) == 3
+    assert migrator.calls == ["a"]
+    assert len(auditor.rows) == 1
+
+
+async def test_unexpected_migration_error_is_audited_and_a_502():
+    service, _, session, auditor, migrator = build(store("a"))
+    migrator.failure = RuntimeError("secret driver text")
+
+    with pytest.raises(MigrationFailed):
+        await service.migrate(ADMIN, "a")
+
+    assert auditor.rows[0]["action"] == "admin.stores.migrate_failed"
+    assert auditor.rows[0]["details"] == {"reason": "RuntimeError"}
+    assert session.commits == 1
+
+
+async def test_a_timeout_raised_inside_the_migration_is_not_a_deadline_expiry():
+    service, _, _, auditor, migrator = build(store("a"))
+    migrator.failure = TimeoutError()
+
+    with pytest.raises(MigrationFailed):
+        await service.migrate(ADMIN, "a")
+
+    assert auditor.rows[0]["details"] == {"reason": "TimeoutError"}
+
+
+@pytest.mark.parametrize("action", ["suspend", "unsuspend"])
+async def test_transitions_release_the_row_lock_before_every_early_answer(action):
+    service, _, session, _, _ = build(
+        store("live"),
+        store("held", status=StoreStatus.SUSPENDED),
+        store("new", status=StoreStatus.PROVISIONING),
+    )
+    noop, conflict = ("held", "live") if action == "suspend" else ("live", "held")
+
+    await getattr(service, action)(ADMIN, noop)
+    with pytest.raises(StoreConflict):
+        await getattr(service, action)(ADMIN, "new")
+    with pytest.raises(AdminStoreNotFound):
+        await getattr(service, action)(ADMIN, "missing")
+
+    assert session.rollbacks == 3
+    assert session.commits == 0
+    assert conflict  # the opposite store is untouched by these calls
+
+
+async def test_failed_status_commit_rolls_back_and_is_a_retryable_failure():
+    service, _, session, auditor, _ = build(store("a"))
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("audit store down")
+
+    auditor.record = broken
+
+    with pytest.raises(CommitFailed):
+        await service.suspend(ADMIN, "a")
+
+    assert session.rollbacks == 1
+    assert session.commits == 0

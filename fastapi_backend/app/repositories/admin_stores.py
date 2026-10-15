@@ -6,9 +6,8 @@ Rows never carry ``database_ref`` or ``connection_string_encrypted``.
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import Select, func, select, update
 
 from app.models.platform.organization import Organization
 from app.models.platform.store import Store, StoreStatus
@@ -60,11 +59,13 @@ def _escape_like(term: str) -> str:
     return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-def _select_stores() -> Any:
+def _select_stores() -> Select[
+    str, str, str, str, str, StoreStatus, int, datetime, datetime
+]:
     return select(
         Store.id,
         Store.organization_id,
-        Organization.name,
+        Organization.name.label("organization_name"),
         Store.name,
         Store.slug,
         Store.status,
@@ -84,27 +85,36 @@ class AdminStoresRepository(BaseRepository):
             match = Organization.name.ilike(
                 pattern, escape="\\"
             ) | Organization.slug.ilike(pattern, escape="\\")
-        statement = (
-            select(
-                Organization.id,
-                Organization.name,
-                Organization.slug,
-                func.count(Store.id),
-                Organization.created_at,
-            )
-            .outerjoin(Store, Store.organization_id == Organization.id)
-            .group_by(Organization.id)
-            .order_by(Organization.created_at.desc(), Organization.id)
-            .limit(limit)
-            .offset(offset)
+        order = (Organization.created_at.desc(), Organization.id)
+        # Page the organisations first, then count stores for those rows only.
+        page_query = select(
+            Organization.id,
+            Organization.name,
+            Organization.slug,
+            Organization.created_at,
         )
         count = select(func.count()).select_from(Organization)
         if match is not None:
-            statement = statement.where(match)
+            page_query = page_query.where(match)
             count = count.where(match)
+        page = page_query.order_by(*order).limit(limit).offset(offset).subquery()
+        store_count = (
+            select(func.count(Store.id))
+            .where(Store.organization_id == page.c.id)
+            .scalar_subquery()
+        )
+        statement = select(
+            page.c.id,
+            page.c.name,
+            page.c.slug,
+            store_count.label("store_count"),
+            page.c.created_at,
+        ).order_by(page.c.created_at.desc(), page.c.id)
         rows = (await self._session.execute(statement)).all()
         total = (await self._session.execute(count)).scalar_one()
-        return OrganizationPage([OrganizationRecord(*row) for row in rows], total)
+        return OrganizationPage(
+            [OrganizationRecord(**row._asdict()) for row in rows], total
+        )
 
     async def list_stores(
         self, filters: StoreFilters, limit: int, offset: int
@@ -130,7 +140,7 @@ class AdminStoresRepository(BaseRepository):
         count = select(func.count()).select_from(Store).where(*conditions)
         rows = (await self._session.execute(statement)).all()
         total = (await self._session.execute(count)).scalar_one()
-        return StorePage([StoreRecord(*row) for row in rows], total)
+        return StorePage([StoreRecord(**row._asdict()) for row in rows], total)
 
     async def get_store(
         self, store_id: str, *, lock: bool = False
@@ -144,7 +154,7 @@ class AdminStoresRepository(BaseRepository):
         row = (
             await self._session.execute(_select_stores().where(Store.id == store_id))
         ).one_or_none()
-        return StoreRecord(*row) if row is not None else None
+        return StoreRecord(**row._asdict()) if row is not None else None
 
     async def set_status(self, store_id: str, status: StoreStatus) -> None:
         await self._session.execute(

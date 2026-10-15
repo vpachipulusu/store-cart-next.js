@@ -269,3 +269,32 @@ async def test_migration_timeout_is_503_with_retry_after(harness):
 async def _never(store_id: str) -> int:
     await asyncio.Event().wait()
     return 0
+
+
+async def test_commit_failure_is_503_with_retry_after_and_rolls_back(harness):
+    async def broken(*args, **kwargs):
+        raise RuntimeError("audit store down")
+
+    harness.auditor.record = broken
+    async with harness.client("suspender") as client:
+        result = await client.post("/v1/admin/stores/live/suspend")
+
+    assert result.status_code == 503
+    assert result.headers["retry-after"] == "5"
+    assert "audit store down" not in result.text
+
+
+async def test_an_unmapped_service_error_is_a_bug_not_a_silent_503():
+    from app.api.v1.admin_stores import _http_error
+
+    with pytest.raises(TypeError):
+        _http_error(RuntimeError("new error"))
+
+
+async def test_success_responses_are_no_store_and_errors_are_not_claimed_to_be(harness):
+    async with harness.client("suspender") as client:
+        ok = await client.post("/v1/admin/stores/live/suspend")
+        conflict = await client.post("/v1/admin/stores/new/suspend")
+
+    assert ok.headers["cache-control"] == "no-store"
+    assert conflict.status_code == 409
