@@ -14,6 +14,7 @@ import {
   createBackendSession,
   fetchProfile,
   fetchSettings,
+  refreshBackendSession,
   revokeBackendSession,
   toSettings,
 } from '@/lib/api/account';
@@ -176,6 +177,11 @@ export async function refreshSessionAction(idToken: string): Promise<AuthActionR
 const GENERIC_SIGN_IN_ERROR = 'Token verification failed';
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 5; // 5 days, matches the backend session lifetime
 
+/** Statuses meaning the API refused to refresh this session (as opposed to being down or rate limited). */
+function isRefreshRejection(status: number | undefined): boolean {
+  return status === 401 || status === 403 || status === 409 || status === 422;
+}
+
 async function hasMatchingActiveSession(uid: string): Promise<boolean> {
   const existing = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
   if (!existing) return false;
@@ -227,31 +233,30 @@ async function establishSession(
       };
     }
 
-    if (isExplicitSignIn) {
-      // The API verifies the token again (fresh sign-in required), syncs the platform user, records ONE
-      // login-history row and returns the session cookie only after both commit.
-      const userAgent = (await headers()).get('user-agent');
-      const session = await createBackendSession(idToken, userAgent);
-      if (!session.success) {
-        logger.error('Backend session creation failed:', {
-          status: session.status,
-          error: session.error,
-        });
-        return { success: false, error: GENERIC_SIGN_IN_ERROR };
+    // Explicit sign-in: the API verifies the token again (fresh sign-in required), syncs the platform user,
+    // records ONE login-history row and returns the session cookie only after both commit.
+    // Refresh: needs the current session and the same uid; the API records no login history (KAN-179).
+    const session = isExplicitSignIn
+      ? await createBackendSession(idToken, (await headers()).get('user-agent'))
+      : await refreshBackendSession(idToken);
+    if (!session.success) {
+      logger.error(
+        isExplicitSignIn ? 'Backend session creation failed:' : 'Backend session refresh failed:',
+        { status: session.status, error: session.error }
+      );
+      if (!isExplicitSignIn && isRefreshRejection(session.status)) {
+        // The API refused: the session is revoked or mismatched, or the ID token is too old to mint a
+        // cookie. It cannot be extended, so drop it and make the user sign in again. Never a silent success.
+        (await cookies()).delete(SESSION_COOKIE_NAME);
+        return { success: false, error: GENERIC_SIGN_IN_ERROR, data: { signInRequired: true } };
       }
-      const maxAge = Number.isFinite(session.data.expires_in)
-        ? Math.min(Math.max(Math.trunc(session.data.expires_in), 1), SESSION_MAX_AGE_SECONDS)
-        : SESSION_MAX_AGE_SECONDS;
-      await setSessionCookie(session.data.session_cookie, maxAge);
-    } else {
-      // TODO(KAN-179): move to POST /v1/auth/session/refresh. Until it exists the API cannot mint a cookie
-      // from an aged ID token without a fresh sign-in and a login-history row, so a refresh only re-mints the
-      // Firebase session cookie and does not sync email_verified to the platform user (it syncs at next sign-in).
-      const sessionCookie = await getAdminAuth().createSessionCookie(idToken, {
-        expiresIn: SESSION_MAX_AGE_SECONDS * 1000,
-      });
-      await setSessionCookie(sessionCookie, SESSION_MAX_AGE_SECONDS);
+      // Outage, rate limit or server error: keep the current cookie; the next refresh retries.
+      return { success: false, error: GENERIC_SIGN_IN_ERROR };
     }
+    const maxAge = Number.isFinite(session.data.expires_in)
+      ? Math.min(Math.max(Math.trunc(session.data.expires_in), 1), SESSION_MAX_AGE_SECONDS)
+      : SESSION_MAX_AGE_SECONDS;
+    await setSessionCookie(session.data.session_cookie, maxAge);
 
     return {
       success: true,

@@ -10,15 +10,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   verifyIdToken: vi.fn(),
   createBackendSession: vi.fn(),
+  refreshBackendSession: vi.fn(),
   createSessionCookie: vi.fn(),
   verifySessionCookie: vi.fn(),
   cookieGet: vi.fn(),
   cookieSet: vi.fn(),
+  cookieDelete: vi.fn(),
 }));
 
 vi.mock('next/headers', () => ({
   headers: async () => new Headers({ 'user-agent': 'vitest' }),
-  cookies: async () => ({ set: mocks.cookieSet, get: mocks.cookieGet, delete: vi.fn() }),
+  cookies: async () => ({
+    set: mocks.cookieSet,
+    get: mocks.cookieGet,
+    delete: mocks.cookieDelete,
+  }),
 }));
 vi.mock('@/lib/firebase/admin', () => ({
   getAdminAuth: () => ({
@@ -31,6 +37,7 @@ vi.mock('@/lib/firebase/client', () => ({ auth: {} }));
 vi.mock('firebase/auth', () => ({ applyActionCode: vi.fn() }));
 vi.mock('@/lib/api/account', () => ({
   createBackendSession: mocks.createBackendSession,
+  refreshBackendSession: mocks.refreshBackendSession,
   revokeBackendSession: vi.fn(),
   fetchProfile: vi.fn(),
   fetchSettings: vi.fn(),
@@ -51,6 +58,10 @@ describe('KAN-122: auth server actions', () => {
     mocks.createBackendSession.mockResolvedValue({
       success: true,
       data: { session_cookie: 'backend-session-cookie', expires_in: 432000 },
+    });
+    mocks.refreshBackendSession.mockResolvedValue({
+      success: true,
+      data: { session_cookie: 'refreshed-session-cookie', expires_in: 432000 },
     });
     mocks.createSessionCookie.mockResolvedValue('firebase-session-cookie');
     mocks.cookieGet.mockReturnValue(undefined);
@@ -127,19 +138,65 @@ describe('KAN-122: auth server actions', () => {
       });
     });
 
-    it('does not call the sign-in API on refresh with a matching session, but still mints the cookie', async () => {
+    it('refreshes through the API (KAN-183) with a matching session: no sign-in API, no Firebase minting', async () => {
       mocks.cookieGet.mockReturnValue({ value: 'old-session' });
       mocks.verifySessionCookie.mockResolvedValue({ uid: 'uid-1' });
       const result = await authActions.refreshSessionAction('id-token');
 
       expect(result.success).toBe(true);
       expect(result.data.claimsEmailVerified).toBe(true);
-      expect(mocks.createSessionCookie).toHaveBeenCalledWith('id-token', expect.any(Object));
+      expect(mocks.refreshBackendSession).toHaveBeenCalledWith('id-token');
       expect(mocks.createBackendSession).not.toHaveBeenCalled();
+      expect(mocks.createSessionCookie).not.toHaveBeenCalled();
       expect(mocks.cookieSet).toHaveBeenCalledWith(
         'session',
-        'firebase-session-cookie',
-        expect.objectContaining({ httpOnly: true })
+        'refreshed-session-cookie',
+        expect.objectContaining({ httpOnly: true, maxAge: 432000 })
+      );
+    });
+
+    describe('KAN-183: a rejected refresh sends the user to sign in again', () => {
+      beforeEach(() => {
+        mocks.cookieGet.mockReturnValue({ value: 'old-session' });
+        mocks.verifySessionCookie.mockResolvedValue({ uid: 'uid-1' });
+      });
+
+      it.each([401, 403, 409, 422])(
+        'clears the session and asks for sign-in when the API answers %s (e.g. ID token too old)',
+        async (status) => {
+          mocks.refreshBackendSession.mockResolvedValue({
+            success: false,
+            error: 'Invalid authentication',
+            status,
+          });
+
+          const result = await authActions.refreshSessionAction('id-token');
+
+          expect(result).toEqual({
+            success: false,
+            error: 'Token verification failed',
+            data: { signInRequired: true },
+          });
+          expect(mocks.cookieDelete).toHaveBeenCalledWith('session');
+          expect(mocks.cookieSet).not.toHaveBeenCalled();
+        }
+      );
+
+      it.each([429, 503, undefined])(
+        'fails without ending the session when the API answers %s',
+        async (status) => {
+          mocks.refreshBackendSession.mockResolvedValue({
+            success: false,
+            error: 'Backend unavailable',
+            status,
+          });
+
+          const result = await authActions.refreshSessionAction('id-token');
+
+          expect(result).toEqual({ success: false, error: 'Token verification failed' });
+          expect(mocks.cookieDelete).not.toHaveBeenCalled();
+          expect(mocks.cookieSet).not.toHaveBeenCalled();
+        }
       );
     });
 
@@ -191,6 +248,7 @@ describe('KAN-122: auth server actions', () => {
       expect(result.success).toBe(false);
       expect(mocks.createSessionCookie).not.toHaveBeenCalled();
       expect(mocks.createBackendSession).not.toHaveBeenCalled();
+      expect(mocks.refreshBackendSession).not.toHaveBeenCalled();
     });
   });
 

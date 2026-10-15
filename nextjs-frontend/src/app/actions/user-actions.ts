@@ -25,7 +25,7 @@ import {
  *
  * Switched off until their replacements land (the controls are hidden, no Prisma access is left behind):
  * - notifications and data export: KAN-114
- * - 2FA setup/disable and account deletion: KAN-180 (re-authentication dialog); 2FA status: KAN-179
+ * - 2FA setup/disable and account deletion: KAN-180 (re-authentication dialog)
  */
 
 /**
@@ -107,6 +107,24 @@ export async function getUserProfileAction(): Promise<UserActionResponse> {
     };
   } catch (error: unknown) {
     return fail('Get user profile error:', error, 'Failed to get user profile');
+  }
+}
+
+/**
+ * Whether two-factor authentication is enabled, from `two_factor_enabled` on the API profile (KAN-179).
+ * Only the boolean is returned; the secret never leaves the backend.
+ */
+export async function getTwoFactorStatusAction(): Promise<
+  UserActionResponse<{ enabled: boolean }>
+> {
+  try {
+    const profile = await fetchProfile();
+    if (!profile.success) {
+      return apiFailure(profile, 'Get two-factor status error:', 'Failed to get two-factor status');
+    }
+    return { success: true, data: { enabled: profile.data.two_factor_enabled === true } };
+  } catch (error: unknown) {
+    return fail('Get two-factor status error:', error, 'Failed to get two-factor status');
   }
 }
 

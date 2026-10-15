@@ -8,6 +8,7 @@ import {
   readProfile,
   readSession,
   readSettings,
+  refreshSession,
   updateAvatar,
   updateProfile,
   updateSettings,
@@ -32,6 +33,14 @@ export function createBackendSession(idToken: string, userAgent: string | null) 
       ...(userAgent ? { headers: { 'User-Agent': userAgent.slice(0, 512) } } : {}),
     })
   );
+}
+
+/**
+ * Mints a new session cookie from a fresh ID token for the caller's CURRENT session (KAN-179). The backend
+ * requires the same uid, records no login history and rejects an ID token too old to mint a cookie.
+ */
+export function refreshBackendSession(idToken: string) {
+  return callBackend((client) => refreshSession({ client, body: { id_token: idToken } }));
 }
 
 export function revokeBackendSession() {
