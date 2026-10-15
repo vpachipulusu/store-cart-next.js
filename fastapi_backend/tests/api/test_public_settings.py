@@ -13,7 +13,7 @@ from app.api.deps import get_rate_limiter
 from app.api.v1.settings import CurrencyData, get_settings_service
 from app.core.rate_limit import PUBLIC_SETTINGS_POLICY
 from app.main import create_app
-from app.services.public_settings import DEFAULT_CURRENCY, PublicSettingsService
+from app.services.public_settings import PublicSettingsService
 from tests.fakes import FakeRateLimiter, RaisingRateLimiter, as_limiter
 
 KEY = "test-only-internal-service-key-not-for-deployment"
@@ -78,7 +78,6 @@ async def test_unset_currency_falls_back_to_the_frontend_default() -> None:
 
     assert response.status_code == 200
     assert response.json()["data"] == {"currency": "USD"}
-    assert DEFAULT_CURRENCY == "USD"
 
 
 @pytest.mark.parametrize(
@@ -128,6 +127,31 @@ async def test_matching_if_none_match_returns_304(client: AsyncClient) -> None:
     assert second.status_code == 304
     assert second.content == b""
     assert second.headers["Cache-Control"] == CACHE
+
+
+@pytest.mark.parametrize("template", ["W/{}", '{}, "other"', "*"])
+async def test_if_none_match_accepts_weak_lists_and_wildcard(
+    client: AsyncClient, template: str
+) -> None:
+    first = await client.get("/v1/settings/currency")
+
+    second = await client.get(
+        "/v1/settings/currency",
+        headers={"If-None-Match": template.format(first.headers["ETag"])},
+    )
+
+    assert second.status_code == 304
+
+
+async def test_stale_if_none_match_returns_the_full_response(
+    client: AsyncClient,
+) -> None:
+    response = await client.get(
+        "/v1/settings/currency", headers={"If-None-Match": '"stale"'}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"] == {"currency": "EUR"}
 
 
 async def test_etag_changes_when_the_currency_changes() -> None:

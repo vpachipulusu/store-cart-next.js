@@ -69,13 +69,20 @@ def _matches(if_none_match: str | None, etag: str) -> bool:
 @router.get(
     "/currency",
     response_model=CurrencyResponse,
+    summary="Read the platform currency",
     responses={304: {"description": "Not modified (If-None-Match matched)"}},
 )
 async def read_currency(
     service: ServiceDep,
-    if_none_match: Annotated[str | None, Header()] = None,
+    if_none_match: Annotated[
+        str | None, Header(description="ETag from an earlier response")
+    ] = None,
 ) -> Response:
-    """The platform currency code (upper case, e.g. ``USD``)."""
+    """The platform currency code (upper case, e.g. ``USD``).
+
+    Answers ``USD`` when the setting is missing or not a supported code. Sends
+    ``Cache-Control: public, max-age=60`` and an ``ETag``.
+    """
     content = CurrencyResponse(
         data=CurrencyData(currency=await service.currency())
     ).model_dump_json()
