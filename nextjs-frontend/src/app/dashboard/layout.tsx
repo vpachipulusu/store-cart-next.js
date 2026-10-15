@@ -9,6 +9,7 @@ import { LayoutDashboard } from 'lucide-react';
 import { SessionProvider } from '@/components/providers/session-provider';
 import { DashboardHeader } from '@/components/dashboard/dashboard-header';
 import { StoreSwitcher } from '@/components/dashboard/store-switcher';
+import { HideOnOnboarding } from '@/components/dashboard/hide-on-onboarding';
 import { getCurrentStoreSelection } from '@/lib/stores/current';
 
 /**
@@ -139,18 +140,20 @@ export default async function DashboardLayout({ children }: { children: React.Re
             </div>
           )}
           {storeSelection.available && !selectedStore && (
-            <div role="status" data-testid="no-stores" className="container pt-6 text-sm">
-              <p className="font-medium">You do not have a store yet.</p>
-              <p className="text-muted-foreground">
-                <Link
-                  href="/dashboard/onboarding"
-                  className="inline-flex min-h-11 items-center font-medium text-foreground underline underline-offset-4"
-                >
-                  Set up your store
-                </Link>{' '}
-                to start selling.
-              </p>
-            </div>
+            <HideOnOnboarding>
+              <div role="status" data-testid="no-stores" className="container pt-6 text-sm">
+                <p className="font-medium">You do not have a store yet.</p>
+                <p className="text-muted-foreground">
+                  <Link
+                    href="/dashboard/onboarding"
+                    className="inline-flex min-h-11 items-center font-medium text-foreground underline underline-offset-4"
+                  >
+                    Set up your store
+                  </Link>{' '}
+                  to start selling.
+                </p>
+              </div>
+            </HideOnOnboarding>
           )}
           <div className="container py-8 lg:py-10">{children}</div>
         </main>

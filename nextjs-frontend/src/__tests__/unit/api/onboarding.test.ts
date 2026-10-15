@@ -2,14 +2,20 @@
 /** KAN-60: the onboarding wrapper creates an organisation then a store, and stays resumable when the second step fails. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ callBackend: vi.fn() }));
-vi.mock('server-only', () => ({}));
-vi.mock('@/lib/api/server', () => ({ callBackend: mocks.callBackend }));
-vi.mock('@/lib/api/generated', () => ({
+const mocks = vi.hoisted(() => ({
+  callBackend: vi.fn(),
   createOrganization: vi.fn(),
   createStore: vi.fn(),
   listOrganizations: vi.fn(),
   readStore: vi.fn(),
+}));
+vi.mock('server-only', () => ({}));
+vi.mock('@/lib/api/server', () => ({ callBackend: mocks.callBackend }));
+vi.mock('@/lib/api/generated', () => ({
+  createOrganization: mocks.createOrganization,
+  createStore: mocks.createStore,
+  listOrganizations: mocks.listOrganizations,
+  readStore: mocks.readStore,
 }));
 
 import {
@@ -47,8 +53,49 @@ const org = (over: Record<string, unknown> = {}) => ({
 const ok = (data: unknown) => ({ success: true as const, data });
 const fail = (status: number, error = 'x') => ({ success: false as const, status, error });
 
+/** Runs each SDK closure (so its arguments are recorded) and answers with the queued result. */
+function queue(...results: unknown[]) {
+  const pending = [...results];
+  mocks.callBackend.mockImplementation(async (call: (client: unknown) => Promise<unknown>) => {
+    await call({ marker: 'client' });
+    return pending.shift();
+  });
+}
+
 describe('createOrganizationWithStore', () => {
   beforeEach(() => vi.resetAllMocks());
+
+  it('passes the id of the organisation it created to createStore, with the store fields', async () => {
+    queue(ok([]), ok(org({ id: 'org-created' })), ok(store()));
+    await createOrganizationWithStore(INPUT);
+    expect(mocks.createOrganization).toHaveBeenCalledWith(
+      expect.objectContaining({ body: { name: 'Acme', slug: 'acme' } })
+    );
+    expect(mocks.createStore).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: { organization_id: 'org-created' },
+        body: { name: 'Acme Shop', slug: 'acme-shop' },
+      })
+    );
+  });
+
+  it('passes the id of the reused organisation to createStore and creates no organisation', async () => {
+    queue(ok([org({ id: 'org-existing' })]), ok(store()));
+    await createOrganizationWithStore({ storeName: 'Acme Shop', storeSlug: 'acme-shop' });
+    expect(mocks.createOrganization).not.toHaveBeenCalled();
+    expect(mocks.createStore).toHaveBeenCalledWith(
+      expect.objectContaining({ path: { organization_id: 'org-existing' } })
+    );
+  });
+
+  it('refuses a store-only request when there is no organisation to reuse', async () => {
+    queue(ok([]));
+    expect(
+      await createOrganizationWithStore({ storeName: 'Acme Shop', storeSlug: 'acme-shop' })
+    ).toEqual({ success: false, reason: 'invalid', stage: 'organization' });
+    expect(mocks.createOrganization).not.toHaveBeenCalled();
+    expect(mocks.createStore).not.toHaveBeenCalled();
+  });
 
   it('creates the organisation then the store, which starts PROVISIONING', async () => {
     mocks.callBackend

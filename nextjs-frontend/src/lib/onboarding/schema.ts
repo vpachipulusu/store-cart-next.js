@@ -42,6 +42,30 @@ export const onboardingSchema = z.object({
 
 export type OnboardingInput = z.infer<typeof onboardingSchema>;
 
+/** Resume mode: the business already exists, so only the store is submitted. */
+export const resumeSchema = onboardingSchema.pick({ storeName: true, storeSlug: true });
+export type ResumeInput = z.infer<typeof resumeSchema>;
+
+export type OnboardingSubmission =
+  | ({ mode: 'new' } & OnboardingInput)
+  | ({ mode: 'resume' } & ResumeInput);
+
+export type FieldName = keyof OnboardingInput;
+export type FieldErrors = Partial<Record<FieldName, string>>;
+
+const FIELD_NAMES: ReadonlySet<string> = new Set<FieldName>([
+  'organizationName',
+  'organizationSlug',
+  'storeName',
+  'storeSlug',
+]);
+
+export function isFieldName(value: unknown): value is FieldName {
+  return typeof value === 'string' && FIELD_NAMES.has(value);
+}
+
+export const SESSION_EXPIRED_MESSAGE = 'Your session has expired. Please sign in again.';
+
 /** Suggests a slug from a display name; the user can edit it. */
 export function slugify(text: string): string {
   return text

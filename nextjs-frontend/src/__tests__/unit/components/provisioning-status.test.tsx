@@ -11,12 +11,15 @@ import {
   nextPollDelay,
   ProvisioningStatus,
   POLL_INITIAL_MS,
-  POLL_MAX_MS,
   POLL_MAX_ATTEMPTS,
+  POLL_MAX_FAILURES,
+  POLL_MAX_MS,
+  RETRY_COOLDOWN_MS,
 } from '@/components/onboarding/provisioning-status';
 
 const STORE_ID = 'tz4a98xxat96iws9zmbrgj3a';
 const ok = (status: string) => ({ success: true, data: { status, name: 'Acme Shop' } });
+const failed = { success: false, error: 'Could not check your store. Please try again.' };
 
 async function advance(ms: number) {
   await act(async () => {
@@ -24,11 +27,15 @@ async function advance(ms: number) {
   });
 }
 
-function renderStatus(initialStatus = 'PROVISIONING') {
+function renderStatus(
+  initialStatus: 'PROVISIONING' | 'ACTIVE' | 'SUSPENDED' | 'UNKNOWN' = 'PROVISIONING'
+) {
   return render(
     <ProvisioningStatus storeId={STORE_ID} storeName="Acme Shop" initialStatus={initialStatus} />
   );
 }
+
+const statusRegion = () => screen.getByRole('status');
 
 describe('nextPollDelay', () => {
   it('backs off from the initial delay up to the cap', () => {
@@ -48,35 +55,41 @@ describe('ProvisioningStatus', () => {
     vi.useRealTimers();
   });
 
-  it('shows PROVISIONING as setting up and keeps polling', async () => {
+  it('shows PROVISIONING as setting up and polls on the backoff schedule', async () => {
     mocks.getStoreStatusAction.mockResolvedValue(ok('PROVISIONING'));
     renderStatus();
 
-    expect(screen.getByRole('status')).toHaveTextContent(/setting up/i);
+    expect(statusRegion()).toHaveTextContent(/setting up/i);
     expect(screen.queryByRole('link', { name: /open dashboard/i })).toBeNull();
+    expect(mocks.getStoreStatusAction).not.toHaveBeenCalled();
 
-    await advance(POLL_INITIAL_MS);
+    await advance(nextPollDelay(0));
+    expect(mocks.getStoreStatusAction).toHaveBeenCalledTimes(1);
     expect(mocks.getStoreStatusAction).toHaveBeenCalledWith(STORE_ID);
-    expect(screen.getByRole('status')).toHaveTextContent(/setting up/i);
+    expect(statusRegion()).toHaveTextContent(/setting up/i);
 
-    await advance(POLL_MAX_MS);
-    expect(mocks.getStoreStatusAction.mock.calls.length).toBeGreaterThanOrEqual(2);
+    await advance(nextPollDelay(1) - 1);
+    expect(mocks.getStoreStatusAction).toHaveBeenCalledTimes(1);
+    await advance(1);
+    expect(mocks.getStoreStatusAction).toHaveBeenCalledTimes(2);
   });
 
-  it('shows ready with an open-dashboard link once the store becomes ACTIVE, and stops polling', async () => {
+  it('announces ready in the same live region and shows an open-dashboard link, then stops polling', async () => {
     mocks.getStoreStatusAction.mockResolvedValue(ok('ACTIVE'));
     renderStatus();
+    const region = statusRegion();
+    expect(region).toHaveAttribute('aria-live', 'polite');
 
     await advance(POLL_INITIAL_MS);
-    expect(screen.getByRole('status')).toHaveTextContent(/ready/i);
+    expect(statusRegion()).toBe(region);
+    expect(region).toHaveTextContent(/ready/i);
     expect(screen.getByRole('link', { name: /open dashboard/i })).toHaveAttribute(
       'href',
       '/dashboard'
     );
 
-    const calls = mocks.getStoreStatusAction.mock.calls.length;
     await advance(POLL_MAX_MS * 3);
-    expect(mocks.getStoreStatusAction.mock.calls.length).toBe(calls);
+    expect(mocks.getStoreStatusAction).toHaveBeenCalledTimes(1);
   });
 
   it('renders ready immediately when the store is already ACTIVE', () => {
@@ -85,41 +98,118 @@ describe('ProvisioningStatus', () => {
     expect(mocks.getStoreStatusAction).not.toHaveBeenCalled();
   });
 
-  it('offers a retry when a status check fails, and polling resumes after it', async () => {
-    mocks.getStoreStatusAction.mockResolvedValueOnce({ success: false, error: 'Could not check' });
+  it('tolerates transient failures and recovers without showing an error', async () => {
+    mocks.getStoreStatusAction
+      .mockResolvedValueOnce(failed)
+      .mockRejectedValueOnce(new Error('network'))
+      .mockResolvedValue(ok('ACTIVE'));
     renderStatus();
 
-    await advance(POLL_INITIAL_MS);
-    expect(screen.getByRole('alert')).toHaveTextContent(/could not check/i);
-    const retry = screen.getByRole('button', { name: /try again/i });
+    await advance(POLL_MAX_MS * 4);
+    expect(mocks.getStoreStatusAction).toHaveBeenCalledTimes(3);
+    expect(statusRegion()).toHaveTextContent(/ready/i);
+    expect(screen.queryByRole('button', { name: /try again/i })).toBeNull();
+  });
+
+  it('shows an error with a retry only after several consecutive failures', async () => {
+    mocks.getStoreStatusAction.mockResolvedValue(failed);
+    renderStatus();
+
+    await advance(POLL_MAX_MS * POLL_MAX_FAILURES * 2);
+    expect(mocks.getStoreStatusAction).toHaveBeenCalledTimes(POLL_MAX_FAILURES);
+    expect(statusRegion()).toHaveTextContent(/could not check/i);
+    expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('keeps the retry button out of the live region', async () => {
+    mocks.getStoreStatusAction.mockResolvedValue(failed);
+    renderStatus();
+    await advance(POLL_MAX_MS * POLL_MAX_FAILURES * 2);
+    expect(statusRegion()).not.toContainElement(screen.getByRole('button', { name: /try again/i }));
+  });
+
+  it('retries immediately and resumes polling', async () => {
+    mocks.getStoreStatusAction.mockResolvedValue(failed);
+    renderStatus();
+    await advance(POLL_MAX_MS * POLL_MAX_FAILURES * 2);
 
     mocks.getStoreStatusAction.mockResolvedValue(ok('ACTIVE'));
     await act(async () => {
-      retry.click();
+      screen.getByRole('button', { name: /try again/i }).click();
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(screen.getByRole('status')).toHaveTextContent(/ready/i);
+    expect(statusRegion()).toHaveTextContent(/ready/i);
   });
 
-  it.each(['SUSPENDED', 'ARCHIVED', 'WHATEVER'])(
-    'treats an unexpected status %s as unavailable with a retry',
-    async (status) => {
-      mocks.getStoreStatusAction.mockResolvedValue(ok(status));
-      renderStatus();
-      await advance(POLL_INITIAL_MS);
-      expect(screen.getByRole('alert')).toHaveTextContent(/not available/i);
-      expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
-    }
-  );
+  it('ignores repeated retry clicks during the cooldown, then allows another', async () => {
+    mocks.getStoreStatusAction.mockResolvedValue(ok('SUSPENDED'));
+    renderStatus('SUSPENDED');
+    const click = async () => {
+      await act(async () => {
+        screen.getByRole('button', { name: /try again/i }).click();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+    };
 
-  it('stops polling and shows an error when the store is not found', async () => {
-    mocks.getStoreStatusAction.mockResolvedValue({ success: false, error: 'x', notFound: true });
+    await click();
+    expect(mocks.getStoreStatusAction).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: /try again/i })).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
+
+    await click();
+    expect(mocks.getStoreStatusAction).toHaveBeenCalledTimes(1);
+
+    await advance(RETRY_COOLDOWN_MS);
+    expect(screen.getByRole('button', { name: /try again/i })).not.toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
+    await click();
+    expect(mocks.getStoreStatusAction).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['SUSPENDED', 'ARCHIVED'])('treats %s as not available with a retry', async (status) => {
+    mocks.getStoreStatusAction.mockResolvedValue(ok(status));
     renderStatus();
     await advance(POLL_INITIAL_MS);
-    expect(screen.getByRole('alert')).toHaveTextContent(/not available/i);
-    const calls = mocks.getStoreStatusAction.mock.calls.length;
+    expect(statusRegion()).toHaveTextContent(/not available/i);
+    expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+  });
+
+  it('says the check failed, not "not available", when the initial status is unknown', () => {
+    renderStatus('UNKNOWN');
+    expect(statusRegion()).toHaveTextContent(/could not check/i);
+    expect(statusRegion()).not.toHaveTextContent(/not available/i);
+    expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+  });
+
+  it('stops polling and says the store is not available when it is not found', async () => {
+    mocks.getStoreStatusAction.mockResolvedValue({ success: false, notFound: true });
+    renderStatus();
+    await advance(POLL_INITIAL_MS);
+    expect(statusRegion()).toHaveTextContent(/not available/i);
     await advance(POLL_MAX_MS * 3);
-    expect(mocks.getStoreStatusAction.mock.calls.length).toBe(calls);
+    expect(mocks.getStoreStatusAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a session-expired message, never the bare word Unauthorized', async () => {
+    mocks.getStoreStatusAction.mockResolvedValue({ success: false, code: 'unauthorized' });
+    renderStatus();
+    await advance(POLL_INITIAL_MS);
+    expect(statusRegion()).toHaveTextContent(/session has expired/i);
+    expect(statusRegion()).not.toHaveTextContent(/^unauthorized$/i);
+  });
+
+  it('stops polling after the attempt cap and offers a retry', async () => {
+    mocks.getStoreStatusAction.mockResolvedValue(ok('PROVISIONING'));
+    renderStatus();
+    await advance(POLL_MAX_MS * (POLL_MAX_ATTEMPTS + 2));
+    expect(statusRegion()).toHaveTextContent(/taking longer/i);
+    expect(mocks.getStoreStatusAction).toHaveBeenCalledTimes(POLL_MAX_ATTEMPTS);
+    expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
   });
 
   it('clears the pending timer on unmount', async () => {
@@ -128,28 +218,5 @@ describe('ProvisioningStatus', () => {
     unmount();
     await advance(POLL_MAX_MS * 3);
     expect(mocks.getStoreStatusAction).not.toHaveBeenCalled();
-  });
-
-  it('offers a retry when the status action itself rejects', async () => {
-    mocks.getStoreStatusAction.mockRejectedValue(new Error('network'));
-    renderStatus();
-    await advance(POLL_INITIAL_MS);
-    expect(screen.getByRole('alert')).toHaveTextContent(/could not check/i);
-    expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
-  });
-
-  it('shows a session-expired message instead of the raw Unauthorized', async () => {
-    mocks.getStoreStatusAction.mockResolvedValue({ success: false, error: 'Unauthorized' });
-    renderStatus();
-    await advance(POLL_INITIAL_MS);
-    expect(screen.getByRole('alert')).toHaveTextContent(/session has expired/i);
-  });
-
-  it('stops polling after the attempt cap and offers a retry', async () => {
-    mocks.getStoreStatusAction.mockResolvedValue(ok('PROVISIONING'));
-    renderStatus();
-    await advance(POLL_MAX_MS * (POLL_MAX_ATTEMPTS + 2));
-    expect(screen.getByRole('alert')).toHaveTextContent(/taking longer/i);
-    expect(mocks.getStoreStatusAction.mock.calls.length).toBe(POLL_MAX_ATTEMPTS);
   });
 });

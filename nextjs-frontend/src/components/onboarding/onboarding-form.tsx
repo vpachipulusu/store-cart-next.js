@@ -1,25 +1,30 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { createStoreAction } from '@/app/actions/onboarding-actions';
-import { slugify, type OnboardingInput } from '@/lib/onboarding/schema';
+import {
+  SESSION_EXPIRED_MESSAGE,
+  slugify,
+  type FieldErrors,
+  type FieldName,
+  type OnboardingInput,
+  type OnboardingSubmission,
+} from '@/lib/onboarding/schema';
 
-type FieldName = keyof OnboardingInput;
-type FieldErrors = Partial<Record<FieldName, string>>;
-
-/** The server ignores the business fields when it reuses an existing business; these only satisfy validation. */
-const RESUME_ORGANIZATION_SLUG = 'existing-business';
+/** If the navigation to the status screen has not happened by then, the button works again. */
+export const PUSH_STALL_MS = 10000;
+const GENERIC_ERROR = 'We could not set up your store. Please try again.';
 
 type OnboardingFormProps = {
   /** Set when a previous attempt created the business but not the store; the form then only asks for the store. */
   resumeOrganizationName?: string;
 };
 
-type AddressFieldProps = {
+type FieldProps = {
   id: FieldName;
   label: string;
   value: string;
@@ -28,7 +33,7 @@ type AddressFieldProps = {
   onChange: (value: string) => void;
 };
 
-function Field({ id, label, value, error, autoComplete, onChange }: AddressFieldProps) {
+function Field({ id, label, value, error, autoComplete, onChange }: FieldProps) {
   const errorId = `${id}-error`;
   return (
     <div className="space-y-2">
@@ -54,21 +59,35 @@ function Field({ id, label, value, error, autoComplete, onChange }: AddressField
 
 /**
  * Collects the business and first store (KAN-60). Addresses (slugs) are suggested from the names until the user
- * edits them. Validation and the final say are on the server; a half-finished setup is resumed by submitting again.
+ * edits them. Validation and the final say are on the server. When the business exists without a store (from an
+ * earlier attempt, or because this attempt created it and the store step failed) the form drops the business
+ * fields and submits a store-only request, so a retry resumes instead of creating a second business.
  */
 export function OnboardingForm({ resumeOrganizationName }: OnboardingFormProps) {
   const router = useRouter();
-  const resuming = resumeOrganizationName !== undefined;
+  const formRef = useRef<HTMLFormElement>(null);
+  const submittingRef = useRef(false);
+  const stallTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [resumeName, setResumeName] = useState(resumeOrganizationName);
   const [values, setValues] = useState<OnboardingInput>({
-    organizationName: resumeOrganizationName ?? '',
-    organizationSlug: resuming ? RESUME_ORGANIZATION_SLUG : '',
+    organizationName: '',
+    organizationSlug: '',
     storeName: '',
     storeSlug: '',
   });
   const [edited, setEdited] = useState<ReadonlySet<FieldName>>(new Set());
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [pending, setPending] = useState(false);
+  const resuming = resumeName !== undefined;
+
+  useEffect(() => () => clearTimeout(stallTimerRef.current), []);
+
+  // After a failed submit, move focus to the first invalid field so keyboard and screen-reader users land on it.
+  useEffect(() => {
+    if (Object.keys(fieldErrors).length === 0) return;
+    formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+  }, [fieldErrors]);
 
   const setName = (
     nameField: 'organizationName' | 'storeName',
@@ -87,32 +106,48 @@ export function OnboardingForm({ resumeOrganizationName }: OnboardingFormProps) 
     setValues((current) => ({ ...current, [field]: value }));
   };
 
+  const finish = () => {
+    submittingRef.current = false;
+    setPending(false);
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (submitting) return;
-    setSubmitting(true);
+    // A ref, not state: two submits in the same tick both see the same render's state.
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setPending(true);
     setFieldErrors({});
     setFormError(null);
+
+    const submission: OnboardingSubmission = resuming
+      ? { mode: 'resume', storeName: values.storeName, storeSlug: values.storeSlug }
+      : { mode: 'new', ...values };
+
     try {
-      const result = await createStoreAction(values);
+      const result = await createStoreAction(submission);
       if (result.success) {
         router.push(`/dashboard/onboarding/status/${encodeURIComponent(result.data.storeId)}`);
+        // Stay "pending" while navigating, but never forever if the navigation stalls.
+        stallTimerRef.current = setTimeout(finish, PUSH_STALL_MS);
         return;
       }
+      if (result.organizationCreated && !resuming) setResumeName(values.organizationName);
       setFieldErrors(result.fieldErrors ?? {});
-      setFormError(result.error ?? null);
+      setFormError(
+        result.code === 'unauthorized' ? SESSION_EXPIRED_MESSAGE : (result.error ?? null)
+      );
     } catch {
-      setFormError('We could not set up your store. Please try again.');
+      setFormError(GENERIC_ERROR);
     }
-    setSubmitting(false);
+    finish();
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6" noValidate>
+    <form ref={formRef} onSubmit={handleSubmit} className="space-y-6" noValidate>
       {resuming ? (
         <p className="text-sm text-muted-foreground">
-          Your business{' '}
-          <span className="font-medium text-foreground">{resumeOrganizationName}</span> is already
+          Your business <span className="font-medium text-foreground">{resumeName}</span> is already
           created. Finish by adding your first store.
         </p>
       ) : (
@@ -153,8 +188,12 @@ export function OnboardingForm({ resumeOrganizationName }: OnboardingFormProps) 
           {formError}
         </p>
       )}
-      <Button type="submit" disabled={submitting} className="min-h-11 w-full">
-        {submitting ? 'Creating your store…' : 'Create my store'}
+      <Button
+        type="submit"
+        aria-disabled={pending}
+        className="min-h-11 w-full aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+      >
+        {pending ? 'Creating your store…' : 'Create my store'}
       </Button>
     </form>
   );

@@ -9,7 +9,14 @@ import {
   type OrganizationData,
   type StoreStatus,
 } from './generated';
-import type { OnboardingInput } from '@/lib/onboarding/schema';
+
+/** The business fields are needed only when no owned, store-less organisation exists to reuse. */
+export type CreateOnboardingInput = {
+  storeName: string;
+  storeSlug: string;
+  organizationName?: string;
+  organizationSlug?: string;
+};
 
 /**
  * Server-only calls behind merchant onboarding (KAN-60): create the first organisation and store, and read a
@@ -104,7 +111,7 @@ export async function fetchOnboardingState(): Promise<ApiResult<OnboardingState>
  * previous attempt created it but the store step failed) it is reused, so a retry never creates a second one.
  */
 export async function createOrganizationWithStore(
-  input: OnboardingInput
+  input: CreateOnboardingInput
 ): Promise<CreateOnboardingResult> {
   const existing = await listOwnOrganizations();
   if (!existing.success) {
@@ -117,10 +124,15 @@ export async function createOrganizationWithStore(
   const resumable = findResumable(existing.data);
   let organizationId = resumable?.id;
   if (!organizationId) {
+    if (!input.organizationName || !input.organizationSlug) {
+      return { success: false, reason: 'invalid', stage: 'organization' };
+    }
+    const organizationName = input.organizationName;
+    const organizationSlug = input.organizationSlug;
     const created = await callBackend((client) =>
       createOrganization({
         client,
-        body: { name: input.organizationName, slug: input.organizationSlug },
+        body: { name: organizationName, slug: organizationSlug },
       })
     );
     if (!created.success) {

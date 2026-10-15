@@ -63,6 +63,8 @@ test.describe('Merchant onboarding', () => {
     await expect(page).toHaveURL(/\/dashboard\/onboarding$/);
     await waitForPageReady(page);
     await expect(page.getByRole('heading', { name: 'Set up your store' })).toBeVisible();
+    // The dashboard's no-store notice does not repeat itself on the onboarding page.
+    await expect(page.getByTestId('no-stores')).toHaveCount(0);
 
     // Invalid input is refused on the server with a message on the field.
     await fillStoreFields(page, suffix, true);
