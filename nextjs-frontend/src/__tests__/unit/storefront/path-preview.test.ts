@@ -3,11 +3,17 @@ import { describe, expect, it } from 'vitest';
 import { isStorefrontPathPreviewEnabled, parseStorePath } from '@/lib/storefront/host';
 
 describe('isStorefrontPathPreviewEnabled', () => {
+  const on = { STOREFRONT_PATH_PREVIEW: 'true' };
   it.each([
-    [{ STOREFRONT_PATH_PREVIEW: 'true', VERCEL_ENV: 'preview' }, true],
-    [{ STOREFRONT_PATH_PREVIEW: 'true', VERCEL_ENV: 'development' }, true],
-    [{ STOREFRONT_PATH_PREVIEW: 'true' }, true],
-    [{ STOREFRONT_PATH_PREVIEW: 'true', VERCEL_ENV: 'production' }, false],
+    [{ ...on, VERCEL_ENV: 'preview', NODE_ENV: 'production' }, true],
+    [{ ...on, VERCEL_ENV: 'development', NODE_ENV: 'production' }, true],
+    [{ ...on, NODE_ENV: 'development' }, true],
+    [{ ...on, NODE_ENV: 'test' }, true],
+    [{ ...on }, true],
+    [{ ...on, VERCEL_ENV: 'production', NODE_ENV: 'development' }, false],
+    [{ ...on, NODE_ENV: 'production' }, false],
+    [{ ...on, VERCEL_ENV: '', NODE_ENV: 'development' }, false],
+    [{ ...on, VERCEL_ENV: 'staging', NODE_ENV: 'development' }, false],
     [{ STOREFRONT_PATH_PREVIEW: 'false', VERCEL_ENV: 'preview' }, false],
     [{ STOREFRONT_PATH_PREVIEW: 'TRUE', VERCEL_ENV: 'preview' }, false],
     [{ STOREFRONT_PATH_PREVIEW: '1', VERCEL_ENV: 'preview' }, false],

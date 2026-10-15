@@ -3,8 +3,9 @@ import { test, expect } from '@playwright/test';
 /**
  * KAN-202: preview-only `/s/{slug}` access. Temporary: delete with the route once the wildcard domain exists.
  *
- * Run with the flag on (the flag-off and production cases are unit-tested in proxy-path-preview.test.ts):
- *   STOREFRONT_PATH_PREVIEW=true npm run test:e2e:local -- src/__tests__/e2e/storefront-path-preview.spec.ts
+ * Run with the flag on and VERCEL_ENV=preview (the local build is a production build, and an unset VERCEL_ENV is
+ * not enough there). The flag-off and production cases are unit-tested in proxy-path-preview.test.ts:
+ *   STOREFRONT_PATH_PREVIEW=true VERCEL_ENV=preview PLATFORM_ROOT_DOMAIN=localhost npm run test:e2e:local -- src/__tests__/e2e/storefront-path-preview.spec.ts
  * Uses the same backend seed as storefront-subdomain.spec.ts:
  *   e2e-live       ACTIVE     "E2E Live Shop"
  *   e2e-suspended  SUSPENDED
@@ -16,8 +17,8 @@ const hostStoreUrl = (slug: string) =>
 
 test.describe('storefront path preview', () => {
   test.skip(
-    process.env.STOREFRONT_PATH_PREVIEW !== 'true',
-    'needs STOREFRONT_PATH_PREVIEW=true on the server under test'
+    process.env.STOREFRONT_PATH_PREVIEW !== 'true' || process.env.VERCEL_ENV !== 'preview',
+    'needs STOREFRONT_PATH_PREVIEW=true and VERCEL_ENV=preview on the server under test'
   );
 
   test('an active store renders on /s/{slug} and is noindex', async ({ page }) => {
@@ -25,6 +26,9 @@ test.describe('storefront path preview', () => {
 
     expect(response?.status()).toBe(200);
     expect(response?.headers()['x-robots-tag']).toBe('noindex');
+    expect(response?.headers()['content-security-policy']).toBe(
+      "default-src 'none'; style-src 'unsafe-inline'"
+    );
     await expect(page.getByRole('heading', { name: 'E2E Live Shop' })).toBeVisible();
   });
 

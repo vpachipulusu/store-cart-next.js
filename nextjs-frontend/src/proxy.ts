@@ -44,6 +44,8 @@ function rewriteToStorefront(request: NextRequest, slug: string, headers: Header
   return response;
 }
 
+const PREVIEW_CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'unsafe-inline'";
+
 /**
  * KAN-202 (temporary): preview-only `/s/{slug}`. When enabled and the slug is valid it is rewritten like a
  * store host; only the store root is served (no sub-routes exist). In every other case (flag off,
@@ -61,6 +63,7 @@ function rewritePathPreview(
     isStorefrontPathPreviewEnabled({
       STOREFRONT_PATH_PREVIEW: process.env.STOREFRONT_PATH_PREVIEW,
       VERCEL_ENV: process.env.VERCEL_ENV,
+      NODE_ENV: process.env.NODE_ENV,
     })
       ? preview.slug
       : null;
@@ -76,6 +79,8 @@ function rewritePathPreview(
   const response = NextResponse.rewrite(url, { request: { headers } });
   applySecurityHeaders(response);
   response.headers.set('X-Robots-Tag', 'noindex');
+  // /s shares the dashboard and admin origin, so nothing a store page renders may run script or load resources.
+  response.headers.set('Content-Security-Policy', PREVIEW_CONTENT_SECURITY_POLICY);
   return response;
 }
 

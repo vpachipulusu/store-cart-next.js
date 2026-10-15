@@ -158,14 +158,19 @@ export const STORE_PATH_PREFIX = '/s';
 export const STORE_NOT_FOUND_SLUG = 'not_found';
 
 /**
- * Preview paths are served only when `STOREFRONT_PATH_PREVIEW` is exactly `true` and the deployment is not
- * Vercel production. `VERCEL_ENV` is unset off Vercel (local development, local E2E), where the flag decides.
+ * Allow-list, fail closed. Preview paths are served only when `STOREFRONT_PATH_PREVIEW` is exactly `true` and
+ * `VERCEL_ENV` is `preview` or `development`, or `VERCEL_ENV` is unset and `NODE_ENV` is not `production`.
+ * Production, an unset `VERCEL_ENV` under a production build (self-hosted production, or Vercel system env
+ * vars switched off), empty and unknown values are all disabled. Stricter than "not production" on purpose.
  */
 export function isStorefrontPathPreviewEnabled(env: {
   STOREFRONT_PATH_PREVIEW?: string;
   VERCEL_ENV?: string;
+  NODE_ENV?: string;
 }): boolean {
-  return env.STOREFRONT_PATH_PREVIEW === 'true' && env.VERCEL_ENV !== 'production';
+  if (env.STOREFRONT_PATH_PREVIEW !== 'true') return false;
+  if (env.VERCEL_ENV === 'preview' || env.VERCEL_ENV === 'development') return true;
+  return env.VERCEL_ENV === undefined && env.NODE_ENV !== 'production';
 }
 
 /**

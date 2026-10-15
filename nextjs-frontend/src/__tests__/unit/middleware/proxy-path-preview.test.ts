@@ -9,15 +9,21 @@ function request(host: string, path: string, headers: Record<string, string> = {
 }
 
 const ROOT_HOST = 'storecart.test';
+const CSP = "default-src 'none'; style-src 'unsafe-inline'";
 const rewriteTarget = (response: Response) => response.headers.get('x-middleware-rewrite');
 const overridden = (response: Response, name: string) =>
   response.headers.get(`x-middleware-request-${name}`);
 const rewritePath = (response: Response) => new URL(rewriteTarget(response)!).pathname;
 
-function configure(flag: string | undefined, vercelEnv: string | undefined) {
+function configure(
+  flag: string | undefined,
+  vercelEnv: string | undefined,
+  nodeEnv: string = 'test'
+) {
   vi.stubEnv('PLATFORM_ROOT_DOMAIN', ROOT_HOST);
   vi.stubEnv('STOREFRONT_PATH_PREVIEW', flag);
   vi.stubEnv('VERCEL_ENV', vercelEnv);
+  vi.stubEnv('NODE_ENV', nodeEnv);
 }
 
 afterEach(() => {
@@ -90,29 +96,36 @@ describe('/s/{slug} when the preview is enabled', () => {
 });
 
 describe.each([
-  ['flag on, preview env', 'preview'],
-  ['flag on, development env', 'development'],
-  ['flag on, VERCEL_ENV unset', undefined],
-])('/s/{slug} is served (%s)', (_label, vercelEnv) => {
-  beforeEach(() => configure('true', vercelEnv));
+  ['flag on, preview, production build', 'true', 'preview', 'production'],
+  ['flag on, development, production build', 'true', 'development', 'production'],
+  ['flag on, VERCEL_ENV unset, non-production build', 'true', undefined, 'development'],
+  ['flag on, VERCEL_ENV unset, test build', 'true', undefined, 'test'],
+])('/s/{slug} is served (%s)', (_label, flag, vercelEnv, nodeEnv) => {
+  beforeEach(() => configure(flag, vercelEnv, nodeEnv));
 
-  it('rewrites to the storefront route with the slug marker', async () => {
+  it('rewrites to the storefront route with the slug marker and the locked-down headers', async () => {
     const response = await proxy(request(ROOT_HOST, '/s/acme'));
 
     expect(rewritePath(response)).toBe('/storefront/acme');
     expect(overridden(response, STORE_SLUG_HEADER)).toBe('acme');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex');
+    expect(response.headers.get('Content-Security-Policy')).toBe(CSP);
   });
 });
 
 describe.each([
-  ['flag off, preview env', 'false', 'preview'],
-  ['flag unset, preview env', undefined, 'preview'],
-  ['flag on, production', 'true', 'production'],
-  ['flag off, production', 'false', 'production'],
-  ['flag unset, production', undefined, 'production'],
-])('/s/{slug} is a 404 target (%s)', (_label, flag, vercelEnv) => {
-  beforeEach(() => configure(flag, vercelEnv));
+  ['flag off, preview', 'false', 'preview', 'production'],
+  ['flag unset, preview', undefined, 'preview', 'production'],
+  ['flag not exactly true, preview', 'TRUE', 'preview', 'production'],
+  ['flag on, production', 'true', 'production', 'production'],
+  ['flag on, production, non-production build', 'true', 'production', 'development'],
+  ['flag off, production', 'false', 'production', 'production'],
+  ['flag unset, production', undefined, 'production', 'production'],
+  ['flag on, VERCEL_ENV unset, production build', 'true', undefined, 'production'],
+  ['flag on, VERCEL_ENV empty', 'true', '', 'development'],
+  ['flag on, VERCEL_ENV unknown', 'true', 'staging', 'development'],
+])('/s/{slug} is a 404 target (%s)', (_label, flag, vercelEnv, nodeEnv) => {
+  beforeEach(() => configure(flag, vercelEnv, nodeEnv));
 
   it('rewrites a valid slug to the not-found target without a slug marker', async () => {
     const response = await proxy(request(ROOT_HOST, '/s/acme', { [STORE_SLUG_HEADER]: 'acme' }));
@@ -120,6 +133,7 @@ describe.each([
     expect(rewritePath(response)).toBe('/storefront/not_found');
     expect(overridden(response, STORE_SLUG_HEADER)).toBeNull();
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex');
+    expect(response.headers.get('Content-Security-Policy')).toBe(CSP);
   });
 
   it('leaves host routing working', async () => {
