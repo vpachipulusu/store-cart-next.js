@@ -33,7 +33,8 @@ export function StoreSwitcher({ stores, selectedStoreId }: StoreSwitcherProps) {
       <div
         className="flex h-11 items-center gap-2 text-sm font-medium"
         data-testid="store-name"
-        aria-label={`Store: ${selected.name}`}
+        role="group"
+        aria-label="Current store"
       >
         <Store className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span className="max-w-[12rem] truncate">{selected.name}</span>
@@ -62,7 +63,7 @@ export function StoreSwitcher({ stores, selectedStoreId }: StoreSwitcherProps) {
       <SelectTrigger
         aria-label="Switch store"
         data-testid="store-switcher"
-        className="w-52 max-w-[60vw]"
+        className="w-44 max-w-[45vw] sm:w-52"
       >
         <SelectValue />
       </SelectTrigger>

@@ -129,6 +129,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
       {/* Main Content */}
       <SessionProvider>
+        {/* data-store-id is a display and test hook for the selection preference, not an authorization boundary.
+            Anything that scopes data by store must call getCurrentStoreSelection() on the server and the
+            backend must authorize the store id itself (docs/developer/dashboard-store-scope.md). */}
         <main className="flex-1" data-store-id={selectedStore?.id}>
           {!storeSelection.available && (
             <div role="status" className="container pt-6 text-sm text-muted-foreground">

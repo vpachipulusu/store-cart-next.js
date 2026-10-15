@@ -94,4 +94,54 @@ describe('fetchMerchantStores', () => {
       status: 401,
     });
   });
+
+  it('fetches the full store list for a truncated organisation, page by page', async () => {
+    const embedded = Array.from({ length: 100 }, (_, i) => storeRow(`e${i}`, `E${i}`, 'o1'));
+    const page1 = Array.from({ length: 100 }, (_, i) => storeRow(`p${i}`, `P${i}`, 'o1'));
+    const page2 = [storeRow('last', 'Last', 'o1')];
+    fetchMock.mockImplementation(async (request) => {
+      const url = new URL(request.url);
+      if (url.pathname === '/v1/organizations') {
+        return jsonResponse({
+          success: true,
+          data: [
+            { ...organization('o1', 'Big', embedded), stores_truncated: true },
+            organization('o2', 'Small', [storeRow('s9', 'Nine', 'o2')]),
+          ],
+        });
+      }
+      expect(url.pathname).toBe('/v1/organizations/o1/stores');
+      const page = url.searchParams.get('offset') === '0' ? page1 : page2;
+      return jsonResponse({ success: true, data: page, total: 101, limit: 100, offset: 0 });
+    });
+
+    const result = await fetchMerchantStores();
+
+    expect(result.success).toBe(true);
+    const ids = result.success ? result.data.map((store) => store.id) : [];
+    expect(ids).toHaveLength(102);
+    expect(ids).toContain('last');
+    expect(ids).toContain('s9');
+    expect(ids).not.toContain('e0');
+    // organisations call + two store pages; the untruncated organisation costs nothing extra
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('fails instead of returning a partial list when the full store list cannot be loaded', async () => {
+    fetchMock.mockImplementation(async (request) => {
+      if (new URL(request.url).pathname === '/v1/organizations') {
+        return jsonResponse({
+          success: true,
+          data: [{ ...organization('o1', 'Big', []), stores_truncated: true }],
+        });
+      }
+      return jsonResponse({ success: false, error: 'Request failed' }, 500);
+    });
+
+    expect(await fetchMerchantStores()).toEqual({
+      success: false,
+      error: 'Request failed',
+      status: 500,
+    });
+  });
 });

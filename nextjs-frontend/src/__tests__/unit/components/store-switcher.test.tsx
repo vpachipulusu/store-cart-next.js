@@ -39,6 +39,7 @@ describe('StoreSwitcher', () => {
   it('shows only the store name, with no switcher, for one store', () => {
     render(<StoreSwitcher stores={[ONE]} selectedStoreId={ONE.id} />);
     expect(screen.getByTestId('store-name')).toHaveTextContent('Alpha');
+    expect(screen.getByRole('group', { name: 'Current store' })).toBeInTheDocument();
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 

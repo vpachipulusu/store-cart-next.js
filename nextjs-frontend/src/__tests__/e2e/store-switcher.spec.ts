@@ -112,5 +112,14 @@ test.describe('Dashboard store switcher', () => {
     await page.goto('/dashboard');
     await waitForPageReady(page);
     await expect(page.getByRole('combobox', { name: 'Switch store' })).toHaveText(first);
+
+    // Phone width: the header does not overflow and the switcher stays inside the viewport.
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/dashboard');
+    await waitForPageReady(page);
+    const narrow = await page.getByRole('combobox', { name: 'Switch store' }).boundingBox();
+    expect((narrow?.x ?? 0) + (narrow?.width ?? 0)).toBeLessThanOrEqual(375);
+    const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+    expect(scrollWidth).toBeLessThanOrEqual(375);
   });
 });
