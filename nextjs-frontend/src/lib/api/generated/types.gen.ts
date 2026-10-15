@@ -681,6 +681,35 @@ export type InvoicesResponse = {
 export type MembershipRole = 'OWNER' | 'ADMIN' | 'STAFF';
 
 /**
+ * MigrateData
+ */
+export type MigrateData = {
+    /**
+     * Store Id
+     */
+    store_id: string;
+    /**
+     * Previous Schema Version
+     */
+    previous_schema_version: number;
+    /**
+     * Schema Version
+     */
+    schema_version: number;
+};
+
+/**
+ * MigrateResponse
+ */
+export type MigrateResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: MigrateData;
+};
+
+/**
  * OkResponse
  */
 export type OkResponse = {
@@ -760,6 +789,65 @@ export type OrganizationResponse = {
      */
     success?: true;
     data: OrganizationData;
+};
+
+/**
+ * OrganizationSummary
+ */
+export type OrganizationSummary = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Slug
+     */
+    slug: string;
+    /**
+     * Store Count
+     */
+    store_count: number;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * OrganizationsPage
+ */
+export type OrganizationsPage = {
+    /**
+     * Organizations
+     */
+    organizations: Array<OrganizationSummary>;
+    /**
+     * Total Count
+     */
+    total_count: number;
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Offset
+     */
+    offset: number;
+};
+
+/**
+ * OrganizationsPageResponse
+ */
+export type OrganizationsPageResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: OrganizationsPage;
 };
 
 /**
@@ -1144,6 +1232,32 @@ export type SettingsResponse = {
 };
 
 /**
+ * StatusData
+ */
+export type StatusData = {
+    /**
+     * Store Id
+     */
+    store_id: string;
+    status: StoreStatus;
+    /**
+     * Changed
+     */
+    changed: boolean;
+};
+
+/**
+ * StatusResponse
+ */
+export type StatusResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: StatusData;
+};
+
+/**
  * StoreData
  */
 export type StoreData = {
@@ -1217,6 +1331,45 @@ export type StoreResponse = {
 export type StoreStatus = 'PROVISIONING' | 'ACTIVE' | 'SUSPENDED' | 'ARCHIVED';
 
 /**
+ * StoreSummary
+ */
+export type StoreSummary = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Organization Id
+     */
+    organization_id: string;
+    /**
+     * Organization Name
+     */
+    organization_name: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Slug
+     */
+    slug: string;
+    status: StoreStatus;
+    /**
+     * Schema Version
+     */
+    schema_version: number;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+};
+
+/**
  * StorefrontData
  *
  * The public fields. Add a field here only when it is safe for anyone to read.
@@ -1241,6 +1394,39 @@ export type StorefrontResponse = {
      */
     success?: true;
     data: StorefrontData;
+};
+
+/**
+ * StoresPage
+ */
+export type StoresPage = {
+    /**
+     * Stores
+     */
+    stores: Array<StoreSummary>;
+    /**
+     * Total Count
+     */
+    total_count: number;
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Offset
+     */
+    offset: number;
+};
+
+/**
+ * StoresPageResponse
+ */
+export type StoresPageResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: StoresPage;
 };
 
 /**
@@ -3035,6 +3221,390 @@ export type ListAuditLogsResponses = {
 };
 
 export type ListAuditLogsResponse = ListAuditLogsResponses[keyof ListAuditLogsResponses];
+
+export type AdminListOrganizationsData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Search
+         */
+        search?: string | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Offset
+         */
+        offset?: number;
+    };
+    url: '/v1/admin/organizations';
+};
+
+export type AdminListOrganizationsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type AdminListOrganizationsError = AdminListOrganizationsErrors[keyof AdminListOrganizationsErrors];
+
+export type AdminListOrganizationsResponses = {
+    /**
+     * Successful Response
+     */
+    200: OrganizationsPageResponse;
+};
+
+export type AdminListOrganizationsResponse = AdminListOrganizationsResponses[keyof AdminListOrganizationsResponses];
+
+export type AdminListStoresData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Status
+         */
+        status?: 'PROVISIONING' | 'ACTIVE' | 'SUSPENDED' | 'ARCHIVED' | null;
+        /**
+         * Organization Id
+         */
+        organization_id?: string | null;
+        /**
+         * Search
+         */
+        search?: string | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Offset
+         */
+        offset?: number;
+    };
+    url: '/v1/admin/stores';
+};
+
+export type AdminListStoresErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type AdminListStoresError = AdminListStoresErrors[keyof AdminListStoresErrors];
+
+export type AdminListStoresResponses = {
+    /**
+     * Successful Response
+     */
+    200: StoresPageResponse;
+};
+
+export type AdminListStoresResponse = AdminListStoresResponses[keyof AdminListStoresResponses];
+
+export type AdminSuspendStoreData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/admin/stores/{store_id}/suspend';
+};
+
+export type AdminSuspendStoreErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type AdminSuspendStoreError = AdminSuspendStoreErrors[keyof AdminSuspendStoreErrors];
+
+export type AdminSuspendStoreResponses = {
+    /**
+     * Successful Response
+     */
+    200: StatusResponse;
+};
+
+export type AdminSuspendStoreResponse = AdminSuspendStoreResponses[keyof AdminSuspendStoreResponses];
+
+export type AdminUnsuspendStoreData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/admin/stores/{store_id}/unsuspend';
+};
+
+export type AdminUnsuspendStoreErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type AdminUnsuspendStoreError = AdminUnsuspendStoreErrors[keyof AdminUnsuspendStoreErrors];
+
+export type AdminUnsuspendStoreResponses = {
+    /**
+     * Successful Response
+     */
+    200: StatusResponse;
+};
+
+export type AdminUnsuspendStoreResponse = AdminUnsuspendStoreResponses[keyof AdminUnsuspendStoreResponses];
+
+export type AdminMigrateStoreData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/admin/stores/{store_id}/migrate';
+};
+
+export type AdminMigrateStoreErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type AdminMigrateStoreError = AdminMigrateStoreErrors[keyof AdminMigrateStoreErrors];
+
+export type AdminMigrateStoreResponses = {
+    /**
+     * Successful Response
+     */
+    200: MigrateResponse;
+};
+
+export type AdminMigrateStoreResponse = AdminMigrateStoreResponses[keyof AdminMigrateStoreResponses];
 
 export type AdminListSubscriptionsData = {
     body?: never;
