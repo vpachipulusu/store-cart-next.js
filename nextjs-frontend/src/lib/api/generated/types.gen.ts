@@ -415,6 +415,29 @@ export type CreateRequest = {
 };
 
 /**
+ * CurrencyData
+ *
+ * The public fields. Add a field here only when it is safe for anyone to read.
+ */
+export type CurrencyData = {
+    /**
+     * Currency
+     */
+    currency: string;
+};
+
+/**
+ * CurrencyResponse
+ */
+export type CurrencyResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: CurrencyData;
+};
+
+/**
  * DeleteRequest
  */
 export type DeleteRequest = {
@@ -5346,3 +5369,50 @@ export type ReadStorefrontResponses = {
 };
 
 export type ReadStorefrontResponse = ReadStorefrontResponses[keyof ReadStorefrontResponses];
+
+export type ReadCurrencyData = {
+    body?: never;
+    headers?: {
+        /**
+         * If-None-Match
+         */
+        'if-none-match'?: string | null;
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/settings/currency';
+};
+
+export type ReadCurrencyErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+};
+
+export type ReadCurrencyError = ReadCurrencyErrors[keyof ReadCurrencyErrors];
+
+export type ReadCurrencyResponses = {
+    /**
+     * Successful Response
+     */
+    200: CurrencyResponse;
+};
+
+export type ReadCurrencyResponse = ReadCurrencyResponses[keyof ReadCurrencyResponses];
