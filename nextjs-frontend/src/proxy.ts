@@ -14,8 +14,11 @@ import {
   RateLimitConfig,
 } from '@/lib/middleware/rate-limit';
 import {
+  isStorefrontPathPreviewEnabled,
+  parseStorePath,
   parseStoreSlug,
   resolvePlatformRootDomain,
+  STORE_NOT_FOUND_SLUG,
   STORE_SLUG_HEADER,
 } from '@/lib/storefront/host';
 
@@ -38,6 +41,46 @@ function rewriteToStorefront(request: NextRequest, slug: string, headers: Header
   headers.set(STORE_SLUG_HEADER, slug);
   const response = NextResponse.rewrite(url, { request: { headers } });
   applySecurityHeaders(response);
+  return response;
+}
+
+const PREVIEW_CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'unsafe-inline'";
+
+/**
+ * KAN-202 (temporary): preview-only `/s/{slug}`. When enabled and the slug is valid it is rewritten like a
+ * store host; only the store root is served (no sub-routes exist). In every other case (flag off,
+ * production, sub-path, malformed or reserved slug) it is rewritten to the internal 404 target without the
+ * slug marker, so the response is the same 404 as an unknown store. All responses are noindex. Remove with
+ * the wildcard domain.
+ */
+function rewritePathPreview(
+  request: NextRequest,
+  preview: { slug: string | null; rest: string },
+  headers: Headers
+): NextResponse {
+  const slug =
+    preview.rest === '' &&
+    isStorefrontPathPreviewEnabled({
+      STOREFRONT_PATH_PREVIEW: process.env.STOREFRONT_PATH_PREVIEW,
+      VERCEL_ENV: process.env.VERCEL_ENV,
+      NODE_ENV: process.env.NODE_ENV,
+    })
+      ? preview.slug
+      : null;
+  let url: URL;
+  if (slug) {
+    url = request.nextUrl.clone();
+    url.pathname = `/storefront/${slug}`;
+    headers.set(STORE_SLUG_HEADER, slug);
+  } else {
+    // A fresh URL, so no query string or trailing-slash state of the original request survives.
+    url = new URL(`/storefront/${STORE_NOT_FOUND_SLUG}`, request.url);
+  }
+  const response = NextResponse.rewrite(url, { request: { headers } });
+  applySecurityHeaders(response);
+  response.headers.set('X-Robots-Tag', 'noindex');
+  // /s shares the dashboard and admin origin, so nothing a store page renders may run script or load resources.
+  response.headers.set('Content-Security-Policy', PREVIEW_CONTENT_SECURITY_POLICY);
   return response;
 }
 
@@ -90,6 +133,11 @@ export async function proxy(request: NextRequest) {
   );
   if (storeSlug) {
     return rewriteToStorefront(request, storeSlug, forwardedHeaders);
+  }
+
+  const pathPreview = parseStorePath(pathname);
+  if (pathPreview) {
+    return rewritePathPreview(request, pathPreview, forwardedHeaders);
   }
 
   // Apply rate limiting to API routes

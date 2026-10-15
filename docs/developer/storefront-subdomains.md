@@ -21,3 +21,15 @@ Reserved names (`www`, `app`, `admin`, `api`, ...) are never stores. The list is
 ## Local development
 
 Browsers resolve `*.localhost` to loopback, so open `http://acme.localhost:3000` with no hosts-file entry. The store must exist and be ACTIVE in the platform database. E2E: `src/__tests__/e2e/storefront-subdomain.spec.ts` (seeds described in its header).
+
+## Preview-only path access: `/s/{slug}` (KAN-202, temporary)
+
+`*.vercel.app` has no wildcard subdomains, so until a custom wildcard domain exists a store can be demoed at `/s/{slug}` on the platform URL. **Remove this route once the wildcard domain is live**: delete `parseStorePath`, `isStorefrontPathPreviewEnabled`, `STORE_PATH_PREFIX` and `STORE_NOT_FOUND_SLUG` from `src/lib/storefront/host.ts`, `rewritePathPreview` and its call in `src/proxy.ts`, their unit tests (the 200 body still carries a robots `index` meta; the `X-Robots-Tag: noindex` header wins, so no change is needed there), `src/__tests__/e2e/storefront-path-preview.spec.ts` and this section.
+
+- **Gating (allow-list, fails closed):** served only when `STOREFRONT_PATH_PREVIEW` is exactly `true` AND (`VERCEL_ENV` is `preview` or `development`, OR `VERCEL_ENV` is unset and `NODE_ENV` is not `production`). Production, an unset `VERCEL_ENV` under a production build (self-hosted production, or Vercel system environment variables switched off), empty and unknown values all get the same 404. This is stricter than the story's "not production" on purpose. Local E2E uses a production build, so it needs `VERCEL_ENV=preview` too. Set the flag on the Vercel Preview environment only, never Production.
+- **Custom environments:** Vercel custom environments report `VERCEL_ENV=preview`. A production-like custom environment (for example staging with real merchant data) must never get the flag.
+- **Origin and content:** unlike a store subdomain, `/s/{slug}` is on the same origin as the dashboard and admin. It is preview-only for that reason. It must stay name-only and escaped (`renderDocument` escapes every value), must not render richer merchant content, and every `/s/*` response (200 and 404) carries `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'` so nothing on it can run script or load resources.
+- **Same lookup, same 404:** the proxy validates the slug with the host-routing validator and reserved list and sets `x-storefront-slug` itself (any inbound copy is stripped on every request). Flag off, production, unknown, suspended, reserved and malformed slugs all return the host-routing 404 body, because the proxy rewrites them to the internal route without the marker. `X-Client-IP` is forwarded by the same `callBackend` path.
+- **Not indexable:** every `/s/*` response carries `X-Robots-Tag: noindex`.
+- Direct `/storefront/{slug}` requests still 404. A store host takes precedence over the `/s` path.
+- E2E: `STOREFRONT_PATH_PREVIEW=true VERCEL_ENV=preview PLATFORM_ROOT_DOMAIN=localhost npm run test:e2e:local -- src/__tests__/e2e/storefront-path-preview.spec.ts` (same backend seed as `storefront-subdomain.spec.ts`).

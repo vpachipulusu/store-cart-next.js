@@ -146,6 +146,48 @@ export function parseStoreSlug(
 }
 
 /**
+ * KAN-202 (temporary): preview-only `/s/{slug}` access for deployments without a wildcard domain, such as
+ * `*.vercel.app`. Remove with the proxy branch and the e2e spec once the wildcard domain exists.
+ */
+export const STORE_PATH_PREFIX = '/s';
+
+/**
+ * Internal 404 target for `/s/*` requests that are not served. The underscore makes it an invalid slug
+ * (never a real store), so the route 404s.
+ */
+export const STORE_NOT_FOUND_SLUG = 'not_found';
+
+/**
+ * Allow-list, fail closed. Preview paths are served only when `STOREFRONT_PATH_PREVIEW` is exactly `true` and
+ * `VERCEL_ENV` is `preview` or `development`, or `VERCEL_ENV` is unset and `NODE_ENV` is not `production`.
+ * Production, an unset `VERCEL_ENV` under a production build (self-hosted production, or Vercel system env
+ * vars switched off), empty and unknown values are all disabled. Stricter than "not production" on purpose.
+ */
+export function isStorefrontPathPreviewEnabled(env: {
+  STOREFRONT_PATH_PREVIEW?: string;
+  VERCEL_ENV?: string;
+  NODE_ENV?: string;
+}): boolean {
+  if (env.STOREFRONT_PATH_PREVIEW !== 'true') return false;
+  if (env.VERCEL_ENV === 'preview' || env.VERCEL_ENV === 'development') return true;
+  return env.VERCEL_ENV === undefined && env.NODE_ENV !== 'production';
+}
+
+/**
+ * Splits `/s/{slug}[/rest]`. Null when the path is not under the preview prefix; `slug` is null when the
+ * segment is missing, malformed or reserved (same validator as host routing). Paths are case-sensitive, so
+ * `/s/Acme` is malformed rather than lower-cased.
+ */
+export function parseStorePath(pathname: string): { slug: string | null; rest: string } | null {
+  if (pathname !== STORE_PATH_PREFIX && !pathname.startsWith(`${STORE_PATH_PREFIX}/`)) return null;
+  const remainder = pathname.slice(STORE_PATH_PREFIX.length + 1);
+  const slash = remainder.indexOf('/');
+  const segment = slash === -1 ? remainder : remainder.slice(0, slash);
+  const rest = slash === -1 ? '' : remainder.slice(slash);
+  return { slug: isValidStoreSlug(segment) ? segment : null, rest };
+}
+
+/**
  * Internal request header the proxy sets to the store slug it rewrote to. The storefront route only renders
  * when it matches the path slug, so `/storefront/<slug>` on any other host is a 404. The proxy deletes any
  * client-supplied copy first, so it cannot be forged.
