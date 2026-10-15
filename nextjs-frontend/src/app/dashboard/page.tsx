@@ -199,9 +199,7 @@ export default async function DashboardPage({
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold capitalize">{user.subscriptionTier}</div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {user.planStatus}
-            </p>
+            <p className="mt-1 text-xs text-muted-foreground">{user.planStatus}</p>
           </CardContent>
         </Card>
 

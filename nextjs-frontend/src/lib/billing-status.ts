@@ -31,7 +31,7 @@ export function describePlanStatus({
   periodEnd,
   hasSubscription,
 }: PlanStatusInput): string {
-  if (planKey !== 'free' && !hasSubscription) {
+  if (planKey !== 'free' && !hasSubscription && status === 'inactive') {
     return 'Granted by admin';
   }
   const date = formatDate(periodEnd);

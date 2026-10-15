@@ -197,6 +197,17 @@ describe('DashboardPage', () => {
       expect(markup).not.toContain('Upgrade to Pro');
     });
 
+    it('does not call a paid plan with no subscription "granted" unless its status is inactive', async () => {
+      mocks.fetchBillingSummary.mockResolvedValue(
+        summary('canceled', { hasSubscription: false, periodEnd: null })
+      );
+
+      const markup = renderToStaticMarkup((await page()) as React.ReactElement);
+
+      expect(markup).toContain(STATUS_ELEMENT('Canceled'));
+      expect(markup).not.toContain('Granted by admin');
+    });
+
     it('humanises a status value the dashboard does not know yet', async () => {
       mocks.fetchBillingSummary.mockResolvedValue(summary('some_new_state'));
 
