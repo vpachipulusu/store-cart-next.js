@@ -230,7 +230,9 @@ export const banUser = <ThrowOnError extends boolean = false>(options: Options<B
 export const unbanUser = <ThrowOnError extends boolean = false>(options: Options<UnbanUserData, ThrowOnError>) => (options.client ?? client).post<UnbanUserResponses, UnbanUserErrors, ThrowOnError>({ url: '/v1/admin/users/{user_id}/unban', ...options });
 
 /**
- * List Audit Logs
+ * List audit log entries
+ *
+ * Newest first. Requires the `audit.read` admin permission. Filters combine with AND. `total_count` is the number of rows matching the filters. `offset` is capped at 10,000: narrow the filters or the date range to reach older rows.
  */
 export const listAuditLogs = <ThrowOnError extends boolean = false>(options?: Options<ListAuditLogsData, ThrowOnError>) => (options?.client ?? client).get<ListAuditLogsResponses, ListAuditLogsErrors, ThrowOnError>({ url: '/v1/admin/audit-logs', ...options });
 

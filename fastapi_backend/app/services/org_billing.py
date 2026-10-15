@@ -6,8 +6,11 @@ hold the OWNER or ADMIN role (otherwise forbidden).
 
 Each accepted change (checkout, plan change, cancel, resume, payment method delete or
 default) writes one audit row after Stripe accepted it (KAN-49). Stripe and the database
-cannot share a transaction: if the audit write fails after Stripe succeeded, the request
-fails with a 500 and the change stands at Stripe.
+cannot share a transaction: if the audit write fails after Stripe succeeded (KAN-193), the
+session is rolled back, an error is logged with the organisation id, action and Stripe
+idempotency key, and the request still succeeds (the change stands at Stripe; a 500 would
+invite a retry of a change that already happened). The Stripe webhook is the reconciliation
+source for the resulting subscription state.
 
 This service never writes subscription state. Checkout, plan changes and
 cancellation only ask Stripe to act; the Stripe webhook (KAN-44) is the single
@@ -15,6 +18,7 @@ writer of tier, status and period. The one write here is saving the Stripe custo
 id before the first Checkout, which the webhook needs to find the organisation.
 """
 
+import logging
 from collections.abc import Awaitable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -25,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ids import new_id
 from app.core.plans import PLANS, Plan, PlanKey
+from app.core.sentry import report_exception
 from app.core.stripe_billing import (
     StripeBilling,
     StripeError,
@@ -35,7 +40,7 @@ from app.core.stripe_billing import (
 from app.models.platform.membership import MembershipRole
 from app.repositories.audit import AuditRepository
 from app.repositories.org_billing import OrgBillingRecord
-from app.services.audit import sanitize
+from app.services.audit import CONTROL_CHARS, sanitize
 
 BILLING_ROLES = frozenset({MembershipRole.OWNER, MembershipRole.ADMIN})
 # Stripe statuses where a subscription still exists (even if unpaid or paused): a new
@@ -47,6 +52,16 @@ PAID_PLANS = frozenset({PlanKey.PRO, PlanKey.ENTERPRISE})
 MAX_URL_LENGTH = 2048
 
 PriceCatalogue = Mapping[tuple[PlanKey, str], str]
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class RequestOrigin:
+    """Request context copied onto billing audit rows."""
+
+    ip_address: str | None = None
+    user_agent: str | None = None
+    request_id: str | None = None
 
 
 class OrganizationNotFound(Exception):
@@ -70,6 +85,10 @@ class PaymentMethodNotFound(Exception):
 
 class InvalidReturnUrl(Exception):
     """The return URL is not on the allow-list (422)."""
+
+
+class BillingAuditWriteFailed(Exception):
+    """Sentry surrogate for a failed billing audit write (error type only)."""
 
 
 class BillingUnavailable(Exception):
@@ -152,6 +171,7 @@ class OrgBillingService:
         stripe: StripeBilling,
         prices: PriceCatalogue,
         origins: frozenset[str],
+        origin: RequestOrigin | None = None,
     ) -> None:
         self._store = store
         self._session = session
@@ -159,6 +179,7 @@ class OrgBillingService:
         self._prices = prices
         self._origins = origins
         self._audit = AuditRepository(session)
+        self._origin = origin or RequestOrigin()
 
     async def authorize(self, organization_id: str, user_id: str) -> OrgBillingRecord:
         role = await self._store.get_role(organization_id, user_id)
@@ -207,6 +228,7 @@ class OrgBillingService:
             raise BillingConflict
         price = self._price(plan, interval)
         customer = await self._ensure_customer(record)
+        key = _key("checkout", record.id, request_key)
         url = await _stripe_call(
             self._stripe.create_checkout_session(
                 customer_id=customer,
@@ -214,11 +236,15 @@ class OrgBillingService:
                 organization_id=record.id,
                 success_url=success,
                 cancel_url=cancel,
-                idempotency_key=_key("checkout", record.id, request_key),
+                idempotency_key=key,
             )
         )
         await self._record(
-            user_id, "billing.checkout", record.id, {"plan": plan, "interval": interval}
+            user_id,
+            "billing.checkout",
+            record.id,
+            key,
+            {"plan": plan, "interval": interval},
         )
         return url
 
@@ -267,18 +293,20 @@ class OrgBillingService:
             or current.price_id == price
         ):
             raise BillingConflict
+        key = _key("change", record.id, request_key)
         await _stripe_call(
             self._stripe.change_subscription_price(
                 subscription_id=subscription_id,
                 item_id=current.item_id,
                 price_id=price,
-                idempotency_key=_key("change", record.id, request_key),
+                idempotency_key=key,
             )
         )
         await self._record(
             user_id,
             "billing.change_plan",
             record.id,
+            key,
             {"plan": plan, "interval": interval},
         )
 
@@ -294,17 +322,14 @@ class OrgBillingService:
         subscription_id = record.stripe_subscription_id
         if subscription_id is None or not _has_live_subscription(record):
             raise BillingConflict
+        key = _key("cancel" if cancel else "resume", record.id, request_key)
         await _stripe_call(
             self._stripe.set_cancel_at_period_end(
-                subscription_id=subscription_id,
-                cancel=cancel,
-                idempotency_key=_key(
-                    "cancel" if cancel else "resume", record.id, request_key
-                ),
+                subscription_id=subscription_id, cancel=cancel, idempotency_key=key
             )
         )
         await self._record(
-            user_id, "billing.cancel" if cancel else "billing.resume", record.id
+            user_id, "billing.cancel" if cancel else "billing.resume", record.id, key
         )
 
     async def invoices(self, organization_id: str, user_id: str) -> list[StripeInvoice]:
@@ -344,16 +369,17 @@ class OrgBillingService:
             if default == payment_method_id:
                 # Removing the card that renews the subscription would make it lapse.
                 raise BillingConflict
+        key = _key("pm-delete", record.id, request_key)
         await _stripe_call(
             self._stripe.detach_payment_method(
-                payment_method_id=payment_method_id,
-                idempotency_key=_key("pm-delete", record.id, request_key),
+                payment_method_id=payment_method_id, idempotency_key=key
             )
         )
         await self._record(
             user_id,
             "billing.delete_payment_method",
             record.id,
+            key,
             {"payment_method_id": payment_method_id},
         )
 
@@ -367,17 +393,19 @@ class OrgBillingService:
     ) -> None:
         record = await self.authorize(organization_id, user_id)
         customer_id = await self._owned_customer(record, payment_method_id)
+        key = _key("pm-default", record.id, request_key)
         await _stripe_call(
             self._stripe.set_default_payment_method(
                 customer_id=customer_id,
                 payment_method_id=payment_method_id,
-                idempotency_key=_key("pm-default", record.id, request_key),
+                idempotency_key=key,
             )
         )
         await self._record(
             user_id,
             "billing.set_default_payment_method",
             record.id,
+            key,
             {"payment_method_id": payment_method_id},
         )
 
@@ -386,20 +414,63 @@ class OrgBillingService:
         user_id: str,
         action: str,
         organization_id: str,
+        idempotency_key: str,
         details: dict[str, str] | None = None,
     ) -> None:
-        """Stage and commit one audit row (never card data, URLs or Stripe customer ids)."""
-        await self._audit.add(
-            user_id=user_id,
-            organization_id=organization_id,
-            action=action,
-            resource="organization",
-            resource_id=organization_id,
-            metadata={"details": sanitize(details)} if details else {},
-            ip_address=None,
-            user_agent=None,
-        )
-        await self._session.commit()
+        """Stage and commit one audit row (never card data, URLs or Stripe customer ids).
+
+        Stripe already accepted the change, so a failed audit write must not turn the
+        request into an error: roll back, log what is needed to reconcile, carry on.
+        """
+        metadata: dict[str, object] = {}
+        if self._origin.request_id:
+            metadata["request_id"] = self._origin.request_id
+        if details:
+            metadata["details"] = sanitize(details)
+        user_agent = self._origin.user_agent
+        try:
+            await self._audit.add(
+                user_id=user_id,
+                organization_id=organization_id,
+                action=action,
+                resource="organization",
+                resource_id=organization_id,
+                metadata=metadata,
+                ip_address=self._origin.ip_address,
+                user_agent=CONTROL_CHARS.sub("", user_agent)[:512]
+                if user_agent
+                else None,
+            )
+            await self._session.commit()
+        except Exception as exc:  # noqa: BLE001 - Stripe already accepted; never fail the request
+            # Invariant: nothing else is staged in this session when it rolls back
+            # (_ensure_customer commits its customer link before the audit write).
+            error_type = type(exc).__name__
+            try:
+                await self._session.rollback()
+            except Exception as rollback_exc:  # noqa: BLE001
+                # Type only, no traceback: driver errors can echo bound parameters (PII).
+                logger.error(
+                    "Rollback failed after a billing audit write error: "
+                    "organization_id=%s audit_action=%s error_type=%s",
+                    organization_id,
+                    action,
+                    type(rollback_exc).__name__,
+                )
+            # A surrogate carrying only the type: the original message may hold PII.
+            report_exception(BillingAuditWriteFailed(error_type))
+            # The JSON log formatter copies only a fixed set of extras, so the
+            # reconciliation fields go in the message text.
+            logger.error(
+                "Billing audit write failed after Stripe accepted the change: "
+                "organization_id=%s audit_action=%s idempotency_key=%s "
+                "request_id=%s error_type=%s",
+                organization_id,
+                action,
+                idempotency_key,
+                self._origin.request_id,
+                error_type,
+            )
 
     async def _owned_customer(
         self, record: OrgBillingRecord, payment_method_id: str

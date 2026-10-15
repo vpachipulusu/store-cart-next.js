@@ -179,6 +179,8 @@ export type AuditLogEntry = {
     resource_id: string | null;
     /**
      * Metadata
+     *
+     * Sanitised JSON object, or null. Keys: `actor_role` (admin routes), `request_id` (admin and billing routes), `before`, `after` and `details` (changed fields; secret-looking keys and values are `[REDACTED]`). Billing rows carry `request_id` and, for plan changes and payment method changes only, `details`; checkout, cancel and resume rows have no `details`.
      */
     metadata: unknown;
     /**
@@ -2942,26 +2944,50 @@ export type ListAuditLogsData = {
     query?: {
         /**
          * Organization Id
+         *
+         * Only rows for this organisation id (exact match).
          */
         organization_id?: string | null;
         /**
          * Store Id
+         *
+         * Only rows for this store id (exact match).
          */
         store_id?: string | null;
         /**
          * User Id
+         *
+         * Only rows written by this acting user id (exact match).
          */
         user_id?: string | null;
         /**
          * Action
+         *
+         * Only rows with this action, for example `store.update` (exact match).
          */
         action?: string | null;
         /**
+         * Created From
+         *
+         * Only rows created at or after this instant (ISO 8601 with a UTC offset, for example `2026-01-01T00:00:00Z`; a value without an offset is a 422).
+         */
+        created_from?: string | null;
+        /**
+         * Created To
+         *
+         * Only rows created at or before this instant (inclusive; ISO 8601 with a UTC offset; a date alone is not accepted).
+         */
+        created_to?: string | null;
+        /**
          * Limit
+         *
+         * Page size (1 to 100).
          */
         limit?: number;
         /**
          * Offset
+         *
+         * Rows to skip (0 to 10,000).
          */
         offset?: number;
     };

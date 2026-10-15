@@ -79,7 +79,7 @@ _SECRET_VALUE = re.compile(
 _ACTION_RE = re.compile(r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+")
 _RESOURCE_RE = re.compile(r"[a-z][a-z0-9_]{1,63}")
 _TARGET_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,128}")
-_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 
 
 def _is_sensitive(key: object) -> bool:
@@ -150,7 +150,7 @@ class AuditWriter(Protocol):
         *,
         user_id: str,
         organization_id: str | None,
-        store_id: str | None,
+        store_id: str | None = None,
         action: str,
         resource: str,
         resource_id: str | None,
@@ -211,5 +211,5 @@ class AuditService:
             resource_id=resource_id,
             metadata=metadata,
             ip_address=ip_address,
-            user_agent=_CONTROL_CHARS.sub("", user_agent)[:512] if user_agent else None,
+            user_agent=CONTROL_CHARS.sub("", user_agent)[:512] if user_agent else None,
         )

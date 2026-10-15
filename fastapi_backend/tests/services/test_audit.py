@@ -14,8 +14,8 @@ class RecordingWriter:
     def __init__(self):
         self.rows = []
 
-    async def add(self, **row):
-        self.rows.append(row)
+    async def add(self, *, store_id=None, **row):
+        self.rows.append({"store_id": store_id, **row})
 
 
 async def record(writer=None, **overrides):

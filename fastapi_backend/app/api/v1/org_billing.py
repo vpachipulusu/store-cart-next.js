@@ -9,13 +9,17 @@ Errors are generic: no Stripe text, ids or customer data reach a response or a l
 from datetime import datetime
 from typing import Annotated, Literal, cast
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Path, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.auth import require_internal_key
 from app.api.deps import SessionDep
 from app.api.me import CurrentUserIdDep
-from app.api.rate_limit import RATE_LIMIT_FAIL_CLOSED_RESPONSES, limit_by_subject
+from app.api.rate_limit import (
+    RATE_LIMIT_FAIL_CLOSED_RESPONSES,
+    client_ip,
+    limit_by_subject,
+)
 from app.api.v1.auth import current_subject
 from app.core.config import settings
 from app.core.errors import ErrorResponse
@@ -37,6 +41,7 @@ from app.services.org_billing import (
     OrgBillingService,
     PaymentMethodNotFound,
     PriceCatalogue,
+    RequestOrigin,
     allowed_origins,
 )
 
@@ -193,8 +198,15 @@ def stripe_billing() -> StripeBilling:
         raise HTTPException(503, "Service temporarily unavailable") from None
 
 
+def _audit_ip(request: Request) -> str | None:
+    ip = client_ip(request)
+    return None if ip == "unknown" else ip
+
+
 def get_org_billing_service(
-    session: SessionDep, stripe: Annotated[StripeBilling, Depends(stripe_billing)]
+    request: Request,
+    session: SessionDep,
+    stripe: Annotated[StripeBilling, Depends(stripe_billing)],
 ) -> OrgBillingService:
     return OrgBillingService(
         OrgBillingRepository(session),
@@ -202,6 +214,11 @@ def get_org_billing_service(
         stripe,
         price_catalogue(),
         allowed_origins(settings.BILLING_RETURN_URL_ORIGINS),
+        RequestOrigin(
+            ip_address=_audit_ip(request),
+            user_agent=request.headers.get("user-agent"),
+            request_id=getattr(request.state, "request_id", None),
+        ),
     )
 
 

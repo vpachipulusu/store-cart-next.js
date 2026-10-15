@@ -868,3 +868,39 @@ async def test_refused_and_failed_billing_changes_write_no_audit_entry(
     )
     assert conflict.status_code == 409
     assert await audit_rows(engine, org) == []
+
+
+async def test_billing_audit_row_stores_forwarded_ip_user_agent_and_request_id(
+    client, engine, stripe
+):
+    org = await seed_audit_subscribed(engine)
+
+    trusted = await client.post(
+        f"/v1/organizations/{org}/billing/cancel",
+        headers={
+            **as_user("alice"),
+            "X-Client-IP": "203.0.113.7",
+            "User-Agent": "KAN193-agent/1.0",
+        },
+    )
+    spoofed = await client.post(
+        f"/v1/organizations/{org}/billing/resume",
+        headers={**as_user("alice"), "X-Client-IP": "not-an-ip; DROP"},
+    )
+
+    assert trusted.status_code == 200 and spoofed.status_code == 200
+    async with engine.connect() as connection:
+        rows = (
+            await connection.execute(
+                text(
+                    "SELECT action, ip_address, user_agent, metadata "
+                    "FROM audit_logs WHERE organization_id = :org ORDER BY created_at"
+                ),
+                {"org": org},
+            )
+        ).all()
+    cancel, resume = rows
+    assert (cancel.ip_address, cancel.user_agent) == ("203.0.113.7", "KAN193-agent/1.0")
+    assert cancel.metadata["request_id"] == trusted.headers["x-request-id"]
+    assert resume.ip_address == "127.0.0.1"  # malformed forwarded value: the peer
+    assert "DROP" not in json.dumps([tuple(r) for r in rows])

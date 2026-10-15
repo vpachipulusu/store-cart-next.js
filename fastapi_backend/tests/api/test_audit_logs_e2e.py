@@ -313,7 +313,8 @@ async def test_pagination_pages_without_overlap_and_reports_the_total(
         {"limit": 0},
         {"limit": 101},
         {"offset": -1},
-        {"offset": 1_000_001},
+        {"offset": 10_001},
+        {"created_from": "not-a-date"},
         {"organization_id": "bad id!"},
         {"store_id": "x" * 200},
         {"user_id": ""},
@@ -417,3 +418,149 @@ async def test_migration_0006_adds_store_id_and_indexes_and_downgrades(
         _migrate(database_url, "upgrade", "head")
     columns, _ = await _columns_and_indexes(database_url)
     assert "store_id" in columns
+
+
+async def test_missing_internal_key_is_rejected_but_the_valid_key_works(
+    client: AsyncClient, engine: AsyncEngine
+) -> None:
+    await seed_user(engine, "root", ["audit.read"])
+    keyless = AsyncClient(transport=client._transport, base_url="http://test")
+
+    async with keyless:
+        missing = await keyless.get(URL, headers=as_user("root"))
+        wrong = await keyless.get(
+            URL, headers={**as_user("root"), "X-Internal-Key": "wrong"}
+        )
+    valid = await client.get(URL, headers=as_user("root"))
+
+    assert missing.status_code == 401
+    assert missing.json() == {"success": False, "error": "Unauthorized"}
+    assert wrong.status_code == 401
+    assert valid.status_code == 200
+
+
+async def test_default_limit_is_50_and_100_is_the_boundary(
+    client: AsyncClient, engine: AsyncEngine
+) -> None:
+    await seed_user(engine, "root", ["audit.read"])
+    for minute in range(120):
+        await seed_entry(engine, minute)
+
+    default = (await client.get(URL, headers=as_user("root"))).json()["data"]
+    maximum = (
+        await client.get(URL, params={"limit": 100}, headers=as_user("root"))
+    ).json()["data"]
+    over = await client.get(URL, params={"limit": 101}, headers=as_user("root"))
+
+    assert (await client.get(URL, headers=as_user("root"))).headers[
+        "cache-control"
+    ] == "no-store"
+    assert (default["limit"], len(default["entries"]), default["total_count"]) == (
+        50,
+        50,
+        120,
+    )
+    assert (maximum["limit"], len(maximum["entries"])) == (100, 100)
+    assert over.status_code == 422
+
+
+async def test_offset_past_the_end_is_an_empty_page_with_the_total(
+    client: AsyncClient, engine: AsyncEngine
+) -> None:
+    await seed_user(engine, "root", ["audit.read"])
+    for minute in range(3):
+        await seed_entry(engine, minute)
+
+    response = await client.get(URL, params={"offset": 10_000}, headers=as_user("root"))
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert (data["entries"], data["total_count"], data["offset"]) == ([], 3, 10_000)
+
+
+async def test_empty_table_returns_an_empty_page_not_an_error(
+    client: AsyncClient, engine: AsyncEngine
+) -> None:
+    await seed_user(engine, "root", ["audit.read"])
+
+    response = await client.get(URL, headers=as_user("root"))
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    data = response.json()["data"]
+    assert (data["entries"], data["total_count"]) == ([], 0)
+
+
+async def test_created_range_filters_inclusively(
+    client: AsyncClient, engine: AsyncEngine
+) -> None:
+    await seed_user(engine, "root", ["audit.read"])
+    before = await seed_entry(engine, 0)
+    inside = await seed_entry(engine, 10)
+    after = await seed_entry(engine, 20)
+
+    async def ids(**params: str) -> set[str]:
+        response = await client.get(URL, params=params, headers=as_user("root"))
+        return {entry["id"] for entry in response.json()["data"]["entries"]}
+
+    start = (T0 + timedelta(minutes=10)).isoformat()
+    end = (T0 + timedelta(minutes=19)).isoformat()
+    assert await ids(created_from=start) == {inside, after}
+    assert await ids(created_to=end) == {before, inside}
+    assert await ids(created_from=start, created_to=end) == {inside}
+
+
+async def test_created_from_after_created_to_is_422(
+    client: AsyncClient, engine: AsyncEngine
+) -> None:
+    await seed_user(engine, "root", ["audit.read"])
+
+    response = await client.get(
+        URL,
+        params={
+            "created_from": "2026-02-01T00:00:00Z",
+            "created_to": "2026-01-01T00:00:00Z",
+        },
+        headers=as_user("root"),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["success"] is False
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"created_from": "2026-01-01T00:00:00"},
+        {"created_to": "2026-01-01T00:00:00"},
+        {"created_from": "2026-01-01T00:00:00", "created_to": "2026-02-01T00:00:00Z"},
+        {"created_from": "2026-01-01"},
+    ],
+)
+async def test_dates_without_a_utc_offset_are_422_not_500(
+    client: AsyncClient, engine: AsyncEngine, params: dict[str, str]
+) -> None:
+    await seed_user(engine, "root", ["audit.read"])
+
+    response = await client.get(URL, params=params, headers=as_user("root"))
+
+    assert response.status_code == 422
+
+
+async def test_created_to_equal_to_created_from_matches_that_instant(
+    client: AsyncClient, engine: AsyncEngine
+) -> None:
+    await seed_user(engine, "root", ["audit.read"])
+    exact = await seed_entry(engine, 10)
+    await seed_entry(engine, 11)
+    instant = (T0 + timedelta(minutes=10)).isoformat()
+
+    response = await client.get(
+        URL,
+        params={"created_from": instant, "created_to": instant},
+        headers=as_user("root"),
+    )
+
+    data = response.json()["data"]
+    assert [entry["id"] for entry in data["entries"]] == [exact]
+    assert data["total_count"] == 1
