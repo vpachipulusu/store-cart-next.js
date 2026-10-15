@@ -53,3 +53,21 @@ def test_admin_subscription_routes_use_their_own_operation_ids():
         "admin_refund_payment",
         "admin_grant_subscription",
     }
+
+
+def test_admin_store_routes_use_their_own_operation_ids():
+    schema = client_schema()
+    admin_ids = {
+        operation["operationId"]
+        for path, methods in schema["paths"].items()
+        if path.startswith(("/v1/admin/stores", "/v1/admin/organizations"))
+        for operation in methods.values()
+    }
+
+    assert admin_ids == {
+        "admin_list_organizations",
+        "admin_list_stores",
+        "admin_suspend_store",
+        "admin_unsuspend_store",
+        "admin_migrate_store",
+    }
