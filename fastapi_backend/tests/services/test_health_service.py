@@ -71,7 +71,8 @@ async def test_logs_the_root_cause_type_without_the_driver_message(
             assert await service.is_database_ready() is False
 
     [record] = caplog.records
-    assert record.getMessage() == "Database readiness check failed"
-    assert record.error_type == "InvalidPasswordError"
+    assert record.getMessage() == (
+        "Database readiness check failed: InvalidPasswordError"
+    )
     assert record.exc_info is None
     assert "store_owner" not in caplog.text

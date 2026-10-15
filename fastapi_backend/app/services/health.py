@@ -22,8 +22,5 @@ class HealthService:
             # The type only, no message or traceback: driver messages can name the
             # host and database user. An auth failure (InvalidPasswordError) stays
             # distinguishable from an outage (ConnectionRefusedError, TimeoutError).
-            logger.error(
-                "Database readiness check failed",
-                extra={"error_type": root_cause_name(error)},
-            )
+            logger.error("Database readiness check failed: %s", root_cause_name(error))
             return False
