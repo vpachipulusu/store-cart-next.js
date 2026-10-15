@@ -13,7 +13,7 @@ from app.core.database import (
     build_engine,
     engine,
 )
-from app.core.db_url import to_async_target
+from app.core.db_url import CONNECT_TIMEOUT_SECONDS, to_async_target
 
 
 def test_engine_keeps_null_pool_for_serverless() -> None:
@@ -63,7 +63,11 @@ def test_build_engine_passes_sslmode_to_asyncpg_and_keeps_null_pool(
 
     built = build_engine("postgresql://u:s3cret-pw@ep-x.neon.tech/app?sslmode=require")
 
-    assert captured["connect_args"] == {"ssl": "require"}
+    assert captured["connect_args"] == {
+        "ssl": "require",
+        "statement_cache_size": 0,
+        "timeout": CONNECT_TIMEOUT_SECONDS,
+    }
     assert captured["poolclass"] is NullPool
     assert isinstance(built.pool, NullPool)
     assert built.url.drivername == "postgresql+asyncpg"
@@ -84,7 +88,10 @@ def test_build_engine_without_tls_parameter_sets_no_ssl_argument(
 
     build_engine("postgresql://u:pw@localhost:5432/app")
 
-    assert captured["connect_args"] == {}
+    assert captured["connect_args"] == {
+        "statement_cache_size": 0,
+        "timeout": CONNECT_TIMEOUT_SECONDS,
+    }
 
 
 def test_engine_and_target_reprs_never_contain_the_password() -> None:

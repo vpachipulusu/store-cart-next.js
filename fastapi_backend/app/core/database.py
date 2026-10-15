@@ -2,7 +2,9 @@ from collections.abc import AsyncIterator, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Protocol
 
+import asyncpg
 from sqlalchemy import NullPool
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -13,11 +15,26 @@ from sqlalchemy.ext.asyncio import (
 from app.core.config import settings
 from app.core.db_url import to_async_target
 
+# Errors that mean "the database cannot be reached or used right now". Connect-time
+# failures are not wrapped by SQLAlchemy: a refused or unreachable host raises
+# OSError, the connect timeout raises TimeoutError, and a server refusal (starting
+# up, too many connections, bad credentials) raises the asyncpg error itself.
+DATABASE_UNAVAILABLE_ERRORS: tuple[type[BaseException], ...] = (
+    SQLAlchemyError,
+    OSError,
+    TimeoutError,
+    asyncpg.PostgresError,
+    asyncpg.InterfaceError,
+)
+
 
 def build_engine(
     database_url: str, extra_connect_args: Mapping[str, Any] | None = None
 ) -> AsyncEngine:
     """Create the async engine, keeping the TLS mode from the URL (e.g. sslmode=require).
+
+    Every engine gets the pooler-safe connect args from ``to_async_target``
+    (statement cache off, bounded connect timeout).
 
     Only this module and ``app.services.store_sessions`` may call it (ruff TID251).
     """

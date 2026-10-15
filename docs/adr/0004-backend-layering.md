@@ -37,6 +37,19 @@ Rules:
 - Logging is structured (JSON) through one logger set up in `core/`; no `print()`.
 - Configuration comes only from `core/config`; required secrets are checked at startup.
 
+## Deviation: where engines are built (KAN-160)
+
+The `db/` packages above were not created. The code that builds engines lives in two places instead:
+
+- `app/core/database.py`: `build_engine` and the platform engine and session maker (`SessionProvider`).
+- `app/services/store_sessions.py`: one `NullPool` engine per store session (`get_store_session`, ADR-005).
+
+The rule is the same, only the location differs. Ruff `TID251` (`[tool.ruff.lint.flake8-tidy-imports.banned-api]`
+in `fastapi_backend/pyproject.toml`) bans `create_engine`, `create_async_engine` and `build_engine` everywhere
+except those two modules, `alembic_migrations/env.py` and tests, so CI fails on an engine built anywhere else. Every
+engine, and Alembic, takes its connect args from `app/core/db_url.py` (`to_async_target`): the TLS mode from the
+URL, asyncpg's statement cache off (PgBouncer-safe on Neon pooled endpoints) and a bounded connect timeout.
+
 ## Alternatives considered
 
 - **Keep the template's flat layout.** Fine for an example app; at StoreCart's size it would mix HTTP,

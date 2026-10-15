@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 
+import asyncpg
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -55,6 +56,33 @@ async def test_ready_is_503_when_the_database_is_down(client: AsyncClient) -> No
     assert response.status_code == 503
     assert response.json() == {"status": "unavailable"}
     assert provider.closed == 1
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ConnectionRefusedError(111, "Connection refused"),
+        TimeoutError(),
+        asyncpg.CannotConnectNowError("the database system is starting up"),
+    ],
+    ids=lambda error: type(error).__name__,
+)
+@pytest.mark.usefixtures("override_provider")
+async def test_ready_is_503_not_500_when_the_connection_fails(
+    error: Exception,
+) -> None:
+    provider = FakeSessionProvider(FakeSession(error=error))
+    app.dependency_overrides[get_session_provider] = lambda: provider
+    client = AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://test",
+    )
+
+    async with client:
+        response = await client.get("/health/ready")
+
+    assert response.status_code == 503
+    assert response.json() == {"status": "unavailable"}
 
 
 def test_openapi_identifies_storecart() -> None:
