@@ -1,0 +1,66 @@
+# Apply pending store migrations to every ACTIVE store database (KAN-57).
+# Manual only: nothing triggers this automatically. Run it after the backend deploy that
+# ships a new revision in fastapi_backend/alembic_store/. It uses the `production`
+# environment, so its secrets are only available to a run that environment allows.
+# See docs/developer/backend-store-migrations.md.
+name: Migrate stores
+
+on:
+  workflow_dispatch:
+    inputs:
+      batch_size:
+        description: Stores migrated per batch
+        required: false
+        default: '50'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migrate-stores
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Migrate store databases
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    # Production secrets and every tenant database are in reach: only main may run this.
+    if: github.ref == 'refs/heads/main'
+    defaults:
+      run:
+        working-directory: fastapi_backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: '0.8.12'
+          # No dependency cache in a job that holds production secrets.
+          enable-cache: false
+
+      - name: Install dependencies
+        run: uv sync --frozen --no-dev
+
+      - name: Migrate store databases
+        env:
+          # Environment secrets; never echoed. The command prints store ids only.
+          DATABASE_URL: ${{ secrets.DATABASE_URL_DIRECT || secrets.DATABASE_URL }}
+          STORE_DB_ENCRYPTION_KEY: ${{ secrets.STORE_DB_ENCRYPTION_KEY }}
+          STORE_DB_ENCRYPTION_KEY_PREVIOUS: ${{ secrets.STORE_DB_ENCRYPTION_KEY_PREVIOUS }}
+          # app.core.config validates the full production settings at import, so the
+          # environment needs the same values as the deployed backend service.
+          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+          BACKEND_INTERNAL_KEY: ${{ secrets.BACKEND_INTERNAL_KEY }}
+          RATE_LIMIT_EMAIL_KEY: ${{ secrets.RATE_LIMIT_EMAIL_KEY }}
+          FIREBASE_ADMIN_PROJECT_ID: ${{ secrets.FIREBASE_ADMIN_PROJECT_ID }}
+          FIREBASE_ADMIN_CLIENT_EMAIL: ${{ secrets.FIREBASE_ADMIN_CLIENT_EMAIL }}
+          FIREBASE_ADMIN_PRIVATE_KEY: ${{ secrets.FIREBASE_ADMIN_PRIVATE_KEY }}
+          BATCH_SIZE: ${{ inputs.batch_size }}
+          ENVIRONMENT: production
+        run: uv run python -m commands.migrate_stores --batch-size "$BATCH_SIZE"
