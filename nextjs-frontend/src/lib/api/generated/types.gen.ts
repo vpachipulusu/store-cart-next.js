@@ -5375,6 +5375,8 @@ export type ReadCurrencyData = {
     headers?: {
         /**
          * If-None-Match
+         *
+         * ETag from an earlier response
          */
         'if-none-match'?: string | null;
         /**

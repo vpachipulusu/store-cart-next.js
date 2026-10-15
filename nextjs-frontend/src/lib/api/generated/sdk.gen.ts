@@ -464,8 +464,11 @@ export const updateStore = <ThrowOnError extends boolean = false>(options: Optio
 export const readStorefront = <ThrowOnError extends boolean = false>(options: Options<ReadStorefrontData, ThrowOnError>) => (options.client ?? client).get<ReadStorefrontResponses, ReadStorefrontErrors, ThrowOnError>({ url: '/v1/storefront/{slug}', ...options });
 
 /**
- * Read Currency
+ * Read the platform currency
  *
  * The platform currency code (upper case, e.g. ``USD``).
+ *
+ * Answers ``USD`` when the setting is missing or not a supported code. Sends
+ * ``Cache-Control: public, max-age=60`` and an ``ETag``.
  */
 export const readCurrency = <ThrowOnError extends boolean = false>(options?: Options<ReadCurrencyData, ThrowOnError>) => (options?.client ?? client).get<ReadCurrencyResponses, ReadCurrencyErrors, ThrowOnError>({ url: '/v1/settings/currency', ...options });
