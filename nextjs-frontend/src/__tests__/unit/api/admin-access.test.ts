@@ -45,8 +45,13 @@ describe('resolveAdminAccess', () => {
     await expect(resolveAdminAccess()).resolves.toEqual({ status: 'not-admin' });
   });
 
-  it.each([null, undefined, ''])('denies an admin whose role is %j', async (role) => {
+  it.each([null, undefined, '', 1, true, {}, ['super_admin']])('denies an admin whose role is %j', async (role) => {
     mocks.fetchProfile.mockResolvedValue(ok({ admin_role: role }));
+    await expect(resolveAdminAccess()).resolves.toEqual({ status: 'not-admin' });
+  });
+
+  it.each([undefined, null, 42, {}])('denies an admin whose email is %j', async (email) => {
+    mocks.fetchProfile.mockResolvedValue(ok({ email }));
     await expect(resolveAdminAccess()).resolves.toEqual({ status: 'not-admin' });
   });
 

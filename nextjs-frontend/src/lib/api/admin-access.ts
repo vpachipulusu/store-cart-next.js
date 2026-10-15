@@ -35,8 +35,16 @@ export async function resolveAdminAccess(): Promise<AdminAccess> {
   }
 
   const profile = result.data;
-  // An admin without a role cannot be rendered in the header, so it is treated as no access.
-  if (profile?.is_admin !== true || !profile.admin_role) return { status: 'not-admin' };
+  // The response is validated, not trusted: anything but a true flag, a non-empty string role and a string
+  // email is no access (an admin without a role also cannot be rendered in the header).
+  if (
+    profile?.is_admin !== true ||
+    typeof profile.admin_role !== 'string' ||
+    profile.admin_role === '' ||
+    typeof profile.email !== 'string'
+  ) {
+    return { status: 'not-admin' };
+  }
 
   return {
     status: 'admin',
