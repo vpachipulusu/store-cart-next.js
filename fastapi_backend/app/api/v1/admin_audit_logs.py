@@ -82,7 +82,7 @@ ServiceDep = Annotated[AuditLogsService, Depends(get_audit_logs_service)]
 
 
 def _entry(entry: AuditEntry) -> AuditLogEntry:
-    return AuditLogEntry(**vars(entry))
+    return AuditLogEntry.model_validate(entry, from_attributes=True)
 
 
 @router.get("", response_model=AuditLogPageResponse)

@@ -23,6 +23,11 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     op.add_column("audit_logs", sa.Column("store_id", sa.Text(), nullable=True))
+    # Earlier store rows kept the store id in resource_id; make them filterable.
+    op.execute(
+        "UPDATE audit_logs SET store_id = resource_id "
+        "WHERE resource = 'store' AND resource_id IS NOT NULL"
+    )
     op.create_index(
         "ix_audit_logs_store_id_created_at", "audit_logs", ["store_id", "created_at"]
     )

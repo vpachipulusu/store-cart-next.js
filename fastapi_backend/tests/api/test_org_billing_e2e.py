@@ -860,5 +860,11 @@ async def test_refused_and_failed_billing_changes_write_no_audit_entry(
     )
 
     assert failed.status_code == 502
-    assert refused.status_code in (409, 422)
+    assert refused.status_code == 422
+    conflict = await client.post(
+        f"/v1/organizations/{org}/billing/checkout",
+        json=checkout_body(),
+        headers=as_user("alice"),
+    )
+    assert conflict.status_code == 409
     assert await audit_rows(engine, org) == []

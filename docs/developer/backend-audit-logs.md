@@ -29,7 +29,7 @@ Indexes for the list filters: `(user_id, created_at)`, `(action, created_at)`, `
 Transactions: the organisation, store and admin-user rows are staged in the same transaction as the change, so
 both commit or both roll back. Billing changes happen at Stripe, which cannot join a database transaction: the row
 is written after Stripe accepts the change. If that write fails the request returns 500 and the change stands at
-Stripe. Refused or failed requests (403, 404, 409, 502) write no row.
+Stripe. Billing rows carry no IP, user agent or request id (the billing routes do not pass request context yet), and a client that retries a plan change, cancel, resume or checkout without an `Idempotency-Key` gets a fresh Stripe key, as before this story. Refused or failed requests (403, 404, 409, 502) write no row.
 
 Not audited, on purpose: reads, opening the billing portal (no change is made by the call itself), Stripe webhook
 processing (system driven, recorded in `stripe_events`), sign-in and session refresh (login history), and a user's

@@ -386,12 +386,34 @@ async def test_migration_0006_adds_store_id_and_indexes_and_downgrades(
     assert "store_id" in columns
     assert {"ix_audit_logs_store_id_created_at", "ix_audit_logs_created_at"} <= indexes
 
-    _migrate(database_url, "downgrade", "0005")
-    columns, indexes = await _columns_and_indexes(database_url)
-    assert "store_id" not in columns
-    assert "ix_audit_logs_store_id_created_at" not in indexes
-    assert "ix_audit_logs_created_at" not in indexes
+    try:
+        _migrate(database_url, "downgrade", "0005")
+        columns, indexes = await _columns_and_indexes(database_url)
+        assert "store_id" not in columns
+        assert "ix_audit_logs_store_id_created_at" not in indexes
+        assert "ix_audit_logs_created_at" not in indexes
 
-    _migrate(database_url, "upgrade", "head")
+        async with build_engine(database_url).begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO audit_logs (id, action, resource, resource_id) VALUES "
+                    "('legacy-1', 'store.update', 'store', 'store-9'), "
+                    "('legacy-2', 'org.update', 'organization', 'org-9')"
+                )
+            )
+        _migrate(database_url, "upgrade", "head")
+        async with build_engine(database_url).connect() as connection:
+            found = dict(
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT id, store_id FROM audit_logs WHERE id LIKE 'legacy-%'"
+                        )
+                    )
+                ).all()
+            )
+        assert found == {"legacy-1": "store-9", "legacy-2": None}
+    finally:
+        _migrate(database_url, "upgrade", "head")
     columns, _ = await _columns_and_indexes(database_url)
     assert "store_id" in columns
