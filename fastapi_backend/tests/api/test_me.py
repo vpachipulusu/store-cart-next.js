@@ -153,6 +153,8 @@ async def test_profile_patch_preserves_omitted_fields_and_clears_explicit_null(c
         {},
         {"email": "other@example.com"},
         {"two_factor_secret": "secret"},
+        {"is_admin": True},
+        {"admin_role": "super_admin"},
         {"display_name": "x" * 101},
         {"bio": "x" * 501},
         {"phone_number": "x" * 21},
