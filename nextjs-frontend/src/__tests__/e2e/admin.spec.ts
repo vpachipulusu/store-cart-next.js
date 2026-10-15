@@ -122,7 +122,7 @@ test.describe('Admin Dashboard', () => {
         await waitForPageReady(page);
 
         await expect(page.getByRole('heading', { name: heading })).toBeVisible();
-        await expect(page.getByText('Not available yet')).toBeVisible();
+        await expect(page.getByText('Not available yet', { exact: true })).toBeVisible();
         await expect(page.getByRole('link', { name: /go to users/i })).toBeVisible();
       });
     }
