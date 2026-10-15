@@ -445,6 +445,8 @@ export async function toggleAutoRenewal(page: Page): Promise<void> {
   await toggle.click();
   // Wait for toast confirmation
   await expect(
-    page.getByText(/auto-renewal turned|subscription will renew|subscription will expire/i)
+    page.getByText(
+      /subscription will be canceled|subscription resumed|auto-renewal turned|subscription will renew|subscription will expire/i
+    )
   ).toBeVisible({ timeout: 10_000 });
 }

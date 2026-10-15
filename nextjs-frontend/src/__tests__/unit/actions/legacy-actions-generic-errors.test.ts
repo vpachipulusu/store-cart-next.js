@@ -97,6 +97,8 @@ vi.mock('@/lib/api/billing', () => {
     changeBillingPlan: reject,
     cancelBillingSubscription: reject,
     resumeBillingSubscription: reject,
+    deleteBillingPaymentMethod: reject,
+    setDefaultBillingPaymentMethod: reject,
   };
 });
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn() }));
@@ -118,7 +120,7 @@ type Result = { success: boolean; error?: string; data?: unknown };
 type Row = [name: string, call: () => Promise<Result>, generic: string];
 
 const ROWS: Row[] = [
-  // subscription-actions.ts (10; KAN-182 removed upcoming invoice and card delete/set-default)
+  // subscription-actions.ts (12; the upcoming invoice has no API and stays removed)
   [
     'getSubscriptionStatusAction',
     () => subscription.getSubscriptionStatusAction(),
@@ -173,6 +175,16 @@ const ROWS: Row[] = [
     'getPaymentMethodsAction',
     () => subscription.getPaymentMethodsAction(),
     'Failed to get payment methods',
+  ],
+  [
+    'deletePaymentMethodAction',
+    () => subscription.deletePaymentMethodAction('pm_1'),
+    'Failed to remove payment method',
+  ],
+  [
+    'setDefaultPaymentMethodAction',
+    () => subscription.setDefaultPaymentMethodAction('pm_1'),
+    'Failed to update default payment method',
   ],
   // admin/subscription-actions.ts (9)
   [

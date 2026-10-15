@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   changeBillingPlan: vi.fn(),
   cancelBillingSubscription: vi.fn(),
   resumeBillingSubscription: vi.fn(),
+  deleteBillingPaymentMethod: vi.fn(),
+  setDefaultBillingPaymentMethod: vi.fn(),
   getVerifiedUserId: vi.fn(),
   cookieGet: vi.fn(),
   cookieSet: vi.fn(),
@@ -41,6 +43,8 @@ vi.mock('@/lib/api/billing', () => ({
   changeBillingPlan: mocks.changeBillingPlan,
   cancelBillingSubscription: mocks.cancelBillingSubscription,
   resumeBillingSubscription: mocks.resumeBillingSubscription,
+  deleteBillingPaymentMethod: mocks.deleteBillingPaymentMethod,
+  setDefaultBillingPaymentMethod: mocks.setDefaultBillingPaymentMethod,
 }));
 
 import * as actions from '@/app/actions/subscription-actions';
@@ -53,6 +57,8 @@ const PRO_SUMMARY = {
     current_period_end: '2099-01-01T00:00:00Z',
     has_billing_account: true,
     has_subscription: true,
+    cancel_at_period_end: false,
+    interval: 'monthly',
   },
 };
 
@@ -90,12 +96,23 @@ describe('subscription actions on the billing API', () => {
         subscriptionTier: 'pro',
         subscriptionStatus: 'active',
         stripeStatus: 'active',
-        billingPeriod: null, // KAN-182
-        autoRenewal: false, // KAN-182
+        billingPeriod: 'monthly',
+        autoRenewal: true,
         currentPeriodEnd: '2099-01-01T00:00:00Z',
         hasStripeCustomer: true,
       },
     });
+  });
+
+  it('turns auto-renewal off when the subscription cancels at period end and passes a null interval', async () => {
+    mocks.fetchBillingSummary.mockResolvedValue({
+      ...PRO_SUMMARY,
+      data: { ...PRO_SUMMARY.data, cancel_at_period_end: true, interval: null },
+    });
+
+    const result = await actions.getSubscriptionDetailsAction();
+
+    expect(result.data).toMatchObject({ autoRenewal: false, billingPeriod: null });
   });
 
   it('shows a user with no billable organisation as free', async () => {
@@ -172,17 +189,88 @@ describe('subscription actions on the billing API', () => {
     expect((await actions.getPaymentMethodsAction()).data.paymentMethods).toEqual([]);
   });
 
-  it('maps saved cards without exposing a default flag', async () => {
+  it('maps saved cards and reports which one is the default', async () => {
     mocks.fetchBillingPaymentMethods.mockResolvedValue({
       success: true,
-      data: [{ id: 'pm_1', brand: 'visa', last4: '4242', exp_month: 4, exp_year: 2030 }],
+      data: [
+        {
+          id: 'pm_1',
+          brand: 'visa',
+          last4: '4242',
+          exp_month: 4,
+          exp_year: 2030,
+          is_default: true,
+        },
+        {
+          id: 'pm_2',
+          brand: 'amex',
+          last4: '0005',
+          exp_month: 1,
+          exp_year: 2031,
+          is_default: false,
+        },
+      ],
     });
 
     const result = await actions.getPaymentMethodsAction();
 
     expect(result.data.paymentMethods).toEqual([
-      { id: 'pm_1', brand: 'visa', last4: '4242', expMonth: 4, expYear: 2030, isDefault: false },
+      { id: 'pm_1', brand: 'visa', last4: '4242', expMonth: 4, expYear: 2030, isDefault: true },
+      { id: 'pm_2', brand: 'amex', last4: '0005', expMonth: 1, expYear: 2031, isDefault: false },
     ]);
+    expect(result.data.defaultPaymentMethodId).toBe('pm_1');
+  });
+
+  describe('card actions', () => {
+    it('removes a card through the API', async () => {
+      mocks.deleteBillingPaymentMethod.mockResolvedValue({
+        success: true,
+        data: { success: true },
+      });
+
+      const result = await actions.deletePaymentMethodAction('pm_2');
+
+      expect(result).toEqual({ success: true, data: { message: 'Payment method removed' } });
+      expect(mocks.deleteBillingPaymentMethod).toHaveBeenCalledWith('pm_2');
+    });
+
+    it('shows the backend 409 for the default card of a live subscription', async () => {
+      const message = 'Cannot delete the default payment method while subscribed';
+      mocks.deleteBillingPaymentMethod.mockResolvedValue({ success: false, error: message });
+
+      expect(await actions.deletePaymentMethodAction('pm_1')).toEqual({
+        success: false,
+        error: message,
+      });
+    });
+
+    it('sets the default card through the API', async () => {
+      mocks.setDefaultBillingPaymentMethod.mockResolvedValue({
+        success: true,
+        data: { success: true },
+      });
+
+      const result = await actions.setDefaultPaymentMethodAction('pm_2');
+
+      expect(result).toEqual({
+        success: true,
+        data: { message: 'Default payment method updated' },
+      });
+      expect(mocks.setDefaultBillingPaymentMethod).toHaveBeenCalledWith('pm_2');
+    });
+
+    it('rejects a malformed id and an unauthenticated caller before calling the API', async () => {
+      expect((await actions.deletePaymentMethodAction('../x')).success).toBe(false);
+      expect((await actions.setDefaultPaymentMethodAction('card_1')).success).toBe(false);
+
+      mocks.getVerifiedUserId.mockResolvedValue(null);
+      expect(await actions.deletePaymentMethodAction('pm_1')).toEqual({
+        success: false,
+        error: 'Unauthorized',
+      });
+      expect(mocks.deleteBillingPaymentMethod).not.toHaveBeenCalled();
+      expect(mocks.setDefaultBillingPaymentMethod).not.toHaveBeenCalled();
+    });
   });
 
   describe('checkout', () => {

@@ -11,11 +11,13 @@ import {
   NO_BILLING_ORGANIZATION_MESSAGE,
   cancelBillingSubscription,
   changeBillingPlan,
+  deleteBillingPaymentMethod,
   fetchBillingInvoices,
   fetchBillingPaymentMethods,
   fetchBillingSummary,
   pickBillingOrganization,
   resumeBillingSubscription,
+  setDefaultBillingPaymentMethod,
   startBillingCheckout,
   startBillingPortal,
 } from '@/lib/api/billing';
@@ -157,6 +159,22 @@ describe('billing API wrappers', () => {
       'POST /v1/organizations/org-1/billing/cancel',
       'POST /v1/organizations/org-1/billing/resume',
     ]);
+  });
+
+  it('detaches and defaults a card with an Idempotency-Key per action', async () => {
+    await deleteBillingPaymentMethod('pm_1');
+    await setDefaultBillingPaymentMethod('pm_2');
+    await setDefaultBillingPaymentMethod('pm_2');
+
+    const calls = billingCalls();
+    expect(calls.map((r) => `${r.method} ${r.url.replace(BACKEND_URL, '')}`)).toEqual([
+      'DELETE /v1/organizations/org-1/billing/payment-methods/pm_1',
+      'POST /v1/organizations/org-1/billing/payment-methods/pm_2/default',
+      'POST /v1/organizations/org-1/billing/payment-methods/pm_2/default',
+    ]);
+    const keys = calls.map((r) => r.headers.get('Idempotency-Key'));
+    expect(keys.every(Boolean)).toBe(true);
+    expect(new Set(keys).size).toBe(3);
   });
 
   it('does not call any billing route when the user manages no organisation', async () => {
