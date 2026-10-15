@@ -23,6 +23,10 @@ class Organization(IdMixin, TimestampMixin, Base):
     # Stripe `created` time of the last subscription event applied (KAN-44); an
     # older event arriving later is ignored.
     stripe_subscription_event_at: Mapped[datetime | None]
+    # Stripe's cancel_at_period_end (or a scheduled cancel_at); webhook-written (KAN-182).
+    stripe_cancel_at_period_end: Mapped[bool] = mapped_column(
+        server_default=text("false")
+    )
     subscription_tier: Mapped[str] = mapped_column(server_default="free")
     subscription_status: Mapped[str] = mapped_column(server_default="inactive")
 

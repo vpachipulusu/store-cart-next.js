@@ -548,3 +548,206 @@ async def test_webhook_after_checkout_upgrades_the_linked_organisation(
         f"/v1/organizations/{org}/billing", headers=as_user("alice")
     )
     assert state.json()["data"]["plan"]["key"] == "pro"
+
+
+async def deliver(client, event_id: str, created: int, **subscription: Any) -> int:
+    """Post a signed customer.subscription.updated event through the real webhook route."""
+    event = {
+        "id": event_id,
+        "type": "customer.subscription.updated",
+        "created": created,
+        "data": {
+            "object": {
+                "id": "sub_1",
+                "customer": "cus_1",
+                "status": "active",
+                "current_period_end": T0 + 2_592_000,
+                "items": {"data": [{"price": {"id": PRO_YEARLY}}]},
+                **subscription,
+            }
+        },
+    }
+    body = json.dumps(event).encode()
+    stamp = int(time.time())
+    signature = compute_signature(WEBHOOK_SECRET, stamp, body)
+    result = await client.post(
+        "/webhooks/stripe",
+        content=body,
+        headers={"Stripe-Signature": f"t={stamp},v1={signature}"},
+    )
+    return result.status_code
+
+
+async def seed_subscribed(engine, members, **columns) -> str:
+    return await seed_org(
+        engine,
+        "acme",
+        members,
+        customer="cus_1",
+        subscription="sub_1",
+        price=PRO_MONTHLY,
+        tier="pro",
+        status="active",
+        **columns,
+    )
+
+
+async def test_organisation_subscribed_before_the_migration_reads_as_renewing(
+    client, engine
+):
+    org = await seed_subscribed(engine, {"alice": "OWNER"})
+
+    result = await client.get(
+        f"/v1/organizations/{org}/billing", headers=as_user("alice")
+    )
+
+    data = result.json()["data"]
+    assert (data["cancel_at_period_end"], data["interval"]) == (False, "monthly")
+
+
+async def test_webhook_stores_the_flag_and_billing_reports_it_with_the_interval(
+    client, engine
+):
+    org = await seed_subscribed(engine, {"alice": "OWNER"})
+    url = f"/v1/organizations/{org}/billing"
+
+    scheduled = await deliver(client, "evt_cancel", T0, cancel_at_period_end=True)
+    after_cancel = (await client.get(url, headers=as_user("alice"))).json()["data"]
+    resumed = await deliver(client, "evt_resume", T0 + 10, cancel_at_period_end=False)
+    after_resume = (await client.get(url, headers=as_user("alice"))).json()["data"]
+    dated = await deliver(client, "evt_dated", T0 + 20, cancel_at=T0 + 99_999)
+    after_dated = (await client.get(url, headers=as_user("alice"))).json()["data"]
+    stale = await deliver(client, "evt_stale", T0 + 5, cancel_at_period_end=True)
+    after_stale = (await client.get(url, headers=as_user("alice"))).json()["data"]
+
+    assert (scheduled, resumed, dated, stale) == (200, 200, 200, 200)
+    assert after_cancel["cancel_at_period_end"] is True
+    assert after_cancel["interval"] == "yearly"
+    assert after_resume["cancel_at_period_end"] is False
+    assert after_dated["cancel_at_period_end"] is True
+    assert after_stale["cancel_at_period_end"] is True  # older event ignored
+
+
+async def test_interval_is_null_when_the_stored_price_is_not_in_the_catalogue(
+    client, engine
+):
+    org = await seed_org(
+        engine,
+        "acme",
+        {"alice": "OWNER"},
+        customer="cus_1",
+        subscription="sub_1",
+        price="price_rotated_away",
+        tier="pro",
+        status="active",
+    )
+
+    result = await client.get(
+        f"/v1/organizations/{org}/billing", headers=as_user("alice")
+    )
+
+    assert result.json()["data"]["interval"] is None
+
+
+async def test_payment_methods_report_the_default_card(client, engine, stripe):
+    org = await seed_subscribed(engine, {"alice": "OWNER"})
+
+    result = await client.get(
+        f"/v1/organizations/{org}/billing/payment-methods", headers=as_user("alice")
+    )
+
+    assert [(m["id"], m["is_default"]) for m in result.json()["data"]] == [
+        ("pm_1", True)
+    ]
+
+
+async def test_owner_and_admin_set_the_default_card_and_delete_a_spare_one(
+    client, engine, stripe
+):
+    org = await seed_subscribed(engine, {"alice": "OWNER", "adam": "ADMIN"})
+    stripe.payment_method_owners["pm_2"] = "cus_1"
+    base = f"/v1/organizations/{org}/billing/payment-methods"
+    key = {"Idempotency-Key": "e2e-pm-0001"}
+
+    default = await client.post(f"{base}/pm_2/default", headers=as_user("adam", **key))
+    stripe.default_payment_method = "pm_2"
+    removed = await client.delete(f"{base}/pm_1", headers=as_user("alice", **key))
+
+    assert (default.status_code, removed.status_code) == (200, 200)
+    assert stripe.last("set_default_payment_method") == {
+        "customer_id": "cus_1",
+        "payment_method_id": "pm_2",
+        "idempotency_key": f"sc-pm-default-{org}-e2e-pm-0001",
+    }
+    assert stripe.last("detach_payment_method")["payment_method_id"] == "pm_1"
+
+
+async def test_deleting_the_default_card_while_subscribed_is_409(
+    client, engine, stripe
+):
+    org = await seed_subscribed(engine, {"alice": "OWNER"})
+
+    result = await client.delete(
+        f"/v1/organizations/{org}/billing/payment-methods/pm_1",
+        headers=as_user("alice", **{"Idempotency-Key": "e2e-pm-0002"}),
+    )
+
+    assert result.status_code == 409
+    assert "detach_payment_method" not in stripe.names()
+
+
+async def test_default_card_can_be_deleted_after_the_subscription_ended(
+    client, engine, stripe
+):
+    org = await seed_org(
+        engine, "acme", {"alice": "OWNER"}, customer="cus_1", status="canceled"
+    )
+
+    result = await client.delete(
+        f"/v1/organizations/{org}/billing/payment-methods/pm_1",
+        headers=as_user("alice", **{"Idempotency-Key": "e2e-pm-0003"}),
+    )
+
+    assert result.status_code == 200
+
+
+async def test_another_organisations_card_is_a_404_identical_to_an_unknown_one(
+    client, engine, stripe
+):
+    org_a = await seed_subscribed(engine, {"alice": "OWNER"})
+    await seed_org(engine, "orgb", {"bob": "OWNER"}, customer="cus_b")
+    stripe.payment_method_owners["pm_b"] = "cus_b"
+    base = f"/v1/organizations/{org_a}/billing/payment-methods"
+    key = as_user("alice", **{"Idempotency-Key": "e2e-pm-0004"})
+
+    foreign = await client.delete(f"{base}/pm_b", headers=key)
+    unknown = await client.delete(f"{base}/pm_missing", headers=key)
+    foreign_default = await client.post(f"{base}/pm_b/default", headers=key)
+    unknown_default = await client.post(f"{base}/pm_missing/default", headers=key)
+
+    assert foreign.status_code == unknown.status_code == 404
+    assert foreign.content == unknown.content
+    assert foreign_default.content == unknown_default.content
+    assert foreign_default.status_code == 404
+    assert "detach_payment_method" not in stripe.names()
+    assert "set_default_payment_method" not in stripe.names()
+
+
+async def test_payment_method_changes_require_membership_role_and_key(
+    client, engine, stripe
+):
+    org = await seed_subscribed(engine, {"alice": "OWNER", "sam": "STAFF"})
+    await seed_org(engine, "orgb", {"bob": "OWNER"})
+    base = f"/v1/organizations/{org}/billing/payment-methods/pm_1"
+    key = {"Idempotency-Key": "e2e-pm-0005"}
+
+    staff = await client.delete(base, headers=as_user("sam", **key))
+    stranger = await client.post(f"{base}/default", headers=as_user("bob", **key))
+    no_key = await client.delete(base, headers=as_user("alice"))
+
+    assert (staff.status_code, stranger.status_code, no_key.status_code) == (
+        403,
+        404,
+        422,
+    )
+    assert stripe.calls == []

@@ -182,6 +182,14 @@ export type BillingData = {
      * Has Subscription
      */
     has_subscription: boolean;
+    /**
+     * Cancel At Period End
+     */
+    cancel_at_period_end: boolean;
+    /**
+     * Interval
+     */
+    interval: 'monthly' | 'yearly' | null;
 };
 
 /**
@@ -607,6 +615,10 @@ export type PaymentMethodData = {
      * Exp Year
      */
     exp_year: number | null;
+    /**
+     * Is Default
+     */
+    is_default: boolean;
 };
 
 /**
@@ -3053,6 +3065,166 @@ export type ListPaymentMethodsResponses = {
 };
 
 export type ListPaymentMethodsResponse = ListPaymentMethodsResponses[keyof ListPaymentMethodsResponses];
+
+export type DeletePaymentMethodData = {
+    body?: never;
+    headers: {
+        /**
+         * Idempotency-Key
+         */
+        'Idempotency-Key': string;
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+        /**
+         * Payment Method Id
+         */
+        payment_method_id: string;
+    };
+    query?: never;
+    url: '/v1/organizations/{organization_id}/billing/payment-methods/{payment_method_id}';
+};
+
+export type DeletePaymentMethodErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type DeletePaymentMethodError = DeletePaymentMethodErrors[keyof DeletePaymentMethodErrors];
+
+export type DeletePaymentMethodResponses = {
+    /**
+     * Successful Response
+     */
+    200: OkResponse;
+};
+
+export type DeletePaymentMethodResponse = DeletePaymentMethodResponses[keyof DeletePaymentMethodResponses];
+
+export type SetDefaultPaymentMethodData = {
+    body?: never;
+    headers: {
+        /**
+         * Idempotency-Key
+         */
+        'Idempotency-Key': string;
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+        /**
+         * Payment Method Id
+         */
+        payment_method_id: string;
+    };
+    query?: never;
+    url: '/v1/organizations/{organization_id}/billing/payment-methods/{payment_method_id}/default';
+};
+
+export type SetDefaultPaymentMethodErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type SetDefaultPaymentMethodError = SetDefaultPaymentMethodErrors[keyof SetDefaultPaymentMethodErrors];
+
+export type SetDefaultPaymentMethodResponses = {
+    /**
+     * Successful Response
+     */
+    200: OkResponse;
+};
+
+export type SetDefaultPaymentMethodResponse = SetDefaultPaymentMethodResponses[keyof SetDefaultPaymentMethodResponses];
 
 export type ListOrganizationsData = {
     body?: never;

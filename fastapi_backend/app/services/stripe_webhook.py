@@ -69,6 +69,7 @@ class SubscriptionData:
     status: str
     price_id: str | None
     period_end: datetime | None
+    cancel_at_period_end: bool = False
 
 
 def _text(value: Any) -> str | None:
@@ -112,6 +113,10 @@ def parse_subscription(subscription: Mapping[str, Any]) -> SubscriptionData:
         status=status[:MAX_STATUS_LENGTH],
         price_id=_text(price.get("id")) if isinstance(price, Mapping) else None,
         period_end=period_end,
+        # A cancellation scheduled for a date (`cancel_at`) ends the subscription
+        # just as `cancel_at_period_end` does, so either one means "will not renew".
+        cancel_at_period_end=subscription.get("cancel_at_period_end") is True
+        or _timestamp(subscription.get("cancel_at")) is not None,
     )
 
 
@@ -180,6 +185,7 @@ def plan_change(
         stripe_subscription_event_at=created,
         subscription_tier=tier,
         subscription_status="canceled" if deleted else data.status,
+        stripe_cancel_at_period_end=data.cancel_at_period_end and not ended,
     )
 
 

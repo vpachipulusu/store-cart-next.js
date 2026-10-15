@@ -29,6 +29,8 @@ export default function VerifyEmailPage() {
     const result = await refreshSessionAction(idToken);
     if (result.success && result.data?.claimsEmailVerified === true) {
       router.push('/dashboard');
+    } else if (result.data?.signInRequired === true) {
+      router.push('/login');
     } else {
       setError('Could not confirm your verified email yet. Please try again in a moment.');
     }

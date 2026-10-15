@@ -6,6 +6,7 @@ from typing import Any
 from app.core.stripe_billing import (
     StripeError,
     StripeInvoice,
+    StripeNotFound,
     StripePaymentMethod,
     StripeSubscription,
 )
@@ -26,6 +27,12 @@ class FakeStripe:
             )
         ]
         self.payment_methods = [StripePaymentMethod("pm_1", "visa", "4242", 12, 2030)]
+        self.default_payment_method: str | None = "pm_1"
+        # payment method id -> owning customer id; unknown ids raise StripeNotFound
+        self.payment_method_owners: dict[str, str | None] = {
+            "pm_1": "cus_1",
+            "pm_other": "cus_other",
+        }
 
     def _record(self, call: str, /, **kwargs: Any) -> None:
         self.calls.append((call, kwargs))
@@ -67,6 +74,26 @@ class FakeStripe:
     async def list_payment_methods(self, customer_id: str) -> list[StripePaymentMethod]:
         self._record("list_payment_methods", customer_id=customer_id)
         return self.payment_methods
+
+    async def get_default_payment_method_id(self, customer_id: str) -> str | None:
+        self._record("get_default_payment_method_id", customer_id=customer_id)
+        return self.default_payment_method
+
+    async def get_payment_method_customer_id(
+        self, payment_method_id: str
+    ) -> str | None:
+        self._record(
+            "get_payment_method_customer_id", payment_method_id=payment_method_id
+        )
+        if payment_method_id not in self.payment_method_owners:
+            raise StripeNotFound("Stripe request failed")
+        return self.payment_method_owners[payment_method_id]
+
+    async def detach_payment_method(self, **kwargs: Any) -> None:
+        self._record("detach_payment_method", **kwargs)
+
+    async def set_default_payment_method(self, **kwargs: Any) -> None:
+        self._record("set_default_payment_method", **kwargs)
 
 
 class FakeBillingStore:
