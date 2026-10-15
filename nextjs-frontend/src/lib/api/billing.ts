@@ -8,11 +8,13 @@ import {
   changePlan,
   createCheckout,
   createPortal,
+  deletePaymentMethod,
   listInvoices,
   listOrganizations,
   listPaymentMethods,
   readBilling,
   resumeSubscription,
+  setDefaultPaymentMethod,
   type OrganizationData,
 } from './generated';
 
@@ -135,6 +137,26 @@ export function resumeBillingSubscription() {
     resumeSubscription({
       client,
       path: { organization_id: organizationId },
+      headers: idempotencyHeaders(),
+    })
+  );
+}
+
+export function deleteBillingPaymentMethod(paymentMethodId: string) {
+  return callBilling((client, organizationId) =>
+    deletePaymentMethod({
+      client,
+      path: { organization_id: organizationId, payment_method_id: paymentMethodId },
+      headers: idempotencyHeaders(),
+    })
+  );
+}
+
+export function setDefaultBillingPaymentMethod(paymentMethodId: string) {
+  return callBilling((client, organizationId) =>
+    setDefaultPaymentMethod({
+      client,
+      path: { organization_id: organizationId, payment_method_id: paymentMethodId },
       headers: idempotencyHeaders(),
     })
   );

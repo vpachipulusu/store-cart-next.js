@@ -10,10 +10,12 @@ import {
   NO_BILLING_ORGANIZATION_MESSAGE,
   cancelBillingSubscription,
   changeBillingPlan,
+  deleteBillingPaymentMethod,
   fetchBillingInvoices,
   fetchBillingPaymentMethods,
   fetchBillingSummary,
   resumeBillingSubscription,
+  setDefaultBillingPaymentMethod,
   startBillingCheckout,
   startBillingPortal,
 } from '@/lib/api/billing';
@@ -23,9 +25,7 @@ import {
  * API (KAN-43, KAN-45); this file only authenticates the caller, validates input, builds server-side return URLs
  * and reshapes responses for the existing pages. It no longer touches Prisma or Stripe.
  *
- * KAN-182 (backend): the API does not yet expose the auto-renewal flag (`cancel_at_period_end`), the billing
- * interval, a default-card flag, delete/set-default card routes or an upcoming invoice. Those legacy actions were
- * removed and the matching UI is switched off until KAN-182 lands.
+ * The API has no upcoming-invoice route, so that legacy action stays removed and its panel stays switched off.
  */
 
 type SubscriptionActionResponse<T = any> = {
@@ -41,6 +41,9 @@ type PlanSummary = {
   status: string;
   currentPeriodEnd: string | null;
   hasBillingAccount: boolean;
+  cancelAtPeriodEnd: boolean;
+  /** `null` when the price id is not in the backend's price catalogue. */
+  interval: 'monthly' | 'yearly' | null;
 };
 
 /** Shown when the user manages no organisation: they are on the free plan. */
@@ -49,6 +52,8 @@ const FREE_SUMMARY: PlanSummary = {
   status: 'inactive',
   currentPeriodEnd: null,
   hasBillingAccount: false,
+  cancelAtPeriodEnd: false,
+  interval: null,
 };
 
 const planChoiceSchema = z.object({
@@ -62,7 +67,14 @@ async function loadPlanSummary(): Promise<
 > {
   const result = await fetchBillingSummary();
   if (result.success) {
-    const { plan, subscription_status, current_period_end, has_billing_account } = result.data;
+    const {
+      plan,
+      subscription_status,
+      current_period_end,
+      has_billing_account,
+      cancel_at_period_end,
+      interval,
+    } = result.data;
     return {
       success: true,
       data: {
@@ -70,6 +82,8 @@ async function loadPlanSummary(): Promise<
         status: subscription_status,
         currentPeriodEnd: current_period_end,
         hasBillingAccount: has_billing_account,
+        cancelAtPeriodEnd: cancel_at_period_end,
+        interval,
       },
     };
   }
@@ -182,7 +196,7 @@ export async function createBillingPortalSessionAction(): Promise<SubscriptionAc
   }
 }
 
-/** Cancel at period end. KAN-182: no UI calls this while the API cannot report the auto-renewal state. */
+/** Cancel at period end (auto-renewal off). */
 export async function cancelSubscriptionAction(): Promise<SubscriptionActionResponse> {
   try {
     if (!(await getVerifiedUserId())) return UNAUTHORIZED;
@@ -199,7 +213,7 @@ export async function cancelSubscriptionAction(): Promise<SubscriptionActionResp
   }
 }
 
-/** Undo a pending cancellation. KAN-182: no UI calls this yet (see cancelSubscriptionAction). */
+/** Undo a pending cancellation (auto-renewal on). */
 export async function resumeSubscriptionAction(): Promise<SubscriptionActionResponse> {
   try {
     if (!(await getVerifiedUserId())) return UNAUTHORIZED;
@@ -283,10 +297,7 @@ export async function hasActiveSubscriptionAction(): Promise<SubscriptionActionR
   }
 }
 
-/**
- * Plan details for the billing page. KAN-182: `billingPeriod` and `autoRenewal` are placeholders (null/false)
- * because the API does not return the billing interval or the cancel-at-period-end flag yet.
- */
+/** Plan details for the billing page; `billingPeriod` is null when the price is not in the catalogue. */
 export async function getSubscriptionDetailsAction(): Promise<SubscriptionActionResponse> {
   try {
     if (!(await getVerifiedUserId())) return UNAUTHORIZED;
@@ -300,8 +311,8 @@ export async function getSubscriptionDetailsAction(): Promise<SubscriptionAction
         subscriptionTier: summary.data.tier,
         subscriptionStatus: summary.data.status,
         stripeStatus: summary.data.status,
-        billingPeriod: null,
-        autoRenewal: false,
+        billingPeriod: summary.data.interval,
+        autoRenewal: summary.data.status === 'active' && !summary.data.cancelAtPeriodEnd,
         currentPeriodEnd: summary.data.currentPeriodEnd,
         hasStripeCustomer: summary.data.hasBillingAccount,
       },
@@ -312,10 +323,7 @@ export async function getSubscriptionDetailsAction(): Promise<SubscriptionAction
   }
 }
 
-/**
- * Saved cards (brand, last4, expiry). KAN-182: the API has no default-card flag, so `isDefault` is always false
- * and the page offers the Stripe portal instead of per-card actions.
- */
+/** Saved cards (brand, last4, expiry, default flag as read live from Stripe). */
 export async function getPaymentMethodsAction(): Promise<SubscriptionActionResponse> {
   try {
     if (!(await getVerifiedUserId())) return UNAUTHORIZED;
@@ -334,11 +342,52 @@ export async function getPaymentMethodsAction(): Promise<SubscriptionActionRespo
       last4: method.last4 ?? '****',
       expMonth: method.exp_month ?? 0,
       expYear: method.exp_year ?? 0,
-      isDefault: false,
+      isDefault: method.is_default,
     }));
-    return { success: true, data: { paymentMethods, defaultPaymentMethodId: null } };
+    const defaultPaymentMethodId = paymentMethods.find((method) => method.isDefault)?.id ?? null;
+    return { success: true, data: { paymentMethods, defaultPaymentMethodId } };
   } catch (error: unknown) {
     logger.error('Get payment methods error:', error);
     return { success: false, error: 'Failed to get payment methods' };
+  }
+}
+
+const paymentMethodIdSchema = z.string().regex(/^pm_[A-Za-z0-9_]+$/, 'Invalid payment method');
+
+/** Detaches a saved card. The backend refuses (409) to remove the default card while a subscription is live. */
+export async function deletePaymentMethodAction(
+  paymentMethodId: string
+): Promise<SubscriptionActionResponse> {
+  try {
+    if (!(await getVerifiedUserId())) return UNAUTHORIZED;
+
+    const validation = paymentMethodIdSchema.safeParse(paymentMethodId);
+    if (!validation.success) return { success: false, error: validation.error.errors[0].message };
+
+    const result = await deleteBillingPaymentMethod(validation.data);
+    if (!result.success) return failure('Delete payment method error:', result.error);
+    return { success: true, data: { message: 'Payment method removed' } };
+  } catch (error: unknown) {
+    logger.error('Delete payment method error:', error);
+    return { success: false, error: 'Failed to remove payment method' };
+  }
+}
+
+/** Makes a saved card the default used for renewals. */
+export async function setDefaultPaymentMethodAction(
+  paymentMethodId: string
+): Promise<SubscriptionActionResponse> {
+  try {
+    if (!(await getVerifiedUserId())) return UNAUTHORIZED;
+
+    const validation = paymentMethodIdSchema.safeParse(paymentMethodId);
+    if (!validation.success) return { success: false, error: validation.error.errors[0].message };
+
+    const result = await setDefaultBillingPaymentMethod(validation.data);
+    if (!result.success) return failure('Set default payment method error:', result.error);
+    return { success: true, data: { message: 'Default payment method updated' } };
+  } catch (error: unknown) {
+    logger.error('Set default payment method error:', error);
+    return { success: false, error: 'Failed to update default payment method' };
   }
 }

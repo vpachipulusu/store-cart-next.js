@@ -185,9 +185,7 @@ test.describe('Billing Settings Page - Content', () => {
   });
 });
 
-// KAN-182: the organisation billing API (KAN-45) does not expose cancel_at_period_end, so the auto-renewal card and
-// toggle are switched off in the UI. Re-enable these tests when KAN-182 restores the control.
-test.describe.skip('Billing Settings - Auto-Renewal (switched off until KAN-182)', () => {
+test.describe('Billing Settings - Auto-Renewal', () => {
   test.skip(
     !process.env.TEST_USER_EMAIL || !process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
     'Skipped: TEST_USER_EMAIL or STRIPE not configured'
@@ -238,7 +236,7 @@ test.describe.skip('Billing Settings - Auto-Renewal (switched off until KAN-182)
 
       // Should now show cancellation message
       const currentPlanCard = page.locator('[class*="card"]').filter({ hasText: /current plan/i });
-      await expect(currentPlanCard).toContainText(/expires|cancels at period end/i);
+      await expect(currentPlanCard).toContainText(/expires on/i);
     }
   });
 
@@ -266,7 +264,7 @@ test.describe.skip('Billing Settings - Auto-Renewal (switched off until KAN-182)
 
       // Should now show renewal message
       const currentPlanCard = page.locator('[class*="card"]').filter({ hasText: /current plan/i });
-      await expect(currentPlanCard).toContainText(/renews/i);
+      await expect(currentPlanCard).toContainText(/renews on/i);
     }
   });
 });
@@ -303,8 +301,7 @@ test.describe('Billing Settings - Payment Methods', () => {
     }
   });
 
-  // KAN-182: the API has no default-card flag, so the Default badge is switched off.
-  test.skip('should show default badge on default payment method', async ({ page }) => {
+  test('should show default badge on default payment method', async ({ page }) => {
     await navigateToBilling(page);
 
     const paymentCard = page.locator('[class*="card"]').filter({ hasText: /payment methods/i });
@@ -321,20 +318,10 @@ test.describe('Billing Settings - Payment Methods', () => {
     }
   });
 
-  // KAN-182: card removal and the auto-renewal state are switched off; cards are managed in the Stripe portal.
-  test.skip('should disable remove button when auto-renewal is active', async ({ page }) => {
+  test('should offer set-default and remove actions and explain the default card rule', async ({
+    page,
+  }) => {
     await navigateToBilling(page);
-
-    const autoRenewalCard = page.locator('[class*="card"]').filter({ hasText: /auto-renewal/i });
-    const hasAutoRenewal = await autoRenewalCard.isVisible().catch(() => false);
-
-    if (!hasAutoRenewal) {
-      test.skip(true, 'User does not have active subscription');
-      return;
-    }
-
-    const toggle = autoRenewalCard.locator('button[role="switch"]');
-    const isRenewalActive = (await toggle.getAttribute('aria-checked')) === 'true';
 
     const paymentCard = page.locator('[class*="card"]').filter({ hasText: /payment methods/i });
     const hasPaymentMethods = await paymentCard
@@ -343,20 +330,27 @@ test.describe('Billing Settings - Payment Methods', () => {
       .isVisible()
       .catch(() => false);
 
-    if (isRenewalActive && hasPaymentMethods) {
-      // Remove buttons should be disabled
-      const removeButtons = paymentCard.getByRole('button', { name: /remove/i });
-      const count = await removeButtons.count();
+    if (!hasPaymentMethods) {
+      test.skip(true, 'User has no saved payment methods');
+      return;
+    }
 
-      for (let i = 0; i < count; i++) {
-        await expect(removeButtons.nth(i)).toBeDisabled();
-      }
+    await expect(paymentCard.getByRole('button', { name: /remove/i }).first()).toBeEnabled();
 
-      // Should show warning message
+    const autoRenewalCard = page.locator('[class*="card"]').filter({ hasText: /auto-renewal/i });
+    if (await autoRenewalCard.isVisible().catch(() => false)) {
       await expect(
-        paymentCard.getByText(/cannot be removed while auto-renewal is active/i)
+        paymentCard.getByText(/default card cannot be removed while you have a subscription/i)
       ).toBeVisible();
     }
+  });
+
+  test('should keep the upcoming invoice panel switched off with a clear state', async ({
+    page,
+  }) => {
+    await navigateToBilling(page);
+
+    await expect(page.getByText(/upcoming invoice preview is not available yet/i)).toBeVisible();
   });
 
   test('should show Add Payment Method button for Stripe customers', async ({ page }) => {

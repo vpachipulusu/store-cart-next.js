@@ -7,12 +7,16 @@ import {
   getPaymentMethodsAction,
   getSubscriptionInvoicesAction,
   createBillingPortalSessionAction,
+  cancelSubscriptionAction,
+  resumeSubscriptionAction,
+  deletePaymentMethodAction,
+  setDefaultPaymentMethodAction,
 } from '@/app/actions/subscription-actions';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
-import { Loader2, CreditCard, Calendar, Download, ExternalLink } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Loader2, CreditCard, Calendar, Download, ExternalLink, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface SubscriptionDetails {
@@ -20,6 +24,9 @@ interface SubscriptionDetails {
   subscriptionStatus: string;
   currentPeriodEnd: string | null;
   hasStripeCustomer: boolean;
+  /** `null` when the price is not in the backend catalogue. */
+  billingPeriod: 'monthly' | 'yearly' | null;
+  autoRenewal: boolean;
 }
 
 interface PaymentMethod {
@@ -28,6 +35,7 @@ interface PaymentMethod {
   last4: string;
   expMonth: number;
   expYear: number;
+  isDefault: boolean;
 }
 
 interface Invoice {
@@ -40,12 +48,15 @@ interface Invoice {
   hostedUrl: string | null;
 }
 
+type ActionResult = { success: boolean; data?: { message?: string }; error?: string };
+
 export default function BillingPage() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
   const [subscription, setSubscription] = useState<SubscriptionDetails | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -85,10 +96,50 @@ export default function BillingPage() {
     };
   }, [fetchData, applyBillingData]);
 
-  /**
-   * KAN-182: removing a card, choosing the default card and the auto-renewal toggle are switched off until the
-   * backend exposes them; the Stripe customer portal covers all of them in the meantime.
-   */
+  /** Runs one billing action: toast the backend's curated message, then refresh the page data. */
+  const runAction = async (key: string, action: () => Promise<ActionResult>, fallback: string) => {
+    setBusyAction(key);
+    try {
+      const result = await action();
+      if (result.success) {
+        toast({ title: 'Success', description: result.data?.message });
+        applyBillingData(await fetchData());
+      } else {
+        toast({ title: 'Error', description: result.error || fallback, variant: 'destructive' });
+      }
+    } catch (error) {
+      console.error(`Billing action ${key} failed:`, error);
+      toast({
+        title: 'Error',
+        description: 'An unexpected error occurred',
+        variant: 'destructive',
+      });
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleToggleAutoRenewal = (renew: boolean) =>
+    runAction(
+      'auto-renewal',
+      renew ? resumeSubscriptionAction : cancelSubscriptionAction,
+      'Failed to update auto-renewal'
+    );
+
+  const handleSetDefault = (id: string) =>
+    runAction(
+      `default:${id}`,
+      () => setDefaultPaymentMethodAction(id),
+      'Failed to update default payment method'
+    );
+
+  const handleDeleteCard = (id: string) =>
+    runAction(
+      `delete:${id}`,
+      () => deletePaymentMethodAction(id),
+      'Failed to remove payment method'
+    );
+
   const handleAddPaymentMethod = async () => {
     try {
       const result = await createBillingPortalSessionAction();
@@ -121,6 +172,16 @@ export default function BillingPage() {
 
   const isFreeTier = subscription?.subscriptionTier === 'free';
   const hasActiveSubscription = subscription?.subscriptionStatus === 'active' && !isFreeTier;
+  const autoRenewal = hasActiveSubscription && Boolean(subscription?.autoRenewal);
+  const intervalLabel =
+    hasActiveSubscription && subscription?.billingPeriod
+      ? `Billed ${subscription.billingPeriod}`
+      : null;
+  const periodEndText = !hasActiveSubscription
+    ? 'Current period ends on'
+    : autoRenewal
+      ? 'Renews on'
+      : 'Expires on';
 
   return (
     <div className="space-y-6">
@@ -150,11 +211,11 @@ export default function BillingPage() {
                     ? 'Active'
                     : subscription?.subscriptionStatus || 'Inactive'}
                 </Badge>
+                {intervalLabel && <Badge variant="outline">{intervalLabel}</Badge>}
               </div>
               {subscription?.currentPeriodEnd && (
                 <p className="text-sm text-muted-foreground">
-                  Current period ends on{' '}
-                  {new Date(subscription.currentPeriodEnd).toLocaleDateString()}
+                  {periodEndText} {new Date(subscription.currentPeriodEnd).toLocaleDateString()}
                 </p>
               )}
             </div>
@@ -165,8 +226,56 @@ export default function BillingPage() {
         </CardContent>
       </Card>
 
-      {/* KAN-182: the auto-renewal badge, interval label and cancel/resume toggle are switched off until the billing
-          API exposes cancel_at_period_end and the interval. */}
+      {/* Auto-Renewal: active subscribers only. Only owners and admins resolve a billing organisation. */}
+      {hasActiveSubscription && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <RefreshCw className="h-5 w-5 text-theme-accent" />
+              Auto-Renewal
+            </CardTitle>
+            <CardDescription>
+              Control whether your subscription renews automatically
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between rounded-lg border p-4">
+              <div className="space-y-1">
+                <p className="font-medium">
+                  {autoRenewal ? 'Auto-renewal is on' : 'Auto-renewal is off'}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {autoRenewal
+                    ? 'Your subscription will renew automatically at the end of the period.'
+                    : 'Your subscription will expire at the end of the current period.'}
+                </p>
+              </div>
+              <Switch
+                aria-label="Auto-renewal"
+                checked={autoRenewal}
+                disabled={busyAction !== null}
+                onCheckedChange={handleToggleAutoRenewal}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Upcoming invoice: the API has no route for it, so the panel stays switched off. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Calendar className="h-5 w-5 text-theme-accent" />
+            Upcoming Invoice
+          </CardTitle>
+          <CardDescription>Preview of your next charge</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="py-4 text-center text-sm text-muted-foreground">
+            The upcoming invoice preview is not available yet.
+          </p>
+        </CardContent>
+      </Card>
 
       {/* Payment Methods */}
       <Card>
@@ -204,18 +313,41 @@ export default function BillingPage() {
                       <div className="flex items-center gap-2">
                         <span className="font-medium capitalize">{pm.brand}</span>
                         <span className="text-muted-foreground">ending in {pm.last4}</span>
+                        {pm.isDefault && <Badge variant="secondary">Default</Badge>}
                       </div>
                       <p className="text-sm text-muted-foreground">
                         Expires {pm.expMonth.toString().padStart(2, '0')}/{pm.expYear}
                       </p>
                     </div>
                   </div>
+                  <div className="flex items-center gap-2">
+                    {!pm.isDefault && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busyAction !== null}
+                        onClick={() => handleSetDefault(pm.id)}
+                      >
+                        Set as default
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={busyAction !== null}
+                      onClick={() => handleDeleteCard(pm.id)}
+                    >
+                      Remove
+                    </Button>
+                  </div>
                 </div>
               ))}
-              <p className="text-sm text-muted-foreground">
-                To remove a card or change your default card, use Add Payment Method to open the
-                Stripe billing portal.
-              </p>
+              {hasActiveSubscription && (
+                <p className="text-sm text-muted-foreground">
+                  The default card cannot be removed while you have a subscription. Set another card
+                  as default first.
+                </p>
+              )}
             </div>
           )}
         </CardContent>
