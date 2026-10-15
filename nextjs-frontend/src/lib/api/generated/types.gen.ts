@@ -3319,7 +3319,7 @@ export type AdminListStoresData = {
         /**
          * Status
          */
-        status?: 'PROVISIONING' | 'ACTIVE' | 'SUSPENDED' | 'ARCHIVED' | null;
+        status?: StoreStatus | null;
         /**
          * Organization Id
          */

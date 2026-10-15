@@ -1,5 +1,6 @@
 """Admin stores routes through the real dependency chain, with fakes behind them."""
 
+import asyncio
 import time
 from typing import Annotated
 
@@ -145,13 +146,22 @@ async def test_list_organizations_returns_store_counts(harness):
     async with harness.client("reader") as client:
         result = await client.get("/v1/admin/organizations")
 
+    data = result.json()["data"]
     assert result.status_code == 200
-    assert result.json()["data"]["organizations"][0]["store_count"] == 1
+    assert data["organizations"][0]["store_count"] == 1
+    assert (data["total_count"], data["limit"], data["offset"]) == (1, 20, 0)
 
 
 @pytest.mark.parametrize(
     "query",
-    ["status=BOGUS", "limit=0", "limit=101", "offset=-1", "organization_id=a b"],
+    [
+        "status=BOGUS",
+        "limit=0",
+        "limit=101",
+        "offset=-1",
+        "organization_id=a b",
+        "search=%00",
+    ],
 )
 async def test_invalid_query_is_422(harness, query):
     async with harness.client() as client:
@@ -239,3 +249,23 @@ async def test_migrate_provisioning_store_is_409_and_never_runs(harness):
 
     assert result.status_code == 409
     assert harness.migrated == []
+
+
+async def test_migration_timeout_is_503_with_retry_after(harness):
+    harness.failure = TimeoutError()
+    async with harness.client("migrator") as client:
+        harness.app.dependency_overrides[get_admin_stores_service] = lambda: (
+            AdminStoresService(
+                harness.repository, harness.session, harness.auditor, _never, 0.01
+            )
+        )
+        result = await client.post("/v1/admin/stores/live/migrate")
+
+    assert result.status_code == 503
+    assert result.headers["retry-after"] == "30"
+    assert harness.auditor.rows[0]["action"] == "admin.stores.migrate_failed"
+
+
+async def _never(store_id: str) -> int:
+    await asyncio.Event().wait()
+    return 0

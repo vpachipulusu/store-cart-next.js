@@ -3342,7 +3342,8 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "maxLength": 100
+                  "maxLength": 100,
+                  "pattern": "^[^\\x00]*$"
                 },
                 {
                   "type": "null"
@@ -3527,13 +3528,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "enum": [
-                    "PROVISIONING",
-                    "ACTIVE",
-                    "SUSPENDED",
-                    "ARCHIVED"
-                  ],
-                  "type": "string"
+                  "$ref": "#/components/schemas/StoreStatus"
                 },
                 {
                   "type": "null"
@@ -3569,7 +3564,8 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "maxLength": 100
+                  "maxLength": 100,
+                  "pattern": "^[^\\x00]*$"
                 },
                 {
                   "type": "null"

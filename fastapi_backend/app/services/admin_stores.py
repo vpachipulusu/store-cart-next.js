@@ -7,13 +7,19 @@
 * Only ACTIVE and SUSPENDED stores can be migrated: PROVISIONING belongs to the
   provisioning job and ARCHIVED stores are gone. No platform transaction is held while
   the store database is migrated, the wait is bounded, and the outcome (success or a
-  failure with a safe reason) is audited afterwards. A cancelled migration rolls back
-  with its transaction, so a timeout leaves the store at its previous version.
+  failure with a safe reason) is audited afterwards. A timeout normally leaves the store
+  at its previous version (the DDL is one transaction), but if it lands after the store
+  database committed and before ``schema_version`` was written, the store is migrated and
+  the version is stale: the audit reason says the outcome is unknown, and re-running
+  repairs it because the upgrade is idempotent.
+* One migration per store at a time in this process; a second request gets a 409. Across
+  processes the per-database advisory lock serialises runners.
 * Failures carry a class name and SQLSTATE only (``safe_reason``), never a driver
   message or a connection string.
 """
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Protocol
@@ -28,7 +34,7 @@ from app.repositories.admin_stores import (
     StorePage,
     StoreRecord,
 )
-from app.services.store_migrations import StoreMigrationFailed
+from app.services.store_migrations import StoreMigrationFailed, StoreVersionNotRecorded
 
 MAX_PAGE_SIZE = 100
 MIGRATE_TIMEOUT_SECONDS = 60.0
@@ -38,9 +44,14 @@ SUSPEND_ACTION = "admin.stores.suspend"
 UNSUSPEND_ACTION = "admin.stores.unsuspend"
 MIGRATE_ACTION = "admin.stores.migrate"
 MIGRATE_FAILED_ACTION = "admin.stores.migrate_failed"
+TIMEOUT_REASON = "timeout (outcome unknown; re-run to repair)"
+
+logger = logging.getLogger("storecart.admin_stores")
+# Store ids being migrated by this process.
+_migrating: set[str] = set()
 
 
-class StoreNotFound(Exception):
+class AdminStoreNotFound(Exception):
     """No such store (404)."""
 
 
@@ -53,7 +64,11 @@ class MigrationFailed(Exception):
 
 
 class MigrationTimeout(Exception):
-    """The migration did not finish in time (503); the store keeps its old version."""
+    """The migration did not finish in time (503); the outcome is unknown, re-run."""
+
+
+class CommitFailed(Exception):
+    """The result could not be recorded after the store was migrated (503, retry)."""
 
 
 class StoresStore(Protocol):
@@ -140,45 +155,75 @@ class AdminStoresService:
     async def migrate(self, actor: AdminContext, store_id: str) -> MigrateResult:
         record = await self.store.get_store(store_id)
         if record is None:
-            raise StoreNotFound
-        if record.status not in MIGRATABLE_STATUSES:
+            raise AdminStoreNotFound
+        if record.status not in MIGRATABLE_STATUSES or store_id in _migrating:
             raise StoreConflict
         # End the read transaction: no connection is held while the store is migrated.
         await self.session.rollback()
+        _migrating.add(store_id)
         try:
-            version = await asyncio.wait_for(self.migrate_store(store_id), self.timeout)
-        except StoreMigrationFailed as failure:
-            await self._record_failure(actor, record, failure.reason)
-            raise MigrationFailed from None
-        except TimeoutError:
-            await self._record_failure(actor, record, "timeout")
-            raise MigrationTimeout from None
-        await self.auditor.record(
+            version = await self._run_migration(actor, record)
+        finally:
+            _migrating.discard(store_id)
+        await self._record(
             actor,
-            action=MIGRATE_ACTION,
-            resource="stores",
-            resource_id=record.id,
-            organization_id=record.organization_id,
-            store_id=record.id,
+            record,
+            MIGRATE_ACTION,
             before={"schema_version": record.schema_version},
             after={"schema_version": version},
         )
-        await self.session.commit()
         return MigrateResult(record.schema_version, version)
 
-    async def _record_failure(
-        self, actor: AdminContext, record: StoreRecord, reason: str
+    async def _run_migration(self, actor: AdminContext, record: StoreRecord) -> int:
+        try:
+            return await asyncio.wait_for(self.migrate_store(record.id), self.timeout)
+        except StoreVersionNotRecorded as failure:
+            reason = f"version not recorded (re-run to repair): {failure.reason}"
+            await self._record(actor, record, MIGRATE_FAILED_ACTION, reason=reason)
+            raise MigrationFailed from None
+        except StoreMigrationFailed as failure:
+            await self._record(
+                actor, record, MIGRATE_FAILED_ACTION, reason=failure.reason
+            )
+            raise MigrationFailed from None
+        except TimeoutError:
+            await self._record(
+                actor, record, MIGRATE_FAILED_ACTION, reason=TIMEOUT_REASON
+            )
+            raise MigrationTimeout from None
+
+    async def _record(
+        self,
+        actor: AdminContext,
+        record: StoreRecord,
+        action: str,
+        *,
+        before: object = None,
+        after: object = None,
+        reason: str | None = None,
     ) -> None:
-        await self.auditor.record(
-            actor,
-            action=MIGRATE_FAILED_ACTION,
-            resource="stores",
-            resource_id=record.id,
-            organization_id=record.organization_id,
-            store_id=record.id,
-            details={"reason": reason},
-        )
-        await self.session.commit()
+        """Audit a migration outcome in its own transaction (the migration is idempotent,
+        so a failure here is a 503 telling the admin to retry)."""
+        try:
+            await self.auditor.record(
+                actor,
+                action=action,
+                resource="stores",
+                resource_id=record.id,
+                organization_id=record.organization_id,
+                store_id=record.id,
+                before=before,
+                after=after,
+                details={"reason": reason} if reason else None,
+            )
+            await self.session.commit()
+        except Exception:
+            logger.exception(
+                "admin store migration outcome was not audited",
+                extra={"store_id": record.id, "admin_user_id": actor.user_id},
+            )
+            await self.session.rollback()
+            raise CommitFailed from None
 
     async def _transition(
         self,
@@ -190,7 +235,7 @@ class AdminStoresService:
     ) -> StatusResult:
         record = await self.store.get_store(store_id, lock=True)
         if record is None:
-            raise StoreNotFound
+            raise AdminStoreNotFound
         if record.status is target:
             return StatusResult(target, changed=False)
         if record.status is not source:

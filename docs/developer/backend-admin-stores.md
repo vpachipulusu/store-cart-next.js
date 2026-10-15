@@ -25,9 +25,17 @@ permission). Responses use `{"success": true, "data": ...}` and `Cache-Control: 
   storefront lookup (it needs ACTIVE) and merchant writes are refused (KAN-61); unsuspending restores both.
 - **Migrate** works for ACTIVE and SUSPENDED stores (a suspended store must not fall behind its schema); PROVISIONING
   belongs to the provisioning job and ARCHIVED is a 409. No platform transaction is held while the store is migrated.
-  The call is bounded to 60 seconds (503 with `Retry-After`; the migration runs in one transaction, so a timeout leaves
-  the store at its previous version). A failure is a generic 502: the audit row carries the exception class and
-  SQLSTATE only (`safe_reason`), never a driver message or connection string.
+  One migration per store at a time in a process (a second request is a 409); across processes the per-database
+  advisory lock serialises runners. The call is bounded to 60 seconds (503 with `Retry-After`, which also covers
+  waiting for another runner's lock). The migration is one transaction, so a timeout normally leaves the store at its
+  previous version; if it lands after the store database committed and before `schema_version` was written, the store
+  is migrated and the version is stale. The audit reason then reads "timeout (outcome unknown; re-run to repair)":
+  re-running is safe (idempotent) and repairs the version. A failure is a generic 502: the audit row carries the
+  exception class and SQLSTATE only (`safe_reason`), never a driver message or connection string.
+  `previous_schema_version` and the audit `before` value are read before the migration and are best-effort.
+- **`store_count`** on an organisation counts every store row, whatever its status.
 - **Audit.** `admin.stores.suspend`, `admin.stores.unsuspend`, `admin.stores.migrate` (before/after) and
   `admin.stores.migrate_failed` (reason), each with `store_id` and `organization_id`. A change and its audit row
   commit together; a failed or timed-out migration writes its failure row after the migration ended.
+  If the audit row of a finished migration cannot be written, the admin gets a 503 (re-run) and the failure is logged
+  with the store id and admin id; the store database cannot be rolled back with the platform audit write.

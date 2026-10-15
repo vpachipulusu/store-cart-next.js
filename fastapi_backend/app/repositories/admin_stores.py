@@ -1,5 +1,6 @@
 """Queries behind the admin organisations and stores API (KAN-201). No business rules here.
 
+``store_count`` counts every store row of the organisation, whatever its status.
 Rows never carry ``database_ref`` or ``connection_string_encrypted``.
 """
 
@@ -8,7 +9,6 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import func, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.platform.organization import Organization
 from app.models.platform.store import Store, StoreStatus
@@ -75,9 +75,6 @@ def _select_stores() -> Any:
 
 
 class AdminStoresRepository(BaseRepository):
-    def __init__(self, session: AsyncSession) -> None:
-        super().__init__(session)
-
     async def list_organizations(
         self, search: str | None, limit: int, offset: int
     ) -> OrganizationPage:

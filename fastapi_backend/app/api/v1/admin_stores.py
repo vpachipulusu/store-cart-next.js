@@ -31,11 +31,12 @@ from app.repositories.admin_stores import (
 )
 from app.services.admin_stores import (
     MAX_PAGE_SIZE,
+    AdminStoreNotFound,
     AdminStoresService,
+    CommitFailed,
     MigrationFailed,
     MigrationTimeout,
     StoreConflict,
-    StoreNotFound,
 )
 from app.services.store_migrations import migrate_store
 
@@ -63,7 +64,7 @@ Identifier = Annotated[
 ReadAdmin = Annotated[AdminContext, Depends(require_admin("stores.read"))]
 SuspendAdmin = Annotated[AdminContext, Depends(require_admin("stores.suspend"))]
 MigrateAdmin = Annotated[AdminContext, Depends(require_admin("stores.migrate"))]
-StatusName = Literal["PROVISIONING", "ACTIVE", "SUSPENDED", "ARCHIVED"]
+SEARCH_PATTERN = r"^[^\x00]*$"  # Postgres text cannot hold NUL
 
 
 class OrganizationSummary(BaseModel):
@@ -145,18 +146,32 @@ def get_admin_stores_service(
 
 ServiceDep = Annotated[AdminStoresService, Depends(get_admin_stores_service)]
 
-HANDLED = (StoreNotFound, StoreConflict, MigrationFailed, MigrationTimeout)
+HANDLED = (
+    AdminStoreNotFound,
+    StoreConflict,
+    MigrationFailed,
+    MigrationTimeout,
+    CommitFailed,
+)
 
 
 def _http_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, StoreNotFound):
+    if isinstance(exc, AdminStoreNotFound):
         return HTTPException(404, "Store not found")
     if isinstance(exc, StoreConflict):
         return HTTPException(409, "Operation not allowed in the current state")
     if isinstance(exc, MigrationFailed):
         return HTTPException(502, "Store migration failed")
+    if isinstance(exc, CommitFailed):
+        return HTTPException(
+            503,
+            "The result could not be recorded; re-run the migration",
+            headers={"Retry-After": "5"},
+        )
     return HTTPException(
-        503, "Store migration did not finish in time; retry", {"Retry-After": "30"}
+        503,
+        "Store migration did not finish in time; re-run it",
+        headers={"Retry-After": "30"},
     )
 
 
@@ -193,7 +208,7 @@ async def admin_list_organizations(
     response: Response,
     _admin: ReadAdmin,
     service: ServiceDep,
-    search: Annotated[str | None, Query(max_length=100)] = None,
+    search: Annotated[str | None, Query(max_length=100, pattern=SEARCH_PATTERN)] = None,
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     offset: Annotated[int, Query(ge=0, le=1_000_000)] = 0,
 ) -> OrganizationsPageResponse:
@@ -214,18 +229,16 @@ async def admin_list_stores(
     response: Response,
     _admin: ReadAdmin,
     service: ServiceDep,
-    status: StatusName | None = None,
+    status: StoreStatus | None = None,
     organization_id: Annotated[
         str | None, Query(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
     ] = None,
-    search: Annotated[str | None, Query(max_length=100)] = None,
+    search: Annotated[str | None, Query(max_length=100, pattern=SEARCH_PATTERN)] = None,
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     offset: Annotated[int, Query(ge=0, le=1_000_000)] = 0,
 ) -> StoresPageResponse:
     _no_store(response)
-    filters = StoreFilters(
-        StoreStatus(status) if status else None, organization_id, search
-    )
+    filters = StoreFilters(status, organization_id, search)
     page = await service.list_stores(filters, limit, offset)
     return StoresPageResponse(
         data=StoresPage(
