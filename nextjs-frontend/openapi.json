@@ -3280,8 +3280,8 @@
         "tags": [
           "admin-subscriptions"
         ],
-        "summary": "List Subscriptions",
-        "operationId": "list_subscriptions",
+        "summary": "Admin List Subscriptions",
+        "operationId": "admin_list_subscriptions",
         "parameters": [
           {
             "name": "status",
@@ -3492,8 +3492,8 @@
         "tags": [
           "admin-subscriptions"
         ],
-        "summary": "Read Subscription",
-        "operationId": "read_subscription",
+        "summary": "Admin Read Subscription",
+        "operationId": "admin_read_subscription",
         "parameters": [
           {
             "name": "organization_id",
@@ -3649,8 +3649,8 @@
         "tags": [
           "admin-subscriptions"
         ],
-        "summary": "Cancel Subscription",
-        "operationId": "cancel_subscription",
+        "summary": "Admin Cancel Subscription",
+        "operationId": "admin_cancel_subscription",
         "parameters": [
           {
             "name": "organization_id",
@@ -3835,8 +3835,8 @@
         "tags": [
           "admin-subscriptions"
         ],
-        "summary": "Refund Payment",
-        "operationId": "refund_payment",
+        "summary": "Admin Refund Payment",
+        "operationId": "admin_refund_payment",
         "parameters": [
           {
             "name": "organization_id",
@@ -4014,8 +4014,8 @@
         "tags": [
           "admin-subscriptions"
         ],
-        "summary": "Grant Subscription",
-        "operationId": "grant_subscription",
+        "summary": "Admin Grant Subscription",
+        "operationId": "admin_grant_subscription",
         "parameters": [
           {
             "name": "organization_id",

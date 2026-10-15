@@ -312,7 +312,7 @@ def _payment(charge: StripeCharge) -> PaymentData:
 
 
 @router.get("", response_model=SubscriptionsPageResponse)
-async def list_subscriptions(
+async def admin_list_subscriptions(
     response: Response,
     _admin: ReadAdmin,
     service: ServiceDep,
@@ -338,7 +338,7 @@ async def list_subscriptions(
 
 
 @router.get("/{organization_id}", response_model=SubscriptionDetailResponse)
-async def read_subscription(
+async def admin_read_subscription(
     organization_id: OrganizationId,
     response: Response,
     _admin: ReadAdmin,
@@ -365,7 +365,7 @@ async def read_subscription(
 
 
 @router.post("/{organization_id}/cancel", response_model=CancelResponse)
-async def cancel_subscription(
+async def admin_cancel_subscription(
     organization_id: OrganizationId,
     response: Response,
     admin: UpdateAdmin,
@@ -393,7 +393,7 @@ async def cancel_subscription(
 
 
 @router.post("/{organization_id}/refunds", response_model=RefundResponse)
-async def refund_payment(
+async def admin_refund_payment(
     organization_id: OrganizationId,
     body: RefundRequest,
     response: Response,
@@ -427,7 +427,7 @@ async def refund_payment(
 
 
 @router.put("/{organization_id}/grant", response_model=GrantResponse)
-async def grant_subscription(
+async def admin_grant_subscription(
     organization_id: OrganizationId,
     body: GrantRequest,
     response: Response,

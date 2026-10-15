@@ -3002,7 +3002,7 @@ export type ListAuditLogsResponses = {
 
 export type ListAuditLogsResponse = ListAuditLogsResponses[keyof ListAuditLogsResponses];
 
-export type ListSubscriptionsData = {
+export type AdminListSubscriptionsData = {
     body?: never;
     headers?: {
         /**
@@ -3036,7 +3036,7 @@ export type ListSubscriptionsData = {
     url: '/v1/admin/subscriptions';
 };
 
-export type ListSubscriptionsErrors = {
+export type AdminListSubscriptionsErrors = {
     /**
      * Unauthorized
      */
@@ -3075,18 +3075,18 @@ export type ListSubscriptionsErrors = {
     503: ErrorResponse;
 };
 
-export type ListSubscriptionsError = ListSubscriptionsErrors[keyof ListSubscriptionsErrors];
+export type AdminListSubscriptionsError = AdminListSubscriptionsErrors[keyof AdminListSubscriptionsErrors];
 
-export type ListSubscriptionsResponses = {
+export type AdminListSubscriptionsResponses = {
     /**
      * Successful Response
      */
     200: SubscriptionsPageResponse;
 };
 
-export type ListSubscriptionsResponse = ListSubscriptionsResponses[keyof ListSubscriptionsResponses];
+export type AdminListSubscriptionsResponse = AdminListSubscriptionsResponses[keyof AdminListSubscriptionsResponses];
 
-export type ReadSubscriptionData = {
+export type AdminReadSubscriptionData = {
     body?: never;
     headers?: {
         /**
@@ -3108,7 +3108,7 @@ export type ReadSubscriptionData = {
     url: '/v1/admin/subscriptions/{organization_id}';
 };
 
-export type ReadSubscriptionErrors = {
+export type AdminReadSubscriptionErrors = {
     /**
      * Unauthorized
      */
@@ -3147,18 +3147,18 @@ export type ReadSubscriptionErrors = {
     503: ErrorResponse;
 };
 
-export type ReadSubscriptionError = ReadSubscriptionErrors[keyof ReadSubscriptionErrors];
+export type AdminReadSubscriptionError = AdminReadSubscriptionErrors[keyof AdminReadSubscriptionErrors];
 
-export type ReadSubscriptionResponses = {
+export type AdminReadSubscriptionResponses = {
     /**
      * Successful Response
      */
     200: SubscriptionDetailResponse;
 };
 
-export type ReadSubscriptionResponse = ReadSubscriptionResponses[keyof ReadSubscriptionResponses];
+export type AdminReadSubscriptionResponse = AdminReadSubscriptionResponses[keyof AdminReadSubscriptionResponses];
 
-export type CancelSubscriptionData = {
+export type AdminCancelSubscriptionData = {
     /**
      * Body
      */
@@ -3187,7 +3187,7 @@ export type CancelSubscriptionData = {
     url: '/v1/admin/subscriptions/{organization_id}/cancel';
 };
 
-export type CancelSubscriptionErrors = {
+export type AdminCancelSubscriptionErrors = {
     /**
      * Unauthorized
      */
@@ -3226,18 +3226,18 @@ export type CancelSubscriptionErrors = {
     503: ErrorResponse;
 };
 
-export type CancelSubscriptionError = CancelSubscriptionErrors[keyof CancelSubscriptionErrors];
+export type AdminCancelSubscriptionError = AdminCancelSubscriptionErrors[keyof AdminCancelSubscriptionErrors];
 
-export type CancelSubscriptionResponses = {
+export type AdminCancelSubscriptionResponses = {
     /**
      * Successful Response
      */
     200: CancelResponse;
 };
 
-export type CancelSubscriptionResponse = CancelSubscriptionResponses[keyof CancelSubscriptionResponses];
+export type AdminCancelSubscriptionResponse = AdminCancelSubscriptionResponses[keyof AdminCancelSubscriptionResponses];
 
-export type RefundPaymentData = {
+export type AdminRefundPaymentData = {
     body: RefundRequest;
     headers: {
         /**
@@ -3263,7 +3263,7 @@ export type RefundPaymentData = {
     url: '/v1/admin/subscriptions/{organization_id}/refunds';
 };
 
-export type RefundPaymentErrors = {
+export type AdminRefundPaymentErrors = {
     /**
      * Unauthorized
      */
@@ -3302,18 +3302,18 @@ export type RefundPaymentErrors = {
     503: ErrorResponse;
 };
 
-export type RefundPaymentError = RefundPaymentErrors[keyof RefundPaymentErrors];
+export type AdminRefundPaymentError = AdminRefundPaymentErrors[keyof AdminRefundPaymentErrors];
 
-export type RefundPaymentResponses = {
+export type AdminRefundPaymentResponses = {
     /**
      * Successful Response
      */
     200: RefundResponse;
 };
 
-export type RefundPaymentResponse = RefundPaymentResponses[keyof RefundPaymentResponses];
+export type AdminRefundPaymentResponse = AdminRefundPaymentResponses[keyof AdminRefundPaymentResponses];
 
-export type GrantSubscriptionData = {
+export type AdminGrantSubscriptionData = {
     body: GrantRequest;
     headers?: {
         /**
@@ -3335,7 +3335,7 @@ export type GrantSubscriptionData = {
     url: '/v1/admin/subscriptions/{organization_id}/grant';
 };
 
-export type GrantSubscriptionErrors = {
+export type AdminGrantSubscriptionErrors = {
     /**
      * Unauthorized
      */
@@ -3374,16 +3374,16 @@ export type GrantSubscriptionErrors = {
     503: ErrorResponse;
 };
 
-export type GrantSubscriptionError = GrantSubscriptionErrors[keyof GrantSubscriptionErrors];
+export type AdminGrantSubscriptionError = AdminGrantSubscriptionErrors[keyof AdminGrantSubscriptionErrors];
 
-export type GrantSubscriptionResponses = {
+export type AdminGrantSubscriptionResponses = {
     /**
      * Successful Response
      */
     200: GrantResponse;
 };
 
-export type GrantSubscriptionResponse = GrantSubscriptionResponses[keyof GrantSubscriptionResponses];
+export type AdminGrantSubscriptionResponse = AdminGrantSubscriptionResponses[keyof AdminGrantSubscriptionResponses];
 
 export type ReadBillingData = {
     body?: never;
@@ -3685,7 +3685,7 @@ export type ChangePlanResponses = {
 
 export type ChangePlanResponse = ChangePlanResponses[keyof ChangePlanResponses];
 
-export type CancelSubscription2Data = {
+export type CancelSubscriptionData = {
     body?: never;
     headers?: {
         /**
@@ -3711,7 +3711,7 @@ export type CancelSubscription2Data = {
     url: '/v1/organizations/{organization_id}/billing/cancel';
 };
 
-export type CancelSubscription2Errors = {
+export type CancelSubscriptionErrors = {
     /**
      * Unauthorized
      */
@@ -3750,16 +3750,16 @@ export type CancelSubscription2Errors = {
     503: ErrorResponse;
 };
 
-export type CancelSubscription2Error = CancelSubscription2Errors[keyof CancelSubscription2Errors];
+export type CancelSubscriptionError = CancelSubscriptionErrors[keyof CancelSubscriptionErrors];
 
-export type CancelSubscription2Responses = {
+export type CancelSubscriptionResponses = {
     /**
      * Successful Response
      */
     200: OkResponse;
 };
 
-export type CancelSubscription2Response = CancelSubscription2Responses[keyof CancelSubscription2Responses];
+export type CancelSubscriptionResponse = CancelSubscriptionResponses[keyof CancelSubscriptionResponses];
 
 export type ResumeSubscriptionData = {
     body?: never;
