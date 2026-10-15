@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { logger } from '@/lib/logger';
 import { fetchProfile } from './account';
 import { isSessionRejected } from './session-rejected';
 
@@ -37,12 +38,16 @@ export async function resolveAdminAccess(): Promise<AdminAccess> {
   const profile = result.data;
   // The response is validated, not trusted: anything but a true flag, a non-empty string role and a string
   // email is no access (an admin without a role also cannot be rendered in the header).
+  if (profile?.is_admin !== true) return { status: 'not-admin' };
   if (
-    profile?.is_admin !== true ||
     typeof profile.admin_role !== 'string' ||
     profile.admin_role === '' ||
     typeof profile.email !== 'string'
   ) {
+    // A backend contract violation worth noticing; no identifiers are logged.
+    logger.warn('Admin profile without a usable role or email was denied', {
+      route: '/admin',
+    });
     return { status: 'not-admin' };
   }
 

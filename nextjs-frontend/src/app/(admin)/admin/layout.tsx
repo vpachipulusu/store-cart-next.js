@@ -16,11 +16,7 @@ import {
 } from 'lucide-react';
 import { AdminHeader } from '@/components/admin/admin-header';
 
-/**
- * Every /admin route is per-user (session cookie + admin check) and its pages read Prisma or the API, so none can be
- * prerendered. Declaring it here, before render, keeps `next build` from attempting a static render of
- * any child page and issuing its queries.
- */
+/** Every /admin route is per-user (session cookie + admin check), so none can be prerendered. */
 export const dynamic = 'force-dynamic';
 
 async function loadAdminAccess(sessionCookie: string) {

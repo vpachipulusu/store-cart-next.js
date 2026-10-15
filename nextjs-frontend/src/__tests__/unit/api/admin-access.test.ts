@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ fetchProfile: vi.fn() }));
+const mocks = vi.hoisted(() => ({ fetchProfile: vi.fn(), loggerWarn: vi.fn() }));
+vi.mock('@/lib/logger', () => ({ logger: { warn: mocks.loggerWarn } }));
 vi.mock('@/lib/api/account', () => ({ fetchProfile: mocks.fetchProfile }));
 
 import { resolveAdminAccess } from '@/lib/api/admin-access';
@@ -40,15 +41,25 @@ describe('resolveAdminAccess', () => {
     expect(access).toMatchObject({ viewer: { displayName: null, avatarUrl: null } });
   });
 
-  it.each([false, undefined, null, 'true', 1])('denies is_admin=%s', async (value) => {
+  it.each([false, undefined, null, 'true', 1])('denies is_admin=%j', async (value) => {
     mocks.fetchProfile.mockResolvedValue(ok({ is_admin: value }));
     await expect(resolveAdminAccess()).resolves.toEqual({ status: 'not-admin' });
   });
 
-  it.each([null, undefined, '', 1, true, {}, ['super_admin']])('denies an admin whose role is %j', async (role) => {
-    mocks.fetchProfile.mockResolvedValue(ok({ admin_role: role }));
-    await expect(resolveAdminAccess()).resolves.toEqual({ status: 'not-admin' });
+  it('logs a warning without personal data when an admin has no role', async () => {
+    mocks.fetchProfile.mockResolvedValue(ok({ admin_role: '' }));
+    await resolveAdminAccess();
+    expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(mocks.loggerWarn.mock.calls)).not.toContain('a@example.com');
   });
+
+  it.each([null, undefined, '', 1, true, {}, ['super_admin']])(
+    'denies an admin whose role is %j',
+    async (role) => {
+      mocks.fetchProfile.mockResolvedValue(ok({ admin_role: role }));
+      await expect(resolveAdminAccess()).resolves.toEqual({ status: 'not-admin' });
+    }
+  );
 
   it.each([undefined, null, 42, {}])('denies an admin whose email is %j', async (email) => {
     mocks.fetchProfile.mockResolvedValue(ok({ email }));

@@ -1,17 +1,14 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  SESSION_EXPIRED,
-  navigationMock,
-  redirectTarget,
-  rejection,
-} from './route-test-helpers';
+import { SESSION_EXPIRED, navigationMock, redirectTarget, rejection } from './route-test-helpers';
 
 const mocks = vi.hoisted(() => ({
   cookieGet: vi.fn(),
   verifySessionCookie: vi.fn(),
   fetchProfile: vi.fn(),
   loggerError: vi.fn(),
+  loggerWarn: vi.fn(),
+  AdminHeader: () => null,
 }));
 
 vi.mock('next/navigation', () => navigationMock);
@@ -20,12 +17,20 @@ vi.mock('@/lib/firebase/admin', () => ({
   getAdminAuth: () => ({ verifySessionCookie: mocks.verifySessionCookie }),
 }));
 vi.mock('@/lib/api/account', () => ({ fetchProfile: mocks.fetchProfile }));
-vi.mock('@/lib/logger', () => ({ logger: { error: mocks.loggerError } }));
-vi.mock('@/components/admin/admin-header', () => ({ AdminHeader: () => null }));
+vi.mock('@/lib/logger', () => ({
+  logger: { error: mocks.loggerError, warn: mocks.loggerWarn },
+}));
+vi.mock('@/components/admin/admin-header', () => ({ AdminHeader: mocks.AdminHeader }));
 
+import type { ProfileData } from '@/lib/api/generated';
 import AdminLayout from '@/app/(admin)/admin/layout';
 
-const profile = (overrides: Record<string, unknown> = {}) => ({
+type ProfileFields = Pick<
+  ProfileData,
+  'id' | 'email' | 'display_name' | 'avatar_url' | 'is_admin' | 'admin_role'
+>;
+
+const profile = (overrides: Partial<ProfileFields> = {}) => ({
   success: true as const,
   data: {
     id: 'u1',
@@ -35,17 +40,16 @@ const profile = (overrides: Record<string, unknown> = {}) => ({
     is_admin: true,
     admin_role: 'SUPER_ADMIN',
     ...overrides,
-  },
+  } satisfies ProfileFields,
 });
 
 type ElementLike = { props: { children: unknown } };
 
 function findAdminHeaderProps(node: unknown): Record<string, unknown> | null {
   if (!node || typeof node !== 'object') return null;
-  const element = node as { type?: unknown; props?: { children?: unknown } };
-  const props = element.props as Record<string, unknown> | undefined;
-  if (props && 'adminRole' in props) return props;
-  const children = props?.children;
+  const element = node as { type?: unknown; props?: Record<string, unknown> };
+  if (element.type === mocks.AdminHeader) return element.props ?? null;
+  const children = element.props?.children;
   for (const child of Array.isArray(children) ? children : [children]) {
     const found = findAdminHeaderProps(child);
     if (found) return found;
@@ -95,7 +99,8 @@ describe('AdminLayout access check', () => {
     ['is_admin truthy but not true', { is_admin: 'true' }],
     ['admin without a role', { admin_role: null }],
   ])('denies access when %s', async (_name, overrides) => {
-    mocks.fetchProfile.mockResolvedValue(profile(overrides));
+    // Deliberately malformed payloads (a string flag) that the typed fixture would reject.
+    mocks.fetchProfile.mockResolvedValue(profile(overrides as Partial<ProfileFields>));
 
     const error = await rejection(AdminLayout({ children: null }));
 
