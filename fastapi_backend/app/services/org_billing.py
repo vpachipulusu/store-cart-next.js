@@ -176,7 +176,7 @@ class OrgBillingService:
     async def summary(self, organization_id: str, user_id: str) -> BillingSummary:
         record = await self.authorize(organization_id, user_id)
         try:
-            plan = PLANS[PlanKey(record.subscription_tier)]
+            plan = PLANS[PlanKey(record.effective_plan or record.subscription_tier)]
         except ValueError:
             plan = PLANS[PlanKey.FREE]
         return BillingSummary(
