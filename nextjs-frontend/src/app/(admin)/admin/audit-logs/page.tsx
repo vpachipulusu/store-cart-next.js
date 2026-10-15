@@ -1,6 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { adminErrorMessage } from '@/lib/api/admin-users';
-import { fetchAdminAuditLogs } from '@/lib/api/admin-audit-logs';
+import { adminErrorMessage } from '@/lib/api/admin-errors';
+import { AUDIT_LOG_PAGE_SIZE, fetchAdminAuditLogs } from '@/lib/api/admin-audit-logs';
+import { EmptyCell } from '../_components/empty-cell';
 import { logger } from '@/lib/logger';
 import {
   Table,
@@ -18,6 +19,7 @@ export default async function AdminAuditLogsPage() {
     logger.error('Admin audit logs page: list failed', { status: result.status });
   }
   const logs = result.success ? result.data.entries : [];
+  const totalCount = result.success ? result.data.total_count : 0;
 
   return (
     <div className="space-y-6">
@@ -31,7 +33,11 @@ export default async function AdminAuditLogsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Recent Activity</CardTitle>
-          <CardDescription>Last 100 audit log entries</CardDescription>
+          <CardDescription>
+            {result.success
+              ? `Showing ${logs.length} of ${totalCount} entries (newest first, up to ${AUDIT_LOG_PAGE_SIZE})`
+              : 'Audit log entries'}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {!result.success ? (
@@ -39,7 +45,7 @@ export default async function AdminAuditLogsPage() {
               {adminErrorMessage(result)}
             </p>
           ) : logs.length > 0 ? (
-            <Table>
+            <Table aria-label="Audit log entries">
               <TableHeader>
                 <TableRow>
                   <TableHead>Timestamp</TableHead>
@@ -60,10 +66,10 @@ export default async function AdminAuditLogsPage() {
                     </TableCell>
                     <TableCell className="font-medium">{log.resource}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {log.user_id || '—'}
+                      {log.user_id || <EmptyCell />}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {log.ip_address || '—'}
+                      {log.ip_address || <EmptyCell />}
                     </TableCell>
                   </TableRow>
                 ))}

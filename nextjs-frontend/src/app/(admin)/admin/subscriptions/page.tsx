@@ -1,4 +1,4 @@
-import { adminErrorMessage } from '@/lib/api/admin-users';
+import { adminErrorMessage } from '@/lib/api/admin-errors';
 import { fetchAdminSubscriptions } from '@/lib/api/admin-subscriptions';
 import type { ApiResult } from '@/lib/api/server';
 import { logger } from '@/lib/logger';
@@ -15,6 +15,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DollarSign, TrendingUp, TrendingDown, Users, CreditCard } from 'lucide-react';
+import { EmptyCell } from '../_components/empty-cell';
 import { RefreshButton } from '@/components/admin/refresh-button';
 
 // Force dynamic rendering to always show latest subscription data
@@ -28,9 +29,19 @@ function failure(result: Extract<ApiResult<unknown>, { success: false }>) {
   return { error: adminErrorMessage(result) } as const;
 }
 
+/** Prices only feed the MRR figure, so a failure must not hide the counts and the table. */
+async function loadPrices() {
+  try {
+    return await getStripePrices();
+  } catch (error) {
+    logger.error('Admin subscriptions page: Stripe prices failed', { error });
+    return null;
+  }
+}
+
 async function getSubscriptionStats() {
   const [prices, pro, enterprise, canceled] = await Promise.all([
-    getStripePrices(),
+    loadPrices(),
     fetchAdminSubscriptions({ status: 'active', plan: 'pro', limit: RECENT_LIMIT }),
     fetchAdminSubscriptions({ status: 'active', plan: 'enterprise', limit: RECENT_LIMIT }),
     fetchAdminSubscriptions({ status: 'canceled', limit: 1 }),
@@ -43,7 +54,7 @@ async function getSubscriptionStats() {
   const activeProSubscriptions = pro.data.total_count;
   const activeEnterpriseSubscriptions = enterprise.data.total_count;
   const recentSubscriptions = [...pro.data.subscriptions, ...enterprise.data.subscriptions]
-    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
     .slice(0, RECENT_LIMIT);
 
   return {
@@ -52,11 +63,12 @@ async function getSubscriptionStats() {
     activeProSubscriptions,
     activeEnterpriseSubscriptions,
     canceledSubscriptions: canceled.data.total_count,
-    mrr:
-      activeProSubscriptions * prices.pro.monthly +
-      activeEnterpriseSubscriptions * prices.enterprise.monthly,
-    proMonthlyPrice: prices.pro.monthly,
-    enterpriseMonthlyPrice: prices.enterprise.monthly,
+    mrr: prices
+      ? activeProSubscriptions * prices.pro.monthly +
+        activeEnterpriseSubscriptions * prices.enterprise.monthly
+      : null,
+    proMonthlyPrice: prices?.pro.monthly ?? null,
+    enterpriseMonthlyPrice: prices?.enterprise.monthly ?? null,
     recentSubscriptions,
   };
 }
@@ -101,8 +113,9 @@ export default async function AdminSubscriptionsPage() {
               <CardContent>
                 <div className="text-2xl font-bold">{stats.activeProSubscriptions}</div>
                 <p className="text-xs text-muted-foreground">
-                  {currencySymbol}
-                  {stats.proMonthlyPrice}/month each
+                  {stats.proMonthlyPrice === null
+                    ? 'Price unavailable'
+                    : `${currencySymbol}${stats.proMonthlyPrice}/month each`}
                 </p>
               </CardContent>
             </Card>
@@ -115,8 +128,9 @@ export default async function AdminSubscriptionsPage() {
               <CardContent>
                 <div className="text-2xl font-bold">{stats.activeEnterpriseSubscriptions}</div>
                 <p className="text-xs text-muted-foreground">
-                  {currencySymbol}
-                  {stats.enterpriseMonthlyPrice}/month each
+                  {stats.enterpriseMonthlyPrice === null
+                    ? 'Price unavailable'
+                    : `${currencySymbol}${stats.enterpriseMonthlyPrice}/month each`}
                 </p>
               </CardContent>
             </Card>
@@ -128,8 +142,7 @@ export default async function AdminSubscriptionsPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {currencySymbol}
-                  {stats.mrr.toLocaleString()}
+                  {stats.mrr === null ? '—' : `${currencySymbol}${stats.mrr.toLocaleString()}`}
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {stats.canceledSubscriptions} canceled (all time)
@@ -141,10 +154,9 @@ export default async function AdminSubscriptionsPage() {
           {/* Recent Subscriptions */}
           <Card>
             <CardHeader>
-              <CardTitle>Recent Subscriptions</CardTitle>
+              <CardTitle>Newest paid organisations</CardTitle>
               <CardDescription>
-                Latest subscription activity and updates • Updated:{' '}
-                {new Date().toLocaleTimeString()}
+                Newest first by creation date, up to {RECENT_LIMIT} of the paid organisations
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -158,7 +170,7 @@ export default async function AdminSubscriptionsPage() {
                   </p>
                 </div>
               ) : (
-                <Table>
+                <Table aria-label="Newest paid organisations">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Organisation</TableHead>
@@ -186,12 +198,18 @@ export default async function AdminSubscriptionsPage() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
-                          {subscription.current_period_end
-                            ? new Date(subscription.current_period_end).toLocaleDateString()
-                            : '—'}
+                          {subscription.current_period_end ? (
+                            new Date(subscription.current_period_end).toLocaleDateString()
+                          ) : (
+                            <EmptyCell />
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button variant="ghost" size="sm">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`Manage ${subscription.name}`}
+                          >
                             Manage
                           </Button>
                         </TableCell>

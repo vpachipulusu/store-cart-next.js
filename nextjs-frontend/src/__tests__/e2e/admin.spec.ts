@@ -266,10 +266,12 @@ test.describe('Admin Dashboard', () => {
     });
 
     test('should display recent subscriptions table', async ({ page }) => {
-      await expect(page.getByText('Recent Subscriptions')).toBeVisible();
+      await expect(page.getByText('Newest paid organisations', { exact: true })).toBeVisible();
 
-      // A fresh database has no paid subscriptions, so the empty state is also valid.
-      const table = page.locator('table');
+      // Column headers are asserted only when a paid organisation exists. A fresh e2e database has none and
+      // seeding one needs Stripe-backed state, so the empty state is accepted; the headers are covered by the
+      // unit tests in admin-pages.test.tsx.
+      const table = page.getByRole('table');
       const emptyState = page.getByText('No Active Subscriptions');
       await expect(table.or(emptyState)).toBeVisible();
 
@@ -309,11 +311,11 @@ test.describe('Admin Dashboard', () => {
 
     test('should display recent activity section', async ({ page }) => {
       await expect(page.getByText('Recent Activity')).toBeVisible();
-      await expect(page.getByText(/last 100 audit log entries/i)).toBeVisible();
+      await expect(page.getByText(/showing \d+ of \d+ entries/i)).toBeVisible();
     });
 
     test('should show table or empty state', async ({ page }) => {
-      const table = page.locator('table');
+      const table = page.getByRole('table');
       const emptyState = page.getByText(/no audit logs found/i);
 
       const hasTable = await table.isVisible().catch(() => false);
@@ -323,7 +325,7 @@ test.describe('Admin Dashboard', () => {
     });
 
     test('should display audit log table columns when data exists', async ({ page }) => {
-      const table = page.locator('table');
+      const table = page.getByRole('table');
       const hasTable = await table.isVisible().catch(() => false);
 
       if (hasTable) {
