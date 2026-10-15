@@ -1,47 +1,56 @@
-import { db } from '@/lib/db/client';
 import { notFound } from 'next/navigation';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import Link from 'next/link';
+import { User, Shield, Phone } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { User, Mail, Calendar, Shield, CreditCard, Activity, Settings } from 'lucide-react';
-import Link from 'next/link';
+import { adminErrorMessage, fetchAdminUser, toAdminUserDetail } from '@/lib/api/admin-users';
+import { logger } from '@/lib/logger';
 
-async function getUserDetails(userId: string) {
-  const user = await db.user.findUnique({
-    where: { id: userId },
-    include: {
-      adminUser: true,
-      settings: true,
-      loginHistory: {
-        orderBy: { loginAt: 'desc' },
-        take: 10,
-      },
-      notifications: {
-        orderBy: { createdAt: 'desc' },
-        take: 10,
-      },
-    },
-  });
+function Row({
+  label,
+  children,
+  last = false,
+}: {
+  label: string;
+  children: React.ReactNode;
+  last?: boolean;
+}) {
+  return (
+    <div className={`flex items-center justify-between py-2 ${last ? '' : 'border-b'}`}>
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <span className="font-medium">{children}</span>
+    </div>
+  );
+}
 
-  if (!user) {
-    notFound();
-  }
-
-  return user;
+function ErrorState({ message }: { message: string }) {
+  return (
+    <div className="space-y-6">
+      <h1 className="text-3xl font-bold tracking-tight">User Details</h1>
+      <p role="alert" className="text-destructive">
+        {message}
+      </p>
+      <Button variant="outline" asChild>
+        <Link href="/admin/users">Back to Users</Link>
+      </Button>
+    </div>
+  );
 }
 
 export default async function AdminUserDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const user = await getUserDetails(id);
+  const result = await fetchAdminUser(id);
+
+  if (!result.success) {
+    if (result.status === 404 || result.status === 422) {
+      notFound();
+    }
+    logger.error('Admin user page: read failed', { status: result.status });
+    return <ErrorState message={adminErrorMessage(result)} />;
+  }
+
+  const user = toAdminUserDetail(result.data);
 
   return (
     <div className="space-y-6">
@@ -51,15 +60,11 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
           <h1 className="text-3xl font-bold tracking-tight">User Details</h1>
           <p className="text-muted-foreground">Viewing information for {user.email}</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" asChild>
-            <Link href="/admin/users">Back to Users</Link>
-          </Button>
-          <Button variant="destructive">Suspend User</Button>
-        </div>
+        <Button variant="outline" asChild>
+          <Link href="/admin/users">Back to Users</Link>
+        </Button>
       </div>
 
-      {/* User Info Grid */}
       <div className="grid gap-6 md:grid-cols-2">
         {/* Basic Information */}
         <Card>
@@ -70,207 +75,80 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center justify-between border-b py-2">
-              <span className="text-sm text-muted-foreground">Email</span>
-              <span className="font-medium">{user.email}</span>
-            </div>
-
-            <div className="flex items-center justify-between border-b py-2">
-              <span className="text-sm text-muted-foreground">Display Name</span>
-              <span className="font-medium">{user.displayName || '—'}</span>
-            </div>
-
-            <div className="flex items-center justify-between border-b py-2">
-              <span className="text-sm text-muted-foreground">User ID</span>
+            <Row label="Email">{user.email}</Row>
+            <Row label="Display Name">{user.displayName || '—'}</Row>
+            <Row label="User ID">
               <span className="font-mono text-sm">{user.id}</span>
-            </div>
-
-            <div className="flex items-center justify-between border-b py-2">
-              <span className="text-sm text-muted-foreground">Firebase UID</span>
-              <span className="font-mono text-sm">{user.firebaseUid}</span>
-            </div>
-
-            <div className="flex items-center justify-between border-b py-2">
-              <span className="text-sm text-muted-foreground">Email Verified</span>
+            </Row>
+            <Row label="Email Verified">
               {user.emailVerified ? (
                 <Badge variant="default">Verified</Badge>
               ) : (
                 <Badge variant="destructive">Unverified</Badge>
               )}
-            </div>
-
-            <div className="flex items-center justify-between py-2">
-              <span className="text-sm text-muted-foreground">Member Since</span>
-              <span className="font-medium">{new Date(user.createdAt).toLocaleDateString()}</span>
-            </div>
+            </Row>
+            <Row label="Two-factor">
+              <Badge variant={user.twoFactorEnabled ? 'default' : 'secondary'}>
+                {user.twoFactorEnabled ? 'Enabled' : 'Disabled'}
+              </Badge>
+            </Row>
+            <Row label="Last Login">
+              {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : '—'}
+            </Row>
+            <Row label="Member Since" last>
+              {new Date(user.createdAt).toLocaleDateString()}
+            </Row>
           </CardContent>
         </Card>
 
-        {/* Subscription Info */}
+        {/* Profile */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <CreditCard className="h-5 w-5" />
-              Subscription Information
+              <Phone className="h-5 w-5" />
+              Profile
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center justify-between border-b py-2">
-              <span className="text-sm text-muted-foreground">Plan</span>
-              <Badge className="capitalize">{user.subscriptionTier}</Badge>
-            </div>
+            <Row label="Bio">{user.bio || '—'}</Row>
+            <Row label="Location">{user.location || '—'}</Row>
+            <Row label="Website">{user.website || '—'}</Row>
+            <Row label="Phone" last>
+              {user.phoneNumber || '—'}
+            </Row>
+          </CardContent>
+        </Card>
+      </div>
 
-            <div className="flex items-center justify-between border-b py-2">
-              <span className="text-sm text-muted-foreground">Status</span>
-              <Badge
-                variant={user.subscriptionStatus === 'active' ? 'default' : 'secondary'}
-                className="capitalize"
-              >
-                {user.subscriptionStatus}
+      {/* Admin access */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="h-5 w-5" />
+            Admin Access
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Row label="Admin Role" last={user.adminPermissions.length === 0}>
+            {user.isAdmin ? (
+              <Badge variant="destructive" className="capitalize">
+                {(user.adminRole ?? 'admin').replace('_', ' ')}
               </Badge>
-            </div>
-
-            <div className="flex items-center justify-between border-b py-2">
-              <span className="text-sm text-muted-foreground">Stripe Customer ID</span>
-              <span className="font-mono text-sm">{user.stripeCustomerId || '—'}</span>
-            </div>
-
-            <div className="flex items-center justify-between border-b py-2">
-              <span className="text-sm text-muted-foreground">Current Period End</span>
-              <span className="font-medium">
-                {user.stripeCurrentPeriodEnd
-                  ? new Date(user.stripeCurrentPeriodEnd).toLocaleDateString()
-                  : '—'}
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between py-2">
-              <span className="text-sm text-muted-foreground">Admin Role</span>
-              {user.adminUser ? (
-                <Badge variant="destructive" className="capitalize">
-                  {user.adminUser.role.replace('_', ' ')}
-                </Badge>
-              ) : (
-                <span className="text-sm text-muted-foreground">None</span>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Activity Sections */}
-      <div className="grid gap-6 md:grid-cols-2">
-        {/* Login History */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Activity className="h-5 w-5" />
-              Login History
-            </CardTitle>
-            <CardDescription>Recent login activity</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {user.loginHistory.length > 0 ? (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>IP Address</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {user.loginHistory.map((login: any) => (
-                    <TableRow key={login.id}>
-                      <TableCell className="text-sm">
-                        {new Date(login.loginAt).toLocaleString()}
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">{login.ipAddress || '—'}</TableCell>
-                      <TableCell>
-                        <Badge variant={login.successful ? 'default' : 'destructive'}>
-                          {login.successful ? 'Success' : 'Failed'}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
             ) : (
-              <p className="py-4 text-center text-sm text-muted-foreground">No login history</p>
+              <span className="text-sm text-muted-foreground">None</span>
             )}
-          </CardContent>
-        </Card>
-
-        {/* Notifications */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Mail className="h-5 w-5" />
-              Notifications
-            </CardTitle>
-            <CardDescription>Recent notifications</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {user.notifications.length > 0 ? (
-              <div className="space-y-3">
-                {user.notifications.map((notification: any) => (
-                  <div key={notification.id} className="space-y-1 rounded-lg border p-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium">{notification.title}</p>
-                      <Badge variant={notification.read ? 'secondary' : 'default'}>
-                        {notification.read ? 'Read' : 'Unread'}
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground">{notification.message}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(notification.createdAt).toLocaleString()}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="py-4 text-center text-sm text-muted-foreground">No notifications</p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* User Settings */}
-      {user.settings && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Settings className="h-5 w-5" />
-              User Settings
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-              <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">Theme</p>
-                <p className="font-medium capitalize">{user.settings.theme}</p>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">Language</p>
-                <p className="font-medium uppercase">{user.settings.language}</p>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">Timezone</p>
-                <p className="font-medium">{user.settings.timezone}</p>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">Email Notifications</p>
-                <Badge variant={user.settings.emailNotifications ? 'default' : 'secondary'}>
-                  {user.settings.emailNotifications ? 'Enabled' : 'Disabled'}
+          </Row>
+          {user.adminPermissions.length > 0 && (
+            <div className="flex flex-wrap gap-2 py-2">
+              {user.adminPermissions.map((permission) => (
+                <Badge key={permission} variant="secondary">
+                  {permission}
                 </Badge>
-              </div>
+              ))}
             </div>
-          </CardContent>
-        </Card>
-      )}
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

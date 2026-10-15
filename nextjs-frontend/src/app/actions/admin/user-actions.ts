@@ -1,337 +1,171 @@
 'use server';
 
-import { cookies } from 'next/headers';
 import { z } from 'zod';
-import { getAdminAuth } from '@/lib/firebase/admin';
-import { db } from '@/lib/db/client';
 import { logger } from '@/lib/logger';
-import { verifyVerifiedSessionCookie } from '@/lib/auth/verified-session';
-import { ADMIN_USER_DETAIL_SELECT, ADMIN_USER_SELECT } from '@/lib/admin/user-select';
+import type { ApiResult } from '@/lib/api/server';
+import {
+  ADMIN_REQUEST_FAILED_MESSAGE,
+  ADMIN_USER_NOT_FOUND_MESSAGE,
+  ADMIN_USERS_PAGE_SIZE,
+  adminErrorMessage,
+  banAdminUser,
+  fetchAdminUser,
+  fetchAdminUsers,
+  grantAdminRole,
+  patchAdminUser,
+  removeAdminUser,
+  revokeAdminRole,
+  toAdminUserDetail,
+  toAdminUserSummary,
+  unbanAdminUser,
+} from '@/lib/api/admin-users';
 
 /**
- * Response type for admin user actions
+ * Admin user actions, served by the admin users API (KAN-47) since KAN-184. The API authenticates the session,
+ * checks the admin permission on each call and writes the audit log, so these actions only validate input,
+ * call the wrapper and turn failures into curated messages.
+ *
+ * Switched off, with no API behind them: user statistics and notifications to a user (KAN-114), and editing
+ * email or subscription fields (the API updates profile fields only; billing lives under KAN-43/KAN-45).
  */
+
 type AdminUserActionResponse<T = any> = {
   success: boolean;
   data?: T;
   error?: string;
 };
 
-/**
- * Get authenticated admin user
- */
-async function getAuthenticatedAdmin() {
-  try {
-    const cookieStore = await cookies();
-    const sessionCookie = cookieStore.get('session')?.value;
+/** User ids go into a URL path: only the characters real ids contain are accepted. */
+const userIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/, 'Invalid user id');
 
-    if (!sessionCookie) {
-      return null;
-    }
+const MAX_PAGE_SIZE = 100;
 
-    const decodedClaims = await verifyVerifiedSessionCookie(sessionCookie);
-    const user = await db.user.findUnique({
-      where: { firebaseUid: decodedClaims.uid },
-      include: {
-        adminUser: true,
-      },
-    });
-
-    if (!user || !user.adminUser) {
-      return null;
-    }
-
-    return user;
-  } catch (error) {
-    logger.error('Admin authentication error:', error);
-    return null;
+function failure(
+  result: Extract<ApiResult<unknown>, { success: false }>,
+  logMessage: string
+): AdminUserActionResponse {
+  if (result.status !== 401 && result.status !== 403 && result.status !== 404) {
+    logger.error(logMessage, { status: result.status });
   }
+  return { success: false, error: adminErrorMessage(result) };
 }
 
-/**
- * Check if user has admin permission
- */
-function hasPermission(admin: any, permission: string): boolean {
-  const permissions = (admin.adminUser?.permissions as string[]) || [];
-  return permissions.includes(permission) || permissions.includes('*');
+function invalidUserId(): AdminUserActionResponse {
+  return { success: false, error: ADMIN_USER_NOT_FOUND_MESSAGE };
 }
 
-/**
- * User filters schema
- */
 const userFiltersSchema = z.object({
-  search: z.string().optional(),
-  subscriptionTier: z.string().optional(),
-  subscriptionStatus: z.string().optional(),
-  emailVerified: z.boolean().optional(),
-  isAdmin: z.boolean().optional(),
+  search: z.string().max(100).optional(),
 });
 
 /**
- * Get all users with filters and pagination
+ * Get users with search and pagination
  */
 export async function getAllUsersAction(
   page = 1,
   limit = 20,
   filters?: z.infer<typeof userFiltersSchema>
 ): Promise<AdminUserActionResponse> {
-  try {
-    const admin = await getAuthenticatedAdmin();
-    if (!admin || !hasPermission(admin, 'users.read')) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
-
-    // Build where clause
-    const where: any = {};
-
-    if (filters?.search) {
-      where.OR = [
-        { email: { contains: filters.search, mode: 'insensitive' } },
-        { displayName: { contains: filters.search, mode: 'insensitive' } },
-      ];
-    }
-
-    if (filters?.subscriptionTier) {
-      where.subscriptionTier = filters.subscriptionTier;
-    }
-
-    if (filters?.subscriptionStatus) {
-      where.subscriptionStatus = filters.subscriptionStatus;
-    }
-
-    if (filters?.emailVerified !== undefined) {
-      where.emailVerified = filters.emailVerified;
-    }
-
-    if (filters?.isAdmin !== undefined) {
-      where.adminUser = filters.isAdmin ? { isNot: null } : { is: null };
-    }
-
-    // Get users with pagination
-    const [users, totalCount] = await Promise.all([
-      db.user.findMany({
-        where,
-        select: { ...ADMIN_USER_SELECT, adminUser: { select: { id: true } } },
-        orderBy: { createdAt: 'desc' },
-        take: limit,
-        skip: (page - 1) * limit,
-      }),
-      db.user.count({ where }),
-    ]);
-
-    return {
-      success: true,
-      data: {
-        users: users.map((user) => ({
-          id: user.id,
-          email: user.email,
-          emailVerified: user.emailVerified,
-          displayName: user.displayName,
-          avatarUrl: user.avatarUrl,
-          subscriptionTier: user.subscriptionTier,
-          subscriptionStatus: user.subscriptionStatus,
-          isAdmin: !!user.adminUser,
-          createdAt: user.createdAt,
-          lastLoginAt: user.lastLoginAt,
-        })),
-        pagination: {
-          page,
-          limit,
-          totalCount,
-          totalPages: Math.ceil(totalCount / limit),
-        },
-      },
-    };
-  } catch (error: any) {
-    logger.error('Get all users error:', error);
-    return {
-      success: false,
-      error: 'Failed to get users',
-    };
+  const parsed = userFiltersSchema.safeParse(filters ?? {});
+  const pageSize = Math.min(Math.max(Math.trunc(limit) || ADMIN_USERS_PAGE_SIZE, 1), MAX_PAGE_SIZE);
+  const currentPage = Math.max(Math.trunc(page) || 1, 1);
+  if (!parsed.success) {
+    return { success: false, error: ADMIN_REQUEST_FAILED_MESSAGE };
   }
+
+  const result = await fetchAdminUsers({
+    search: parsed.data.search,
+    limit: pageSize,
+    offset: (currentPage - 1) * pageSize,
+  });
+  if (!result.success) {
+    return failure(result, 'Admin list users failed');
+  }
+
+  return {
+    success: true,
+    data: {
+      users: result.data.users.map(toAdminUserSummary),
+      pagination: {
+        page: currentPage,
+        limit: result.data.limit,
+        totalCount: result.data.total_count,
+        totalPages: Math.ceil(result.data.total_count / result.data.limit),
+      },
+    },
+  };
 }
 
 /**
  * Get user by ID
  */
 export async function getUserByIdAction(userId: string): Promise<AdminUserActionResponse> {
-  try {
-    const admin = await getAuthenticatedAdmin();
-    if (!admin || !hasPermission(admin, 'users.read')) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
-
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: ADMIN_USER_DETAIL_SELECT,
-    });
-
-    if (!user) {
-      return {
-        success: false,
-        error: 'User not found',
-      };
-    }
-
-    return {
-      success: true,
-      data: { user },
-    };
-  } catch (error: any) {
-    logger.error('Get user by ID error:', error);
-    return {
-      success: false,
-      error: 'Failed to get user',
-    };
+  if (!userIdSchema.safeParse(userId).success) {
+    return invalidUserId();
   }
+  const result = await fetchAdminUser(userId);
+  if (!result.success) {
+    return failure(result, 'Admin get user failed');
+  }
+  return { success: true, data: { user: toAdminUserDetail(result.data) } };
 }
 
-/**
- * Update user schema
- */
 const updateUserSchema = z.object({
-  email: z.string().email().optional(),
-  displayName: z.string().optional(),
-  emailVerified: z.boolean().optional(),
-  subscriptionTier: z.string().optional(),
-  subscriptionStatus: z.string().optional(),
+  displayName: z.string().max(100).nullable().optional(),
+  bio: z.string().max(500).nullable().optional(),
+  location: z.string().max(100).nullable().optional(),
+  website: z.string().max(255).nullable().optional(),
+  phoneNumber: z.string().max(32).nullable().optional(),
+  avatarUrl: z.string().max(2048).nullable().optional(),
 });
 
 /**
- * Update user
+ * Update a user's profile fields
  */
 export async function updateUserAction(
   userId: string,
   data: z.infer<typeof updateUserSchema>
 ): Promise<AdminUserActionResponse> {
-  try {
-    const admin = await getAuthenticatedAdmin();
-    if (!admin || !hasPermission(admin, 'users.update')) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
-
-    // Validate input
-    const validation = updateUserSchema.safeParse(data);
-    if (!validation.success) {
-      return {
-        success: false,
-        error: validation.error.errors[0].message,
-      };
-    }
-
-    // Update user
-    const updatedUser = await db.user.update({
-      where: { id: userId },
-      data: {
-        email: data.email,
-        displayName: data.displayName,
-        emailVerified: data.emailVerified,
-        subscriptionTier: data.subscriptionTier,
-        subscriptionStatus: data.subscriptionStatus,
-      },
-      select: ADMIN_USER_SELECT,
-    });
-
-    // Log audit
-    await db.auditLog.create({
-      data: {
-        userId: admin.id,
-        action: 'user.updated',
-        resource: 'User',
-        resourceId: userId,
-        metadata: { updatedFields: Object.keys(data) },
-      },
-    });
-
-    return {
-      success: true,
-      data: { user: updatedUser },
-    };
-  } catch (error: any) {
-    logger.error('Update user error:', error);
-    return {
-      success: false,
-      error: 'Failed to update user',
-    };
+  if (!userIdSchema.safeParse(userId).success) {
+    return invalidUserId();
   }
+  const validation = updateUserSchema.safeParse(data);
+  if (!validation.success) {
+    return { success: false, error: validation.error.errors[0].message };
+  }
+
+  const fields = validation.data;
+  const result = await patchAdminUser(userId, {
+    ...(fields.displayName !== undefined && { display_name: fields.displayName }),
+    ...(fields.bio !== undefined && { bio: fields.bio }),
+    ...(fields.location !== undefined && { location: fields.location }),
+    ...(fields.website !== undefined && { website: fields.website }),
+    ...(fields.phoneNumber !== undefined && { phone_number: fields.phoneNumber }),
+    ...(fields.avatarUrl !== undefined && { avatar_url: fields.avatarUrl }),
+  });
+  if (!result.success) {
+    return failure(result, 'Admin update user failed');
+  }
+  return { success: true, data: { user: toAdminUserDetail(result.data) } };
 }
 
 /**
  * Delete user
  */
 export async function deleteUserAction(userId: string): Promise<AdminUserActionResponse> {
-  try {
-    const admin = await getAuthenticatedAdmin();
-    if (!admin || !hasPermission(admin, 'users.delete')) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
-
-    // Get user
-    const user = await db.user.findUnique({
-      where: { id: userId },
-    });
-
-    if (!user) {
-      return {
-        success: false,
-        error: 'User not found',
-      };
-    }
-
-    // Delete from Firebase Auth
-    try {
-      await getAdminAuth().deleteUser(user.firebaseUid);
-    } catch (error) {
-      logger.error('Firebase delete error:', error);
-    }
-
-    // Delete from database
-    await db.user.delete({
-      where: { id: userId },
-    });
-
-    // Log audit
-    await db.auditLog.create({
-      data: {
-        userId: admin.id,
-        action: 'user.deleted',
-        resource: 'User',
-        resourceId: userId,
-        metadata: { email: user.email },
-      },
-    });
-
-    return {
-      success: true,
-      data: { message: 'User deleted successfully' },
-    };
-  } catch (error: any) {
-    logger.error('Delete user error:', error);
-    return {
-      success: false,
-      error: 'Failed to delete user',
-    };
+  if (!userIdSchema.safeParse(userId).success) {
+    return invalidUserId();
   }
+  const result = await removeAdminUser(userId);
+  if (!result.success) {
+    return failure(result, 'Admin delete user failed');
+  }
+  return { success: true, data: { message: 'User deleted successfully' } };
 }
 
-/**
- * Grant admin role schema
- */
 const grantAdminRoleSchema = z.object({
   role: z.enum(['admin', 'super_admin']),
-  permissions: z.array(z.string()),
+  permissions: z.array(z.string().max(100)).max(100),
 });
 
 /**
@@ -341,295 +175,67 @@ export async function grantAdminRoleAction(
   userId: string,
   data: z.infer<typeof grantAdminRoleSchema>
 ): Promise<AdminUserActionResponse> {
-  try {
-    const admin = await getAuthenticatedAdmin();
-    if (!admin || !hasPermission(admin, 'admins.create')) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
-
-    // Validate input
-    const validation = grantAdminRoleSchema.safeParse(data);
-    if (!validation.success) {
-      return {
-        success: false,
-        error: validation.error.errors[0].message,
-      };
-    }
-
-    // Create or update admin user
-    const adminUser = await db.adminUser.upsert({
-      where: { userId },
-      update: {
-        role: data.role,
-        permissions: data.permissions,
-      },
-      create: {
-        userId,
-        role: data.role,
-        permissions: data.permissions,
-      },
-      select: ADMIN_USER_DETAIL_SELECT.adminUser.select,
-    });
-
-    // Log audit
-    await db.auditLog.create({
-      data: {
-        userId: admin.id,
-        action: 'admin.granted',
-        resource: 'AdminUser',
-        resourceId: userId,
-        metadata: { role: data.role, permissions: data.permissions },
-      },
-    });
-
-    return {
-      success: true,
-      data: { adminUser },
-    };
-  } catch (error: any) {
-    logger.error('Grant admin role error:', error);
-    return {
-      success: false,
-      error: 'Failed to grant admin role',
-    };
+  if (!userIdSchema.safeParse(userId).success) {
+    return invalidUserId();
   }
+  const validation = grantAdminRoleSchema.safeParse(data);
+  if (!validation.success) {
+    return { success: false, error: validation.error.errors[0].message };
+  }
+
+  const result = await grantAdminRole(userId, validation.data);
+  if (!result.success) {
+    return failure(result, 'Admin grant role failed');
+  }
+  return {
+    success: true,
+    data: {
+      adminUser: { role: result.data.role, permissions: result.data.permissions },
+    },
+  };
 }
 
 /**
  * Revoke admin role
  */
 export async function revokeAdminRoleAction(userId: string): Promise<AdminUserActionResponse> {
-  try {
-    const admin = await getAuthenticatedAdmin();
-    if (!admin || !hasPermission(admin, 'admins.delete')) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
-
-    // Delete admin user
-    await db.adminUser.delete({
-      where: { userId },
-    });
-
-    // Log audit
-    await db.auditLog.create({
-      data: {
-        userId: admin.id,
-        action: 'admin.revoked',
-        resource: 'AdminUser',
-        resourceId: userId,
-      },
-    });
-
-    return {
-      success: true,
-      data: { message: 'Admin role revoked successfully' },
-    };
-  } catch (error: any) {
-    logger.error('Revoke admin role error:', error);
-    return {
-      success: false,
-      error: 'Failed to revoke admin role',
-    };
+  if (!userIdSchema.safeParse(userId).success) {
+    return invalidUserId();
   }
+  const result = await revokeAdminRole(userId);
+  if (!result.success) {
+    return failure(result, 'Admin revoke role failed');
+  }
+  return { success: true, data: { message: 'Admin role revoked successfully' } };
 }
 
 /**
- * Get user statistics
- */
-export async function getUserStatsAction(): Promise<AdminUserActionResponse> {
-  try {
-    const admin = await getAuthenticatedAdmin();
-    if (!admin || !hasPermission(admin, 'users.read')) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
-
-    const [totalUsers, verifiedUsers, adminUsers, activeSubscriptions, newUsersThisMonth] =
-      await Promise.all([
-        db.user.count(),
-        db.user.count({ where: { emailVerified: true } }),
-        db.adminUser.count(),
-        db.user.count({ where: { subscriptionStatus: 'active' } }),
-        db.user.count({
-          where: {
-            createdAt: {
-              gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
-            },
-          },
-        }),
-      ]);
-
-    return {
-      success: true,
-      data: {
-        totalUsers,
-        verifiedUsers,
-        adminUsers,
-        activeSubscriptions,
-        newUsersThisMonth,
-      },
-    };
-  } catch (error: any) {
-    logger.error('Get user stats error:', error);
-    return {
-      success: false,
-      error: 'Failed to get user statistics',
-    };
-  }
-}
-
-/**
- * Ban user (disable Firebase account)
+ * Ban user (the backend disables the Firebase account)
  */
 export async function banUserAction(
   userId: string,
   reason?: string
 ): Promise<AdminUserActionResponse> {
-  try {
-    const admin = await getAuthenticatedAdmin();
-    if (!admin || !hasPermission(admin, 'users.update')) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
-
-    const user = await db.user.findUnique({
-      where: { id: userId },
-    });
-
-    if (!user) {
-      return {
-        success: false,
-        error: 'User not found',
-      };
-    }
-
-    // Disable user in Firebase
-    await getAdminAuth().updateUser(user.firebaseUid, {
-      disabled: true,
-    });
-
-    // Log audit
-    await db.auditLog.create({
-      data: {
-        userId: admin.id,
-        action: 'user.banned',
-        resource: 'User',
-        resourceId: userId,
-        metadata: { reason },
-      },
-    });
-
-    return {
-      success: true,
-      data: { message: 'User banned successfully' },
-    };
-  } catch (error: any) {
-    logger.error('Ban user error:', error);
-    return {
-      success: false,
-      error: 'Failed to ban user',
-    };
+  if (!userIdSchema.safeParse(userId).success) {
+    return invalidUserId();
   }
+  const result = await banAdminUser(userId, reason?.slice(0, 500));
+  if (!result.success) {
+    return failure(result, 'Admin ban user failed');
+  }
+  return { success: true, data: { message: 'User banned successfully' } };
 }
 
 /**
- * Unban user (enable Firebase account)
+ * Unban user (the backend enables the Firebase account)
  */
 export async function unbanUserAction(userId: string): Promise<AdminUserActionResponse> {
-  try {
-    const admin = await getAuthenticatedAdmin();
-    if (!admin || !hasPermission(admin, 'users.update')) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
-
-    const user = await db.user.findUnique({
-      where: { id: userId },
-    });
-
-    if (!user) {
-      return {
-        success: false,
-        error: 'User not found',
-      };
-    }
-
-    // Enable user in Firebase
-    await getAdminAuth().updateUser(user.firebaseUid, {
-      disabled: false,
-    });
-
-    // Log audit
-    await db.auditLog.create({
-      data: {
-        userId: admin.id,
-        action: 'user.unbanned',
-        resource: 'User',
-        resourceId: userId,
-      },
-    });
-
-    return {
-      success: true,
-      data: { message: 'User unbanned successfully' },
-    };
-  } catch (error: any) {
-    logger.error('Unban user error:', error);
-    return {
-      success: false,
-      error: 'Failed to unban user',
-    };
+  if (!userIdSchema.safeParse(userId).success) {
+    return invalidUserId();
   }
-}
-
-/**
- * Send notification to user
- */
-export async function sendUserNotificationAction(
-  userId: string,
-  notification: { type: string; title: string; message: string; link?: string }
-): Promise<AdminUserActionResponse> {
-  try {
-    const admin = await getAuthenticatedAdmin();
-    if (!admin || !hasPermission(admin, 'notifications.create')) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
-    }
-
-    // Create notification
-    await db.notification.create({
-      data: {
-        userId,
-        type: notification.type,
-        title: notification.title,
-        message: notification.message,
-        link: notification.link,
-      },
-    });
-
-    return {
-      success: true,
-      data: { message: 'Notification sent successfully' },
-    };
-  } catch (error: any) {
-    logger.error('Send notification error:', error);
-    return {
-      success: false,
-      error: 'Failed to send notification',
-    };
+  const result = await unbanAdminUser(userId);
+  if (!result.success) {
+    return failure(result, 'Admin unban user failed');
   }
+  return { success: true, data: { message: 'User unbanned successfully' } };
 }

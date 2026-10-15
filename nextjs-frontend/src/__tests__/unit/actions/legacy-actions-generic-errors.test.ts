@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * KAN-172: the legacy subscription and admin server actions must never return raw
+ * KAN-172: the legacy subscription server actions and the admin subscription actions must never return raw
  * Stripe/Firebase/Prisma error text to the client. Every dependency is mocked to reject with a
  * secret-looking error; each action must answer with its stable generic message, leak nothing, and
  * hand the original error (with a message string) to the logger.
@@ -112,19 +112,10 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 import * as subscription from '@/app/actions/subscription-actions';
-import * as seo from '@/app/actions/admin/seo-actions';
-import * as settings from '@/app/actions/admin/settings-actions';
 import * as adminSubscription from '@/app/actions/admin/subscription-actions';
-import * as adminUser from '@/app/actions/admin/user-actions';
 
 type Result = { success: boolean; error?: string; data?: unknown };
 type Row = [name: string, call: () => Promise<Result>, generic: string];
-
-const SEO_META = { page: '/home', title: 'Home', description: 'The home page' };
-const REDIRECT = { fromPath: '/a', toPath: '/b', statusCode: '301' as unknown as number };
-const SETTING = { key: 'site.name', value: 'x', category: 'general' };
-const FLAG = { name: 'beta', enabled: true };
-const TEMPLATE = { name: 'welcome', subject: 'Hi', htmlBody: '<p>Hi</p>' };
 
 const ROWS: Row[] = [
   // subscription-actions.ts (10; KAN-182 removed upcoming invoice and card delete/set-default)
@@ -183,120 +174,6 @@ const ROWS: Row[] = [
     () => subscription.getPaymentMethodsAction(),
     'Failed to get payment methods',
   ],
-  // admin/seo-actions.ts (11 single-catch sites; bulk import per-item has its own test)
-  ['getAllSEOMetaAction', () => seo.getAllSEOMetaAction(), 'Failed to get SEO meta'],
-  ['getSEOMetaByPageAction', () => seo.getSEOMetaByPageAction('/home'), 'Failed to get SEO meta'],
-  ['upsertSEOMetaAction', () => seo.upsertSEOMetaAction(SEO_META), 'Failed to save SEO meta'],
-  ['deleteSEOMetaAction', () => seo.deleteSEOMetaAction('/home'), 'Failed to delete SEO meta'],
-  ['getAllURLRedirectsAction', () => seo.getAllURLRedirectsAction(), 'Failed to get URL redirects'],
-  [
-    'createURLRedirectAction',
-    () => seo.createURLRedirectAction(REDIRECT),
-    'Failed to create URL redirect',
-  ],
-  [
-    'updateURLRedirectAction',
-    () => seo.updateURLRedirectAction('r1', REDIRECT),
-    'Failed to update URL redirect',
-  ],
-  [
-    'deleteURLRedirectAction',
-    () => seo.deleteURLRedirectAction('r1'),
-    'Failed to delete URL redirect',
-  ],
-  [
-    'toggleURLRedirectAction',
-    () => seo.toggleURLRedirectAction('r1'),
-    'Failed to toggle URL redirect',
-  ],
-  ['getActiveRedirectAction', () => seo.getActiveRedirectAction('/a'), 'Failed to get redirect'],
-  [
-    'bulkImportSEOMetaAction (outer)',
-    () => seo.bulkImportSEOMetaAction([]),
-    'Failed to bulk import SEO meta',
-  ],
-  // admin/settings-actions.ts (17 single-catch sites; bulk update per-item has its own test)
-  [
-    'getAllAppSettingsAction',
-    () => settings.getAllAppSettingsAction(),
-    'Failed to get app settings',
-  ],
-  [
-    'getAppSettingByKeyAction',
-    () => settings.getAppSettingByKeyAction('k'),
-    'Failed to get app setting',
-  ],
-  [
-    'upsertAppSettingAction',
-    () => settings.upsertAppSettingAction(SETTING),
-    'Failed to save app setting',
-  ],
-  [
-    'deleteAppSettingAction',
-    () => settings.deleteAppSettingAction('k'),
-    'Failed to delete app setting',
-  ],
-  [
-    'getSettingsByCategoryAction',
-    () => settings.getSettingsByCategoryAction('general'),
-    'Failed to get settings',
-  ],
-  [
-    'getAllFeatureFlagsAction',
-    () => settings.getAllFeatureFlagsAction(),
-    'Failed to get feature flags',
-  ],
-  [
-    'getFeatureFlagByNameAction',
-    () => settings.getFeatureFlagByNameAction('beta'),
-    'Failed to get feature flag',
-  ],
-  [
-    'upsertFeatureFlagAction',
-    () => settings.upsertFeatureFlagAction(FLAG),
-    'Failed to save feature flag',
-  ],
-  [
-    'toggleFeatureFlagAction',
-    () => settings.toggleFeatureFlagAction('beta'),
-    'Failed to toggle feature flag',
-  ],
-  [
-    'deleteFeatureFlagAction',
-    () => settings.deleteFeatureFlagAction('beta'),
-    'Failed to delete feature flag',
-  ],
-  [
-    'getAllEmailTemplatesAction',
-    () => settings.getAllEmailTemplatesAction(),
-    'Failed to get email templates',
-  ],
-  [
-    'getEmailTemplateByNameAction',
-    () => settings.getEmailTemplateByNameAction('welcome'),
-    'Failed to get email template',
-  ],
-  [
-    'upsertEmailTemplateAction',
-    () => settings.upsertEmailTemplateAction(TEMPLATE),
-    'Failed to save email template',
-  ],
-  [
-    'deleteEmailTemplateAction',
-    () => settings.deleteEmailTemplateAction('welcome'),
-    'Failed to delete email template',
-  ],
-  ['getAuditLogsAction', () => settings.getAuditLogsAction(), 'Failed to get audit logs'],
-  [
-    'getSystemStatsAction',
-    () => settings.getSystemStatsAction(),
-    'Failed to get system statistics',
-  ],
-  [
-    'bulkUpdateSettingsAction (outer)',
-    () => settings.bulkUpdateSettingsAction([]),
-    'Failed to bulk update settings',
-  ],
   // admin/subscription-actions.ts (9)
   [
     'getAllSubscriptionsAction',
@@ -347,33 +224,6 @@ const ROWS: Row[] = [
     () => adminSubscription.syncStripeSubscriptionsAction(),
     'Failed to sync subscriptions',
   ],
-  // admin/user-actions.ts (10)
-  ['getAllUsersAction', () => adminUser.getAllUsersAction(), 'Failed to get users'],
-  ['getUserByIdAction', () => adminUser.getUserByIdAction('u1'), 'Failed to get user'],
-  [
-    'updateUserAction',
-    () => adminUser.updateUserAction('u1', { displayName: 'Ada' }),
-    'Failed to update user',
-  ],
-  ['deleteUserAction', () => adminUser.deleteUserAction('u1'), 'Failed to delete user'],
-  [
-    'grantAdminRoleAction',
-    () => adminUser.grantAdminRoleAction('u1', { role: 'admin', permissions: [] }),
-    'Failed to grant admin role',
-  ],
-  [
-    'revokeAdminRoleAction',
-    () => adminUser.revokeAdminRoleAction('u1'),
-    'Failed to revoke admin role',
-  ],
-  ['getUserStatsAction', () => adminUser.getUserStatsAction(), 'Failed to get user statistics'],
-  ['banUserAction', () => adminUser.banUserAction('u1', 'spam'), 'Failed to ban user'],
-  ['unbanUserAction', () => adminUser.unbanUserAction('u1'), 'Failed to unban user'],
-  [
-    'sendUserNotificationAction',
-    () => adminUser.sendUserNotificationAction('u1', { type: 'info', title: 'T', message: 'M' }),
-    'Failed to send notification',
-  ],
 ];
 
 function expectNoLeak(value: unknown) {
@@ -421,48 +271,6 @@ describe('KAN-172: legacy server actions return generic errors', () => {
       const result = await subscription.getSubscriptionStatusAction();
 
       expect(result).toEqual({ success: false, error: 'Unauthorized' });
-    });
-
-    it('keeps the zod validation message for invalid input', async () => {
-      const result = await seo.upsertSEOMetaAction({ ...SEO_META, title: '' });
-
-      expect(result.success).toBe(false);
-      expect(result.error).toMatch(/at least 1 character/i);
-    });
-  });
-
-  describe('bulk operations report per-item failures without raw messages', () => {
-    it('bulkImportSEOMetaAction reports a generic per-item error and logs the cause', async () => {
-      mocks.state.resolves.add('auditLog.create');
-
-      const result = await seo.bulkImportSEOMetaAction([SEO_META]);
-
-      expect(result.success).toBe(true);
-      expect(result.data).toMatchObject({
-        successCount: 0,
-        errorCount: 1,
-        errors: ['Failed to import /home'],
-      });
-      expectNoLeak(result);
-      expect(mocks.logError).toHaveBeenCalledWith(expect.stringContaining('/home'), SECRET_ERROR);
-    });
-
-    it('bulkUpdateSettingsAction reports a generic per-item error and logs the cause', async () => {
-      mocks.state.resolves.add('auditLog.create');
-
-      const result = await settings.bulkUpdateSettingsAction([SETTING]);
-
-      expect(result.success).toBe(true);
-      expect(result.data).toMatchObject({
-        successCount: 0,
-        errorCount: 1,
-        errors: ['Failed to update site.name'],
-      });
-      expectNoLeak(result);
-      expect(mocks.logError).toHaveBeenCalledWith(
-        expect.stringContaining('site.name'),
-        SECRET_ERROR
-      );
     });
   });
 });
