@@ -38,3 +38,6 @@ class Store(IdMixin, TimestampMixin, Base):
     # Where the store database lives (a reference such as a Neon project and
     # database name). NEVER a connection string or credentials.
     database_ref: Mapped[str | None]
+    # AES-256-GCM envelope of the store database connection string (KAN-53). Written
+    # and read only through app.services.store_secrets; never returned by any API.
+    connection_string_encrypted: Mapped[str | None] = mapped_column()

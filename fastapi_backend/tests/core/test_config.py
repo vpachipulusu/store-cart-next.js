@@ -2,12 +2,14 @@ import pytest
 from pydantic import ValidationError
 
 from app.core.config import Settings
+from app.core.store_crypto import generate_key
 
 
 def test_production_requires_auth_configuration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("STORE_DB_ENCRYPTION_KEY", generate_key())
     monkeypatch.delenv("VERCEL_ENV", raising=False)
     monkeypatch.setenv("UPSTASH_REDIS_REST_URL", "https://example.upstash.io")
     monkeypatch.setenv("UPSTASH_REDIS_REST_TOKEN", "test-token")
@@ -84,6 +86,7 @@ def test_production_starts_with_both_upstash_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("STORE_DB_ENCRYPTION_KEY", generate_key())
     monkeypatch.setenv("UPSTASH_REDIS_REST_URL", "https://x.upstash.io")
     monkeypatch.setenv("UPSTASH_REDIS_REST_TOKEN", "t")
 
@@ -119,6 +122,7 @@ def test_vercel_production_without_upstash_fails_even_if_environment_is_local(
 
 def test_vercel_production_starts_with_upstash(no_upstash: pytest.MonkeyPatch) -> None:
     no_upstash.setenv("VERCEL_ENV", "production")
+    no_upstash.setenv("STORE_DB_ENCRYPTION_KEY", generate_key())
     no_upstash.setenv("UPSTASH_REDIS_REST_URL", "https://x.upstash.io")
     no_upstash.setenv("UPSTASH_REDIS_REST_TOKEN", "t")
 
