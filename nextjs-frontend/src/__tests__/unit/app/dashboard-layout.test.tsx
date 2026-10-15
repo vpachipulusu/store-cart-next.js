@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   verifySessionCookie: vi.fn(),
   fetchProfile: vi.fn(),
   loggerError: vi.fn(),
+  fetchMerchantStores: vi.fn(),
 }));
 
 vi.mock('next/navigation', () => navigationMock);
@@ -21,11 +22,14 @@ vi.mock('@/lib/firebase/admin', () => ({
   getAdminAuth: () => ({ verifySessionCookie: mocks.verifySessionCookie }),
 }));
 vi.mock('@/lib/api/account', () => ({ fetchProfile: mocks.fetchProfile }));
+vi.mock('@/lib/api/stores', () => ({ fetchMerchantStores: mocks.fetchMerchantStores }));
 vi.mock('@/lib/logger', () => ({ logger: { error: mocks.loggerError } }));
 vi.mock('@/components/providers/session-provider', () => ({ SessionProvider: () => null }));
 vi.mock('@/components/dashboard/dashboard-header', () => ({ DashboardHeader: () => null }));
+vi.mock('@/components/dashboard/store-switcher', () => ({ StoreSwitcher: () => null }));
 
 import DashboardLayout from '@/app/dashboard/layout';
+import { StoreSwitcher } from '@/components/dashboard/store-switcher';
 
 /** Finds the props.user handed to DashboardHeader in the rendered element tree. */
 function findHeaderUser(node: unknown): Record<string, unknown> | undefined {
@@ -39,6 +43,45 @@ function findHeaderUser(node: unknown): Record<string, unknown> | undefined {
   }
   return undefined;
 }
+
+/** True when any element in the rendered tree carries the given prop value. */
+function hasProp(node: unknown, prop: string, value: unknown): boolean {
+  if (!node || typeof node !== 'object') return false;
+  const props = (node as { props?: Record<string, unknown> }).props;
+  if (props?.[prop] === value) return true;
+  const children = props?.children;
+  return (Array.isArray(children) ? children : [children]).some((child) =>
+    hasProp(child, prop, value)
+  );
+}
+
+/** True when the tree contains an element of the given component type. */
+function hasType(node: unknown, type: unknown): boolean {
+  if (!node || typeof node !== 'object') return false;
+  const element = node as { type?: unknown; props?: { children?: unknown } };
+  if (element.type === type) return true;
+  const children = element.props?.children;
+  return (Array.isArray(children) ? children : [children]).some((child) => hasType(child, type));
+}
+
+/** True when any string in the rendered tree contains the text. */
+function hasText(node: unknown, text: string): boolean {
+  if (typeof node === 'string') return node.includes(text);
+  if (!node || typeof node !== 'object') return false;
+  const children = (node as { props?: { children?: unknown } }).props?.children;
+  return (Array.isArray(children) ? children : [children]).some((child) => hasText(child, text));
+}
+
+const STORE = {
+  id: 'tz4a98xxat96iws9zmbrgj3a',
+  name: 'Alpha',
+  slug: 'alpha',
+  status: 'ACTIVE',
+  organizationId: 'org-1',
+  organizationName: 'Org',
+};
+
+const OTHER_STORE = { ...STORE, id: 'pfh0haxfpzowht3oi213cqos', name: 'Beta', slug: 'beta' };
 
 describe('DashboardLayout session check', () => {
   beforeEach(() => {
@@ -54,6 +97,67 @@ describe('DashboardLayout session check', () => {
     mocks.fetchProfile.mockResolvedValue({
       success: true,
       data: { display_name: null, avatar_url: null },
+    });
+    mocks.fetchMerchantStores.mockResolvedValue({ success: true, data: [STORE, OTHER_STORE] });
+  });
+
+  describe('KAN-61: store scope', () => {
+    it('scopes the main area to the first store when no cookie is set and shows the switcher', async () => {
+      const tree = await DashboardLayout({ children: null });
+
+      expect(hasProp(tree, 'data-store-id', STORE.id)).toBe(true);
+      expect(hasType(tree, StoreSwitcher)).toBe(true);
+      expect(hasProp(tree, 'data-testid', 'no-stores')).toBe(false);
+    });
+
+    it('scopes to the store in the cookie when the user may open it', async () => {
+      mocks.cookieGet.mockImplementation((name: string) =>
+        name === 'session'
+          ? { value: 'cookie-value' }
+          : name === 'selected-store'
+            ? { value: OTHER_STORE.id }
+            : undefined
+      );
+
+      expect(
+        hasProp(await DashboardLayout({ children: null }), 'data-store-id', OTHER_STORE.id)
+      ).toBe(true);
+    });
+
+    it('ignores a cookie for a store the user cannot open', async () => {
+      mocks.cookieGet.mockImplementation((name: string) =>
+        name === 'session'
+          ? { value: 'cookie-value' }
+          : name === 'selected-store'
+            ? { value: 'ckwdiixuhlkv0ib2d6m3y6hz' }
+            : undefined
+      );
+
+      expect(hasProp(await DashboardLayout({ children: null }), 'data-store-id', STORE.id)).toBe(
+        true
+      );
+    });
+
+    it('shows the empty state, no switcher and no store scope when the user has no stores', async () => {
+      mocks.fetchMerchantStores.mockResolvedValue({ success: true, data: [] });
+
+      const tree = await DashboardLayout({ children: null });
+
+      expect(hasProp(tree, 'data-testid', 'no-stores')).toBe(true);
+      expect(hasText(tree, 'You do not have a store yet.')).toBe(true);
+      expect(hasType(tree, StoreSwitcher)).toBe(false);
+      expect(hasProp(tree, 'data-store-id', STORE.id)).toBe(false);
+    });
+
+    it('says the stores could not be loaded, hides the switcher and still renders the page', async () => {
+      mocks.fetchMerchantStores.mockResolvedValue({ success: false, error: 'Backend unavailable' });
+
+      const tree = await DashboardLayout({ children: 'PAGE' });
+
+      expect(hasText(tree, 'Your stores could not be loaded')).toBe(true);
+      expect(hasType(tree, StoreSwitcher)).toBe(false);
+      expect(hasProp(tree, 'data-testid', 'no-stores')).toBe(false);
+      expect(hasText(tree, 'PAGE')).toBe(true);
     });
   });
 
