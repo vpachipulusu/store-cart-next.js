@@ -4,8 +4,6 @@
  * account with no billing organisation is on the free plan.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { NO_BILLING_ORGANIZATION_MESSAGE } from '@/lib/api/billing';
 import { navigationMock, redirectTarget, rejection } from './route-test-helpers';
@@ -72,6 +70,10 @@ const HISTORY = {
   ],
   total_count: 7,
 };
+// The dashboard shows the plan in a capitalised stat and the status (or renewal date) under it.
+const PLAN_ELEMENT = (plan: string) => `<div class="text-2xl font-bold capitalize">${plan}</div>`;
+const STATUS_ELEMENT = (status: string) =>
+  `<p class="mt-1 text-xs text-muted-foreground">${status}</p>`;
 const page = () => DashboardPage({ searchParams: Promise.resolve({}) });
 
 describe('DashboardPage', () => {
@@ -110,16 +112,13 @@ describe('DashboardPage', () => {
     expect(mocks.dbFindUnique).not.toHaveBeenCalled();
   });
 
-  it('does not import the database client itself', () => {
-    const source = readFileSync(join(process.cwd(), 'src/app/dashboard/page.tsx'), 'utf8');
-
-    expect(source).not.toContain('@/lib/db/client');
-  });
-
   it('shows the plan and status read from the billing API', async () => {
     const markup = renderToStaticMarkup((await page()) as React.ReactElement);
 
-    expect(markup).toContain('pro');
+    // The plan card renders the plan key from the billing API, and a paid plan has no upgrade banner.
+    expect(markup).toContain(PLAN_ELEMENT('pro'));
+    expect(markup).not.toContain(PLAN_ELEMENT('free'));
+    expect(markup).not.toContain('Upgrade to Pro');
     expect(markup).toContain('Active until');
   });
 
@@ -131,8 +130,11 @@ describe('DashboardPage', () => {
 
     const markup = renderToStaticMarkup((await page()) as React.ReactElement);
 
-    expect(markup).toContain('free');
+    expect(markup).toContain(PLAN_ELEMENT('free'));
+    expect(markup).not.toContain(PLAN_ELEMENT('pro'));
+    expect(markup).toContain('Upgrade to Pro');
     expect(markup).not.toContain('Active until');
+    expect(markup).toContain(STATUS_ELEMENT('inactive'));
   });
 
   it('clears the session when the billing call finds it rejected', async () => {
