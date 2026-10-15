@@ -8140,8 +8140,8 @@
         "tags": [
           "settings"
         ],
-        "summary": "Read Currency",
-        "description": "The platform currency code (upper case, e.g. ``USD``).",
+        "summary": "Read the platform currency",
+        "description": "The platform currency code (upper case, e.g. ``USD``).\n\nAnswers ``USD`` when the setting is missing or not a supported code. Sends\n``Cache-Control: public, max-age=60`` and an ``ETag``.",
         "operationId": "read_currency",
         "parameters": [
           {
@@ -8157,8 +8157,10 @@
                   "type": "null"
                 }
               ],
+              "description": "ETag from an earlier response",
               "title": "If-None-Match"
-            }
+            },
+            "description": "ETag from an earlier response"
           },
           {
             "name": "X-Internal-Key",
