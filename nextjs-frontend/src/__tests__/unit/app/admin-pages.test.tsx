@@ -262,7 +262,12 @@ describe('admin subscriptions page', () => {
     expect(markup).toContain('Org e1');
     expect(markup.indexOf('Org e1')).toBeLessThan(markup.indexOf('Org p1'));
     expect(markup).toContain('$230');
-    expect(markup).toContain('4 canceled');
+    expect(markup).toContain('4 canceled (all time)');
+    expect(mocks.fetchAdminSubscriptions).toHaveBeenCalledWith({
+      status: 'active',
+      plan: 'enterprise',
+      limit: 20,
+    });
   });
 
   it('shows a curated error and no backend text when any call fails', async () => {
@@ -275,5 +280,17 @@ describe('admin subscriptions page', () => {
     expect(markup).toContain('Something went wrong');
     expect(markup).not.toContain('SECRET');
     expect(markup).not.toContain('Recent Subscriptions');
+    expect(markup).toContain('role="alert"');
+  });
+
+  it.each(['pro', 'enterprise'])('shows the error when the %s call fails', async (plan) => {
+    mocks.fetchAdminSubscriptions.mockImplementation(async (q: { plan?: string }) =>
+      q.plan === plan ? { success: false, error: 'SECRET', status: 403 } : page([])
+    );
+
+    const markup = html(await AdminSubscriptionsPage());
+
+    expect(markup).toContain('You do not have permission to do that');
+    expect(mocks.logError).toHaveBeenCalled();
   });
 });

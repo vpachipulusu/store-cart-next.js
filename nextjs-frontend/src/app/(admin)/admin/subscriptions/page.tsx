@@ -132,7 +132,7 @@ export default async function AdminSubscriptionsPage() {
                   {stats.mrr.toLocaleString()}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {stats.canceledSubscriptions} canceled
+                  {stats.canceledSubscriptions} canceled (all time)
                 </p>
               </CardContent>
             </Card>
