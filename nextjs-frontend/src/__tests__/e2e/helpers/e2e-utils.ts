@@ -78,15 +78,17 @@ const HYDRATION_ATTEMPTS = 3;
  * Wait until React has hydrated every form and button on the page, so a click runs the React handler. Before
  * hydration a form click would submit natively, as a GET with the field values (including passwords) in the URL, and
  * a menu button would do nothing. React marks each hydrated DOM node with a `__reactProps$<id>` property. Retries if
- * the page navigates while waiting.
+ * the page navigates while waiting. Elements inside a `[hidden]` ancestor are skipped: they are React streaming
+ * placeholders (e.g. the admin layout streamed before `notFound()` replaced the page, KAN-198) that are never
+ * hydrated or shown, and no user can click them.
  */
 export async function waitForHydration(page: Page): Promise<void> {
   for (let attempt = 1; ; attempt += 1) {
     try {
       await page.waitForFunction(() =>
-        Array.from(document.querySelectorAll('form, button')).every((element) =>
-          Object.keys(element).some((key) => key.startsWith('__reactProps$'))
-        )
+        Array.from(document.querySelectorAll('form, button'))
+          .filter((element) => !element.closest('[hidden]'))
+          .every((element) => Object.keys(element).some((key) => key.startsWith('__reactProps$')))
       );
       return;
     } catch (error) {
