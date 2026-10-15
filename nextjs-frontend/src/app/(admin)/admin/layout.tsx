@@ -17,7 +17,7 @@ import {
 import { AdminHeader } from '@/components/admin/admin-header';
 
 /**
- * Every /admin route is per-user (session cookie + admin check) and reads Prisma or the API, so none can be
+ * Every /admin route is per-user (session cookie + admin check) and its pages read Prisma or the API, so none can be
  * prerendered. Declaring it here, before render, keeps `next build` from attempting a static render of
  * any child page and issuing its queries.
  */
@@ -30,12 +30,11 @@ async function loadAdminAccess(sessionCookie: string) {
     uid = decodedClaims.uid;
 
     const access = await resolveAdminAccess();
-    // Anything but a confirmed admin is a denial: a rejected session signs in again, every other
-    // failure throws so error.tsx renders and the admin pages are never reached.
+    // Anything but a confirmed admin is a denial: a session the backend rejects is cleared (as the dashboard
+    // does, so /login does not bounce a still-set cookie back), every other failure throws so error.tsx
+    // renders and the admin pages are never reached.
     if (access.status === 'session-rejected') {
-      throw Object.assign(new Error('Session rejected by the backend'), {
-        code: 'auth/invalid-session-cookie',
-      });
+      redirect('/api/auth/clear-session');
     }
     if (access.status === 'error') {
       throw new Error(access.message);

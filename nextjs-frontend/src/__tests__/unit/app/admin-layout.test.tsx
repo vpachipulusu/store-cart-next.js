@@ -53,6 +53,13 @@ function findAdminHeaderProps(node: unknown): Record<string, unknown> | null {
   return null;
 }
 
+function containsChild(node: unknown, needle: string): boolean {
+  if (node === needle) return true;
+  if (Array.isArray(node)) return node.some((child) => containsChild(child, needle));
+  const props = (node as { props?: { children?: unknown } } | null)?.props;
+  return typeof node === 'object' && props ? containsChild(props.children, needle) : false;
+}
+
 describe('AdminLayout access check', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -65,6 +72,7 @@ describe('AdminLayout access check', () => {
     const tree = (await AdminLayout({ children: 'page' })) as ElementLike;
 
     expect(navigationMock.redirect).not.toHaveBeenCalled();
+    expect(containsChild(tree, 'page')).toBe(true);
     expect(findAdminHeaderProps(tree)).toMatchObject({
       adminRole: 'SUPER_ADMIN',
       user: { email: 'admin@example.com', displayName: 'Ada', avatarUrl: null },
@@ -79,6 +87,7 @@ describe('AdminLayout access check', () => {
     expect(redirectTarget(error)).toBe('/dashboard');
     expect(navigationMock.redirect).toHaveBeenCalledTimes(1);
     expect(navigationMock.redirect).not.toHaveBeenCalledWith('/login');
+    expect(mocks.loggerError).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -124,12 +133,13 @@ describe('AdminLayout access check', () => {
   it.each([
     ['401 Invalid authentication', { status: 401, error: 'Invalid authentication' }],
     ['404 no platform user', { status: 404, error: 'Not found' }],
-  ])('redirects to /login when the backend rejects the session (%s)', async (_name, failure) => {
+  ])('clears the session when the backend rejects it (%s)', async (_name, failure) => {
     mocks.fetchProfile.mockResolvedValue({ success: false, ...failure });
 
     const error = await rejection(AdminLayout({ children: null }));
 
-    expect(redirectTarget(error)).toBe('/login');
+    expect(redirectTarget(error)).toBe('/api/auth/clear-session');
+    expect(mocks.loggerError).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -142,6 +152,7 @@ describe('AdminLayout access check', () => {
     const error = await rejection(AdminLayout({ children: null }));
 
     expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/^Profile request failed \(/);
     expect(redirectTarget(error)).toBeNull();
     expect(mocks.loggerError).toHaveBeenCalledTimes(1);
     const [, meta] = mocks.loggerError.mock.calls[0];
