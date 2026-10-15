@@ -1,6 +1,6 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Protocol
+from typing import Any, Protocol
 
 from sqlalchemy import NullPool
 from sqlalchemy.ext.asyncio import (
@@ -14,12 +14,19 @@ from app.core.config import settings
 from app.core.db_url import to_async_target
 
 
-def build_engine(database_url: str) -> AsyncEngine:
-    """Create the async engine, keeping the TLS mode from the URL (e.g. sslmode=require)."""
+def build_engine(
+    database_url: str, extra_connect_args: Mapping[str, Any] | None = None
+) -> AsyncEngine:
+    """Create the async engine, keeping the TLS mode from the URL (e.g. sslmode=require).
+
+    Only this module and ``app.services.store_sessions`` may call it (ruff TID251).
+    """
     target = to_async_target(database_url)
     # Disable connection pooling for serverless environments like Vercel
     return create_async_engine(
-        target.url, poolclass=NullPool, connect_args=target.connect_args
+        target.url,
+        poolclass=NullPool,
+        connect_args={**target.connect_args, **(extra_connect_args or {})},
     )
 
 

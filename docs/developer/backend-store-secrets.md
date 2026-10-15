@@ -31,3 +31,22 @@ the session factory (KAN-54) is the only intended caller of `reveal_connection_s
 3. Once no row uses the old key id, remove it from `STORE_DB_ENCRYPTION_KEY_PREVIOUS`.
 
 The audit trail redacts `connection string`, `database url`, `dsn` keys and `postgres://` values.
+
+## Store database sessions (KAN-54)
+
+`app.services.store_sessions.get_store_session(store_id)` is the only way to open a store database:
+
+```python
+async with get_store_session(store_id) as session:
+    ...  # an AsyncSession on that store's database only
+```
+
+It reads the `Store` row from the platform database, decrypts the connection string, builds a `NullPool` engine for it
+(no long-lived pools; safe on Vercel and Neon pooled endpoints, with asyncpg's statement cache off for PgBouncer) and
+disposes the engine when the context exits. Failures are typed and carry only the store id, never the connection string:
+`StoreNotFound`, `StoreDatabaseNotConfigured` (no connection string yet) and `StoreDatabaseUnavailable` (cannot be
+decrypted or parsed), all subclasses of `StoreSessionError`. No new environment variable.
+
+A ruff `TID251` banned-api rule (`pyproject.toml`) rejects `create_engine`, `create_async_engine` and
+`app.core.database.build_engine` everywhere except `app/core/database.py`, `app/services/store_sessions.py`, Alembic's
+`env.py` and the tests.

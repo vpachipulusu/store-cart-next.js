@@ -43,6 +43,26 @@ package = false
 [tool.ruff]
 src = ["."]
 
+# KAN-54: store database engines are created in exactly one place,
+# app/services/store_sessions.py, so every store connection goes through the
+# decrypting, NullPool session factory. Raw engine constructors are banned
+# elsewhere; app/core/database.py owns the platform engine and Alembic and the
+# tests build their own throwaway engines.
+[tool.ruff.lint]
+extend-select = ["TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"sqlalchemy.create_engine".msg = "Store engines are created only in app/services/store_sessions.py (use get_store_session)."
+"sqlalchemy.ext.asyncio.create_async_engine".msg = "Store engines are created only in app/services/store_sessions.py (use get_store_session)."
+"sqlalchemy.ext.asyncio.engine.create_async_engine".msg = "Store engines are created only in app/services/store_sessions.py (use get_store_session)."
+"app.core.database.build_engine".msg = "Store engines are created only in app/services/store_sessions.py (use get_store_session)."
+
+[tool.ruff.lint.per-file-ignores]
+"app/core/database.py" = ["TID251"]
+"app/services/store_sessions.py" = ["TID251"]
+"alembic_migrations/env.py" = ["TID251"]
+"tests/**" = ["TID251"]
+
 # Coverage ratchet (KAN-27, PO decision on KAN-139). `uv run pytest --cov` fails
 # when line coverage of app/ and commands/ is below fail_under. fail_under is the
 # measured baseline (84.13% on 2026-10-12, CI): raise it as tests are added,
