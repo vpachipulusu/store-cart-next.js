@@ -355,11 +355,25 @@ async def test_second_migrate_while_one_is_running_is_409_and_runs_once(harness)
     )
     async with harness.client("migrator") as client:
         first = asyncio.create_task(client.post("/v1/admin/stores/live/migrate"))
-        await started.wait()
-        second = await client.post("/v1/admin/stores/live/migrate")
-        release.set()
-        done = await first
+        try:
+            async with asyncio.timeout(5):
+                await started.wait()
+                second = await client.post("/v1/admin/stores/live/migrate")
+        finally:
+            release.set()  # a failure above must not leave the first request hanging
+        async with asyncio.timeout(5):
+            done = await first
 
     assert second.status_code == 409
     assert done.status_code == 200
     assert calls == ["live"]
+
+
+@pytest.fixture(autouse=True)
+def _no_leftover_claims():
+    from app.services import admin_stores
+
+    admin_stores._migrating.clear()
+    yield
+    assert admin_stores._migrating == set()  # every test released its claims
+    admin_stores._migrating.clear()

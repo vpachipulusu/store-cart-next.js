@@ -246,11 +246,15 @@ async def test_second_concurrent_migration_of_the_same_store_is_a_conflict():
     service._migrate = gated
 
     first = asyncio.create_task(service.migrate(ADMIN, "a"))
-    await gated.started.wait()
-    with pytest.raises(StoreConflict):
-        await service.migrate(ADMIN, "a")
-    gated.release.set()
-    await first
+    try:
+        async with asyncio.timeout(5):
+            await gated.started.wait()
+            with pytest.raises(StoreConflict):
+                await service.migrate(ADMIN, "a")
+    finally:
+        gated.release.set()  # a failure above must not leave the first task hanging
+    async with asyncio.timeout(5):
+        await first
 
     assert gated.calls == ["a"]
     assert len(auditor.rows) == 1

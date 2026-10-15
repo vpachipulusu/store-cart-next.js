@@ -165,17 +165,17 @@ class AdminStoresService:
     async def migrate(self, actor: AdminContext, store_id: str) -> MigrateResult:
         record = await self.repository.get_store(store_id)
         if record is None:
-            await self._abort(AdminStoreNotFound())
+            await self._abort(AdminStoreNotFound(), store_id)
         # Check and claim with no await in between: two requests cannot both pass.
         if record.status not in MIGRATABLE_STATUSES or store_id in _migrating:
-            await self._abort(StoreConflict())
+            await self._abort(StoreConflict(), store_id)
         _migrating.add(store_id)
         context = {"store_id": store_id, "admin_user_id": actor.user_id}
         try:
             # End the read transaction: no connection is held while the store is migrated.
             try:
                 await self.session.rollback()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - logged, then reported as a 503
                 self._log_rollback_failure(exc, context)
                 raise CommitFailed from None
             # The audit row is written only after the migration ends, so a request that
@@ -291,9 +291,9 @@ class AdminStoresService:
         except Exception as exc:  # noqa: BLE001
             self._log_rollback_failure(exc, context)
 
-    async def _abort(self, error: Exception) -> NoReturn:
+    async def _abort(self, error: Exception, store_id: str) -> NoReturn:
         """Release the row lock, then leave without a change."""
-        await self._safe_rollback({})
+        await self._safe_rollback({"store_id": store_id})
         raise error
 
     async def _transition(
@@ -306,12 +306,12 @@ class AdminStoresService:
     ) -> StatusResult:
         record = await self.repository.get_store(store_id, lock=True)
         if record is None:
-            await self._abort(AdminStoreNotFound())
+            await self._abort(AdminStoreNotFound(), store_id)
         if record.status is target:
             await self._safe_rollback({"store_id": store_id})
             return StatusResult(target, changed=False)
         if record.status is not source:
-            await self._abort(StoreConflict())
+            await self._abort(StoreConflict(), store_id)
         await self._record(
             actor,
             record,

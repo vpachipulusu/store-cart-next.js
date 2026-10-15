@@ -403,13 +403,13 @@ async def test_search_treats_percent_and_underscore_literally_and_ignores_case(
     await seed_store(engine, "orgA", "axb")
     await seed_store(engine, "orgA", "50%off")
 
-    async def found(path: str, term: str) -> list[str]:
+    async def found(path: str, term: str) -> dict[str, Any]:
         result = await client.get(
             path, params={"search": term}, headers=as_user("reader")
         )
         return result.json()["data"]
 
-    def slugs(data: dict) -> list[str]:
+    def slugs(data: dict[str, Any]) -> list[str]:
         return sorted(s["slug"] for s in data["stores"])
 
     assert slugs(await found("/v1/admin/stores", "a_b")) == ["a_b"]  # not axb
