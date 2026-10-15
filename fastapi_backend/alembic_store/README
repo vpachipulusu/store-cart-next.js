@@ -1,0 +1,4 @@
+Store database migrations (KAN-57, ADR-005, plan decision D15).
+
+Applied to every store database by app.services.store_migrations (never by `alembic upgrade`).
+See docs/developer/backend-store-migrations.md.
