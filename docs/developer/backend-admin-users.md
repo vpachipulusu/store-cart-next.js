@@ -2,7 +2,7 @@
 
 Platform-admin user management in FastAPI. Authorisation is the `require_admin(...)`
 dependency and the audit trail is `AdminAuditor` (see [backend-auth.md](backend-auth.md) and
-[platform-models.md](platform-models.md)). Stats and admin-sent notifications are KAN-114.
+[platform-models.md](platform-models.md)). Stats and admin-sent notifications are KAN-114. The audit log API and covered actions: [backend-audit-logs.md](backend-audit-logs.md) (KAN-49).
 
 ## Routes
 

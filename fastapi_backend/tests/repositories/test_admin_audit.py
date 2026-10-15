@@ -50,6 +50,7 @@ async def test_audit_repository_stages_one_row_and_flushes_without_committing():
     await AuditRepository(session).add(  # type: ignore[arg-type]
         user_id="admin-1",
         organization_id=None,
+        store_id="store-1",
         action="admin.users.update",
         resource="users",
         resource_id="user-9",
@@ -65,6 +66,7 @@ async def test_audit_repository_stages_one_row_and_flushes_without_committing():
         "user-9",
     )
     assert row.metadata_ == {"actor_role": "admin"}
+    assert row.store_id == "store-1"
     assert session.flushed == 1
 
 

@@ -90,6 +90,7 @@ class AuditRecorder(Protocol):
         resource: str,
         resource_id: str | None = None,
         organization_id: str | None = None,
+        store_id: str | None = None,
         before: object = None,
         after: object = None,
         details: object = None,

@@ -23,6 +23,7 @@ ADMIN_PERMISSIONS: frozenset[str] = frozenset(
     {
         "admins.create",
         "admins.delete",
+        "audit.read",
         "notifications.create",
         "seo.delete",
         "seo.read",

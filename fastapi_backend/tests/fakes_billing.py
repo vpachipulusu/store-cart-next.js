@@ -127,12 +127,19 @@ class FakeCommitSession:
     def __init__(self) -> None:
         self.commits = 0
         self.rollbacks = 0
+        self.added: list[Any] = []
 
     async def rollback(self) -> None:
         self.rollbacks += 1
 
     async def commit(self) -> None:
         self.commits += 1
+
+    def add(self, row: Any) -> None:
+        self.added.append(row)
+
+    async def flush(self) -> None:
+        return None
 
 
 def org_record(**overrides: Any) -> OrgBillingRecord:
