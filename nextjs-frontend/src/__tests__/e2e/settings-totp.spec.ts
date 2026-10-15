@@ -39,8 +39,8 @@ test.describe('Legacy settings and authenticator setup', () => {
     );
   });
 
-  // KAN-41: authenticator setup/disable is switched off (KAN-180 re-authentication dialog; hidden while KAN-125
-  // is parked).
+  // KAN-41/KAN-180: authenticator setup stays hidden while KAN-125 (2FA at sign-in) is parked. Disable is covered
+  // in reauth-dialog.spec.ts. Re-enable this test when enrolment returns.
   test.skip('rejects an invalid authenticator code, enables and then disables setup', async ({
     page,
     throwawayAccount,

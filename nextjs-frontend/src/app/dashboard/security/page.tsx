@@ -1,8 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   changePasswordAction,
+  deleteAccountAction,
+  disableTwoFactorAction,
   getLoginHistoryAction,
   getTwoFactorStatusAction,
 } from '@/app/actions/user-actions';
@@ -28,17 +31,26 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Key, Loader2, Clock, ShieldCheck } from 'lucide-react';
+import { Key, Loader2, Clock, ShieldCheck, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { ReauthDialog } from '@/components/auth/reauth-dialog';
+import { auth } from '@/lib/firebase/client';
+import { signOut } from 'firebase/auth';
 
 export default function SecurityPage() {
   const { toast } = useToast();
+  const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [loginHistory, setLoginHistory] = useState<any[]>([]);
   // null until the status loads, or when it could not be read (nothing is claimed in that case).
   const [twoFactorEnabled, setTwoFactorEnabled] = useState<boolean | null>(null);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+  const [showDisableTwoFactor, setShowDisableTwoFactor] = useState(false);
+  const [twoFactorCode, setTwoFactorCode] = useState('');
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
 
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
@@ -128,6 +140,24 @@ export default function SecurityPage() {
     } finally {
       setIsChangingPassword(false);
     }
+  }
+
+  async function handleDisableTwoFactor(idToken: string): Promise<string | null> {
+    const result = await disableTwoFactorAction(idToken, twoFactorCode);
+    if (!result.success) return result.error || 'Failed to disable two-factor authentication';
+    setTwoFactorEnabled(false);
+    setTwoFactorCode('');
+    setShowDisableTwoFactor(false);
+    toast({ title: 'Success', description: 'Two-factor authentication disabled' });
+    return null;
+  }
+
+  async function handleDeleteAccount(idToken: string): Promise<string | null> {
+    const result = await deleteAccountAction(idToken);
+    if (!result.success) return result.error || 'Failed to delete account';
+    await signOut(auth).catch(() => undefined);
+    router.push('/');
+    return null;
   }
 
   return (
@@ -220,7 +250,7 @@ export default function SecurityPage() {
         </CardContent>
       </Card>
 
-      {/* Two-factor status (read-only; setup and disable return with KAN-180) */}
+      {/* Two-factor status. Setup stays hidden until sign-in enforces 2FA (KAN-125, parked); disable is offered when it is on. */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -238,6 +268,15 @@ export default function SecurityPage() {
                 ? 'Two-factor authentication is enabled'
                 : 'Two-factor authentication is not enabled'}
             </p>
+          )}
+          {twoFactorEnabled === true && (
+            <Button
+              variant="outline"
+              className="mt-4"
+              onClick={() => setShowDisableTwoFactor(true)}
+            >
+              Disable 2FA
+            </Button>
           )}
         </CardContent>
       </Card>
@@ -291,11 +330,73 @@ export default function SecurityPage() {
         </CardContent>
       </Card>
 
-      {/*
-        Switched off until their replacements land, with no Prisma access left behind:
-        - Data export: KAN-114
-        - Two-factor setup/disable (hidden while KAN-125 is parked) and account deletion: KAN-180 (re-authentication dialog)
-      */}
+      {/* Danger Zone */}
+      <Card className="border-destructive/50">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-destructive">
+            <Trash2 className="h-5 w-5" />
+            Danger Zone
+          </CardTitle>
+          <CardDescription>Permanently delete your account and all of its data</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button variant="destructive" onClick={() => setShowDeleteAccount(true)}>
+            Delete Account
+          </Button>
+        </CardContent>
+      </Card>
+
+      <ReauthDialog
+        open={showDisableTwoFactor}
+        onOpenChange={(open) => {
+          setShowDisableTwoFactor(open);
+          if (!open) setTwoFactorCode('');
+        }}
+        title="Disable Two-Factor Authentication"
+        description="Confirm your password and enter a code from your authenticator app"
+        confirmLabel="Disable 2FA"
+        destructive
+        canConfirm={/^\d{6}$/.test(twoFactorCode)}
+        onConfirm={handleDisableTwoFactor}
+      >
+        <div>
+          <Label htmlFor="disable-2fa-code">Authenticator code</Label>
+          <Input
+            id="disable-2fa-code"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={6}
+            value={twoFactorCode}
+            onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, ''))}
+          />
+        </div>
+      </ReauthDialog>
+
+      <ReauthDialog
+        open={showDeleteAccount}
+        onOpenChange={(open) => {
+          setShowDeleteAccount(open);
+          if (!open) setDeleteConfirmation('');
+        }}
+        title="Delete Account"
+        description="This action cannot be undone. Your account and its data will be permanently deleted."
+        confirmLabel="Delete Account"
+        destructive
+        canConfirm={deleteConfirmation === 'DELETE'}
+        onConfirm={handleDeleteAccount}
+      >
+        <div>
+          <Label htmlFor="delete-confirmation">Type DELETE to confirm</Label>
+          <Input
+            id="delete-confirmation"
+            placeholder="DELETE"
+            value={deleteConfirmation}
+            onChange={(e) => setDeleteConfirmation(e.target.value)}
+          />
+        </div>
+      </ReauthDialog>
+
+      {/* Data export: KAN-114 (switched off, no Prisma access left behind) */}
     </div>
   );
 }

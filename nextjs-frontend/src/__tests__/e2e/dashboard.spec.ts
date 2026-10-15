@@ -343,8 +343,7 @@ test.describe('Customer Dashboard', () => {
         await expect(page.getByRole('button', { name: /export my data/i })).toBeVisible();
       });
 
-      // KAN-41: account deletion is switched off until the KAN-180 re-authentication dialog.
-      test.skip('should display danger zone with delete account button', async ({ page }) => {
+      test('should display danger zone with delete account button', async ({ page }) => {
         await expect(page.getByText('Danger Zone')).toBeVisible();
         await expect(page.getByRole('button', { name: /delete account/i })).toBeVisible();
       });
@@ -369,8 +368,7 @@ test.describe('Customer Dashboard', () => {
         await expect(page.getByLabel(/current password/i)).not.toBeVisible({ timeout: 3_000 });
       });
 
-      // KAN-41: account deletion is switched off until KAN-180.
-      test.skip('should open delete account dialog', async ({ page }) => {
+      test('should open delete account dialog', async ({ page }) => {
         await page.getByRole('button', { name: /delete account/i }).click();
 
         // Dialog should appear
@@ -380,8 +378,7 @@ test.describe('Customer Dashboard', () => {
         await expect(page.getByLabel(/type.*delete.*confirm/i)).toBeVisible();
       });
 
-      // KAN-41: account deletion is switched off until KAN-180.
-      test.skip('should require DELETE confirmation to enable delete button', async ({ page }) => {
+      test('should require DELETE and the password to enable delete button', async ({ page }) => {
         await page.getByRole('button', { name: /delete account/i }).click();
         await expect(page.getByLabel(/type.*delete.*confirm/i)).toBeVisible({ timeout: 5_000 });
 
@@ -391,8 +388,10 @@ test.describe('Customer Dashboard', () => {
           .getByRole('button', { name: /delete account/i });
         await expect(dialogDeleteBtn).toBeDisabled();
 
-        // Type DELETE to enable it
+        // Type DELETE and re-enter the password (KAN-180) to enable it
         await page.getByPlaceholder('DELETE').fill('DELETE');
+        await expect(dialogDeleteBtn).toBeDisabled();
+        await page.getByLabel('Confirm your password').fill('not-submitted');
         await expect(dialogDeleteBtn).toBeEnabled();
       });
 

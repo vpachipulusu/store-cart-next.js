@@ -3,7 +3,9 @@ import 'server-only';
 import { callBackend } from './server';
 import {
   createSession,
+  deleteAccount,
   deleteSession,
+  disable,
   readHistory,
   readProfile,
   readSession,
@@ -45,6 +47,19 @@ export function refreshBackendSession(idToken: string) {
 
 export function revokeBackendSession() {
   return callBackend((client) => deleteSession({ client }));
+}
+
+/**
+ * Deletes the caller's account (KAN-180). The backend requires a Firebase ID token minted in the last five
+ * minutes for the same uid, so the browser re-authenticates first; the token is only forwarded, never stored.
+ */
+export function removeBackendAccount(idToken: string) {
+  return callBackend((client) => deleteAccount({ client, body: { id_token: idToken } }));
+}
+
+/** Turns two-factor authentication off; needs the fresh ID token plus a current authenticator code. */
+export function disableBackendTotp(idToken: string, code: string) {
+  return callBackend((client) => disable({ client, body: { id_token: idToken, token: code } }));
 }
 
 export function fetchIdentity() {

@@ -1,18 +1,22 @@
 'use server';
 
+import { cookies } from 'next/headers';
 import { z } from 'zod';
 import { getAdminAuth } from '@/lib/firebase/admin';
 import { profileUpdateSchema, userSettingsSchema } from '@/lib/utils/validation';
 import { logger } from '@/lib/logger';
 import { getVerifiedSessionClaims, isEmailNotVerifiedError } from '@/lib/auth/verified-session';
 import type { ApiResult } from '@/lib/api/server';
+import { SESSION_COOKIE_NAME } from '@/lib/api/server';
 import {
+  disableBackendTotp,
   fetchLoginHistory,
   fetchProfile,
   fetchSettings,
   patchAvatar,
   patchProfile,
   patchSettings,
+  removeBackendAccount,
   toLoginHistoryEntry,
   toProfile,
   toSettings,
@@ -25,7 +29,8 @@ import {
  *
  * Switched off until their replacements land (the controls are hidden, no Prisma access is left behind):
  * - notifications and data export: KAN-114
- * - 2FA setup/disable and account deletion: KAN-180 (re-authentication dialog)
+ * - 2FA setup stays hidden while KAN-125 (sign-in enforcement) is parked; disable and account deletion take a
+ *   fresh ID token from the browser's re-authentication dialog (KAN-180)
  */
 
 /**
@@ -377,5 +382,63 @@ export async function changePasswordAction(
     };
   } catch (error: unknown) {
     return failSensitive('Change password error:', error, 'Failed to change password');
+  }
+}
+
+const TWO_FACTOR_CODE = /^\d{6}$/;
+const OWNER_CONFLICT_FALLBACK = 'Transfer organization ownership before deleting your account';
+
+/**
+ * Deletes the signed-in account (KAN-180). `idToken` is a Firebase ID token the browser just minted by
+ * re-authenticating; it is forwarded to the API once and never stored or logged. Organisation owners get
+ * the API's 409 message ("transfer ownership first") so they know what to do.
+ */
+export async function deleteAccountAction(idToken: string): Promise<UserActionResponse> {
+  try {
+    if (typeof idToken !== 'string' || idToken.length === 0) {
+      return { success: false, error: 'Re-authentication required' };
+    }
+    const result = await removeBackendAccount(idToken);
+    if (!result.success) {
+      if (result.status === 409) {
+        return { success: false, error: result.error || OWNER_CONFLICT_FALLBACK };
+      }
+      if (result.status === 401 || result.status === 403) {
+        return { success: false, error: 'Re-authentication required' };
+      }
+      return apiFailure(result, 'Delete account error:', 'Failed to delete account');
+    }
+    (await cookies()).delete(SESSION_COOKIE_NAME);
+    return { success: true, data: { message: 'Account deleted' } };
+  } catch (error: unknown) {
+    return fail('Delete account error:', error, 'Failed to delete account');
+  }
+}
+
+/** Disables two-factor authentication. Needs the fresh `idToken` and the user's current 6-digit code. */
+export async function disableTwoFactorAction(
+  idToken: string,
+  code: string
+): Promise<UserActionResponse> {
+  try {
+    if (typeof idToken !== 'string' || idToken.length === 0) {
+      return { success: false, error: 'Re-authentication required' };
+    }
+    if (typeof code !== 'string' || !TWO_FACTOR_CODE.test(code)) {
+      return { success: false, error: 'Enter the 6-digit code from your authenticator app' };
+    }
+    const result = await disableBackendTotp(idToken, code);
+    if (!result.success) {
+      if (result.status === 400) {
+        return { success: false, error: 'Invalid authenticator code' };
+      }
+      if (result.status === 401 || result.status === 403) {
+        return { success: false, error: 'Re-authentication required' };
+      }
+      return apiFailure(result, 'Disable two-factor error:', 'Failed to disable two-factor');
+    }
+    return { success: true, data: { message: 'Two-factor authentication disabled' } };
+  } catch (error: unknown) {
+    return fail('Disable two-factor error:', error, 'Failed to disable two-factor');
   }
 }

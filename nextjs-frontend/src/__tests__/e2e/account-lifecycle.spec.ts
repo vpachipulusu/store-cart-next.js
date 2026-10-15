@@ -115,8 +115,7 @@ test.describe('Legacy browser account lifecycle', () => {
     await expect(rows.getByText('Failed', { exact: true })).toHaveCount(0);
   });
 
-  // KAN-41: account deletion is switched off until the KAN-180 re-authentication dialog.
-  test.skip('account deletion requires confirmation and then denies protected access', async ({
+  test('account deletion requires confirmation and then denies protected access', async ({
     page,
     throwawayAccount,
     expectThrowawayAccountDeleted,
@@ -131,6 +130,11 @@ test.describe('Legacy browser account lifecycle', () => {
     await dialog.getByLabel('Type DELETE to confirm', { exact: true }).fill('delete');
     await expect(confirm).toBeDisabled();
     await dialog.getByLabel('Type DELETE to confirm', { exact: true }).fill('DELETE');
+    // KAN-180: deleting also needs the password again, even right after signing in.
+    await expect(confirm).toBeDisabled();
+    await dialog
+      .getByLabel('Confirm your password', { exact: true })
+      .fill(throwawayAccount.password);
     await expect(confirm).toBeEnabled();
     await confirm.click();
     await expect(page).toHaveURL(/\/$/);
