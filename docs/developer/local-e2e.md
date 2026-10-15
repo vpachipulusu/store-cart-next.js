@@ -1,6 +1,6 @@
 # Running Playwright E2E locally
 
-**Last updated:** 2026-10-14 (KAN-178)
+**Last updated:** 2026-10-15 (KAN-196, KAN-198)
 
 CI skips Playwright (`E2E_ENABLED=false`), so developers run E2E before opening a PR for user-facing changes. This page is the fast path. Test accounts, the test Firebase project and the test database are described in [testing.md](testing.md).
 
@@ -93,16 +93,14 @@ Run the full suite for broad changes or anything touching auth, the proxy or sha
 
 A test that fails on a clean `main` is quarantined, never skipped silently: `test.fixme(...)` with the Jira key in a comment beside it. Remove the `.fixme` in the PR that closes the ticket. The full local run is green with exactly these left out:
 
-| Test                                                        | Spec                                            | Ticket                                                    | Why                                                                              |
-| ----------------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `should successfully upgrade from free to pro tier` (fixme) | `subscription-simple.spec`                      | [KAN-157](https://storecart.atlassian.net/browse/KAN-157) | The Stripe webhook cannot reach a local server (needs `stripe listen`)           |
-| `should display users table with correct columns` (fixme)   | `admin.spec`                                    | [KAN-196](https://storecart.atlassian.net/browse/KAN-196) | `locator('table')` is ambiguous (24 tables, 23 hidden) when there are many users |
-| `should display 404 for non-existent user` (fixme)          | `admin.spec`                                    | [KAN-198](https://storecart.atlassian.net/browse/KAN-198) | Flaky: `waitForHydration` times out on the not-found page (3 of 5 repeats)       |
-| 14 skipped: env-gated, stubs, data-gated                    | `subscription`, `pricing`, `billing-management` | [KAN-197](https://storecart.atlassian.net/browse/KAN-197) | See the ticket for the list                                                      |
-| 2FA section and authenticator enrolment (skipped)           | `dashboard`, `settings-totp`                    | KAN-125                                                   | Sign-in 2FA is parked; the controls are hidden                                   |
-| Data export section (skipped)                               | `dashboard`                                     | KAN-114                                                   | Switched off until KAN-114                                                       |
+| Test                                                        | Spec                                            | Ticket                                                    | Why                                                                    |
+| ----------------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `should successfully upgrade from free to pro tier` (fixme) | `subscription-simple.spec`                      | [KAN-157](https://storecart.atlassian.net/browse/KAN-157) | The Stripe webhook cannot reach a local server (needs `stripe listen`) |
+| 14 skipped: env-gated, stubs, data-gated                    | `subscription`, `pricing`, `billing-management` | [KAN-197](https://storecart.atlassian.net/browse/KAN-197) | See the ticket for the list                                            |
+| 2FA section and authenticator enrolment (skipped)           | `dashboard`, `settings-totp`                    | KAN-125                                                   | Sign-in 2FA is parked; the controls are hidden                         |
+| Data export section (skipped)                               | `dashboard`                                     | KAN-114                                                   | Switched off until KAN-114                                             |
 
-KAN-154, 155, 156 and 158 are Done (fixed, or not reproducible on current `main`) and are no longer baseline failures.
+KAN-154, 155, 156, 158, 196 and 198 are Done (fixed, or not reproducible on current `main`) and are no longer baseline failures.
 
 ## Ports
 
