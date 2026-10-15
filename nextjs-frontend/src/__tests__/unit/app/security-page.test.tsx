@@ -10,7 +10,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), refresh: 
 vi.mock('@/lib/firebase/client', () => ({
   auth: { currentUser: { email: 'a@b.test', providerData: [{ providerId: 'password' }] } },
 }));
-vi.mock('firebase/auth', () => ({ signOut: vi.fn() }));
+vi.mock('firebase/auth', () => ({ signOut: vi.fn(), onAuthStateChanged: vi.fn(() => vi.fn()) }));
 vi.mock('@/app/actions/user-actions', () => ({
   changePasswordAction: vi.fn(),
   deleteAccountAction: vi.fn(),

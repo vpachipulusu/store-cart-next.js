@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '@/lib/firebase/client';
 import { reauthenticate, reauthMethodFor, type ReauthMethod } from '@/lib/firebase/reauth';
 
@@ -58,7 +59,12 @@ export function ReauthDialog({
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isWorking, setIsWorking] = useState(false);
-  const method = reauthMethodFor(auth.currentUser);
+  const [method, setMethod] = useState<ReauthMethod | null>(() =>
+    reauthMethodFor(auth.currentUser)
+  );
+
+  // Firebase restores the signed-in user asynchronously after a page load, so follow it rather than read it once.
+  useEffect(() => onAuthStateChanged(auth, (user) => setMethod(reauthMethodFor(user))), []);
 
   function handleOpenChange(next: boolean) {
     if (isWorking) return;
@@ -130,7 +136,11 @@ export function ReauthDialog({
           <Button
             variant={destructive ? 'destructive' : 'default'}
             onClick={handleConfirm}
-            disabled={isWorking || !canConfirm || (method === 'password' && password.length === 0)}
+            disabled={
+              isWorking ||
+              !canConfirm ||
+              (method !== 'google' && method !== 'github' && password.length === 0)
+            }
           >
             {isWorking && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {confirmLabel}

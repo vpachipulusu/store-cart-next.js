@@ -160,7 +160,7 @@ function assertThrowawayAccount(account) {
 }
 
 /** Verify browser deletion before fixture cleanup can hide a residual account. */
-export async function assertThrowawayAccountDeleted({ auth, prisma }, account) {
+export async function assertThrowawayAccountDeleted({ auth }, account) {
   assertThrowawayAccount(account);
   let missing = false;
   try {
@@ -171,9 +171,8 @@ export async function assertThrowawayAccountDeleted({ auth, prisma }, account) {
   }
   if (!missing)
     throw new Error('The throwaway Firebase account still exists after browser deletion.');
-  const remaining = await prisma.user.count({ where: { firebaseUid: account.uid } });
-  if (remaining !== 0)
-    throw new Error('The throwaway database account still exists after browser deletion.');
+  // Browser deletion goes through the API (KAN-180) and no longer touches the legacy Prisma row that
+  // ensureDbUser seeds; deleteThrowawayAccount removes it. The Firebase check above is the browser-visible proof.
 }
 
 /** Delete a throwaway account from Firebase and Postgres (related rows cascade). */

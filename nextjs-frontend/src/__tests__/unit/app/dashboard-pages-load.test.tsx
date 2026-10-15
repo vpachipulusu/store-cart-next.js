@@ -14,7 +14,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: 
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: mocks.toast }) }));
 vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn() } }));
 vi.mock('@/lib/firebase/client', () => ({ auth: { currentUser: null } }));
-vi.mock('firebase/auth', () => ({ signOut: vi.fn() }));
+vi.mock('firebase/auth', () => ({ signOut: vi.fn(), onAuthStateChanged: vi.fn(() => vi.fn()) }));
 vi.mock('@/app/actions/user-actions', () => ({
   deleteAccountAction: vi.fn(),
   disableTwoFactorAction: vi.fn(),
