@@ -188,6 +188,23 @@ BILLING_RETURN_URL_ORIGINS            # allowed origins for Stripe return URLs
 
 Run the ECC reviewers on every PR diff before merging: `security-reviewer` for auth, payments, secrets, SQL and external calls; the language reviewer (`typescript-reviewer`, `python-reviewer`, `react-reviewer`, `fastapi-reviewer`); `database-reviewer` for migrations and queries. Fix CRITICAL and HIGH findings first. Coordinator-owned files that developer branches must not edit: `.env.example`, `.claude/CLAUDE.md`, `known-issues.md`.
 
+## ECC (agents, skills, hooks)
+
+The repo enables the ECC plugin in `.claude/settings.json` (`ecc@ecc`), so every clone and worktree gets ECC's subagents, skills and hooks. Call agents by their plugin names (`ecc:<name>`). Do not add ECC hooks to this repo's settings: the plugin already registers them, and a second copy runs them twice. The project keeps only `.claude/hooks/guard.mjs`.
+
+Required agent per kind of change (coordinator on every PR diff; developers on their own branch before opening the PR):
+
+| Change | Agents |
+|---|---|
+| Any code change | `ecc:code-reviewer` plus the language reviewer: `ecc:typescript-reviewer` / `ecc:react-reviewer` (frontend), `ecc:python-reviewer` / `ecc:fastapi-reviewer` (backend) |
+| Auth, payments, secrets, user input, external calls, crypto | `ecc:security-reviewer` |
+| Migrations, SQL, models | `ecc:database-reviewer` |
+| New feature or bug fix | `ecc:tdd-guide` (tests first) |
+| Allocation, design decisions | `ecc:architect` and `ecc:planner`, plus the project `product-manager` agent (`.claude/agents/product-manager.md`, Sonnet, read-only) |
+| Failing build | `ecc:build-error-resolver` |
+
+`general-purpose` is for plain searching only, never for review. The Jira merge comment lists which agents ran and what they found (CRITICAL and HIGH fixed first), so the review is verifiable.
+
 ## Package Manager
 
 This project uses **npm** exclusively. Do not use `pnpm` or `yarn`.
