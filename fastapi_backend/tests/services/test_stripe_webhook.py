@@ -31,6 +31,8 @@ def subscription(
     price: str | None = PRO_PRICE,
     period_end: int | None = T0 + 1000,
     item_period_end: int | None = None,
+    cancel_at_period_end: Any = None,
+    cancel_at: Any = None,
 ) -> dict[str, Any]:
     item: dict[str, Any] = {"price": {"id": price}} if price else {}
     if item_period_end is not None:
@@ -43,6 +45,10 @@ def subscription(
     }
     if period_end is not None:
         body["current_period_end"] = period_end
+    if cancel_at_period_end is not None:
+        body["cancel_at_period_end"] = cancel_at_period_end
+    if cancel_at is not None:
+        body["cancel_at"] = cancel_at
     return body
 
 
@@ -408,6 +414,61 @@ def test_late_active_update_does_not_resurrect_a_subscription_ended_in_the_same_
             stripe_subscription_event_at=at(T0),
             subscription_status="canceled",
         ),
+        PRICES,
+    )
+
+    assert change is None
+
+
+@pytest.mark.parametrize(
+    ("fields", "expected"),
+    [
+        ({}, False),
+        ({"cancel_at_period_end": False}, False),
+        ({"cancel_at_period_end": True}, True),
+        ({"cancel_at": T0 + 5000}, True),
+        ({"cancel_at_period_end": False, "cancel_at": T0 + 5000}, True),
+        ({"cancel_at_period_end": "true"}, False),
+        ({"cancel_at": "soon"}, False),
+    ],
+)
+def test_parse_reads_the_cancellation_flag_with_cancel_at_as_fallback(fields, expected):
+    assert parse_subscription(subscription(**fields)).cancel_at_period_end is expected
+
+
+def _flag(event_type: str, status: str) -> bool:
+    change = plan_change(
+        event_type,
+        at(T0),
+        parse_subscription(subscription(status, cancel_at_period_end=True)),
+        state(stripe_subscription_id="sub_1", subscription_tier="pro"),
+        PRICES,
+    )
+    assert change is not None
+    return change.stripe_cancel_at_period_end
+
+
+def test_flag_is_stored_for_a_live_subscription():
+    assert _flag("customer.subscription.updated", "active") is True
+
+
+@pytest.mark.parametrize(
+    ("event_type", "status"),
+    [
+        ("customer.subscription.deleted", "active"),
+        ("customer.subscription.updated", "canceled"),
+    ],
+)
+def test_flag_is_cleared_once_the_subscription_has_ended(event_type, status):
+    assert _flag(event_type, status) is False
+
+
+def test_flag_respects_the_stale_event_rule():
+    change = plan_change(
+        "customer.subscription.updated",
+        at(T0 - 1),
+        parse_subscription(subscription(cancel_at_period_end=True)),
+        state(stripe_subscription_event_at=at(T0), stripe_subscription_id="sub_1"),
         PRICES,
     )
 

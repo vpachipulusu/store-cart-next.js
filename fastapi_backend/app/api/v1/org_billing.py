@@ -7,7 +7,7 @@ Errors are generic: no Stripe text, ids or customer data reach a response or a l
 """
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Response
 from pydantic import BaseModel, ConfigDict, Field
@@ -35,6 +35,7 @@ from app.services.org_billing import (
     InvalidReturnUrl,
     OrganizationNotFound,
     OrgBillingService,
+    PaymentMethodNotFound,
     PriceCatalogue,
     allowed_origins,
 )
@@ -69,6 +70,18 @@ RequestKey = Annotated[
         pattern=r"^[A-Za-z0-9_-]+$",
     ),
 ]
+RequiredRequestKey = Annotated[
+    str,
+    Header(
+        alias="Idempotency-Key",
+        min_length=8,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    ),
+]
+PaymentMethodId = Annotated[
+    str, Path(min_length=4, max_length=255, pattern=r"^pm_[A-Za-z0-9]+$")
+]
 PlanName = Literal["pro", "enterprise"]
 Interval = Literal["monthly", "yearly"]
 
@@ -87,6 +100,8 @@ class BillingData(BaseModel):
     current_period_end: datetime | None
     has_billing_account: bool
     has_subscription: bool
+    cancel_at_period_end: bool
+    interval: Interval | None
 
 
 class BillingResponse(BaseModel):
@@ -130,6 +145,7 @@ class PaymentMethodData(BaseModel):
     last4: str | None
     exp_month: int | None
     exp_year: int | None
+    is_default: bool
 
 
 class PaymentMethodsResponse(BaseModel):
@@ -193,6 +209,7 @@ ServiceDep = Annotated[OrgBillingService, Depends(get_org_billing_service)]
 
 HANDLED = (
     OrganizationNotFound,
+    PaymentMethodNotFound,
     BillingForbidden,
     BillingConflict,
     InvalidReturnUrl,
@@ -204,6 +221,8 @@ HANDLED = (
 def _http_error(exc: Exception) -> HTTPException:
     if isinstance(exc, OrganizationNotFound):
         return HTTPException(404, "Organization not found")
+    if isinstance(exc, PaymentMethodNotFound):
+        return HTTPException(404, "Payment method not found")
     if isinstance(exc, BillingForbidden):
         return HTTPException(403, "Forbidden")
     if isinstance(exc, BillingConflict):
@@ -245,6 +264,8 @@ async def read_billing(
             current_period_end=summary.current_period_end,
             has_billing_account=summary.has_billing_account,
             has_subscription=summary.has_subscription,
+            cancel_at_period_end=summary.cancel_at_period_end,
+            interval=cast(Interval | None, summary.interval),
         )
     )
 
@@ -383,3 +404,41 @@ async def list_payment_methods(
     except HANDLED as exc:
         raise _http_error(exc) from None
     return PaymentMethodsResponse(data=[PaymentMethodData(**vars(m)) for m in methods])
+
+
+@router.delete("/payment-methods/{payment_method_id}", response_model=OkResponse)
+async def delete_payment_method(
+    organization_id: OrganizationId,
+    payment_method_id: PaymentMethodId,
+    response: Response,
+    user_id: CurrentUserIdDep,
+    service: ServiceDep,
+    request_key: RequiredRequestKey,
+) -> OkResponse:
+    _no_store(response)
+    try:
+        await service.delete_payment_method(
+            organization_id, user_id, payment_method_id, request_key=request_key
+        )
+    except HANDLED as exc:
+        raise _http_error(exc) from None
+    return OkResponse()
+
+
+@router.post("/payment-methods/{payment_method_id}/default", response_model=OkResponse)
+async def set_default_payment_method(
+    organization_id: OrganizationId,
+    payment_method_id: PaymentMethodId,
+    response: Response,
+    user_id: CurrentUserIdDep,
+    service: ServiceDep,
+    request_key: RequiredRequestKey,
+) -> OkResponse:
+    _no_store(response)
+    try:
+        await service.set_default_payment_method(
+            organization_id, user_id, payment_method_id, request_key=request_key
+        )
+    except HANDLED as exc:
+        raise _http_error(exc) from None
+    return OkResponse()

@@ -20,6 +20,7 @@ class OrgBillingRecord:
     stripe_current_period_end: datetime | None
     subscription_tier: str
     subscription_status: str
+    stripe_cancel_at_period_end: bool = False
 
 
 class OrgBillingRepository(BaseRepository):
@@ -52,6 +53,7 @@ class OrgBillingRepository(BaseRepository):
             organization.stripe_current_period_end,
             organization.subscription_tier,
             organization.subscription_status,
+            organization.stripe_cancel_at_period_end,
         )
 
     async def link_customer(self, organization_id: str, customer_id: str) -> str:

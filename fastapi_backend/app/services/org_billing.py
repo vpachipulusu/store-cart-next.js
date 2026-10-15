@@ -11,7 +11,7 @@ id before the first Checkout, which the webhook needs to find the organisation.
 """
 
 from collections.abc import Awaitable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Protocol
 from urllib.parse import urlsplit
@@ -24,6 +24,7 @@ from app.core.stripe_billing import (
     StripeBilling,
     StripeError,
     StripeInvoice,
+    StripeNotFound,
     StripePaymentMethod,
 )
 from app.models.platform.membership import MembershipRole
@@ -51,6 +52,13 @@ class BillingForbidden(Exception):
 
 class BillingConflict(Exception):
     """The request does not fit the organisation's current subscription (409)."""
+
+
+class PaymentMethodNotFound(Exception):
+    """No such payment method on this organisation's customer (404).
+
+    Raised for an unknown id and for one that belongs to another customer alike.
+    """
 
 
 class InvalidReturnUrl(Exception):
@@ -82,6 +90,8 @@ class BillingSummary:
     current_period_end: datetime | None
     has_billing_account: bool
     has_subscription: bool
+    cancel_at_period_end: bool
+    interval: str | None
 
 
 def allowed_origins(raw: str) -> frozenset[str]:
@@ -167,6 +177,8 @@ class OrgBillingService:
             current_period_end=record.stripe_current_period_end,
             has_billing_account=record.stripe_customer_id is not None,
             has_subscription=record.stripe_subscription_id is not None,
+            cancel_at_period_end=record.stripe_cancel_at_period_end,
+            interval=self._interval(record.stripe_price_id),
         )
 
     async def start_checkout(
@@ -286,8 +298,91 @@ class OrgBillingService:
         record = await self.authorize(organization_id, user_id)
         if record.stripe_customer_id is None:
             return []
-        return await _stripe_call(
+        methods = await _stripe_call(
             self._stripe.list_payment_methods(record.stripe_customer_id)
+        )
+        default = await _stripe_call(
+            self._stripe.get_default_payment_method_id(record.stripe_customer_id)
+        )
+        return [replace(m, is_default=m.id == default) for m in methods]
+
+    async def delete_payment_method(
+        self,
+        organization_id: str,
+        user_id: str,
+        payment_method_id: str,
+        *,
+        request_key: str,
+    ) -> None:
+        record = await self.authorize(organization_id, user_id)
+        customer_id = await self._owned_customer(record, payment_method_id)
+        if _has_live_subscription(record):
+            default = await _stripe_call(
+                self._stripe.get_default_payment_method_id(customer_id)
+            )
+            if default == payment_method_id:
+                # Removing the card that renews the subscription would make it lapse.
+                raise BillingConflict
+        await _stripe_call(
+            self._stripe.detach_payment_method(
+                payment_method_id=payment_method_id,
+                idempotency_key=_key("pm-delete", record.id, request_key),
+            )
+        )
+
+    async def set_default_payment_method(
+        self,
+        organization_id: str,
+        user_id: str,
+        payment_method_id: str,
+        *,
+        request_key: str,
+    ) -> None:
+        record = await self.authorize(organization_id, user_id)
+        customer_id = await self._owned_customer(record, payment_method_id)
+        await _stripe_call(
+            self._stripe.set_default_payment_method(
+                customer_id=customer_id,
+                payment_method_id=payment_method_id,
+                idempotency_key=_key("pm-default", record.id, request_key),
+            )
+        )
+
+    async def _owned_customer(
+        self, record: OrgBillingRecord, payment_method_id: str
+    ) -> str:
+        """The organisation's customer id, if it owns the payment method.
+
+        An organisation with no customer, an unknown payment method and another
+        customer's payment method all raise the same error.
+        """
+        customer_id = record.stripe_customer_id
+        if customer_id is None:
+            raise PaymentMethodNotFound
+        try:
+            owner = await self._stripe.get_payment_method_customer_id(payment_method_id)
+        except StripeNotFound:
+            raise PaymentMethodNotFound from None
+        except StripeError:
+            raise BillingUnavailable from None
+        if owner != customer_id:
+            raise PaymentMethodNotFound
+        return customer_id
+
+    def _interval(self, price_id: str | None) -> str | None:
+        """monthly or yearly for a configured price id; None if it is not in the catalogue.
+
+        Rotating a price id in settings leaves subscriptions on the old id unmapped.
+        """
+        if price_id is None:
+            return None
+        return next(
+            (
+                interval
+                for (_, interval), id_ in self._prices.items()
+                if id_ == price_id
+            ),
+            None,
         )
 
     def _price(self, plan: PlanKey, interval: str) -> str:
