@@ -3,6 +3,7 @@ import { redirect, unstable_rethrow } from 'next/navigation';
 import { isEmailNotVerifiedError, verifyVerifiedSessionCookie } from '@/lib/auth/verified-session';
 import { fetchBillingSummary, NO_BILLING_ORGANIZATION_MESSAGE } from '@/lib/api/billing';
 import { fetchLoginHistory, fetchProfile, toLoginHistoryEntry, toProfile } from '@/lib/api/account';
+import { describePlanStatus } from '@/lib/billing-status';
 import { isSessionRejected } from '@/lib/api/session-rejected';
 import { isSessionVerificationError, logRouteError } from '@/lib/auth/session-errors';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -88,8 +89,12 @@ async function getUserData() {
       totalLogins: history.data.total_count,
       lastLoginAt: history.data.login_history[0]?.login_at ?? null,
       subscriptionTier: plan?.plan.key ?? 'free',
-      subscriptionStatus: plan?.subscription_status ?? 'inactive',
-      stripeCurrentPeriodEnd: plan?.current_period_end ?? null,
+      planStatus: describePlanStatus({
+        planKey: plan?.plan.key ?? 'free',
+        status: plan?.subscription_status ?? 'inactive',
+        periodEnd: plan?.current_period_end ?? null,
+        hasSubscription: plan?.has_subscription ?? false,
+      }),
     };
   } catch (error) {
     unstable_rethrow(error);
@@ -130,7 +135,6 @@ export default async function DashboardPage({
   const stats = getStats(user);
 
   const isFreeTier = user.subscriptionTier === 'free';
-  const hasActiveSubscription = user.subscriptionStatus === 'active' && !isFreeTier;
 
   return (
     <div className="space-y-8">
@@ -195,11 +199,7 @@ export default async function DashboardPage({
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold capitalize">{user.subscriptionTier}</div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {hasActiveSubscription && user.stripeCurrentPeriodEnd
-                ? `Active until ${new Date(user.stripeCurrentPeriodEnd).toLocaleDateString()}`
-                : user.subscriptionStatus}
-            </p>
+            <p className="mt-1 text-xs text-muted-foreground">{user.planStatus}</p>
           </CardContent>
         </Card>
 
@@ -438,7 +438,7 @@ export default async function DashboardPage({
             <div className="space-y-2">
               <p className="text-sm text-muted-foreground">Current Plan</p>
               <p className="text-2xl font-bold capitalize">{user.subscriptionTier}</p>
-              <p className="text-xs text-muted-foreground">{user.subscriptionStatus}</p>
+              <p className="text-xs text-muted-foreground">{user.planStatus}</p>
             </div>
           </div>
         </CardContent>

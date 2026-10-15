@@ -122,6 +122,101 @@ describe('DashboardPage', () => {
     expect(markup).toContain('Active until');
   });
 
+  describe('plan status line', () => {
+    const PERIOD_END = '2027-01-01T00:00:00Z';
+    const DATE = new Date(PERIOD_END).toLocaleDateString();
+    const SUMMARY_STATUS_ELEMENT = (status: string) =>
+      `<p class="text-xs text-muted-foreground">${status}</p>`;
+    const summary = (
+      status: string,
+      overrides: { planKey?: string; hasSubscription?: boolean; periodEnd?: string | null } = {}
+    ) => ({
+      success: true,
+      data: {
+        plan: {
+          key: overrides.planKey ?? 'pro',
+          name: 'Pro',
+          max_stores: null,
+          max_products: null,
+          max_staff: null,
+        },
+        subscription_status: status,
+        current_period_end: 'periodEnd' in overrides ? overrides.periodEnd : PERIOD_END,
+        has_billing_account: overrides.hasSubscription ?? true,
+        has_subscription: overrides.hasSubscription ?? true,
+        cancel_at_period_end: false,
+        interval: 'monthly',
+      },
+    });
+
+    // Every backend subscription_status value; the label never shows the raw value.
+    it.each([
+      ['active', `Active until ${DATE}`],
+      ['trialing', `Trial ends ${DATE}`],
+      ['past_due', 'Payment past due'],
+      ['inactive', 'Inactive'],
+      ['canceled', 'Canceled'],
+      ['unpaid', 'Unpaid'],
+      ['incomplete', 'Incomplete'],
+      ['incomplete_expired', 'Incomplete expired'],
+      ['paused', 'Paused'],
+    ])('shows %s as "%s" on the plan card and the account summary', async (status, label) => {
+      mocks.fetchBillingSummary.mockResolvedValue(summary(status));
+
+      const markup = renderToStaticMarkup((await page()) as React.ReactElement);
+
+      expect(markup).toContain(PLAN_ELEMENT('pro'));
+      expect(markup).toContain(STATUS_ELEMENT(label));
+      expect(markup).toContain(SUMMARY_STATUS_ELEMENT(label));
+      expect(markup).not.toContain(STATUS_ELEMENT(status));
+    });
+
+    it.each([
+      ['active', 'Active'],
+      ['trialing', 'Trial'],
+    ])('drops the date for %s when the period end is unknown', async (status, label) => {
+      mocks.fetchBillingSummary.mockResolvedValue(summary(status, { periodEnd: null }));
+
+      const markup = renderToStaticMarkup((await page()) as React.ReactElement);
+
+      expect(markup).toContain(STATUS_ELEMENT(label));
+      expect(markup).not.toContain('Invalid Date');
+    });
+
+    it('shows an admin-granted plan (paid plan, status inactive, no subscription) as granted', async () => {
+      mocks.fetchBillingSummary.mockResolvedValue(
+        summary('inactive', { planKey: 'enterprise', hasSubscription: false, periodEnd: null })
+      );
+
+      const markup = renderToStaticMarkup((await page()) as React.ReactElement);
+
+      expect(markup).toContain(PLAN_ELEMENT('enterprise'));
+      expect(markup).toContain(STATUS_ELEMENT('Granted by admin'));
+      expect(markup).toContain(SUMMARY_STATUS_ELEMENT('Granted by admin'));
+      expect(markup).not.toContain(STATUS_ELEMENT('inactive'));
+      expect(markup).not.toContain('Upgrade to Pro');
+    });
+
+    it('does not call a paid plan with no subscription "granted" unless its status is inactive', async () => {
+      mocks.fetchBillingSummary.mockResolvedValue(
+        summary('canceled', { hasSubscription: false, periodEnd: null })
+      );
+
+      const markup = renderToStaticMarkup((await page()) as React.ReactElement);
+
+      expect(markup).toContain(STATUS_ELEMENT('Canceled'));
+      expect(markup).not.toContain('Granted by admin');
+    });
+
+    it('humanises a status value the dashboard does not know yet', async () => {
+      mocks.fetchBillingSummary.mockResolvedValue(summary('some_new_state'));
+
+      const markup = renderToStaticMarkup((await page()) as React.ReactElement);
+
+      expect(markup).toContain(STATUS_ELEMENT('Some new state'));
+    });
+  });
+
   it('treats an account with no billing organisation as free instead of failing', async () => {
     mocks.fetchBillingSummary.mockResolvedValue({
       success: false,
@@ -134,7 +229,7 @@ describe('DashboardPage', () => {
     expect(markup).not.toContain(PLAN_ELEMENT('pro'));
     expect(markup).toContain('Upgrade to Pro');
     expect(markup).not.toContain('Active until');
-    expect(markup).toContain(STATUS_ELEMENT('inactive'));
+    expect(markup).toContain(STATUS_ELEMENT('Inactive'));
   });
 
   it('clears the session when the billing call finds it rejected', async () => {
