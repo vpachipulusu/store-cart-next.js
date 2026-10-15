@@ -200,10 +200,19 @@ Required agent per kind of change (coordinator on every PR diff; developers on t
 | Auth, payments, secrets, user input, external calls, crypto | `ecc:security-reviewer` |
 | Migrations, SQL, models | `ecc:database-reviewer` |
 | New feature or bug fix | `ecc:tdd-guide` (tests first) |
-| Allocation, design decisions | `ecc:architect` and `ecc:planner`, plus the project `product-manager` agent (`.claude/agents/product-manager.md`, Sonnet, read-only) |
+| Allocation, design decisions | `ecc:architect` and `ecc:planner` (there is no separate product-manager agent; the rules below are its brief) |
 | Failing build | `ecc:build-error-resolver` |
 
 `general-purpose` is for plain searching only, never for review. The Jira merge comment lists which agents ran and what they found (CRITICAL and HIGH fixed first), so the review is verifiable.
+
+### Allocation rules (give these to `ecc:architect` and `ecc:planner`)
+
+- Pick bugs before features. Work only stories in To-do; a story's acceptance criteria are its definition of done and scope is never widened (propose a new story instead).
+- Parked, do not touch: KAN-125, KAN-145, KAN-115. UI redesign stories stay on hold until the foundation work is done.
+- At most 3 or 4 developers in parallel, on disjoint files, and exactly one backend developer at a time (one Alembic head). One ticket at a time on `auth-actions.ts`.
+- The OpenAPI client is regenerated only in backend branches.
+- Coordinator-owned files that developer branches must not edit: `.env.example`, `.claude/CLAUDE.md`, `known-issues.md`.
+- Only the `CI gate` check matters; Vercel checks are ignored. E2E specs are written and run locally with the command and result in the PR; `E2E_ENABLED` is never flipped.
 
 ## Package Manager
 
