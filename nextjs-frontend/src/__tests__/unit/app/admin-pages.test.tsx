@@ -15,6 +15,9 @@ const mocks = vi.hoisted(() => ({
     throw new Error('NEXT_NOT_FOUND');
   }),
   logError: vi.fn(),
+  fetchAdminAuditLogs: vi.fn(),
+  fetchAdminSubscriptions: vi.fn(),
+  getStripePrices: vi.fn(),
 }));
 
 vi.mock('@/lib/api/admin-users', async () => {
@@ -26,16 +29,31 @@ vi.mock('@/lib/api/admin-users', async () => {
     fetchAdminUser: mocks.fetchAdminUser,
   };
 });
+vi.mock('@/lib/api/admin-audit-logs', () => ({
+  AUDIT_LOG_PAGE_SIZE: 100,
+  fetchAdminAuditLogs: mocks.fetchAdminAuditLogs,
+}));
+vi.mock('@/lib/api/admin-subscriptions', () => ({
+  fetchAdminSubscriptions: mocks.fetchAdminSubscriptions,
+}));
+vi.mock('@/config/subscriptions', () => ({
+  getStripePrices: mocks.getStripePrices,
+  getCurrencySymbol: vi.fn(async () => '$'),
+}));
+vi.mock('@/components/admin/refresh-button', () => ({ RefreshButton: () => <span /> }));
 vi.mock('next/navigation', () => ({ notFound: mocks.notFound }));
 vi.mock('@/lib/logger', () => ({ logger: { error: mocks.logError } }));
 vi.mock('@/app/(admin)/admin/users/user-row-actions', () => ({
   UserRowActions: ({ userId }: { userId: string }) => <span data-row-actions={userId} />,
 }));
 
+import type { AuditLogEntry, SubscriptionSummary } from '@/lib/api/generated';
 import AdminDashboardPage from '@/app/(admin)/admin/page';
 import AdminAnalyticsPage from '@/app/(admin)/admin/analytics/page';
 import AdminSeoPage from '@/app/(admin)/admin/seo/page';
 import AdminSettingsPage from '@/app/(admin)/admin/settings/page';
+import AdminAuditLogsPage from '@/app/(admin)/admin/audit-logs/page';
+import AdminSubscriptionsPage from '@/app/(admin)/admin/subscriptions/page';
 import AdminUsersPage from '@/app/(admin)/admin/users/page';
 import AdminUserDetailPage from '@/app/(admin)/admin/users/[id]/page';
 
@@ -71,6 +89,8 @@ describe('switched-off admin pages', () => {
     'settings/page.tsx',
     'users/page.tsx',
     'users/[id]/page.tsx',
+    'audit-logs/page.tsx',
+    'subscriptions/page.tsx',
   ])('%s does not import the database client', (file) => {
     expect(readFileSync(join(ADMIN_DIR, file), 'utf8')).not.toContain('@/lib/db/client');
   });
@@ -163,5 +183,211 @@ describe('admin user detail page', () => {
 
     expect(markup).toContain('Something went wrong');
     expect(markup).not.toContain('SECRET');
+  });
+});
+
+const ENTRY = {
+  id: 'a1',
+  created_at: '2026-01-01T00:00:00Z',
+  user_id: 'user-1',
+  organization_id: null,
+  store_id: null,
+  action: 'user.ban',
+  resource: 'user',
+  resource_id: null,
+  metadata: null,
+  ip_address: '203.0.113.9',
+  user_agent: null,
+} satisfies AuditLogEntry;
+
+const auditPage = (entries: AuditLogEntry[], total = entries.length) => ({
+  success: true,
+  data: { entries, total_count: total, limit: 100, offset: 0 },
+});
+
+describe('admin audit logs page', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('renders entries read through the API with a labelled table and the total', async () => {
+    mocks.fetchAdminAuditLogs.mockResolvedValue(auditPage([ENTRY], 250));
+
+    const markup = html(await AdminAuditLogsPage());
+
+    expect(markup).toContain('user.ban');
+    expect(markup).toContain('user-1');
+    expect(markup).toContain('203.0.113.9');
+    expect(markup).toContain('Showing 1 of 250 entries');
+    expect(markup).toContain('aria-label="Audit log entries"');
+  });
+
+  it('gives screen readers text for missing user and IP values', async () => {
+    mocks.fetchAdminAuditLogs.mockResolvedValue(
+      auditPage([{ ...ENTRY, user_id: null, ip_address: null } satisfies AuditLogEntry])
+    );
+
+    const markup = html(await AdminAuditLogsPage());
+
+    expect(markup).toContain('<span class="sr-only">None</span>');
+  });
+
+  it('shows the empty state when there are no entries', async () => {
+    mocks.fetchAdminAuditLogs.mockResolvedValue(auditPage([]));
+
+    expect(html(await AdminAuditLogsPage())).toContain('No audit logs found');
+  });
+
+  it.each([
+    [403, 'You do not have permission to do that'],
+    [404, 'Not found'],
+    [500, 'Something went wrong'],
+    [undefined, 'The admin service is unavailable'],
+  ])('shows a curated message for status %s and no backend text', async (status, text) => {
+    mocks.fetchAdminAuditLogs.mockResolvedValue({ success: false, error: 'SECRET', status });
+
+    const markup = html(await AdminAuditLogsPage());
+
+    expect(markup).toContain(text);
+    expect(markup).not.toContain('SECRET');
+    expect(markup).not.toContain('User not found');
+    expect(markup).toContain('role="alert"');
+    expect(mocks.logError).toHaveBeenCalled();
+  });
+});
+
+describe('admin subscriptions page', () => {
+  const sub = (id: string, plan: SubscriptionSummary['plan'], createdAt: string) =>
+    ({
+      organization_id: id,
+      name: `Org ${id}`,
+      slug: `org-${id}`,
+      plan,
+      status: 'active',
+      current_period_end: null,
+      cancel_at_period_end: false,
+      has_stripe_subscription: false,
+      granted_plan: null,
+      granted_until: null,
+      created_at: createdAt,
+    }) satisfies SubscriptionSummary;
+  type Query = { status?: string; plan?: string };
+  const page = (subscriptions: SubscriptionSummary[], total = subscriptions.length) => ({
+    success: true,
+    data: { subscriptions, total_count: total, limit: 20, offset: 0 },
+  });
+  const byQuery = (q: Query) => {
+    if (q.status === 'canceled') return page([], 4);
+    if (q.plan === 'pro') return page([sub('p1', 'pro', '2026-01-02T00:00:00Z')], 3);
+    return page([sub('e1', 'enterprise', '2026-01-03T00:00:00Z')], 2);
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getStripePrices.mockResolvedValue({ pro: { monthly: 10 }, enterprise: { monthly: 100 } });
+    mocks.fetchAdminSubscriptions.mockImplementation(async (q: Query) => byQuery(q));
+  });
+
+  it('computes the counts and MRR from the API totals and lists the newest organisations', async () => {
+    const markup = html(await AdminSubscriptionsPage());
+
+    expect(markup).toContain('Newest paid organisations');
+    expect(markup.indexOf('Org e1')).toBeLessThan(markup.indexOf('Org p1'));
+    expect(markup).toContain('$230');
+    expect(markup).toContain('4 canceled (all time)');
+    expect(mocks.fetchAdminSubscriptions).toHaveBeenCalledWith({
+      status: 'active',
+      plan: 'pro',
+      limit: 20,
+    });
+    expect(mocks.fetchAdminSubscriptions).toHaveBeenCalledWith({
+      status: 'active',
+      plan: 'enterprise',
+      limit: 20,
+    });
+  });
+
+  it('orders by the parsed timestamp, not the string', async () => {
+    mocks.fetchAdminSubscriptions.mockImplementation(async (q: Query) =>
+      q.plan === 'pro'
+        ? page([sub('p1', 'pro', '2026-01-02T10:00:00+02:00')])
+        : q.plan === 'enterprise'
+          ? page([sub('e1', 'enterprise', '2026-01-02T09:00:00Z')])
+          : page([])
+    );
+
+    const markup = html(await AdminSubscriptionsPage());
+
+    // 10:00+02:00 is 08:00Z, so the enterprise org (09:00Z) is newer although its string sorts lower.
+    expect(markup.indexOf('Org e1')).toBeLessThan(markup.indexOf('Org p1'));
+  });
+
+  it('keeps only the newest 20 across both plans', async () => {
+    const many = (plan: 'pro' | 'enterprise', day: number) =>
+      Array.from({ length: 20 }, (_, i) =>
+        sub(
+          `${plan}-${i}`,
+          plan,
+          `2026-01-${String(day).padStart(2, '0')}T00:${String(i).padStart(2, '0')}:00Z`
+        )
+      );
+    mocks.fetchAdminSubscriptions.mockImplementation(async (q: Query) =>
+      q.plan === 'pro'
+        ? page(many('pro', 5), 20)
+        : q.plan === 'enterprise'
+          ? page(many('enterprise', 4), 20)
+          : page([])
+    );
+
+    const markup = html(await AdminSubscriptionsPage());
+
+    expect(markup).toContain('Org pro-0');
+    expect(markup).not.toContain('Org enterprise-0');
+  });
+
+  it('labels the table and the manage buttons, and gives empty renewal dates text', async () => {
+    const markup = html(await AdminSubscriptionsPage());
+
+    for (const header of ['Organisation', 'Slug', 'Plan', 'Status', 'Renewal Date']) {
+      expect(markup).toContain(`>${header}</th>`);
+    }
+    expect(markup).toContain('aria-label="Newest paid organisations"');
+    expect(markup).toContain('aria-label="Manage Org p1"');
+    expect(markup).toContain('<span class="sr-only">None</span>');
+  });
+
+  it('shows the empty state when no paid organisation exists', async () => {
+    mocks.fetchAdminSubscriptions.mockImplementation(async () => page([]));
+
+    expect(html(await AdminSubscriptionsPage())).toContain('No Active Subscriptions');
+  });
+
+  it('still renders counts and the table when the Stripe prices fail', async () => {
+    mocks.getStripePrices.mockRejectedValue(new Error('stripe down'));
+
+    const markup = html(await AdminSubscriptionsPage());
+
+    expect(markup).toContain('Org p1');
+    expect(markup).toContain('Price unavailable');
+    expect(mocks.logError).toHaveBeenCalled();
+  });
+
+  it.each([
+    ['canceled', { status: 'canceled' }],
+    ['pro', { plan: 'pro' }],
+    ['enterprise', { plan: 'enterprise' }],
+  ])('shows a curated error when the %s call fails', async (_name, match) => {
+    mocks.fetchAdminSubscriptions.mockImplementation(async (q: Query) =>
+      Object.entries(match).every(([k, v]) => (q as Record<string, unknown>)[k] === v)
+        ? { success: false, error: 'SECRET', status: 404 }
+        : byQuery(q)
+    );
+
+    const markup = html(await AdminSubscriptionsPage());
+
+    expect(markup).toContain('Not found');
+    expect(markup).not.toContain('User not found');
+    expect(markup).not.toContain('SECRET');
+    expect(markup).not.toContain('Newest paid organisations');
+    expect(markup).toContain('role="alert"');
+    expect(mocks.logError).toHaveBeenCalled();
   });
 });

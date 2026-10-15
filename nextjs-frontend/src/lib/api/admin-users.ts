@@ -1,5 +1,11 @@
 import 'server-only';
 
+import {
+  ADMIN_FORBIDDEN_MESSAGE,
+  ADMIN_REQUEST_FAILED_MESSAGE,
+  ADMIN_UNAVAILABLE_MESSAGE,
+  adminErrorMessage as baseAdminErrorMessage,
+} from './admin-errors';
 import { callBackend, type ApiResult } from './server';
 import {
   banUser,
@@ -24,11 +30,8 @@ import {
 
 export const ADMIN_USERS_PAGE_SIZE = 50;
 
-export const ADMIN_FORBIDDEN_MESSAGE = 'You do not have permission to do that';
+export { ADMIN_FORBIDDEN_MESSAGE, ADMIN_REQUEST_FAILED_MESSAGE, ADMIN_UNAVAILABLE_MESSAGE };
 export const ADMIN_USER_NOT_FOUND_MESSAGE = 'User not found';
-export const ADMIN_REQUEST_FAILED_MESSAGE = 'Something went wrong. Please try again.';
-export const ADMIN_UNAVAILABLE_MESSAGE =
-  'The admin service is unavailable. Please try again later.';
 
 /** Search text is capped before it reaches the API; the backend validates again. */
 const MAX_SEARCH_LENGTH = 100;
@@ -77,22 +80,9 @@ export function unbanAdminUser(userId: string) {
   return callBackend((client) => unbanUser({ client, path: { user_id: userId } }));
 }
 
-/**
- * Curated message for a failed admin API result. Backend error text is never passed through: only the status
- * decides the wording, so raw detail (ids, SQL, upstream errors) cannot reach the admin's browser.
- */
+/** Curated message for a failed admin users call; a 404 means the user was not found. */
 export function adminErrorMessage(result: Extract<ApiResult<unknown>, { success: false }>): string {
-  switch (result.status) {
-    case 401:
-    case 403:
-      return ADMIN_FORBIDDEN_MESSAGE;
-    case 404:
-      return ADMIN_USER_NOT_FOUND_MESSAGE;
-    case undefined:
-      return ADMIN_UNAVAILABLE_MESSAGE;
-    default:
-      return ADMIN_REQUEST_FAILED_MESSAGE;
-  }
+  return baseAdminErrorMessage(result, ADMIN_USER_NOT_FOUND_MESSAGE);
 }
 
 /** Browser-facing shapes, in the camelCase the admin UI uses. Only the fields the API returns are exposed. */

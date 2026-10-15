@@ -12,8 +12,8 @@ import {
  * These tests cover the admin panel pages including:
  * - Switched-off pages: dashboard, analytics, SEO, settings (KAN-184, "Not available yet")
  * - User management (user list, search, user detail view, actions)
- * - Subscription management (stats, subscription table)
- * - Audit logs (log table, filters)
+ * - Subscription management (read through the admin subscriptions API, KAN-50)
+ * - Audit logs (read through the admin audit logs API, KAN-50)
  *
  * NOTE: Admin tests require an admin user. If TEST_ADMIN_EMAIL is not set,
  * tests that require authentication will be skipped.
@@ -265,17 +265,22 @@ test.describe('Admin Dashboard', () => {
     });
 
     test('should display recent subscriptions table', async ({ page }) => {
-      await expect(page.getByText('Recent Subscriptions')).toBeVisible();
+      await expect(page.getByText('Newest paid organisations', { exact: true })).toBeVisible();
 
-      const table = page.locator('table');
-      await expect(table).toBeVisible();
+      // Column headers are asserted only when a paid organisation exists. A fresh e2e database has none and
+      // seeding one needs Stripe-backed state, so the empty state is accepted; the headers are covered by the
+      // unit tests in admin-pages.test.tsx.
+      const table = page.getByRole('table');
+      const emptyState = page.getByText('No Active Subscriptions');
+      await expect(table.or(emptyState)).toBeVisible();
 
-      // Table headers
-      await expect(table.getByText(/customer/i)).toBeVisible();
-      await expect(table.getByText(/email/i)).toBeVisible();
-      await expect(table.getByText(/plan/i)).toBeVisible();
-      await expect(table.getByText(/status/i)).toBeVisible();
-      await expect(table.getByText(/renewal date/i)).toBeVisible();
+      if (await table.isVisible()) {
+        await expect(table.getByRole('columnheader', { name: /^organisation$/i })).toBeVisible();
+        await expect(table.getByRole('columnheader', { name: /^slug$/i })).toBeVisible();
+        await expect(table.getByRole('columnheader', { name: /^plan$/i })).toBeVisible();
+        await expect(table.getByRole('columnheader', { name: /^status$/i })).toBeVisible();
+        await expect(table.getByRole('columnheader', { name: /^renewal date$/i })).toBeVisible();
+      }
     });
 
     test('should display manage buttons for subscriptions', async ({ page }) => {
@@ -305,11 +310,11 @@ test.describe('Admin Dashboard', () => {
 
     test('should display recent activity section', async ({ page }) => {
       await expect(page.getByText('Recent Activity')).toBeVisible();
-      await expect(page.getByText(/last 100 audit log entries/i)).toBeVisible();
+      await expect(page.getByText(/showing \d+ of \d+ entries/i)).toBeVisible();
     });
 
     test('should show table or empty state', async ({ page }) => {
-      const table = page.locator('table');
+      const table = page.getByRole('table');
       const emptyState = page.getByText(/no audit logs found/i);
 
       const hasTable = await table.isVisible().catch(() => false);
@@ -319,7 +324,7 @@ test.describe('Admin Dashboard', () => {
     });
 
     test('should display audit log table columns when data exists', async ({ page }) => {
-      const table = page.locator('table');
+      const table = page.getByRole('table');
       const hasTable = await table.isVisible().catch(() => false);
 
       if (hasTable) {
