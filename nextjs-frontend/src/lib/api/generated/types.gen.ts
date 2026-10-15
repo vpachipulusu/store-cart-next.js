@@ -1015,6 +1015,33 @@ export type StoreResponse = {
 export type StoreStatus = 'PROVISIONING' | 'ACTIVE' | 'SUSPENDED' | 'ARCHIVED';
 
 /**
+ * StorefrontData
+ *
+ * The public fields. Add a field here only when it is safe for anyone to read.
+ */
+export type StorefrontData = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Slug
+     */
+    slug: string;
+};
+
+/**
+ * StorefrontResponse
+ */
+export type StorefrontResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: StorefrontData;
+};
+
+/**
  * TotpChangedResponse
  */
 export type TotpChangedResponse = {
@@ -3936,3 +3963,59 @@ export type UpdateStoreResponses = {
 };
 
 export type UpdateStoreResponse = UpdateStoreResponses[keyof UpdateStoreResponses];
+
+export type ReadStorefrontData = {
+    body?: never;
+    headers?: {
+        /**
+         * If-None-Match
+         */
+        'if-none-match'?: string | null;
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Slug
+         */
+        slug: string;
+    };
+    query?: never;
+    url: '/v1/storefront/{slug}';
+};
+
+export type ReadStorefrontErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+};
+
+export type ReadStorefrontError = ReadStorefrontErrors[keyof ReadStorefrontErrors];
+
+export type ReadStorefrontResponses = {
+    /**
+     * Successful Response
+     */
+    200: StorefrontResponse;
+};
+
+export type ReadStorefrontResponse = ReadStorefrontResponses[keyof ReadStorefrontResponses];

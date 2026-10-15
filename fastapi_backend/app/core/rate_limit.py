@@ -35,6 +35,10 @@ API_POLICY = RateLimitPolicy("api", limit=100, window_seconds=60, fail_closed=Fa
 WEBHOOK_POLICY = RateLimitPolicy(
     "webhook", limit=200, window_seconds=60, fail_closed=False
 )
+# Public storefront lookup (KAN-65): keyed by client IP, no user is attached.
+STOREFRONT_POLICY = RateLimitPolicy(
+    "storefront", limit=120, window_seconds=60, fail_closed=False
+)
 
 
 @dataclass(frozen=True)
