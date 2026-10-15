@@ -1,9 +1,11 @@
 // @vitest-environment node
 /**
- * KAN-41: the dashboard home page reads profile and login history through the API; only the plan still
- * comes from the legacy billing row, and a user without one is on the free plan.
+ * KAN-41 / KAN-50: the dashboard home page reads profile, login history and the plan through the API; an
+ * account with no billing organisation is on the free plan.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { NO_BILLING_ORGANIZATION_MESSAGE } from '@/lib/api/billing';
 import { navigationMock, redirectTarget, rejection } from './route-test-helpers';
 
 const mocks = vi.hoisted(() => ({
@@ -11,7 +13,8 @@ const mocks = vi.hoisted(() => ({
   verifySessionCookie: vi.fn(),
   fetchProfile: vi.fn(),
   fetchLoginHistory: vi.fn(),
-  billingFindUnique: vi.fn(),
+  fetchBillingSummary: vi.fn(),
+  dbFindUnique: vi.fn(),
   loggerError: vi.fn(),
 }));
 
@@ -20,7 +23,12 @@ vi.mock('next/headers', () => ({ cookies: async () => ({ get: mocks.cookieGet })
 vi.mock('@/lib/firebase/admin', () => ({
   getAdminAuth: () => ({ verifySessionCookie: mocks.verifySessionCookie }),
 }));
-vi.mock('@/lib/db/client', () => ({ db: { user: { findUnique: mocks.billingFindUnique } } }));
+// verified-session.ts (not part of this ticket) still imports the client for its own lookups.
+vi.mock('@/lib/db/client', () => ({ db: { user: { findUnique: mocks.dbFindUnique } } }));
+vi.mock('@/lib/api/billing', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/api/billing')>('@/lib/api/billing');
+  return { ...actual, fetchBillingSummary: mocks.fetchBillingSummary };
+});
 vi.mock('@/lib/logger', () => ({ logger: { error: mocks.loggerError } }));
 vi.mock('@/components/dashboard/subscription-success-handler', () => ({
   SubscriptionSuccessHandler: () => null,
@@ -62,6 +70,10 @@ const HISTORY = {
   ],
   total_count: 7,
 };
+// The dashboard shows the plan in a capitalised stat and the status (or renewal date) under it.
+const PLAN_ELEMENT = (plan: string) => `<div class="text-2xl font-bold capitalize">${plan}</div>`;
+const STATUS_ELEMENT = (status: string) =>
+  `<p class="mt-1 text-xs text-muted-foreground">${status}</p>`;
 const page = () => DashboardPage({ searchParams: Promise.resolve({}) });
 
 describe('DashboardPage', () => {
@@ -71,10 +83,17 @@ describe('DashboardPage', () => {
     mocks.verifySessionCookie.mockResolvedValue({ uid: 'uid-1', email_verified: true });
     mocks.fetchProfile.mockResolvedValue({ success: true, data: PROFILE });
     mocks.fetchLoginHistory.mockResolvedValue({ success: true, data: HISTORY });
-    mocks.billingFindUnique.mockResolvedValue({
-      subscriptionTier: 'pro',
-      subscriptionStatus: 'active',
-      stripeCurrentPeriodEnd: new Date('2027-01-01T00:00:00Z'),
+    mocks.fetchBillingSummary.mockResolvedValue({
+      success: true,
+      data: {
+        plan: { key: 'pro', name: 'Pro', max_stores: null, max_products: null, max_staff: null },
+        subscription_status: 'active',
+        current_period_end: '2027-01-01T00:00:00Z',
+        has_billing_account: true,
+        has_subscription: true,
+        cancel_at_period_end: false,
+        interval: 'monthly',
+      },
     });
   });
 
@@ -89,16 +108,91 @@ describe('DashboardPage', () => {
 
     expect(tree).toBeDefined();
     expect(mocks.fetchLoginHistory).toHaveBeenCalledWith(5, 0);
-    expect(mocks.billingFindUnique).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { firebaseUid: 'uid-1' } })
-    );
+    expect(mocks.fetchBillingSummary).toHaveBeenCalledTimes(1);
+    expect(mocks.dbFindUnique).not.toHaveBeenCalled();
   });
 
-  it('treats a user without a legacy billing row as free instead of failing', async () => {
-    mocks.billingFindUnique.mockResolvedValue(null);
+  it('shows the plan and status read from the billing API', async () => {
+    const markup = renderToStaticMarkup((await page()) as React.ReactElement);
 
-    await expect(page()).resolves.toBeDefined();
+    // The plan card renders the plan key from the billing API, and a paid plan has no upgrade banner.
+    expect(markup).toContain(PLAN_ELEMENT('pro'));
+    expect(markup).not.toContain(PLAN_ELEMENT('free'));
+    expect(markup).not.toContain('Upgrade to Pro');
+    expect(markup).toContain('Active until');
   });
+
+  it('treats an account with no billing organisation as free instead of failing', async () => {
+    mocks.fetchBillingSummary.mockResolvedValue({
+      success: false,
+      error: NO_BILLING_ORGANIZATION_MESSAGE,
+    });
+
+    const markup = renderToStaticMarkup((await page()) as React.ReactElement);
+
+    expect(markup).toContain(PLAN_ELEMENT('free'));
+    expect(markup).not.toContain(PLAN_ELEMENT('pro'));
+    expect(markup).toContain('Upgrade to Pro');
+    expect(markup).not.toContain('Active until');
+    expect(markup).toContain(STATUS_ELEMENT('inactive'));
+  });
+
+  it('clears the session when the billing call finds it rejected', async () => {
+    mocks.fetchBillingSummary.mockResolvedValue({
+      success: false,
+      error: 'Invalid authentication',
+      status: 401,
+    });
+
+    expect(redirectTarget(await rejection(page()))).toBe('/api/auth/clear-session');
+  });
+
+  it('keeps the session when only the billing organisation is gone (billing 404)', async () => {
+    mocks.fetchBillingSummary.mockResolvedValue({
+      success: false,
+      error: 'Request failed',
+      status: 404,
+    });
+
+    const error = await rejection(page());
+
+    expect(navigationMock.redirect).not.toHaveBeenCalled();
+    expect(String(error)).toContain('404');
+  });
+
+  it('does not render an invalid date when the period end is empty', async () => {
+    mocks.fetchBillingSummary.mockResolvedValue({
+      success: true,
+      data: {
+        plan: { key: 'pro', name: 'Pro', max_stores: null, max_products: null, max_staff: null },
+        subscription_status: 'active',
+        current_period_end: null,
+        has_billing_account: true,
+        has_subscription: true,
+        cancel_at_period_end: false,
+        interval: 'monthly',
+      },
+    });
+
+    const markup = renderToStaticMarkup((await page()) as React.ReactElement);
+
+    expect(markup).not.toContain('Invalid Date');
+  });
+
+  it.each([
+    [{ success: false, error: 'Backend unavailable' }, 'unreachable'],
+    [{ success: false, error: 'Request failed', status: 500 }, '500'],
+  ])(
+    'rethrows when the billing API is down (%o) instead of showing a wrong plan',
+    async (failure, detail) => {
+      mocks.fetchBillingSummary.mockResolvedValue(failure);
+
+      const error = await rejection(page());
+
+      expect(String(error)).toContain(detail);
+      expect(navigationMock.redirect).not.toHaveBeenCalled();
+    }
+  );
 
   it('sends an unverified user to /verify-email', async () => {
     mocks.verifySessionCookie.mockResolvedValue({ uid: 'uid-1', email_verified: false });

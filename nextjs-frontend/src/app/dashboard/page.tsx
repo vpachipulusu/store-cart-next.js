@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { redirect, unstable_rethrow } from 'next/navigation';
 import { isEmailNotVerifiedError, verifyVerifiedSessionCookie } from '@/lib/auth/verified-session';
-import { db } from '@/lib/db/client';
+import { fetchBillingSummary, NO_BILLING_ORGANIZATION_MESSAGE } from '@/lib/api/billing';
 import { fetchLoginHistory, fetchProfile, toLoginHistoryEntry, toProfile } from '@/lib/api/account';
 import { isSessionRejected } from '@/lib/api/session-rejected';
 import { isSessionVerificationError, logRouteError } from '@/lib/auth/session-errors';
@@ -35,9 +35,8 @@ export const revalidate = 0;
 const RECENT_LOGIN_COUNT = 5;
 
 /**
- * Profile and login history come from the API (KAN-41). The plan is still the legacy Prisma billing
- * state until billing moves to organisations (KAN-45); a user with no legacy row is on the free plan.
- * Notifications are switched off until KAN-114 delivers them through the API.
+ * Profile, login history and the plan come from the API (KAN-41, KAN-45). The plan is the billing
+ * organisation's; an account that manages no organisation is on the free plan. Notifications are switched off until KAN-114 delivers them through the API.
  */
 async function getUserData() {
   try {
@@ -48,15 +47,12 @@ async function getUserData() {
       return null;
     }
 
-    const decodedClaims = await verifyVerifiedSessionCookie(sessionCookie);
+    await verifyVerifiedSessionCookie(sessionCookie);
 
     const [profile, history, billing] = await Promise.all([
       fetchProfile(),
       fetchLoginHistory(RECENT_LOGIN_COUNT, 0),
-      db.user.findUnique({
-        where: { firebaseUid: decodedClaims.uid },
-        select: { subscriptionTier: true, subscriptionStatus: true, stripeCurrentPeriodEnd: true },
-      }),
+      fetchBillingSummary(),
     ]);
 
     // The backend rejected the session (401 "Invalid authentication"), or has no platform user for it
@@ -70,18 +66,30 @@ async function getUserData() {
         throw new Error(`Dashboard API request failed (${result.status ?? 'unreachable'})`);
       }
     }
+    // A 404 from billing can mean the organisation vanished mid-request, not a stale session, so only a
+    // revoked session (401) clears it here; the profile call above already catches a missing platform user.
+    if (!billing.success && billing.error === 'Invalid authentication') {
+      redirect('/api/auth/clear-session');
+    }
+    // No billing organisation is the free plan; any other billing failure is an outage, not a free plan.
+    if (!billing.success && billing.error !== NO_BILLING_ORGANIZATION_MESSAGE) {
+      throw new Error(
+        `Dashboard billing request failed (${('status' in billing && billing.status) || 'unreachable'})`
+      );
+    }
     if (!profile.success || !history.success) {
       return null;
     }
+    const plan = billing.success ? billing.data : null;
 
     return {
       ...toProfile(profile.data),
       loginHistory: history.data.login_history.map(toLoginHistoryEntry),
       totalLogins: history.data.total_count,
       lastLoginAt: history.data.login_history[0]?.login_at ?? null,
-      subscriptionTier: billing?.subscriptionTier ?? 'free',
-      subscriptionStatus: billing?.subscriptionStatus ?? 'inactive',
-      stripeCurrentPeriodEnd: billing?.stripeCurrentPeriodEnd ?? null,
+      subscriptionTier: plan?.plan.key ?? 'free',
+      subscriptionStatus: plan?.subscription_status ?? 'inactive',
+      stripeCurrentPeriodEnd: plan?.current_period_end ?? null,
     };
   } catch (error) {
     unstable_rethrow(error);
@@ -188,8 +196,8 @@ export default async function DashboardPage({
           <CardContent>
             <div className="text-2xl font-bold capitalize">{user.subscriptionTier}</div>
             <p className="mt-1 text-xs text-muted-foreground">
-              {hasActiveSubscription
-                ? `Active until ${new Date(user.stripeCurrentPeriodEnd!).toLocaleDateString()}`
+              {hasActiveSubscription && user.stripeCurrentPeriodEnd
+                ? `Active until ${new Date(user.stripeCurrentPeriodEnd).toLocaleDateString()}`
                 : user.subscriptionStatus}
             </p>
           </CardContent>

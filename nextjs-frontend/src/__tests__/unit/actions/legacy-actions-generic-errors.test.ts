@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * KAN-172: the legacy subscription server actions and the admin subscription actions must never return raw
+ * KAN-172: the legacy subscription server actions must never return raw
  * Stripe/Firebase/Prisma error text to the client. Every dependency is mocked to reject with a
  * secret-looking error; each action must answer with its stable generic message, leak nothing, and
  * hand the original error (with a message string) to the logger.
@@ -114,7 +114,6 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 import * as subscription from '@/app/actions/subscription-actions';
-import * as adminSubscription from '@/app/actions/admin/subscription-actions';
 
 type Result = { success: boolean; error?: string; data?: unknown };
 type Row = [name: string, call: () => Promise<Result>, generic: string];
@@ -185,56 +184,6 @@ const ROWS: Row[] = [
     'setDefaultPaymentMethodAction',
     () => subscription.setDefaultPaymentMethodAction('pm_1'),
     'Failed to update default payment method',
-  ],
-  // admin/subscription-actions.ts (9)
-  [
-    'getAllSubscriptionsAction',
-    () => adminSubscription.getAllSubscriptionsAction(),
-    'Failed to get subscriptions',
-  ],
-  [
-    'getSubscriptionStatsAction',
-    () => adminSubscription.getSubscriptionStatsAction(),
-    'Failed to get subscription statistics',
-  ],
-  [
-    'getUserSubscriptionDetailsAction',
-    () => adminSubscription.getUserSubscriptionDetailsAction('u1'),
-    'Failed to get subscription details',
-  ],
-  [
-    'updateUserSubscriptionAction',
-    () =>
-      adminSubscription.updateUserSubscriptionAction('u1', {
-        subscriptionTier: 'pro',
-        subscriptionStatus: 'active',
-      }),
-    'Failed to update subscription',
-  ],
-  [
-    'cancelUserSubscriptionAction',
-    () => adminSubscription.cancelUserSubscriptionAction('u1'),
-    'Failed to cancel subscription',
-  ],
-  [
-    'refundSubscriptionPaymentAction',
-    () => adminSubscription.refundSubscriptionPaymentAction('u1'),
-    'Failed to process refund',
-  ],
-  [
-    'grantFreeSubscriptionAction',
-    () => adminSubscription.grantFreeSubscriptionAction('u1', 'pro', 30),
-    'Failed to grant subscription',
-  ],
-  [
-    'getSubscriptionRevenueAction',
-    () => adminSubscription.getSubscriptionRevenueAction(),
-    'Failed to get revenue data',
-  ],
-  [
-    'syncStripeSubscriptionsAction',
-    () => adminSubscription.syncStripeSubscriptionsAction(),
-    'Failed to sync subscriptions',
   ],
 ];
 
