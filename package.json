@@ -1,0 +1,10 @@
+{
+  "name": "storecart",
+  "private": true,
+  "description": "Monorepo root. Scripts only; app dependencies live in nextjs-frontend/ and fastapi_backend/.",
+  "scripts": {
+    "vercel:pull": "vercel pull --yes --environment=preview",
+    "vercel:build": "vercel build",
+    "vercel:preview": "vercel deploy --prebuilt"
+  }
+}
