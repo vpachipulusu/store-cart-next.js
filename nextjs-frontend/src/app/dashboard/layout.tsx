@@ -142,7 +142,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
             <div role="status" data-testid="no-stores" className="container pt-6 text-sm">
               <p className="font-medium">You do not have a store yet.</p>
               <p className="text-muted-foreground">
-                Store setup is the next step for new merchants and will be available here soon.
+                <Link
+                  href="/dashboard/onboarding"
+                  className="inline-flex min-h-11 items-center font-medium text-foreground underline underline-offset-4"
+                >
+                  Set up your store
+                </Link>{' '}
+                to start selling.
               </p>
             </div>
           )}
