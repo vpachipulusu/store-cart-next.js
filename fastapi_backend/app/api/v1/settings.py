@@ -23,7 +23,7 @@ from app.core.rate_limit import PUBLIC_SETTINGS_POLICY
 from app.repositories.app_settings import AppSettingsRepository
 from app.services.public_settings import PublicSettingsService
 
-CACHE_CONTROL = "public, max-age=60, stale-while-revalidate=300"
+SUCCESS_CACHE_CONTROL = "public, max-age=60, stale-while-revalidate=300"
 
 router = APIRouter(
     prefix="/v1/settings",
@@ -87,7 +87,7 @@ async def read_currency(
         data=CurrencyData(currency=await service.currency())
     ).model_dump_json()
     etag = _etag_for(content.encode())
-    headers = {"Cache-Control": CACHE_CONTROL, "ETag": etag}
+    headers = {"Cache-Control": SUCCESS_CACHE_CONTROL, "ETag": etag}
     if _matches(if_none_match, etag):
         return Response(status_code=304, headers=headers)
     return Response(content, media_type="application/json", headers=headers)
