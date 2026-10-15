@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * KAN-142: theme, font and currency reads are wrapped in `unstable_cache` for 1 hour. A database error
+ * KAN-142: the currency read is wrapped in `unstable_cache` for 1 hour. A database error
  * must be logged and must NOT be cached (otherwise the default is served for the whole hour), and the
  * cache options (revalidate + tags) must stay wired to the tags the admin save path invalidates.
  *
@@ -75,16 +75,6 @@ beforeEach(() => {
 });
 
 describe('KAN-142: cache options', () => {
-  it('caches theme for 1h under the active-theme tag', async () => {
-    await import('@/app/actions/theme-actions');
-    expect(mocks.registry['active-theme']).toEqual({ revalidate: 3600, tags: ['active-theme'] });
-  });
-
-  it('caches font for 1h under the active-font tag', async () => {
-    await import('@/app/actions/font-actions');
-    expect(mocks.registry['active-font']).toEqual({ revalidate: 3600, tags: ['active-font'] });
-  });
-
   it('caches currency for 1h under the currency-setting tag', async () => {
     await import('@/config/subscriptions');
     expect(mocks.registry['currency-symbol']).toEqual({
@@ -95,26 +85,6 @@ describe('KAN-142: cache options', () => {
 });
 
 describe('KAN-142: a database error is logged and not cached', () => {
-  it('theme: falls back to the default, logs, and recovers on the next call', async () => {
-    mocks.findUnique.mockRejectedValueOnce(DB_ERROR).mockResolvedValueOnce({ value: 'ocean' });
-    const { getActiveTheme } = await import('@/app/actions/theme-actions');
-    const { DEFAULT_THEME } = await import('@/config/themes');
-
-    await expect(getActiveTheme()).resolves.toBe(DEFAULT_THEME);
-    expect(mocks.logError).toHaveBeenCalledTimes(1);
-    await expect(getActiveTheme()).resolves.toBe('ocean');
-  });
-
-  it('font: falls back to the default, logs, and recovers on the next call', async () => {
-    mocks.findUnique.mockRejectedValueOnce(DB_ERROR).mockResolvedValueOnce({ value: 'roboto' });
-    const { getActiveFont } = await import('@/app/actions/font-actions');
-    const { DEFAULT_FONT } = await import('@/config/fonts');
-
-    await expect(getActiveFont()).resolves.toBe(DEFAULT_FONT);
-    expect(mocks.logError).toHaveBeenCalledTimes(1);
-    await expect(getActiveFont()).resolves.toBe('roboto');
-  });
-
   it('currency: falls back to $, logs, and recovers on the next call', async () => {
     mocks.findUnique.mockRejectedValueOnce(DB_ERROR).mockResolvedValueOnce({ value: 'EUR' });
     const { getCurrencySymbol } = await import('@/config/subscriptions');
@@ -124,60 +94,5 @@ describe('KAN-142: a database error is logged and not cached', () => {
     await expect(getCurrencySymbol()).resolves.toBe('$');
     expect(mocks.logError).toHaveBeenCalledTimes(1);
     await expect(getCurrencySymbol()).resolves.toBe(euro);
-  });
-
-  it('still caches successful reads', async () => {
-    mocks.findUnique.mockResolvedValue({ value: 'ocean' });
-    const { getActiveTheme } = await import('@/app/actions/theme-actions');
-
-    await getActiveTheme();
-    await getActiveTheme();
-    expect(mocks.findUnique).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('KAN-142: admin saves use read-your-writes updateTag', () => {
-  async function save(key: string) {
-    vi.doMock('next/headers', () => ({
-      cookies: async () => ({ get: () => ({ value: 'session-cookie' }) }),
-    }));
-    vi.doMock('@/lib/auth/verified-session', () => ({
-      verifyVerifiedSessionCookie: async () => ({ uid: 'fb-admin' }),
-    }));
-    vi.doMock('@/lib/db/client', () => ({
-      db: {
-        user: {
-          findUnique: async () => ({ id: 'u1', adminUser: { permissions: ['*'] } }),
-        },
-        appSettings: { upsert: async () => ({ id: 's1' }) },
-        auditLog: { create: async () => ({}) },
-      },
-    }));
-    const { upsertAppSettingAction } = await import('@/app/actions/admin/settings-actions');
-    return upsertAppSettingAction({ key, value: 'x', category: 'general' });
-  }
-
-  beforeEach(() => {
-    mocks.updateTag.mockReset();
-    mocks.revalidateTag.mockReset();
-  });
-
-  it.each([
-    ['active_theme', 'active-theme'],
-    ['app_font', 'active-font'],
-    ['currency', 'currency-setting'],
-  ])('saving %s updates the %s tag', async (key, tag) => {
-    const result = await save(key);
-
-    expect(result.success).toBe(true);
-    expect(mocks.updateTag).toHaveBeenCalledTimes(1);
-    expect(mocks.updateTag).toHaveBeenCalledWith(tag);
-    expect(mocks.revalidateTag).not.toHaveBeenCalled();
-  });
-
-  it('does not touch any tag for unrelated settings', async () => {
-    await save('site_name');
-
-    expect(mocks.updateTag).not.toHaveBeenCalled();
   });
 });

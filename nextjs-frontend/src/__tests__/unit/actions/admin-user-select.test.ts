@@ -122,12 +122,6 @@ vi.mock('@/lib/db/client', () => ({
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 import {
-  getAllUsersAction,
-  getUserByIdAction,
-  grantAdminRoleAction,
-  updateUserAction,
-} from '@/app/actions/admin/user-actions';
-import {
   grantFreeSubscriptionAction,
   updateUserSubscriptionAction,
 } from '@/app/actions/admin/subscription-actions';
@@ -144,81 +138,13 @@ function expectNoSecrets(result: unknown) {
   expect(json).not.toContain('price_123');
 }
 
-describe('KAN-169: admin user actions return only selected fields', () => {
+describe('KAN-169: admin selects and subscription actions return only selected fields', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.findUnique.mockImplementation(async ({ where, select }) =>
       where.firebaseUid ? ADMIN_ROW : applySelect(FULL_USER, select)
     );
     mocks.update.mockImplementation(async ({ select }) => applySelect(FULL_USER, select));
-  });
-
-  it('getUserByIdAction returns no secret or internal user fields', async () => {
-    const result = await getUserByIdAction('user-1');
-
-    expect(result.success).toBe(true);
-    const user = result.data.user;
-    for (const key of SECRET_KEYS) expect(user).not.toHaveProperty(key);
-    expect(user.email).toBe('a@b.test');
-    expect(user.settings).toBeDefined();
-    expect(user.adminUser).not.toHaveProperty('userId');
-    expect(user.loginHistory[0]).not.toHaveProperty('userId');
-    expect(user.notifications[0]).not.toHaveProperty('userId');
-    expectNoSecrets(result);
-  });
-
-  it('getUserByIdAction uses the shared explicit detail select', async () => {
-    await getUserByIdAction('user-1');
-
-    const call = mocks.findUnique.mock.calls.find(([arg]) => arg.where.id === 'user-1')![0];
-    expect(call.include).toBeUndefined();
-    expect(call.select).toMatchObject(ADMIN_USER_SELECT);
-    expect(call.select).toBe(ADMIN_USER_DETAIL_SELECT);
-  });
-
-  it('updateUserAction returns no secret or internal user fields', async () => {
-    const result = await updateUserAction('user-1', { displayName: 'Ada' });
-
-    expect(result.success).toBe(true);
-    const user = result.data.user;
-    for (const key of SECRET_KEYS) expect(user).not.toHaveProperty(key);
-    expect(Object.keys(user).sort()).toEqual(Object.keys(ADMIN_USER_SELECT).sort());
-    expectNoSecrets(result);
-  });
-
-  it('updateUserAction passes the shared select to the update', async () => {
-    await updateUserAction('user-1', { displayName: 'Ada' });
-
-    expect(mocks.update.mock.calls[0][0].select).toBe(ADMIN_USER_SELECT);
-  });
-
-  it('getAllUsersAction omits firebaseUid and selects explicitly', async () => {
-    mocks.findMany.mockImplementation(async ({ select }) => [applySelect(FULL_USER, select)]);
-    mocks.count.mockResolvedValue(1);
-
-    const result = await getAllUsersAction();
-
-    expect(result.success).toBe(true);
-    expect(result.data.users[0]).not.toHaveProperty('firebaseUid');
-    expect(result.data.users[0].isAdmin).toBe(true);
-    expect(mocks.findMany.mock.calls[0][0].include).toBeUndefined();
-    expect(mocks.findMany.mock.calls[0][0].select).toBeDefined();
-    expectNoSecrets(result);
-  });
-
-  it('grantAdminRoleAction selects explicitly', async () => {
-    mocks.upsert.mockImplementation(async ({ select }) =>
-      applySelect(FULL_USER.adminUser as never, select)
-    );
-
-    const result = await grantAdminRoleAction('user-1', {
-      role: 'admin',
-      permissions: ['users.read'],
-    });
-
-    expect(result.success).toBe(true);
-    expect(mocks.upsert.mock.calls[0][0].select).toBeDefined();
-    expect(result.data.adminUser).not.toHaveProperty('userId');
   });
 
   it('the shared selects never name a secret column', () => {

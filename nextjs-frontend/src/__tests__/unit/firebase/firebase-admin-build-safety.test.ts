@@ -45,7 +45,7 @@ describe('KAN-136: Firebase Admin is initialised on first use, not at import', (
   it.each([
     ['Firebase Admin module', '@/lib/firebase/admin'],
     ['auth actions', '@/app/actions/auth-actions'],
-    ['admin settings actions', '@/app/actions/admin/settings-actions'],
+    ['admin user actions', '@/app/actions/admin/user-actions'],
     ['pricing page', '@/app/pricing/page'],
   ])('imports the %s without Firebase Admin credentials', async (_name, modulePath) => {
     await expect(import(modulePath)).resolves.toBeDefined();
@@ -59,7 +59,9 @@ describe('KAN-136: Firebase Admin is initialised on first use, not at import', (
 
   it('fails clearly at first use when credentials are missing', async () => {
     const { getAdminAuth } = await import('@/lib/firebase/admin');
-    expect(() => getAdminAuth()).toThrow(/FIREBASE_ADMIN_PROJECT_ID.*FIREBASE_ADMIN_CLIENT_EMAIL.*FIREBASE_ADMIN_PRIVATE_KEY/);
+    expect(() => getAdminAuth()).toThrow(
+      /FIREBASE_ADMIN_PROJECT_ID.*FIREBASE_ADMIN_CLIENT_EMAIL.*FIREBASE_ADMIN_PRIVATE_KEY/
+    );
   });
 });
 

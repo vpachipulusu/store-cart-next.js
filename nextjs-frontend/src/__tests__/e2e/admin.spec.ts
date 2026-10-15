@@ -10,12 +10,9 @@ import {
  * Admin Dashboard E2E Tests
  *
  * These tests cover the admin panel pages including:
- * - Dashboard overview (metrics, subscription breakdown, recent users/activity)
+ * - Switched-off pages: dashboard, analytics, SEO, settings (KAN-184, "Not available yet")
  * - User management (user list, search, user detail view, actions)
  * - Subscription management (stats, subscription table)
- * - Analytics (user growth, revenue, activity overview)
- * - SEO management (meta tags, redirects, sitemap)
- * - Settings (general, feature flags, email templates, pricing)
  * - Audit logs (log table, filters)
  *
  * NOTE: Admin tests require an admin user. If TEST_ADMIN_EMAIL is not set,
@@ -110,75 +107,25 @@ test.describe('Admin Dashboard', () => {
     });
   });
 
-  test.describe('Dashboard Overview Page', () => {
+  test.describe('Switched-off pages (KAN-184)', () => {
     test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
     test.use({ storageState: STORAGE_STATE.admin });
 
-    test.beforeEach(async ({ page }) => {
-      await page.goto('/admin');
-      await waitForPageReady(page);
-    });
+    for (const [path, heading] of [
+      ['/admin', /admin dashboard/i],
+      ['/admin/analytics', /^analytics$/i],
+      ['/admin/seo', /seo management/i],
+      ['/admin/settings', /^settings$/i],
+    ] as const) {
+      test(`${path} shows a not available state`, async ({ page }) => {
+        await page.goto(path);
+        await waitForPageReady(page);
 
-    test('should display admin dashboard heading', async ({ page }) => {
-      await expect(page.getByRole('heading', { name: /admin dashboard/i })).toBeVisible();
-      await expect(page.getByText(/monitor and manage/i)).toBeVisible();
-    });
-
-    test('should display 4 key metric cards', async ({ page }) => {
-      await expect(page.getByText('Total Users')).toBeVisible();
-      await expect(page.getByText('Active Subscriptions')).toBeVisible();
-      await expect(page.getByText('MRR')).toBeVisible();
-      await expect(page.getByText('New Users')).toBeVisible();
-    });
-
-    test('should display MRR with dollar sign', async ({ page }) => {
-      const mrrCard = page.locator('[class*="card"]').filter({ hasText: 'MRR' });
-      // MRR is shown in the Stripe price's currency (GBP in the e2e Stripe account).
-      await expect(mrrCard.getByText(/[$£€]/)).toBeVisible();
-      await expect(mrrCard.getByText(/monthly recurring revenue/i)).toBeVisible();
-    });
-
-    test('should display subscription breakdown section', async ({ page }) => {
-      await expect(page.getByText('Subscription Breakdown')).toBeVisible();
-      await expect(page.getByText(/users by subscription tier/i)).toBeVisible();
-    });
-
-    test('should display recent users section', async ({ page }) => {
-      await expect(page.getByText('Recent Users')).toBeVisible();
-      await expect(page.getByText(/latest user registrations/i)).toBeVisible();
-
-      // "View All Users" link
-      await expect(page.getByRole('link', { name: /view all users/i })).toBeVisible();
-    });
-
-    test('should display recent activity section', async ({ page }) => {
-      await expect(page.getByText('Recent Activity')).toBeVisible();
-      await expect(page.getByText(/latest audit log entries/i)).toBeVisible();
-
-      // "View All Logs" link
-      await expect(page.getByRole('link', { name: /view all logs/i })).toBeVisible();
-    });
-
-    test('should display quick actions section', async ({ page }) => {
-      await expect(page.getByText('Quick Actions')).toBeVisible();
-
-      // Quick action links are in the main area (the sidebar repeats some of the names).
-      const main = page.getByRole('main');
-      await expect(main.getByRole('link', { name: /manage users/i })).toBeVisible();
-      await expect(main.getByRole('link', { name: /subscriptions/i })).toBeVisible();
-      await expect(main.getByRole('link', { name: /analytics/i })).toBeVisible();
-      await expect(main.getByRole('link', { name: /settings/i })).toBeVisible();
-    });
-
-    test('should navigate to users page from "View All Users"', async ({ page }) => {
-      await clickNavLink(page, page.getByRole('link', { name: /view all users/i }));
-      await expect(page).toHaveURL(/\/admin\/users/);
-    });
-
-    test('should navigate to audit logs from "View All Logs"', async ({ page }) => {
-      await clickNavLink(page, page.getByRole('link', { name: /view all logs/i }));
-      await expect(page).toHaveURL(/\/admin\/audit-logs/);
-    });
+        await expect(page.getByRole('heading', { name: heading })).toBeVisible();
+        await expect(page.getByText('Not available yet')).toBeVisible();
+        await expect(page.getByRole('link', { name: /go to users/i })).toBeVisible();
+      });
+    }
   });
 
   test.describe('User Management Page', () => {
@@ -199,8 +146,16 @@ test.describe('Admin Dashboard', () => {
       await expect(page.getByPlaceholder(/search users by email or name/i)).toBeVisible();
     });
 
-    test('should display export button', async ({ page }) => {
-      await expect(page.getByRole('button', { name: /export/i })).toBeVisible();
+    test('should display search button', async ({ page }) => {
+      await expect(page.getByRole('button', { name: /^search$/i })).toBeVisible();
+    });
+
+    test('should search users through the API', async ({ page }) => {
+      await page.getByPlaceholder(/search users by email or name/i).fill('zz-no-such-user-zz');
+      await page.getByRole('button', { name: /^search$/i }).click();
+
+      await expect(page).toHaveURL(/\/admin\/users\?q=zz-no-such-user-zz/);
+      await expect(page.getByText('No users found')).toBeVisible();
     });
 
     test('should display users table with correct columns', async ({ page }) => {
@@ -213,8 +168,8 @@ test.describe('Admin Dashboard', () => {
       await expect(table.getByRole('columnheader', { name: /^user$/i })).toBeVisible();
       await expect(table.getByText(/^email$/i)).toBeVisible();
       await expect(table.getByText(/^status$/i)).toBeVisible();
-      await expect(table.getByText(/^subscription$/i)).toBeVisible();
       await expect(table.getByText(/^role$/i)).toBeVisible();
+      await expect(table.getByText(/^last login$/i)).toBeVisible();
       await expect(table.getByText(/^joined$/i)).toBeVisible();
       await expect(table.getByText(/^actions$/i)).toBeVisible();
     });
@@ -247,16 +202,6 @@ test.describe('Admin Dashboard', () => {
         .catch(() => false);
       expect(hasBadge || true).toBeTruthy();
     });
-
-    test('should show subscription tier badges', async ({ page }) => {
-      const table = page.locator('table tbody');
-      const tierBadge = table.getByText(/free|pro|enterprise/i);
-      const hasBadge = await tierBadge
-        .first()
-        .isVisible()
-        .catch(() => false);
-      expect(hasBadge || true).toBeTruthy();
-    });
   });
 
   test.describe('User Detail Page', () => {
@@ -272,6 +217,18 @@ test.describe('Admin Dashboard', () => {
       const hasNotFound = await notFound.isVisible().catch(() => false);
       // Accept either 404 or redirect
       expect(hasNotFound || page.url().includes('/admin/users')).toBeTruthy();
+    });
+
+    test('should show the user read through the API', async ({ page }) => {
+      await page.goto('/admin/users');
+      await waitForPageReady(page);
+      await page.locator('table tbody tr').first().getByRole('button').click();
+      await page.getByRole('menuitem', { name: /view details/i }).click();
+
+      await expect(page).toHaveURL(/\/admin\/users\/[^/]+$/);
+      await expect(page.getByRole('heading', { name: /user details/i })).toBeVisible();
+      await expect(page.getByText('Basic Information')).toBeVisible();
+      await expect(page.getByText('Admin Access')).toBeVisible();
     });
   });
 
@@ -328,222 +285,6 @@ test.describe('Admin Dashboard', () => {
         .catch(() => false);
       // Manage buttons should exist if there are subscriptions
       expect(hasManage || true).toBeTruthy();
-    });
-  });
-
-  test.describe('Analytics Page', () => {
-    test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
-    test.use({ storageState: STORAGE_STATE.admin });
-
-    test.beforeEach(async ({ page }) => {
-      await page.goto('/admin/analytics');
-      await waitForPageReady(page);
-    });
-
-    test('should display analytics heading', async ({ page }) => {
-      await expect(page.getByRole('heading', { name: /analytics/i })).toBeVisible();
-      await expect(page.getByText(/insights and metrics/i)).toBeVisible();
-    });
-
-    test('should display 4 key metric cards', async ({ page }) => {
-      await expect(page.getByText('New Users')).toBeVisible();
-      await expect(page.getByText('Active Subscriptions')).toBeVisible();
-      await expect(page.getByText('MRR')).toBeVisible();
-      await expect(page.getByRole('heading', { name: 'Total Logins', exact: true })).toBeVisible();
-    });
-
-    test('should display growth percentage indicator', async ({ page }) => {
-      // Growth indicator with percentage
-      const growthIndicator = page.getByText(/%/);
-      await expect(growthIndicator.first()).toBeVisible();
-      await expect(page.getByText(/vs last period/i)).toBeVisible();
-    });
-
-    test('should display user growth section', async ({ page }) => {
-      await expect(page.getByText('User Growth')).toBeVisible();
-      await expect(page.getByText(/new user sign-ups over time/i)).toBeVisible();
-
-      // Current vs previous period comparison
-      await expect(page.getByText(/current period/i)).toBeVisible();
-      await expect(page.getByText(/previous period/i)).toBeVisible();
-    });
-
-    test('should display revenue metrics section', async ({ page }) => {
-      await expect(page.getByText('Revenue Metrics')).toBeVisible();
-      await expect(page.getByText(/subscription and revenue breakdown/i)).toBeVisible();
-
-      await expect(page.getByText(/monthly recurring revenue/i).first()).toBeVisible();
-      await expect(page.getByText(/average revenue per user/i)).toBeVisible();
-    });
-
-    test('should display activity overview section', async ({ page }) => {
-      await expect(page.getByText('Activity Overview')).toBeVisible();
-      await expect(page.getByText(/platform activity and engagement/i)).toBeVisible();
-
-      await expect(page.getByText(/total logins/i).first()).toBeVisible();
-      await expect(page.getByText(/avg logins\/user/i)).toBeVisible();
-      await expect(page.getByText(/conversion rate/i)).toBeVisible();
-    });
-
-    test('should display conversion rate as percentage', async ({ page }) => {
-      const activitySection = page
-        .locator('[class*="card"]')
-        .filter({ hasText: 'Activity Overview' });
-      await expect(activitySection.getByText(/free to paid/i)).toBeVisible();
-    });
-  });
-
-  test.describe('SEO Management Page', () => {
-    test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
-    test.use({ storageState: STORAGE_STATE.admin });
-
-    test.beforeEach(async ({ page }) => {
-      await page.goto('/admin/seo');
-      await waitForPageReady(page);
-    });
-
-    test('should display SEO management heading', async ({ page }) => {
-      await expect(page.getByRole('heading', { name: /seo management/i })).toBeVisible();
-      await expect(page.getByText(/manage meta tags.*redirects/i)).toBeVisible();
-    });
-
-    test('should display 3 tab options', async ({ page }) => {
-      await expect(page.getByRole('tab', { name: /meta tags/i })).toBeVisible();
-      await expect(page.getByRole('tab', { name: /redirects/i })).toBeVisible();
-      await expect(page.getByRole('tab', { name: /sitemap/i })).toBeVisible();
-    });
-
-    test('should show meta tags tab content by default', async ({ page }) => {
-      await expect(page.getByText('Page Meta Tags')).toBeVisible();
-      await expect(page.getByText(/configure seo meta tags/i)).toBeVisible();
-    });
-
-    test('should switch to redirects tab', async ({ page }) => {
-      await page.getByRole('tab', { name: /redirects/i }).click();
-
-      await expect(page.getByRole('heading', { name: 'URL Redirects' })).toBeVisible();
-      await expect(page.getByText(/manage 301\/302 redirects/i)).toBeVisible();
-    });
-
-    test('should switch to sitemap tab', async ({ page }) => {
-      await page.getByRole('tab', { name: /sitemap/i }).click();
-
-      await expect(page.getByText('Sitemap Management')).toBeVisible();
-      await expect(page.getByText(/generate and manage xml sitemaps/i)).toBeVisible();
-    });
-
-    test('should display sitemap URL and regenerate button', async ({ page }) => {
-      await page.getByRole('tab', { name: /sitemap/i }).click();
-
-      await expect(page.getByText('sitemap.xml')).toBeVisible();
-      await expect(page.getByRole('button', { name: /regenerate/i })).toBeVisible();
-      await expect(page.getByText(/sitemap url/i)).toBeVisible();
-    });
-
-    test('should display sitemap statistics', async ({ page }) => {
-      await page.getByRole('tab', { name: /sitemap/i }).click();
-
-      await expect(page.getByText(/sitemap statistics/i)).toBeVisible();
-      await expect(page.getByText(/total urls/i)).toBeVisible();
-      await expect(page.getByText(/file size/i)).toBeVisible();
-      await expect(page.getByText(/last submitted/i)).toBeVisible();
-    });
-
-    test('should show empty state when no meta tags exist', async ({ page }) => {
-      const emptyState = page.getByText(/no meta tags configured/i);
-      const table = page.locator('table');
-
-      const hasEmpty = await emptyState.isVisible().catch(() => false);
-      const hasTable = await table.isVisible().catch(() => false);
-
-      // Either empty state or a table with data
-      expect(hasEmpty || hasTable).toBeTruthy();
-    });
-
-    test('should show meta tags table columns when data exists', async ({ page }) => {
-      const table = page.locator('table');
-      const hasTable = await table.isVisible().catch(() => false);
-
-      if (hasTable) {
-        await expect(table.getByText(/page/i)).toBeVisible();
-        await expect(table.getByText(/title/i)).toBeVisible();
-        await expect(table.getByText(/description/i)).toBeVisible();
-        await expect(table.getByText(/index/i)).toBeVisible();
-      }
-    });
-  });
-
-  test.describe('Settings Page', () => {
-    test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
-    test.use({ storageState: STORAGE_STATE.admin });
-
-    test.beforeEach(async ({ page }) => {
-      await page.goto('/admin/settings');
-      await waitForPageReady(page);
-    });
-
-    test('should display settings heading', async ({ page }) => {
-      await expect(page.getByRole('heading', { name: /^settings$/i })).toBeVisible();
-      await expect(page.getByText(/manage application settings/i)).toBeVisible();
-    });
-
-    test('should display 4 settings tabs', async ({ page }) => {
-      await expect(page.getByRole('tab', { name: /general/i })).toBeVisible();
-      await expect(page.getByRole('tab', { name: /feature flags/i })).toBeVisible();
-      await expect(page.getByRole('tab', { name: /email/i })).toBeVisible();
-      await expect(page.getByRole('tab', { name: /pricing/i })).toBeVisible();
-    });
-
-    test('should show general settings tab by default', async ({ page }) => {
-      // General tab should be active by default
-      const generalTab = page.getByRole('tab', { name: /general/i });
-      await expect(generalTab).toHaveAttribute('data-state', 'active');
-    });
-
-    test('should switch to feature flags tab', async ({ page }) => {
-      await page.getByRole('tab', { name: /feature flags/i }).click();
-
-      // Feature flags content should be visible
-      const flagsTab = page.getByRole('tab', { name: /feature flags/i });
-      await expect(flagsTab).toHaveAttribute('data-state', 'active');
-    });
-
-    test('should switch to email templates tab', async ({ page }) => {
-      await page.getByRole('tab', { name: /email/i }).click();
-
-      await expect(page.getByRole('heading', { name: 'Email Templates' })).toBeVisible();
-      await expect(page.getByText(/manage transactional email/i)).toBeVisible();
-    });
-
-    test('should switch to pricing tab and display plan configuration', async ({ page }) => {
-      await page.getByRole('tab', { name: /pricing/i }).click();
-
-      await expect(page.getByText('Pricing Configuration')).toBeVisible();
-      await expect(page.getByText(/manage subscription plans/i)).toBeVisible();
-
-      // Pro plan fields
-      // Each plan is a card with its own price field (labelled "Monthly Price (<currency>)").
-      await expect(page.getByText(/pro plan/i)).toBeVisible();
-      const proPlanCard = page
-        .locator('[class*="card"]')
-        .filter({ has: page.getByRole('heading', { name: /^pro plan$/i }) });
-      await expect(proPlanCard.getByLabel(/price/i).first()).toBeVisible();
-
-      // Enterprise plan fields
-      await expect(page.getByText(/enterprise plan/i)).toBeVisible();
-      const enterprisePlanCard = page
-        .locator('[class*="card"]')
-        .filter({ has: page.getByRole('heading', { name: /^enterprise plan$/i }) });
-      await expect(enterprisePlanCard.getByLabel(/price/i).first()).toBeVisible();
-
-      // Save button
-      await expect(page.getByRole('button', { name: /save pricing/i })).toBeVisible();
-    });
-
-    test('should display Stripe Price ID fields in pricing tab', async ({ page }) => {
-      await page.getByRole('tab', { name: /pricing/i }).click();
-
-      await expect(page.getByPlaceholder(/price_/i).first()).toBeVisible();
     });
   });
 

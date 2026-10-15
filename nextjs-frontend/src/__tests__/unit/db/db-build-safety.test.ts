@@ -55,20 +55,9 @@ describe('KAN-140: Prisma client import is build-safe', () => {
     expect(db).toBeDefined();
     expect(typeof db.appSettings.findUnique).toBe('function');
   });
-
-  it('reports whether a database is configured', async () => {
-    const { isDatabaseConfigured } = await import('@/lib/db/config');
-    expect(isDatabaseConfigured()).toBe(false);
-
-    process.env.DATABASE_URL = '   ';
-    expect(isDatabaseConfigured()).toBe(false);
-
-    process.env.DATABASE_URL = 'postgresql://user@localhost:5432/db';
-    expect(isDatabaseConfigured()).toBe(true);
-  });
 });
 
-describe('KAN-140: root layout settings reads skip the database when none is configured', () => {
+describe('KAN-140: root layout settings reads never query the database (KAN-184)', () => {
   beforeEach(() => {
     vi.doMock('@/lib/db/client', () => ({ db: { appSettings: { findUnique } } }));
   });
@@ -87,19 +76,6 @@ describe('KAN-140: root layout settings reads skip the database when none is con
 
     await expect(getActiveFont()).resolves.toBe(DEFAULT_FONT);
     expect(findUnique).not.toHaveBeenCalled();
-  });
-
-  it('reads the stored theme and font when a database is configured', async () => {
-    process.env.DATABASE_URL = 'postgresql://user@localhost:5432/db';
-    findUnique.mockImplementation(({ where }: { where: { key: string } }) =>
-      Promise.resolve({ value: where.key === 'active_theme' ? 'ocean' : 'roboto' })
-    );
-    const { getActiveTheme } = await import('@/app/actions/theme-actions');
-    const { getActiveFont } = await import('@/app/actions/font-actions');
-
-    await expect(getActiveTheme()).resolves.toBe('ocean');
-    await expect(getActiveFont()).resolves.toBe('roboto');
-    expect(findUnique).toHaveBeenCalledTimes(2);
   });
 });
 
