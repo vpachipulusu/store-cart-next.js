@@ -209,7 +209,8 @@ Required agent per kind of change (coordinator on every PR diff; developers on t
 
 - Pick bugs before features. Work only stories in To-do; a story's acceptance criteria are its definition of done and scope is never widened (propose a new story instead).
 - Parked, do not touch: KAN-125, KAN-145, KAN-115. UI redesign stories stay on hold until the foundation work is done.
-- At most 3 or 4 developers in parallel, on disjoint files, and exactly one backend developer at a time (one Alembic head). One ticket at a time on `auth-actions.ts`.
+- At most 3 or 4 developers in parallel, on disjoint files. One ticket at a time on `auth-actions.ts`.
+- One backend developer at a time by default (one Alembic head). A second backend developer may run alongside the first only if the story adds no Alembic revision, no platform model change and no `app/models/platform/__init__.py` edit, and does not edit `fastapi_backend/tests/conftest.py`, `tests/fakes.py`, `app/core/config.py` or `app/core/permissions.py`. Whichever PR merges second must, before the owner merges it: rebase on main, regenerate `openapi.json` and the client (`generate_openapi_schema`, then `npm run generate:client`; never hand-merge the generated files), and get a green `CI gate` on the rebased head SHA. That PR's description states the base SHA. The coordinator checks that the PR head contains main's current SHA before handing the merge to the owner (a stale green run can merge two migrations into a double head).
 - The OpenAPI client is regenerated only in backend branches.
 - Coordinator-owned files that developer branches must not edit: `.env.example`, `.claude/CLAUDE.md`, `known-issues.md`.
 - Only the `CI gate` check matters; Vercel checks are ignored. E2E specs are written and run locally with the command and result in the PR; `E2E_ENABLED` is never flipped.
