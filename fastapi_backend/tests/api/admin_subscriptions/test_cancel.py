@@ -332,3 +332,27 @@ async def test_cancel_when_stripe_no_longer_knows_the_subscription_is_a_409(
 
     assert result.status_code == 409
     assert await audit_rows(engine) == []
+
+
+async def test_cancel_audit_failure_after_stripe_acted_is_a_503_and_the_retry_succeeds(
+    client, engine, stripe, monkeypatch
+):
+    await seed_user(engine, "mgr", "admin", MANAGER)
+    org_id = await seed_org(engine, **paying())
+    headers = keyed("mgr", "key-audit-0001")
+    original = AuditRepository.add
+
+    async def broken(self, **kwargs):
+        raise RuntimeError("audit store down")
+
+    monkeypatch.setattr(AuditRepository, "add", broken)
+    failed = await client.post(f"{BASE}/{org_id}/cancel", json={}, headers=headers)
+    monkeypatch.setattr(AuditRepository, "add", original)
+    retry = await client.post(f"{BASE}/{org_id}/cancel", json={}, headers=headers)
+
+    assert failed.status_code == 503
+    assert "retry with the same Idempotency-Key" in failed.json()["error"]
+    assert await audit_rows(engine, "admin.subscriptions.cancel") != []
+    assert retry.status_code == 200 and retry.json()["data"]["already_applied"] is False
+    assert stripe.names().count("set_cancel_at_period_end") == 1  # Stripe state decided
+    assert len(await audit_rows(engine, "admin.subscriptions.cancel")) == 1

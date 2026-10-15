@@ -409,7 +409,7 @@ async def test_refund_intent_that_cannot_be_written_is_a_503_and_stripe_is_not_a
     assert stripe.charges["ch_1"].amount_refunded == 0
 
 
-async def test_refund_stripe_failure_after_the_intent_leaves_a_failed_row_and_can_be_retried(
+async def test_refund_stripe_outage_after_the_intent_leaves_the_row_pending_and_can_be_retried(
     client, engine, stripe
 ):
     await seed_user(engine, "mgr", "admin", MANAGER)
@@ -424,7 +424,7 @@ async def test_refund_stripe_failure_after_the_intent_leaves_a_failed_row_and_ca
     retry = await client.post(refund_url(org_id), json=body, headers=headers)
 
     assert failed.status_code == 502
-    assert len(rows_after) == 1 and rows_after[0][5]["details"]["state"] == "failed"
+    assert len(rows_after) == 1 and rows_after[0][5]["details"]["state"] == "pending"
     assert retry.status_code == 200 and retry.json()["data"]["already_applied"] is False
     final = await audit_rows(engine, "admin.subscriptions.refund")
     assert len(final) == 1 and final[0][5]["details"]["state"] == "completed"
@@ -475,3 +475,46 @@ async def test_simultaneous_refunds_with_one_key_refund_and_audit_once(
     assert stripe.names().count("create_refund") == 1
     assert stripe.charges["ch_1"].amount_refunded == 1000
     assert len(await audit_rows(engine, "admin.subscriptions.refund")) == 1
+
+
+async def test_refund_timeout_after_stripe_created_it_leaves_the_row_pending_and_the_retry_completes(
+    client, engine, stripe
+):
+    await seed_user(engine, "mgr", "admin", MANAGER)
+    org_id = await seed_org(engine, **paying())
+    headers = keyed("mgr", "key-time-0001")
+    body = {"charge_id": "ch_1", "amount": 700}
+    stripe.timeout_refund = True  # Stripe creates the refund, the answer never arrives
+
+    timed_out = await client.post(refund_url(org_id), json=body, headers=headers)
+    pending = await audit_rows(engine, "admin.subscriptions.refund")
+    stripe.forget_idempotency_keys()
+    retry = await client.post(refund_url(org_id), json=body, headers=headers)
+
+    assert timed_out.status_code == 502
+    assert len(pending) == 1 and pending[0][5]["details"]["state"] == "pending"
+    assert retry.status_code == 200
+    assert (
+        stripe.names().count("create_refund") == 1
+    )  # found by reference, not recreated
+    assert stripe.charges["ch_1"].amount_refunded == 700
+    final = await audit_rows(engine, "admin.subscriptions.refund")
+    assert len(final) == 1 and final[0][5]["details"]["state"] == "completed"
+
+
+async def test_refund_stripe_refusal_after_the_intent_marks_the_row_failed(
+    client, engine, stripe
+):
+    await seed_user(engine, "mgr", "admin", MANAGER)
+    org_id = await seed_org(engine, **paying())
+    stripe.reject_refund = True
+
+    result = await client.post(
+        refund_url(org_id),
+        json={"charge_id": "ch_1", "amount": 500},
+        headers=keyed("mgr"),
+    )
+
+    assert result.status_code == 409
+    rows_after = await audit_rows(engine, "admin.subscriptions.refund")
+    assert len(rows_after) == 1 and rows_after[0][5]["details"]["state"] == "failed"

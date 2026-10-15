@@ -40,6 +40,9 @@ class FakeStripeAdmin:
         self.fail = False
         self.reject = False
         self.fail_refund = False  # only the refund write fails
+        self.reject_refund = False  # Stripe refuses the refund itself
+        self.timeout_refund = False  # the refund is created, the answer is lost
+        self._timeout_after_create = False
         self.missing_subscription = False
         self.refund_refs: dict[str, StripeRefund] = {}
         self.subscription = StripeSubscription(
@@ -119,6 +122,9 @@ class FakeStripeAdmin:
         )
         if self.fail_refund:
             raise StripeError("Stripe request failed")
+        if self.reject_refund:
+            raise StripeRejected("Stripe request failed")
+        self._timeout_after_create = self.timeout_refund
         signature = (charge_id, amount)
         if idempotency_key in self._refunds:
             first, refund = self._refunds[idempotency_key]
@@ -136,6 +142,9 @@ class FakeStripeAdmin:
         self.charges[charge_id] = replace(
             current, amount_refunded=current.amount_refunded + amount
         )
+        if self._timeout_after_create:
+            self.timeout_refund = False
+            raise StripeError("Stripe request failed")
         return refund
 
     async def find_refund(

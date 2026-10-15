@@ -358,7 +358,11 @@ class AdminSubscriptionsService:
                         ),
                     )
         except (PaymentNotFound, StripeRefused, BillingUnavailable) as exc:
-            await self._mark_refund_failed(organization_id, ref)
+            # Only a definite refusal is "failed". After a timeout or 5xx Stripe may
+            # already have created the refund, so the row stays pending and a retry
+            # looks the refund up by its reference.
+            if not isinstance(exc, BillingUnavailable):
+                await self._mark_refund_failed(organization_id, ref)
             if isinstance(exc, StripeRefused) and amount > charge.refundable:
                 raise RefundExceedsBalance from None
             raise
