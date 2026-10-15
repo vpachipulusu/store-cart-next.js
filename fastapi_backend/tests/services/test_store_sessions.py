@@ -94,7 +94,8 @@ async def test_engine_is_null_pool_pooled_safe_and_disposed(codec, built_engines
 
     _, extra, engine = built_engines[0]
     assert isinstance(engine.pool, NullPool)
-    assert extra == {"statement_cache_size": 0}
+    # The PgBouncer-safe connect args come from build_engine itself (KAN-160).
+    assert extra is None
 
 
 async def test_each_call_builds_its_own_engine(codec, built_engines):

@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy.engine import URL, make_url
 
@@ -11,7 +12,10 @@ ASYNC_DRIVER = "postgresql+asyncpg"
 _TLS_PARAMS = ("ssl", "sslmode")
 
 # Neon pooled endpoints sit behind PgBouncer in transaction mode, which cannot keep
-# asyncpg's server-side prepared statements, so the statement cache is off.
+# server-side prepared statements across transactions. Both caches are off (asyncpg's
+# own and the SQLAlchemy dialect's), and each statement gets a unique name so two
+# client connections sharing one server connection never collide (SQLAlchemy's
+# documented PgBouncer setup for asyncpg).
 STATEMENT_CACHE_SIZE = 0
 
 # Seconds asyncpg waits to open a connection before raising TimeoutError (its
@@ -19,12 +23,17 @@ STATEMENT_CACHE_SIZE = 0
 CONNECT_TIMEOUT_SECONDS = 10.0
 
 
+def unique_prepared_statement_name() -> str:
+    """A prepared statement name that cannot clash behind PgBouncer."""
+    return f"__asyncpg_{uuid4()}__"
+
+
 @dataclass(frozen=True)
 class AsyncDatabaseTarget:
     """An asyncpg URL (password intact) and its connect args.
 
-    The connect args carry the TLS mode, the disabled statement cache and the connect
-    timeout. The app engines (``build_engine``) and Alembic both use them.
+    The connect args carry the TLS mode, the PgBouncer-safe statement settings and the
+    connect timeout. The app engines (``build_engine``) and Alembic both use them.
     """
 
     url: URL
@@ -45,6 +54,8 @@ def to_async_target(raw_url: str) -> AsyncDatabaseTarget:
     tls_args: dict[str, Any] = {} if tls_mode is None else {"ssl": tls_mode}
     connect_args: dict[str, Any] = {
         "statement_cache_size": STATEMENT_CACHE_SIZE,
+        "prepared_statement_cache_size": STATEMENT_CACHE_SIZE,
+        "prepared_statement_name_func": unique_prepared_statement_name,
         "timeout": CONNECT_TIMEOUT_SECONDS,
         **tls_args,
     }

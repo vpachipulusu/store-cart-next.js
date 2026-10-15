@@ -30,10 +30,6 @@ from app.services import store_secrets
 
 logger = logging.getLogger("storecart.store_sessions")
 
-# Neon pooled endpoints sit behind PgBouncer in transaction mode, which cannot keep
-# asyncpg's server-side prepared statements; turn the statement cache off.
-POOLED_CONNECT_ARGS = {"statement_cache_size": 0}
-
 
 class StoreSessionError(Exception):
     """A store database session could not be opened. Never carries secrets."""
@@ -78,7 +74,7 @@ async def open_store_session(
     """Like ``get_store_session`` with an explicit platform session provider."""
     connection_string = await _load_connection_string(provider, store_id)
     try:
-        engine = build_engine(connection_string, POOLED_CONNECT_ARGS)
+        engine = build_engine(connection_string)
     except (ArgumentError, ValueError):
         # Malformed URL: the SQLAlchemy message can echo parts of it.
         logger.error("store engine could not be built", extra={"store_id": store_id})

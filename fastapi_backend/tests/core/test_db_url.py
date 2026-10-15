@@ -1,10 +1,15 @@
 from app.core.db_url import (
     CONNECT_TIMEOUT_SECONDS,
-    STATEMENT_CACHE_SIZE,
     to_async_target,
+    unique_prepared_statement_name,
 )
 
-POOLER_SAFE_ARGS = {"statement_cache_size": 0, "timeout": CONNECT_TIMEOUT_SECONDS}
+POOLER_SAFE_ARGS = {
+    "statement_cache_size": 0,
+    "prepared_statement_cache_size": 0,
+    "prepared_statement_name_func": unique_prepared_statement_name,
+    "timeout": CONNECT_TIMEOUT_SECONDS,
+}
 
 
 def test_rewrites_the_driver_to_asyncpg():
@@ -39,11 +44,18 @@ def test_accepts_an_asyncpg_url_with_ssl_parameter():
     assert target.connect_args == {**POOLER_SAFE_ARGS, "ssl": "verify-full"}
 
 
-def test_disables_the_asyncpg_statement_cache_for_pgbouncer():
+def test_disables_both_statement_caches_for_pgbouncer():
     target = to_async_target("postgresql://u:pw@ep-x-pooler.neon.tech/app")
 
-    assert STATEMENT_CACHE_SIZE == 0
     assert target.connect_args["statement_cache_size"] == 0
+    assert target.connect_args["prepared_statement_cache_size"] == 0
+
+
+def test_prepared_statement_names_are_unique_per_statement():
+    names = {unique_prepared_statement_name() for _ in range(100)}
+
+    assert len(names) == 100
+    assert all(name.startswith("__asyncpg_") for name in names)
 
 
 def test_sets_a_bounded_connect_timeout():
