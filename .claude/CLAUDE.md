@@ -188,6 +188,32 @@ BILLING_RETURN_URL_ORIGINS            # allowed origins for Stripe return URLs
 
 Run the ECC reviewers on every PR diff before merging: `security-reviewer` for auth, payments, secrets, SQL and external calls; the language reviewer (`typescript-reviewer`, `python-reviewer`, `react-reviewer`, `fastapi-reviewer`); `database-reviewer` for migrations and queries. Fix CRITICAL and HIGH findings first. Coordinator-owned files that developer branches must not edit: `.env.example`, `.claude/CLAUDE.md`, `known-issues.md`.
 
+## ECC (agents, skills, hooks)
+
+The repo enables the ECC plugin in `.claude/settings.json` (`ecc@ecc`), so every clone and worktree gets ECC's subagents, skills and hooks. Call agents by their plugin names (`ecc:<name>`). Do not add ECC hooks to this repo's settings: the plugin already registers them, and a second copy runs them twice. The project keeps only `.claude/hooks/guard.mjs`.
+
+Required agent per kind of change (coordinator on every PR diff; developers on their own branch before opening the PR):
+
+| Change | Agents |
+|---|---|
+| Any code change | `ecc:code-reviewer` plus the language reviewer: `ecc:typescript-reviewer` / `ecc:react-reviewer` (frontend), `ecc:python-reviewer` / `ecc:fastapi-reviewer` (backend) |
+| Auth, payments, secrets, user input, external calls, crypto | `ecc:security-reviewer` |
+| Migrations, SQL, models | `ecc:database-reviewer` |
+| New feature or bug fix | `ecc:tdd-guide` (tests first) |
+| Allocation, design decisions | `ecc:architect` and `ecc:planner` (there is no separate product-manager agent; the rules below are its brief) |
+| Failing build | `ecc:build-error-resolver` |
+
+`general-purpose` is for plain searching only, never for review. The Jira merge comment lists which agents ran and what they found (CRITICAL and HIGH fixed first), so the review is verifiable.
+
+### Allocation rules (give these to `ecc:architect` and `ecc:planner`)
+
+- Pick bugs before features. Work only stories in To-do; a story's acceptance criteria are its definition of done and scope is never widened (propose a new story instead).
+- Parked, do not touch: KAN-125, KAN-145, KAN-115. UI redesign stories stay on hold until the foundation work is done.
+- At most 3 or 4 developers in parallel, on disjoint files, and exactly one backend developer at a time (one Alembic head). One ticket at a time on `auth-actions.ts`.
+- The OpenAPI client is regenerated only in backend branches.
+- Coordinator-owned files that developer branches must not edit: `.env.example`, `.claude/CLAUDE.md`, `known-issues.md`.
+- Only the `CI gate` check matters; Vercel checks are ignored. E2E specs are written and run locally with the command and result in the PR; `E2E_ENABLED` is never flipped.
+
 ## Package Manager
 
 This project uses **npm** exclusively. Do not use `pnpm` or `yarn`.
