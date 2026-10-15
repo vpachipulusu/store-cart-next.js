@@ -222,3 +222,15 @@ When a developer PR is merged and its Jira story is Done, the coordinator immedi
 ## Package Manager
 
 This project uses **npm** exclusively. Do not use `pnpm` or `yarn`.
+
+
+### Review findings: fix small ones in the PR, no follow-up stories
+
+- Small findings (LOW, cosmetic, or a cheap missing test: date locale, contrast, a duplicated string, a one-line guard) are fixed by the developer in the same PR before the coordinator merges. The coordinator sends them back to the developer session. It does not create a Jira story for them.
+- Create a follow-up story only for sized work: a backend change, a new capability, a migration, or a finding that needs a design decision. Ask the owner before creating it.
+- Small findings that are not fixed are listed in the Jira merge comment (agents ran, findings, fixed or not). They are not a backlog item.
+
+
+### Speak to Architect if any developer is available
+
+Speak to `ecc:architect` and `ecc:planner` if any developers are free. The work should be distributed between the developers without any conflict.
