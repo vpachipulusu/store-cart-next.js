@@ -58,21 +58,28 @@ async function getUserData() {
     // The backend rejected the session (401 "Invalid authentication"), or has no platform user for it
     // (404, a session minted before the API cutover): sign in again. Anything else is an outage, not a
     // reason to log the user out.
-    for (const result of [profile, history, billing]) {
+    for (const result of [profile, history]) {
       if (!result.success && isSessionRejected(result)) {
         redirect('/api/auth/clear-session');
       }
-      if (!result.success && result.error === NO_BILLING_ORGANIZATION_MESSAGE) continue;
       if (!result.success) {
-        throw new Error(
-          `Dashboard API request failed (${('status' in result && result.status) || 'unreachable'})`
-        );
+        throw new Error(`Dashboard API request failed (${result.status ?? 'unreachable'})`);
       }
+    }
+    // A 404 from billing can mean the organisation vanished mid-request, not a stale session, so only a
+    // revoked session (401) clears it here; the profile call above already catches a missing platform user.
+    if (!billing.success && billing.error === 'Invalid authentication') {
+      redirect('/api/auth/clear-session');
+    }
+    // No billing organisation is the free plan; any other billing failure is an outage, not a free plan.
+    if (!billing.success && billing.error !== NO_BILLING_ORGANIZATION_MESSAGE) {
+      throw new Error(
+        `Dashboard billing request failed (${('status' in billing && billing.status) || 'unreachable'})`
+      );
     }
     if (!profile.success || !history.success) {
       return null;
     }
-    // No billing organisation is the free plan; any other billing failure was thrown above as an outage.
     const plan = billing.success ? billing.data : null;
 
     return {

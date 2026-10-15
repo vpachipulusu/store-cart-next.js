@@ -145,6 +145,19 @@ describe('DashboardPage', () => {
     expect(redirectTarget(await rejection(page()))).toBe('/api/auth/clear-session');
   });
 
+  it('keeps the session when only the billing organisation is gone (billing 404)', async () => {
+    mocks.fetchBillingSummary.mockResolvedValue({
+      success: false,
+      error: 'Request failed',
+      status: 404,
+    });
+
+    const error = await rejection(page());
+
+    expect(navigationMock.redirect).not.toHaveBeenCalled();
+    expect(String(error)).toContain('404');
+  });
+
   it('does not render an invalid date when the period end is empty', async () => {
     mocks.fetchBillingSummary.mockResolvedValue({
       success: true,
