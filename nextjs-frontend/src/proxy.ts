@@ -46,9 +46,10 @@ function rewriteToStorefront(request: NextRequest, slug: string, headers: Header
 
 /**
  * KAN-202 (temporary): preview-only `/s/{slug}`. When enabled and the slug is valid it is rewritten like a
- * store host; only the store root is served (no sub-routes exist). In every other case (flag off, sub-path, production, malformed or reserved slug) it is rewritten to the
- * internal 404 target without the slug marker, so the response is the same 404 as an unknown store. All
- * responses are noindex. Remove with the wildcard domain.
+ * store host; only the store root is served (no sub-routes exist). In every other case (flag off,
+ * production, sub-path, malformed or reserved slug) it is rewritten to the internal 404 target without the
+ * slug marker, so the response is the same 404 as an unknown store. All responses are noindex. Remove with
+ * the wildcard domain.
  */
 function rewritePathPreview(
   request: NextRequest,

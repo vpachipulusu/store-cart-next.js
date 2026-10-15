@@ -151,7 +151,10 @@ export function parseStoreSlug(
  */
 export const STORE_PATH_PREFIX = '/s';
 
-/** Internal 404 target for `/s/*` requests that are not served; an underscore makes it an invalid slug (and never a real store), so the route 404s. */
+/**
+ * Internal 404 target for `/s/*` requests that are not served. The underscore makes it an invalid slug
+ * (never a real store), so the route 404s.
+ */
 export const STORE_NOT_FOUND_SLUG = 'not_found';
 
 /**

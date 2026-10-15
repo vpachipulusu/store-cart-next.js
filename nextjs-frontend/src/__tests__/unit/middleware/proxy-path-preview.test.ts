@@ -90,6 +90,22 @@ describe('/s/{slug} when the preview is enabled', () => {
 });
 
 describe.each([
+  ['flag on, preview env', 'preview'],
+  ['flag on, development env', 'development'],
+  ['flag on, VERCEL_ENV unset', undefined],
+])('/s/{slug} is served (%s)', (_label, vercelEnv) => {
+  beforeEach(() => configure('true', vercelEnv));
+
+  it('rewrites to the storefront route with the slug marker', async () => {
+    const response = await proxy(request(ROOT_HOST, '/s/acme'));
+
+    expect(rewritePath(response)).toBe('/storefront/acme');
+    expect(overridden(response, STORE_SLUG_HEADER)).toBe('acme');
+    expect(response.headers.get('X-Robots-Tag')).toBe('noindex');
+  });
+});
+
+describe.each([
   ['flag off, preview env', 'false', 'preview'],
   ['flag unset, preview env', undefined, 'preview'],
   ['flag on, production', 'true', 'production'],
