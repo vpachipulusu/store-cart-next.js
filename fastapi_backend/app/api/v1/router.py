@@ -10,6 +10,7 @@ from app.api.v1 import (
     me,
     org_billing,
     organizations,
+    settings,
     storefront,
     stores,
     totp,
@@ -31,3 +32,4 @@ api_router.include_router(org_billing.router)
 api_router.include_router(organizations.router)
 api_router.include_router(stores.router)
 api_router.include_router(storefront.router)
+api_router.include_router(settings.router)
