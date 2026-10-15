@@ -53,6 +53,15 @@ class Settings(BaseSettings):
     STORE_DB_ENCRYPTION_KEY: SecretStr | None = None
     STORE_DB_ENCRYPTION_KEY_PREVIOUS: SecretStr | None = None
 
+    # Store database provisioning (KAN-55): "local" (Docker Postgres, the default) or
+    # "neon". The NEON_* values are optional and checked only when "neon" is selected.
+    STORE_DB_PROVIDER: str = "local"
+    NEON_API_KEY: SecretStr | None = None
+    NEON_PROJECT_ID: str | None = None
+    NEON_BRANCH_ID: str | None = None
+    NEON_ROLE_NAME: str | None = None
+    NEON_API_BASE_URL: str = "https://console.neon.tech/api/v2"
+
     # Stripe Billing webhook (KAN-44). Unset means the webhook answers 503.
     STRIPE_WEBHOOK_SECRET: SecretStr | None = None
     STRIPE_PRICE_ID_PRO_MONTHLY: str | None = None

@@ -24,6 +24,8 @@ detail; the service logs only the store id.
 Use `app.services.store_secrets` (`set_connection_string`, `reveal_connection_string`, `rotate_connection_string`);
 the session factory (KAN-54) is the only intended caller of `reveal_connection_string`. Callers commit.
 
+Creating the store database itself is covered in [backend-store-provisioning.md](backend-store-provisioning.md) (KAN-55).
+
 ## Rotation
 
 1. Set `STORE_DB_ENCRYPTION_KEY` to a new key and move the old one to `STORE_DB_ENCRYPTION_KEY_PREVIOUS`; deploy.
