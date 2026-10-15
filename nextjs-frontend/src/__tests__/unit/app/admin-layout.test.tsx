@@ -171,6 +171,7 @@ describe('AdminLayout access check', () => {
     const error = await rejection(AdminLayout({ children: null }));
 
     expect((error as Error).message).toBe('boom');
+    expect(redirectTarget(error)).toBeNull();
     expect(mocks.loggerError).toHaveBeenCalledTimes(1);
   });
 });
