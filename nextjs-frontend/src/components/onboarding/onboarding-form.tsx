@@ -67,6 +67,7 @@ export function OnboardingForm({ resumeOrganizationName }: OnboardingFormProps) 
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const submittingRef = useRef(false);
+  const createdStoreIdRef = useRef<string | undefined>(undefined);
   const stallTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [resumeName, setResumeName] = useState(resumeOrganizationName);
   const [values, setValues] = useState<OnboardingInput>({
@@ -111,12 +112,23 @@ export function OnboardingForm({ resumeOrganizationName }: OnboardingFormProps) 
     setPending(false);
   };
 
+  const goToStatus = (storeId: string) => {
+    router.push(`/dashboard/onboarding/status/${encodeURIComponent(storeId)}`);
+    // Stay "pending" while navigating, but never forever if the navigation stalls.
+    stallTimerRef.current = setTimeout(finish, PUSH_STALL_MS);
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     // A ref, not state: two submits in the same tick both see the same render's state.
     if (submittingRef.current) return;
     submittingRef.current = true;
     setPending(true);
+    // The store already exists (the navigation stalled): go on to the status screen, never create it twice.
+    if (createdStoreIdRef.current) {
+      goToStatus(createdStoreIdRef.current);
+      return;
+    }
     setFieldErrors({});
     setFormError(null);
 
@@ -127,9 +139,8 @@ export function OnboardingForm({ resumeOrganizationName }: OnboardingFormProps) 
     try {
       const result = await createStoreAction(submission);
       if (result.success) {
-        router.push(`/dashboard/onboarding/status/${encodeURIComponent(result.data.storeId)}`);
-        // Stay "pending" while navigating, but never forever if the navigation stalls.
-        stallTimerRef.current = setTimeout(finish, PUSH_STALL_MS);
+        createdStoreIdRef.current = result.data.storeId;
+        goToStatus(result.data.storeId);
         return;
       }
       if (result.organizationCreated && !resuming) setResumeName(values.organizationName);

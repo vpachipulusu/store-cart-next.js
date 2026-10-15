@@ -106,11 +106,33 @@ describe('createStoreAction', () => {
     expect(mocks.loggerError).not.toHaveBeenCalled();
   });
 
-  it('logs an unexpected session-check failure and still answers unauthorized', async () => {
+  it('logs an unexpected session-check failure and reports a retryable error, not an expired session', async () => {
     mocks.getVerifiedSessionClaims.mockRejectedValue(new Error('firebase down'));
-    expect(await createStoreAction(NEW)).toEqual({ success: false, code: 'unauthorized' });
+    expect(await createStoreAction(NEW)).toEqual({
+      success: false,
+      error: 'We could not set up your store. Please try again.',
+    });
     expect(mocks.loggerError).toHaveBeenCalled();
+    expect(mocks.createOrganizationWithStore).not.toHaveBeenCalled();
   });
+
+  it('gives a form-level message when a resume request finds no business to resume', async () => {
+    mocks.createOrganizationWithStore.mockResolvedValue(fail('invalid', 'organization'));
+    expect(await createStoreAction(RESUME)).toEqual({
+      success: false,
+      error: 'We could not find your business. Reload the page and try again.',
+    });
+  });
+
+  it.each([null, {}, { mode: 'bogus' }])(
+    'rejects a malformed submission %j with a message',
+    async (bad) => {
+      const result = await createStoreAction(bad as never);
+      expect(result.success).toBe(false);
+      expect(result.error ?? Object.keys(result.fieldErrors ?? {}).length).toBeTruthy();
+      expect(mocks.createOrganizationWithStore).not.toHaveBeenCalled();
+    }
+  );
 
   it('maps a backend unauthorized result to the unauthorized code', async () => {
     mocks.createOrganizationWithStore.mockResolvedValue(fail('unauthorized', 'organization'));
@@ -217,6 +239,14 @@ describe('getStoreStatusAction', () => {
   it('answers not found for a store that is not the caller own', async () => {
     mocks.fetchStoreStatus.mockResolvedValue({ success: false, reason: 'not_found' });
     expect(await getStoreStatusAction(STORE_ID)).toEqual({ success: false, notFound: true });
+  });
+
+  it('answers a retryable error, not unauthorized, when the session check itself fails', async () => {
+    mocks.getVerifiedSessionClaims.mockRejectedValue(new Error('firebase down'));
+    expect(await getStoreStatusAction(STORE_ID)).toEqual({
+      success: false,
+      error: 'Could not check your store. Please try again.',
+    });
   });
 
   it('answers a retryable error when the backend is unavailable', async () => {

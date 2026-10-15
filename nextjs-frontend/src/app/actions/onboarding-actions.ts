@@ -45,22 +45,24 @@ const SLUG_TAKEN_MESSAGE = 'That address is already taken. Choose another.';
 const INVALID_ADDRESS_MESSAGE = 'That address cannot be used. Choose another.';
 const LIMIT_MESSAGE = 'Your plan does not allow another store.';
 const ALREADY_ONBOARDED_MESSAGE = 'You already have a store. Open your dashboard.';
+const BUSINESS_MISSING_MESSAGE = 'We could not find your business. Reload the page and try again.';
 const GENERIC_ERROR = 'We could not set up your store. Please try again.';
 const PARTIAL_ERROR =
   'Your business was created but the store was not. Submit again to finish setting it up.';
 const STATUS_ERROR = 'Could not check your store. Please try again.';
 
-async function hasVerifiedSession(): Promise<boolean> {
+type SessionState = 'ok' | 'unauthorized' | 'unavailable';
+
+/** Signed-in, not signed-in (including revoked or unverified), or the check itself failed (an outage). */
+async function checkSession(): Promise<SessionState> {
   try {
-    return (await getVerifiedSessionClaims()) !== null;
+    return (await getVerifiedSessionClaims()) !== null ? 'ok' : 'unauthorized';
   } catch (error) {
-    // Invalid, revoked and unverified sessions are all "not signed in"; anything else is an outage worth a log.
-    if (!isEmailNotVerifiedError(error) && !isSessionVerificationError(error)) {
-      logger.error('Onboarding session check failed', {
-        errorName: error instanceof Error ? error.name : typeof error,
-      });
-    }
-    return false;
+    if (isEmailNotVerifiedError(error) || isSessionVerificationError(error)) return 'unauthorized';
+    logger.error('Onboarding session check failed', {
+      errorName: error instanceof Error ? error.name : typeof error,
+    });
+    return 'unavailable';
   }
 }
 
@@ -78,13 +80,20 @@ function fieldErrorsFrom(
 export async function createStoreAction(
   submission: OnboardingSubmission
 ): Promise<CreateStoreResponse> {
-  if (!(await hasVerifiedSession())) return { success: false, code: 'unauthorized' };
+  const session = await checkSession();
+  if (session === 'unauthorized') return { success: false, code: 'unauthorized' };
+  if (session === 'unavailable') return { success: false, error: GENERIC_ERROR };
 
   const parsed =
     submission?.mode === 'resume'
       ? resumeSchema.safeParse(submission)
       : onboardingSchema.safeParse(submission);
-  if (!parsed.success) return { success: false, fieldErrors: fieldErrorsFrom(parsed.error.issues) };
+  if (!parsed.success) {
+    const fieldErrors = fieldErrorsFrom(parsed.error.issues);
+    return Object.keys(fieldErrors).length > 0
+      ? { success: false, fieldErrors }
+      : { success: false, error: GENERIC_ERROR };
+  }
 
   try {
     const result = await createOrganizationWithStore(parsed.data);
@@ -95,6 +104,15 @@ export async function createStoreAction(
     const createdWithoutStore = result.stage === 'store' && result.organizationId !== undefined;
     const resumable = createdWithoutStore ? ({ organizationCreated: true } as const) : {};
     const slugField = result.stage === 'store' ? 'storeSlug' : 'organizationSlug';
+
+    // Resume mode shows no business fields, so a business-level problem needs a form-level message.
+    if (
+      submission.mode === 'resume' &&
+      result.stage === 'organization' &&
+      (result.reason === 'slug_taken' || result.reason === 'invalid')
+    ) {
+      return { success: false, error: BUSINESS_MISSING_MESSAGE };
+    }
 
     switch (result.reason) {
       case 'slug_taken':
@@ -133,7 +151,9 @@ export async function createStoreAction(
 
 /** Polled by the status screen. The backend authorizes the read; a store the caller cannot open is "not found". */
 export async function getStoreStatusAction(storeId: string): Promise<StoreStatusResponse> {
-  if (!(await hasVerifiedSession())) return { success: false, code: 'unauthorized' };
+  const session = await checkSession();
+  if (session === 'unauthorized') return { success: false, code: 'unauthorized' };
+  if (session === 'unavailable') return { success: false, error: STATUS_ERROR };
   if (!isStoreId(storeId)) return { success: false, notFound: true };
 
   try {

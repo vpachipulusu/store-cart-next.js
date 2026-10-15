@@ -144,7 +144,7 @@ describe('OnboardingForm', () => {
     expect(alert).not.toHaveTextContent(/^unauthorized$/i);
   });
 
-  it('re-enables the button if the navigation to the status screen stalls', async () => {
+  it('re-enables the button if the navigation stalls, and a further submit goes to the status screen without creating again', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     mocks.createStoreAction.mockResolvedValue({ success: true, data: { storeId: 'st1' } });
     render(<OnboardingForm />);
@@ -152,12 +152,17 @@ describe('OnboardingForm', () => {
     await fillNew(user);
     await user.click(submitButton());
 
-    expect(mocks.push).toHaveBeenCalled();
+    expect(mocks.push).toHaveBeenCalledTimes(1);
     expect(submitButton()).toHaveAttribute('aria-disabled', 'true');
     await act(async () => {
       await vi.advanceTimersByTimeAsync(PUSH_STALL_MS);
     });
     expect(submitButton()).toHaveAttribute('aria-disabled', 'false');
+
+    await user.click(submitButton());
+    expect(mocks.createStoreAction).toHaveBeenCalledTimes(1);
+    expect(mocks.push).toHaveBeenCalledTimes(2);
+    expect(mocks.push).toHaveBeenLastCalledWith('/dashboard/onboarding/status/st1');
   });
 
   it('does not ask for a new business when one is already created', () => {
