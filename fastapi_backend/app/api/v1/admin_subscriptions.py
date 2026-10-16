@@ -1,8 +1,8 @@
-"""Admin subscriptions API (KAN-48): list, detail, cancel, refund a payment, grant a plan.
+"""Admin subscriptions API (KAN-48): list, detail, cancel, refund a payment, grant and revoke a plan.
 
 Every route is ``require_admin(<permission>)``: authentication first (401), then the
 admin record and permission (403, one generic body). Cancel needs ``subscriptions.update``,
-refund ``subscriptions.refund`` and grant ``subscriptions.grant``. Stripe webhooks stay
+refund ``subscriptions.refund``, grant and revoke ``subscriptions.grant``. Stripe webhooks stay
 the only writer of subscription state; see ``AdminSubscriptionsService``. Money-moving
 routes require an ``Idempotency-Key`` header and map every Stripe failure to a generic
 message: no Stripe text, card data or secrets reach a response.
@@ -208,6 +208,16 @@ class GrantData(BaseModel):
 class GrantResponse(BaseModel):
     success: Literal[True] = True
     data: GrantData
+
+
+class RevokeData(BaseModel):
+    organization_id: str
+    already_applied: bool
+
+
+class RevokeResponse(BaseModel):
+    success: Literal[True] = True
+    data: RevokeData
 
 
 def stripe_admin() -> StripeAdminBilling | None:
@@ -447,5 +457,27 @@ async def admin_grant_subscription(
             granted_plan=cast(GrantablePlan, result.granted_plan),
             granted_until=result.granted_until,
             changed=result.changed,
+        )
+    )
+
+
+@router.delete("/{organization_id}/grant", response_model=RevokeResponse)
+async def admin_revoke_grant(
+    organization_id: OrganizationId,
+    response: Response,
+    admin: GrantAdmin,
+    service: ServiceDep,
+    request_key: RequestKey,
+) -> RevokeResponse:
+    _no_store(response)
+    try:
+        result = await service.revoke_grant(
+            admin, organization_id, request_key=request_key
+        )
+    except HANDLED as exc:
+        raise _http_error(exc) from None
+    return RevokeResponse(
+        data=RevokeData(
+            organization_id=organization_id, already_applied=result.already_applied
         )
     )

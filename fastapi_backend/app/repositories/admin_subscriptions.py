@@ -1,7 +1,7 @@
 """Queries behind the admin subscriptions API (KAN-48).
 
 Reads organisations and their audit rows; the only organisation write is the admin
-grant (``set_grant``). Subscription state that comes from Stripe is never written here.
+grant (``set_grant``, ``clear_grant``). Subscription state that comes from Stripe is never written here.
 """
 
 from dataclasses import dataclass
@@ -148,6 +148,13 @@ class AdminSubscriptionsRepository(BaseRepository):
             update(Organization)
             .where(Organization.id == organization_id)
             .values(granted_plan=plan, granted_until=until)
+        )
+
+    async def clear_grant(self, organization_id: str) -> None:
+        await self._session.execute(
+            update(Organization)
+            .where(Organization.id == organization_id)
+            .values(granted_plan=None, granted_until=None)
         )
 
     async def lock_request(self, key: str) -> None:
