@@ -91,6 +91,7 @@ def get_media_upload_service() -> MediaUploadService:
             or not settings.R2_BUCKET_NAME
             or not settings.R2_PUBLIC_BASE_URL
         ):
+            logger.warning("R2 is not configured: image uploads answer 503")
             raise HTTPException(503, "Service temporarily unavailable")
         _media_upload_service = MediaUploadService(
             Boto3UploadSigner(

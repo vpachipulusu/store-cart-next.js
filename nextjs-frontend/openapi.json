@@ -8551,8 +8551,8 @@
         "tags": [
           "media"
         ],
-        "summary": "Presign Image Upload",
-        "description": "Presign a PUT of one image under ``stores/{store_id}/``; the file never touches the API.",
+        "summary": "Presign an image upload",
+        "description": "Presign a PUT of one image under ``stores/{store_id}/``; the file never touches the API.\n\nValid for 300 seconds. Send ``headers`` verbatim and a body of exactly ``size_bytes``.",
         "operationId": "presign_image_upload",
         "parameters": [
           {
@@ -8619,7 +8619,7 @@
             }
           },
           "422": {
-            "description": "Invalid request",
+            "description": "Unsupported type or size",
             "content": {
               "application/json": {
                 "schema": {
@@ -10157,6 +10157,7 @@
           },
           "method": {
             "type": "string",
+            "const": "PUT",
             "title": "Method"
           },
           "headers": {

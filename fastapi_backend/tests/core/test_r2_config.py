@@ -79,3 +79,15 @@ def test_account_id_must_be_32_hex_characters(monkeypatch, account):
 def test_public_base_url_must_be_plain_https(monkeypatch, url):
     with pytest.raises(ValidationError, match="R2_PUBLIC_BASE_URL"):
         configure(monkeypatch, R2_PUBLIC_BASE_URL=url)
+
+
+@pytest.mark.parametrize("name", R2_NAMES)
+def test_empty_value_counts_as_unset_and_is_rejected_as_partial(monkeypatch, name):
+    with pytest.raises(ValidationError, match="must be set together"):
+        configure(monkeypatch, **{name: ""})
+
+
+@pytest.mark.parametrize("bucket", ["a", "UPPER", "has/slash", "..", "-lead", "a b"])
+def test_bucket_name_must_be_a_valid_bucket_name(monkeypatch, bucket):
+    with pytest.raises(ValidationError, match="R2_BUCKET_NAME"):
+        configure(monkeypatch, R2_BUCKET_NAME=bucket)

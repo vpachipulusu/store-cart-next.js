@@ -14,10 +14,17 @@ Cloudflare R2 bucket. The file never passes through the API.
   (`stores/{store_id}/{id}.{ext}`); no client filename reaches it.
 - **Logging:** the presigned URL's query string is a credential. It is never logged.
 
+## Known limits
+
+- The type is the one the client declares; the bytes are not inspected. Serve the public bucket with `nosniff`, ideally
+  on a domain separate from the app.
+- Abandoned uploads are never cleaned up and there is no per-store quota; only the per-user API rate limit applies.
+- Consumers that store a `key` must check it starts with `stores/{store_id}/`.
+
 ## Settings
 
 `R2_ACCOUNT_ID` (32 hex characters), `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`,
-`R2_PUBLIC_BASE_URL` (https, no query or fragment). All five or none.
+`R2_PUBLIC_BASE_URL` (https, no query or fragment). All five or none (an empty value counts as set).
 
 ## Owner step: bucket CORS
 

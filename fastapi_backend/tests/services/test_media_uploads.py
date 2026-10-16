@@ -115,3 +115,34 @@ def test_real_signature_covers_content_type_and_length_and_targets_r2():
     assert "content-type" in signed
     assert query["X-Amz-Expires"] == [str(PRESIGN_TTL_SECONDS)]
     assert "test-secret-key" not in upload.upload_url
+
+
+def test_signature_differs_when_the_signed_size_differs():
+    signer = Boto3UploadSigner(
+        account_id=ACCOUNT,
+        access_key_id="test-access-key",
+        secret_access_key="test-secret-key",
+        bucket="media",
+    )
+
+    def signature(size: int) -> str:
+        url = signer.presign_put(
+            key="stores/s/k.png",
+            content_type="image/png",
+            size_bytes=size,
+            expires_in=60,
+        )
+        return parse_qs(urlparse(url).query)["X-Amz-Signature"][0]
+
+    assert signature(100) != signature(101)
+
+
+def test_signer_repr_does_not_expose_credentials():
+    signer = Boto3UploadSigner(
+        account_id=ACCOUNT,
+        access_key_id="test-access-key",
+        secret_access_key="test-secret-key",
+        bucket="media",
+    )
+
+    assert "test-secret-key" not in repr(signer)

@@ -509,9 +509,11 @@ export const updateStore = <ThrowOnError extends boolean = false>(options: Optio
 });
 
 /**
- * Presign Image Upload
+ * Presign an image upload
  *
  * Presign a PUT of one image under ``stores/{store_id}/``; the file never touches the API.
+ *
+ * Valid for 300 seconds. Send ``headers`` verbatim and a body of exactly ``size_bytes``.
  */
 export const presignImageUpload = <ThrowOnError extends boolean = false>(options: Options<PresignImageUploadData, ThrowOnError>) => (options.client ?? client).post<PresignImageUploadResponses, PresignImageUploadErrors, ThrowOnError>({
     url: '/v1/stores/{store_id}/uploads/images',

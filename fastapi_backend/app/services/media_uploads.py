@@ -35,7 +35,7 @@ class UploadSigner(Protocol):
 @dataclass(frozen=True)
 class PresignedUpload:
     upload_url: str
-    method: str
+    method: Literal["PUT"]
     headers: dict[str, str]
     key: str
     public_url: str
@@ -65,6 +65,9 @@ class Boto3UploadSigner:
             region_name="auto",
             config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
         )
+
+    def __repr__(self) -> str:
+        return "Boto3UploadSigner()"
 
     def presign_put(
         self, *, key: str, content_type: str, size_bytes: int, expires_in: int
@@ -96,6 +99,7 @@ class MediaUploadService:
             raise InvalidUpload("Unsupported image type")
         if size_bytes <= 0 or size_bytes > MAX_IMAGE_BYTES:
             raise InvalidUpload("Image size is not allowed")
+        now = datetime.now(UTC)
         key = f"stores/{store_id}/{new_id()}.{extension}"
         url = self._signer.presign_put(
             key=key,
@@ -109,5 +113,5 @@ class MediaUploadService:
             headers={"Content-Type": content_type},
             key=key,
             public_url=f"{self._public_base_url}/{key}",
-            expires_at=datetime.now(UTC) + timedelta(seconds=PRESIGN_TTL_SECONDS),
+            expires_at=now + timedelta(seconds=PRESIGN_TTL_SECONDS),
         )

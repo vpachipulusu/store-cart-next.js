@@ -5,7 +5,7 @@ The response holds a presigned URL whose query string is a credential: it is nev
 """
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
@@ -38,6 +38,7 @@ router = APIRouter(
         401: {"model": ErrorResponse},
         403: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
+        422: {"model": ErrorResponse, "description": "Unsupported type or size"},
         503: {"model": ErrorResponse},
     },
 )
@@ -52,7 +53,7 @@ class ImageUploadRequest(BaseModel):
 
 class ImageUploadData(BaseModel):
     upload_url: str
-    method: str
+    method: Literal["PUT"]
     headers: dict[str, str]
     key: str
     public_url: str
@@ -63,14 +64,19 @@ class ImageUploadResponse(BaseModel):
     data: ImageUploadData
 
 
-@router.post("/images", response_model=ImageUploadResponse)
+@router.post(
+    "/images", response_model=ImageUploadResponse, summary="Presign an image upload"
+)
 async def presign_image_upload(
     body: ImageUploadRequest,
     response: Response,
     merchant: Annotated[MerchantAccess, Depends(require_merchant(OWNER_ADMIN))],
     service: Annotated[MediaUploadService, Depends(get_media_upload_service)],
 ) -> ImageUploadResponse:
-    """Presign a PUT of one image under ``stores/{store_id}/``; the file never touches the API."""
+    """Presign a PUT of one image under ``stores/{store_id}/``; the file never touches the API.
+
+    Valid for 300 seconds. Send ``headers`` verbatim and a body of exactly ``size_bytes``.
+    """
     no_store(response)
     try:
         upload = service.presign_image(

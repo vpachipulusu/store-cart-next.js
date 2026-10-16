@@ -688,7 +688,7 @@ export type ImageUploadData = {
     /**
      * Method
      */
-    method: string;
+    method: 'PUT';
     /**
      * Headers
      */
@@ -5730,7 +5730,7 @@ export type PresignImageUploadErrors = {
      */
     404: ErrorResponse;
     /**
-     * Invalid request
+     * Unsupported type or size
      */
     422: ErrorResponse;
     /**

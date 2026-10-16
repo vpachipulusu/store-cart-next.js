@@ -11,6 +11,7 @@ from app.core.totp import TotpCodec, TotpUnavailable
 LOCAL_ENVIRONMENTS = frozenset({"local", "test"})
 VERCEL_NON_PRODUCTION = frozenset({"preview", "development"})
 R2_ACCOUNT_ID_PATTERN = re.compile(r"[0-9a-fA-F]{32}")
+R2_BUCKET_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]")
 
 
 class Settings(BaseSettings):
@@ -157,6 +158,8 @@ class Settings(BaseSettings):
         # The account id becomes the signing host (https://{id}.r2.cloudflarestorage.com).
         if not R2_ACCOUNT_ID_PATTERN.fullmatch(self.R2_ACCOUNT_ID or ""):
             raise ValueError("R2_ACCOUNT_ID must be 32 hexadecimal characters")
+        if not R2_BUCKET_PATTERN.fullmatch(self.R2_BUCKET_NAME or ""):
+            raise ValueError("R2_BUCKET_NAME is not a valid bucket name")
         parsed = urlparse(self.R2_PUBLIC_BASE_URL or "")
         if (
             parsed.scheme != "https"

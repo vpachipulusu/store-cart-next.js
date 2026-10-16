@@ -2,10 +2,12 @@
 
 import logging
 from typing import Annotated
+from urllib.parse import urlparse
 
 import pytest
-from fastapi import Header
+from fastapi import Header, HTTPException
 from httpx import ASGITransport, AsyncClient
+from pydantic import SecretStr
 
 from app.api import deps
 from app.api.auth import get_current_identity
@@ -17,12 +19,23 @@ from app.main import create_app
 from app.models.platform.membership import MembershipRole
 from app.models.platform.store import StoreStatus
 from app.repositories.merchant import MerchantAccess, OrganizationRef, StoreRef
-from app.services.media_uploads import MAX_IMAGE_BYTES, MediaUploadService
+from app.services.media_uploads import (
+    MAX_IMAGE_BYTES,
+    InvalidUpload,
+    MediaUploadService,
+)
 from app.services.merchant import MerchantService
 from tests.services.test_media_uploads import FakeSigner
 
 KEY = "test-only-internal-service-key-not-for-deployment"
 URL = "/v1/stores/store-1/uploads/images"
+R2_VALUES = {
+    "R2_ACCOUNT_ID": "0123456789abcdef0123456789abcdef",
+    "R2_ACCESS_KEY_ID": "key-id",
+    "R2_SECRET_ACCESS_KEY": SecretStr("real-secret-value"),
+    "R2_BUCKET_NAME": "media",
+    "R2_PUBLIC_BASE_URL": "https://cdn.example.com",
+}
 BODY = {"content_type": "image/png", "size_bytes": 2048}
 
 
@@ -176,3 +189,55 @@ async def test_presigned_url_is_not_logged(harness, caplog):
     assert result.status_code == 200
     assert "X-Amz-Signature" not in caplog.text
     assert "signed.example.com" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "unset",
+    [
+        "R2_ACCOUNT_ID",
+        "R2_ACCESS_KEY_ID",
+        "R2_SECRET_ACCESS_KEY",
+        "R2_BUCKET_NAME",
+        "R2_PUBLIC_BASE_URL",
+    ],
+)
+def test_any_missing_r2_setting_answers_503_and_is_not_cached(monkeypatch, unset):
+    for name, value in R2_VALUES.items():
+        monkeypatch.setattr(settings, name, value)
+    monkeypatch.setattr(settings, unset, None)
+    monkeypatch.setattr(deps, "_media_upload_service", None)
+
+    with pytest.raises(HTTPException) as caught:
+        deps.get_media_upload_service()
+
+    assert caught.value.status_code == 503
+    assert deps._media_upload_service is None
+
+
+def test_configured_r2_builds_one_real_service_and_caches_it(monkeypatch):
+    for name, value in R2_VALUES.items():
+        monkeypatch.setattr(settings, name, value)
+    monkeypatch.setattr(deps, "_media_upload_service", None)
+
+    first = deps.get_media_upload_service()
+    upload = first.presign_image("store-1", "image/webp", 100)
+
+    assert deps.get_media_upload_service() is first
+    host = urlparse(upload.upload_url).hostname
+    assert host == f"{R2_VALUES['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com"
+    assert upload.public_url == f"https://cdn.example.com/{upload.key}"
+    assert "real-secret-value" not in upload.upload_url
+
+
+async def test_service_rejection_is_a_422_envelope(harness):
+    class Rejecting:
+        def presign_image(self, *args: object) -> None:
+            raise InvalidUpload("Unsupported image type")
+
+    harness.app.dependency_overrides[get_media_upload_service] = lambda: Rejecting()
+
+    async with harness.client() as http:
+        result = await http.post(URL, json=BODY)
+
+    assert result.status_code == 422
+    assert result.json() == {"success": False, "error": "Unsupported image type"}
