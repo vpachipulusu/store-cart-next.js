@@ -31,16 +31,23 @@ export function AdminHeader({ user, adminRole }: AdminHeaderProps) {
   };
 
   return (
-    <div className="ml-auto flex items-center gap-4">
-      <Badge variant="secondary" className="font-medium capitalize bg-theme-accent/10 text-theme-accent-dark border-theme-accent/20">
+    <div className="ms-auto flex items-center gap-4">
+      <Badge
+        variant="secondary"
+        className="border-theme-accent/20 bg-theme-accent/10 font-medium capitalize text-theme-accent-dark"
+      >
         {adminRole.replace('_', ' ')}
       </Badge>
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" className="relative h-10 w-10 rounded-full hover:bg-accent">
-            <Avatar className="h-10 w-10 ring-2 ring-transparent transition-all hover:ring-ring">
-              <AvatarImage src={user.avatarUrl || undefined} />
+          <Button
+            variant="ghost"
+            aria-label="Account menu"
+            className="relative h-11 w-11 rounded-full hover:bg-accent"
+          >
+            <Avatar className="h-11 w-11 ring-2 ring-transparent transition-all hover:ring-ring">
+              <AvatarImage src={user.avatarUrl || undefined} alt="" />
               <AvatarFallback>{user.displayName?.charAt(0) || user.email.charAt(0)}</AvatarFallback>
             </Avatar>
           </Button>
