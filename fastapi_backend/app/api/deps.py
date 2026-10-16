@@ -4,7 +4,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -16,6 +16,10 @@ from app.core.database import (
 from app.core.rate_limit import DisabledRateLimiter, RateLimiter, UpstashRateLimiter
 from app.repositories.health import HealthRepository
 from app.services.health import HealthService
+from app.services.media_uploads import (
+    Boto3UploadSigner,
+    MediaUploadService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,3 +71,34 @@ def get_rate_limiter() -> RateLimiter:
             logger.warning("Upstash Redis not configured: rate limiting is disabled")
             _rate_limiter = DisabledRateLimiter()
     return _rate_limiter
+
+
+_media_upload_service: MediaUploadService | None = None
+
+
+def get_media_upload_service() -> MediaUploadService:
+    """The one place the boto3 signer is built; tests override this dependency.
+
+    Answers 503 when the R2 settings are unset.
+    """
+    global _media_upload_service
+    if _media_upload_service is None:
+        secret = settings.R2_SECRET_ACCESS_KEY
+        if (
+            not settings.R2_ACCOUNT_ID
+            or not settings.R2_ACCESS_KEY_ID
+            or secret is None
+            or not settings.R2_BUCKET_NAME
+            or not settings.R2_PUBLIC_BASE_URL
+        ):
+            raise HTTPException(503, "Service temporarily unavailable")
+        _media_upload_service = MediaUploadService(
+            Boto3UploadSigner(
+                account_id=settings.R2_ACCOUNT_ID,
+                access_key_id=settings.R2_ACCESS_KEY_ID,
+                secret_access_key=secret.get_secret_value(),
+                bucket=settings.R2_BUCKET_NAME,
+            ),
+            settings.R2_PUBLIC_BASE_URL,
+        )
+    return _media_upload_service

@@ -15,6 +15,12 @@ anyio==4.15.1
     #   watchfiles
 asyncpg==0.32.0
     # via storecart-backend
+boto3==1.43.114
+    # via storecart-backend
+botocore==1.43.114
+    # via
+    #   boto3
+    #   s3transfer
 cachecontrol==0.14.4
     # via firebase-admin
 certifi==2026.7.22
@@ -131,6 +137,10 @@ idna==3.20
     #   requests
 jinja2==3.1.6
     # via fastapi
+jmespath==1.1.0
+    # via
+    #   boto3
+    #   botocore
 markdown-it-py==4.2.0
     # via rich
 markupsafe==3.0.4
@@ -202,6 +212,8 @@ pygments==2.21.0
     # via rich
 pyjwt==2.15.1
     # via firebase-admin
+python-dateutil==2.9.0.post0
+    # via botocore
 python-dotenv==1.2.4
     # via
     #   pydantic-settings
@@ -227,12 +239,16 @@ rich-toolkit==0.20.6
     #   fastapi-cloud-cli
 rignore==0.8.1
     # via fastapi-cloud-cli
+s3transfer==0.19.2
+    # via boto3
 sentry-sdk==2.72.0
     # via
     #   fastapi-cloud-cli
     #   storecart-backend
 shellingham==1.5.4
     # via typer
+six==1.17.0
+    # via python-dateutil
 sqlalchemy==2.1.4
     # via storecart-backend
 starlette==1.8.0
@@ -270,6 +286,7 @@ upstash-redis==1.8.0
     #   upstash-ratelimit
 urllib3==2.8.0
     # via
+    #   botocore
     #   requests
     #   sentry-sdk
 uvicorn==0.54.0

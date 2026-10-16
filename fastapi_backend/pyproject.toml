@@ -15,6 +15,7 @@ dependencies = [
     "firebase-admin==7.7.0",
     "cryptography==50.0.2",
     "httpx>=0.28.1,<0.29",
+    "boto3==1.43.114",
 ]
 
 [dependency-groups]
@@ -33,6 +34,7 @@ dev = [
     "mkdocs-material[imaging]>=9.7.7",
     "pytest-cov>=7.1.0,<8",
     "pytest-xdist>=3.8.0,<4",
+    "boto3-stubs[s3]==1.43.114",
 ]
 
 [tool.uv]

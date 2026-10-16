@@ -678,6 +678,59 @@ export type IdentityResponse = {
 };
 
 /**
+ * ImageUploadData
+ */
+export type ImageUploadData = {
+    /**
+     * Upload Url
+     */
+    upload_url: string;
+    /**
+     * Method
+     */
+    method: string;
+    /**
+     * Headers
+     */
+    headers: {
+        [key: string]: string;
+    };
+    /**
+     * Key
+     */
+    key: string;
+    /**
+     * Public Url
+     */
+    public_url: string;
+    /**
+     * Expires At
+     */
+    expires_at: string;
+};
+
+/**
+ * ImageUploadRequest
+ */
+export type ImageUploadRequest = {
+    /**
+     * Content Type
+     */
+    content_type: 'image/jpeg' | 'image/png' | 'image/webp';
+    /**
+     * Size Bytes
+     */
+    size_bytes: number;
+};
+
+/**
+ * ImageUploadResponse
+ */
+export type ImageUploadResponse = {
+    data: ImageUploadData;
+};
+
+/**
  * InvoiceData
  */
 export type InvoiceData = {
@@ -5640,6 +5693,70 @@ export type UpdateStoreResponses = {
 };
 
 export type UpdateStoreResponse = UpdateStoreResponses[keyof UpdateStoreResponses];
+
+export type PresignImageUploadData = {
+    body: ImageUploadRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/stores/{store_id}/uploads/images';
+};
+
+export type PresignImageUploadErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type PresignImageUploadError = PresignImageUploadErrors[keyof PresignImageUploadErrors];
+
+export type PresignImageUploadResponses = {
+    /**
+     * Successful Response
+     */
+    200: ImageUploadResponse;
+};
+
+export type PresignImageUploadResponse = PresignImageUploadResponses[keyof PresignImageUploadResponses];
 
 export type ReadStorefrontData = {
     body?: never;
