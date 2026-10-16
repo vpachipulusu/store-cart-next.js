@@ -41,6 +41,12 @@ def test_rejects_a_database_not_ending_in_test() -> None:
         worker_database_url(BASE.replace("storecart_test", "storecart"), "gw0")
 
 
+@pytest.mark.parametrize("worker", ["", "master", "gw", "gw1; DROP", "../gw1"])
+def test_rejects_an_unexpected_worker_id(worker: str) -> None:
+    with pytest.raises(ValueError, match="worker"):
+        worker_database_url(BASE, worker)
+
+
 def test_rejects_a_remote_host() -> None:
     with pytest.raises(ValueError, match="local"):
         worker_database_url(BASE.replace("localhost", "db.example.com"), "gw0")

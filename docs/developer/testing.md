@@ -110,7 +110,7 @@ uv run pytest
 ```
 
 - Config: `pytest.ini` sets `asyncio_mode = auto`.
-- Tests live in `fastapi_backend/tests/`, mirroring `app/` (`api/`, `core/`, `services/`, `repositories/`, `commands/`). They need **no database**: `tests/fakes.py` has a `FakeSession` and a `FakeSessionProvider` that implements the `SessionProvider` protocol, and tests inject it with `app.dependency_overrides[get_session_provider]` (clear overrides after the test). A repository test shows a repository working with an injected fake provider (ADR-004, ADR-005).
+- Tests live in `fastapi_backend/tests/`, mirroring `app/` (`api/`, `core/`, `services/`, `repositories/`, `commands/`). Most need **no database**: `tests/fakes.py` has a `FakeSession` and a `FakeSessionProvider` that implements the `SessionProvider` protocol, and tests inject it with `app.dependency_overrides[get_session_provider]` (clear overrides after the test). A repository test shows a repository working with an injected fake provider (ADR-004, ADR-005). The `*_e2e.py` files use a real Postgres through `TEST_DATABASE_URL` and are skipped without it; CI provides one through the `postgres` service in `backend.yml`.
 - `tests/conftest.py` sets a placeholder `DATABASE_URL` (`setdefault`) because `app.core.config` reads it at import. A value already in the environment wins.
 
 Lint and types, using the dev-group tools:

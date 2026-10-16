@@ -1,5 +1,7 @@
 """Per-worker test database naming for pytest-xdist runs (KAN-207)."""
 
+import re
+
 from sqlalchemy.engine import URL, make_url
 
 LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
@@ -13,6 +15,8 @@ def worker_database_url(base_url: str, worker: str) -> URL:
     URL the tests would refuse anyway (not a local ``*_test`` database), so a
     worker never silently falls back to a shared database.
     """
+    if not re.fullmatch(r"gw\d+", worker):
+        raise ValueError("unexpected pytest-xdist worker id")
     target = make_url(base_url)
     database = target.database or ""
     if not database.endswith("_test"):
