@@ -19,7 +19,12 @@ import { Input } from '@/components/ui/input';
 import { signInWithEmail } from '@/lib/firebase/auth-helpers';
 import { verifyTokenAction } from '@/app/actions/auth-actions';
 import { AuthFormAlert, FIELD_ERROR_CLASS } from './auth-form-alert';
-import { classifyAuthError, NETWORK_ERROR, type AuthFormError } from './auth-form-errors';
+import {
+  classifyAuthError,
+  classifyThrownAuthError,
+  REDIRECT_RECOVERY_MS,
+  type AuthFormError,
+} from './auth-form-errors';
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -41,6 +46,11 @@ export function LoginForm() {
       password: '',
     },
   });
+
+  function release() {
+    isSubmitting.current = false;
+    setIsLoading(false);
+  }
 
   async function onSubmit(data: LoginFormValues) {
     if (isSubmitting.current) return;
@@ -71,18 +81,18 @@ export function LoginForm() {
         }
 
         redirected = true;
+        // If navigation fails or stalls, give the form back instead of leaving it locked.
+        setTimeout(release, REDIRECT_RECOVERY_MS);
         router.push('/dashboard');
         router.refresh();
       }
     } catch (error) {
-      setError(NETWORK_ERROR);
+      redirected = false;
+      setError(classifyThrownAuthError(error, 'sign-in'));
       console.error('Login error:', error);
     } finally {
       // Stay locked while the redirect is in flight so a second submit cannot run.
-      if (!redirected) {
-        isSubmitting.current = false;
-        setIsLoading(false);
-      }
+      if (!redirected) release();
     }
   }
 

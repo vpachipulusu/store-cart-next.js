@@ -22,7 +22,7 @@ export function AuthFormAlert({ error }: AuthFormAlertProps) {
 
   useEffect(() => {
     ref.current?.focus();
-  }, []);
+  }, [error]);
 
   return (
     <div

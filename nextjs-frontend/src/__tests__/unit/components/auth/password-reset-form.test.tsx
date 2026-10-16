@@ -39,7 +39,21 @@ describe('PasswordResetForm', () => {
     await user.type(screen.getByLabelText(/email/i), 'a@b.com');
     await submit(user);
 
-    expect(await screen.findByRole('status')).toHaveTextContent(/if an account exists/i);
+    expect(await screen.findByText(/if an account exists/i)).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(/if an account exists/i);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('shows the neutral confirmation for a disabled account too', async () => {
+    const user = userEvent.setup();
+    failWith('auth/user-disabled');
+    render(<PasswordResetForm />);
+
+    await user.type(screen.getByLabelText(/email/i), 'a@b.com');
+    await submit(user);
+
+    expect(await screen.findByText(/if an account exists/i)).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(/if an account exists/i);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 

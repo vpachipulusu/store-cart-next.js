@@ -16,7 +16,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { resetPassword } from '@/lib/firebase/auth-helpers';
 import { AuthFormAlert, FIELD_ERROR_CLASS } from './auth-form-alert';
-import { classifyAuthError, NETWORK_ERROR, type AuthFormError } from './auth-form-errors';
+import { classifyAuthError, classifyThrownAuthError, type AuthFormError } from './auth-form-errors';
 
 const resetPasswordSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -48,8 +48,8 @@ export function PasswordResetForm() {
       const { error: resetError } = await resetPassword(data.email);
 
       const failure = resetError ? classifyAuthError(resetError, 'reset') : null;
-      // A missing account looks exactly like success, so the outcome never reveals whether it exists.
-      if (failure && failure.kind !== 'account-missing') {
+      // A missing or disabled account looks exactly like success, so the outcome never reveals whether it exists.
+      if (failure && failure.kind !== 'account-missing' && failure.kind !== 'suspended') {
         setError(failure);
         return;
       }
@@ -57,7 +57,7 @@ export function PasswordResetForm() {
       setSuccess(true);
       form.reset();
     } catch (error) {
-      setError(NETWORK_ERROR);
+      setError(classifyThrownAuthError(error, 'reset'));
       console.error('Password reset error:', error);
     } finally {
       isSubmitting.current = false;

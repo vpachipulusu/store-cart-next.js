@@ -61,6 +61,19 @@ export const NETWORK_ERROR: AuthFormError = {
   message: 'Check your connection and try again.',
 };
 
+/** Slow-redirect recovery: how long a submitted form stays locked while navigation is in flight. */
+export const REDIRECT_RECOVERY_MS = 8000;
+
+/**
+ * Classifies a thrown value (not a returned helper message). Only a Firebase network failure or a
+ * fetch TypeError means the network; anything else is an unknown failure, never a connection claim.
+ */
+export function classifyThrownAuthError(thrown: unknown, flow: AuthFlow): AuthFormError {
+  const code = (thrown as { code?: unknown } | null)?.code;
+  if (thrown instanceof TypeError || code === 'auth/network-request-failed') return NETWORK_ERROR;
+  return classifyAuthError(null, flow);
+}
+
 export function classifyAuthError(
   message: string | null | undefined,
   flow: AuthFlow

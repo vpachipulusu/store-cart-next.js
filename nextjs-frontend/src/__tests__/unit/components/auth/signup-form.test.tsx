@@ -57,7 +57,7 @@ describe('SignupForm', () => {
 
   it('shows the network message', async () => {
     const user = userEvent.setup();
-    mocks.signUpWithEmail.mockRejectedValue(new Error('offline'));
+    mocks.signUpWithEmail.mockRejectedValue(new TypeError('Failed to fetch'));
     vi.spyOn(console, 'error').mockImplementation(() => {});
     render(<SignupForm />);
 

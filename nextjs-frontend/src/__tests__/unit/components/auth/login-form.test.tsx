@@ -1,6 +1,6 @@
 /** KAN-227: sign-in form states: alert panel, focus, loading and double submit. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { getFirebaseErrorMessage } from '@/lib/utils/firebase-errors';
 
@@ -17,6 +17,7 @@ vi.mock('@/lib/firebase/auth-helpers', () => ({ signInWithEmail: mocks.signInWit
 vi.mock('@/app/actions/auth-actions', () => ({ verifyTokenAction: mocks.verifyTokenAction }));
 
 import { LoginForm } from '@/components/auth/login-form';
+import { REDIRECT_RECOVERY_MS } from '@/components/auth/auth-form-errors';
 
 const fail = (code: string) => ({
   user: null,
@@ -120,7 +121,7 @@ describe('LoginForm', () => {
 
   it('treats a thrown error as a network problem', async () => {
     const user = userEvent.setup();
-    mocks.signInWithEmail.mockRejectedValue(new Error('offline'));
+    mocks.signInWithEmail.mockRejectedValue(new TypeError('Failed to fetch'));
     vi.spyOn(console, 'error').mockImplementation(() => {});
     render(<LoginForm />);
 
@@ -155,6 +156,57 @@ describe('LoginForm', () => {
 
     expect(mocks.signInWithEmail).toHaveBeenCalledTimes(1);
     expect(button.closest('form')).toHaveAttribute('aria-busy', 'true');
+  });
+
+  it('does not claim a network problem for other thrown errors', async () => {
+    const user = userEvent.setup();
+    mocks.signInWithEmail.mockRejectedValue(new Error('boom'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(<LoginForm />);
+
+    await fillAndSubmit(user);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).not.toHaveTextContent(/reach storecart|connection/i);
+    expect(alert).toHaveTextContent(/try again/i);
+  });
+
+  it('gives the form back when the redirect throws', async () => {
+    const user = userEvent.setup();
+    mocks.signInWithEmail.mockResolvedValue({ user: {}, idToken: 't', error: null });
+    mocks.verifyTokenAction.mockResolvedValue({ success: true });
+    mocks.push.mockImplementationOnce(() => {
+      throw new Error('navigation failed');
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(<LoginForm />);
+
+    await fillAndSubmit(user);
+
+    await screen.findByRole('alert');
+    expect(screen.getByRole('button', { name: /sign in/i })).toBeEnabled();
+  });
+
+  it('gives the form back when the redirect stalls', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      mocks.signInWithEmail.mockResolvedValue({ user: {}, idToken: 't', error: null });
+      mocks.verifyTokenAction.mockResolvedValue({ success: true });
+      render(<LoginForm />);
+
+      await fillAndSubmit(user);
+      await waitFor(() => expect(mocks.push).toHaveBeenCalled());
+      expect(screen.getByRole('button', { name: /signing in/i })).toBeDisabled();
+
+      await act(async () => {
+        vi.advanceTimersByTime(REDIRECT_RECOVERY_MS + 100);
+      });
+
+      expect(screen.getByRole('button', { name: /sign in/i })).toBeEnabled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('redirects to the dashboard on success', async () => {

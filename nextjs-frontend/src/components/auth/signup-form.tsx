@@ -18,7 +18,12 @@ import { Input } from '@/components/ui/input';
 import { signUpWithEmail } from '@/lib/firebase/auth-helpers';
 import { verifyTokenAction } from '@/app/actions/auth-actions';
 import { AuthFormAlert, FIELD_ERROR_CLASS } from './auth-form-alert';
-import { classifyAuthError, NETWORK_ERROR, type AuthFormError } from './auth-form-errors';
+import {
+  classifyAuthError,
+  classifyThrownAuthError,
+  REDIRECT_RECOVERY_MS,
+  type AuthFormError,
+} from './auth-form-errors';
 
 const signupSchema = z
   .object({
@@ -60,6 +65,11 @@ export function SignupForm({ selectedPlan }: SignupFormProps) {
     },
   });
 
+  function release() {
+    isSubmitting.current = false;
+    setIsLoading(false);
+  }
+
   async function onSubmit(data: SignupFormValues) {
     if (isSubmitting.current) return;
     isSubmitting.current = true;
@@ -90,17 +100,17 @@ export function SignupForm({ selectedPlan }: SignupFormProps) {
 
         // Redirect to verify email page or dashboard
         redirected = true;
+        // If navigation fails or stalls, give the form back instead of leaving it locked.
+        setTimeout(release, REDIRECT_RECOVERY_MS);
         router.push('/verify-email');
       }
     } catch (error) {
-      setError(NETWORK_ERROR);
+      redirected = false;
+      setError(classifyThrownAuthError(error, 'sign-up'));
       console.error('Signup error:', error);
     } finally {
       // Stay locked while the redirect is in flight so a second submit cannot run.
-      if (!redirected) {
-        isSubmitting.current = false;
-        setIsLoading(false);
-      }
+      if (!redirected) release();
     }
   }
 

@@ -1,7 +1,7 @@
 /** KAN-227: auth errors are classified into copy that never reveals whether an account exists. */
 import { describe, expect, it } from 'vitest';
 import { getFirebaseErrorMessage } from '@/lib/utils/firebase-errors';
-import { classifyAuthError } from '@/components/auth/auth-form-errors';
+import { classifyAuthError, classifyThrownAuthError } from '@/components/auth/auth-form-errors';
 
 const fromCode = (code: string) => getFirebaseErrorMessage({ code });
 
@@ -66,5 +66,34 @@ describe('classifyAuthError', () => {
 
     expect(result.kind).toBe('weak-password');
     expect(result.message).toBe('Choose a stronger password and try again.');
+  });
+
+  it('has a distinct message for every mapped code, so message matching cannot collide', () => {
+    const codes = [
+      'auth/invalid-credential',
+      'auth/wrong-password',
+      'auth/invalid-email',
+      'auth/email-already-in-use',
+      'auth/account-exists-with-different-credential',
+      'auth/user-not-found',
+      'auth/network-request-failed',
+      'auth/too-many-requests',
+      'auth/quota-exceeded',
+      'auth/user-disabled',
+      'auth/weak-password',
+    ];
+    const messages = codes.map(fromCode);
+
+    expect(new Set(messages).size).toBe(codes.length);
+  });
+
+  it('treats only a TypeError or a Firebase network code as a network failure when thrown', () => {
+    expect(classifyThrownAuthError(new TypeError('Failed to fetch'), 'sign-in').kind).toBe(
+      'network'
+    );
+    expect(classifyThrownAuthError({ code: 'auth/network-request-failed' }, 'sign-in').kind).toBe(
+      'network'
+    );
+    expect(classifyThrownAuthError(new Error('boom'), 'sign-in').kind).toBe('unknown');
   });
 });
