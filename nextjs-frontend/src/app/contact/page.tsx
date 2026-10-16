@@ -36,7 +36,8 @@ export default async function ContactPage({
   searchParams: Promise<{ plan?: string }>;
 }) {
   const params = await searchParams;
-  const selectedPlan = params.plan;
+  // ?plan=a&plan=b arrives as an array at runtime
+  const selectedPlan = typeof params.plan === 'string' ? params.plan : undefined;
   const planLabel = selectedPlan && selectedPlan.charAt(0).toUpperCase() + selectedPlan.slice(1);
 
   return (

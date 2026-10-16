@@ -53,6 +53,18 @@ describe('error', () => {
     expect(container.innerHTML).not.toMatch(/#[0-9a-f]{3,6}|destructive\/50/i);
   });
 
+  it('does not add a main landmark, so it can render inside a shell that has one', () => {
+    render(<ErrorPage error={err} reset={vi.fn()} />);
+
+    expect(screen.queryByRole('main')).toBeNull();
+  });
+
+  it('moves focus to the heading', () => {
+    render(<ErrorPage error={err} reset={vi.fn()} />);
+
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+  });
+
   it('never leaks the error message to users', () => {
     render(<ErrorPage error={err} reset={vi.fn()} />);
 
@@ -80,6 +92,7 @@ describe('loading', () => {
 
     const region = screen.getByRole('status');
     expect(region).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByRole('main')).toBeNull();
     expect(region).toHaveAccessibleName(/loading/i);
     expect(container.querySelectorAll('[aria-hidden="true"].bg-secondary').length).toBeGreaterThan(
       1
@@ -118,6 +131,16 @@ describe('contact page', () => {
     const hint = document.getElementById(email.getAttribute('aria-describedby') ?? '');
     expect(hint).not.toBeNull();
     expect(hint?.className).toMatch(/text-muted-foreground/);
+  });
+
+  it('ignores a repeated plan parameter instead of throwing', async () => {
+    render(
+      await ContactPage({
+        searchParams: Promise.resolve({ plan: ['a', 'b'] as unknown as string }),
+      })
+    );
+
+    expect(screen.queryByLabelText(/interested plan/i)).toBeNull();
   });
 
   it('shows the selected plan, capitalised', async () => {
