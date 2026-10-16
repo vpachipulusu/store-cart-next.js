@@ -31,7 +31,6 @@ export type ThrowawayAccount = { email: string; password: string; uid: string };
 
 type AccountClients = {
   auth: unknown;
-  prisma: unknown;
   close: () => Promise<void>;
 };
 
@@ -45,7 +44,7 @@ type AccountsModule = {
   ) => Promise<void>;
 };
 
-// Loaded only by tests that use a throwaway account, so other specs do not load firebase-admin and Prisma.
+// Loaded only by tests that use a throwaway account, so other specs do not load firebase-admin.
 const loadAccountsModule = (): Promise<AccountsModule> =>
   import('../../../../scripts/e2e-accounts.mjs') as Promise<AccountsModule>;
 
@@ -55,7 +54,7 @@ const loadAccountsModule = (): Promise<AccountsModule> =>
  * - Sentry: the e2e build runs with NEXT_PUBLIC_SENTRY_DSN unset (scripts/e2e-build.mjs), so the SDK is disabled.
  *   As a second guard every browser context aborts requests to Sentry, so e2e runs never report to the real Sentry
  *   project and a pending Sentry request can never hold a page open.
- * - throwawayAccount: a fresh free-tier account in the e2e Firebase project and the local database, deleted after
+ * - throwawayAccount: a fresh free-tier account in the e2e Firebase project, deleted after
  *   the test. Use it for every test that logs out, revokes or expires a session, or changes plan or billing state,
  *   so the shared role sessions saved by auth.setup.ts are never affected. Log in with `loginAsThrowawayAccount`.
  */

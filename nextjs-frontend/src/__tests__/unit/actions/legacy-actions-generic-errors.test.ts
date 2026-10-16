@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
  * KAN-172: the legacy subscription server actions must never return raw
- * Stripe/Firebase/Prisma error text to the client. Every dependency is mocked to reject with a
+ * Stripe/Firebase error text to the client. Every dependency is mocked to reject with a
  * secret-looking error; each action must answer with its stable generic message, leak nothing, and
  * hand the original error (with a message string) to the logger.
  */
@@ -19,7 +19,7 @@ const SECRET_ERROR = new Error(
 );
 
 const mocks = vi.hoisted(() => {
-  const state = { error: undefined as unknown, resolves: new Set<string>() };
+  const state = { error: undefined as unknown };
   const fail = () => Promise.reject(state.error);
 
   // Any property access yields another proxy; calling any of them rejects with the secret error.
@@ -29,43 +29,8 @@ const mocks = vi.hoisted(() => {
       apply: () => fail(),
     });
 
-  const admin = {
-    id: 'admin-1',
-    email: 'admin@example.com',
-    firebaseUid: 'fb-admin',
-    adminUser: { id: 'a1', userId: 'admin-1', role: 'super_admin', permissions: ['*'] },
-  };
-
-  // Every model method rejects, except the admin lookup by firebaseUid used for authentication.
-  const modelProxy = (model: string): any =>
-    new Proxy(
-      {},
-      {
-        get: (_t, method) => {
-          if (method === 'then') return undefined;
-          if (state.resolves.has(`${model}.${String(method)}`)) return () => Promise.resolve({});
-          if (model === 'user' && method === 'findUnique') {
-            return (args: any) => (args?.where?.firebaseUid ? Promise.resolve(admin) : fail());
-          }
-          return () => fail();
-        },
-      }
-    );
-
-  const db: any = new Proxy(
-    {},
-    {
-      get: (_t, prop) => {
-        if (prop === 'then') return undefined;
-        if (typeof prop === 'string' && prop.startsWith('$')) return () => fail();
-        return modelProxy(String(prop));
-      },
-    }
-  );
-
   return {
     state,
-    db,
     deepRejecting,
     logError: vi.fn(),
     verifySession: vi.fn(),
@@ -102,7 +67,6 @@ vi.mock('@/lib/api/billing', () => {
   };
 });
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn() }));
-vi.mock('@/lib/db/client', () => ({ db: mocks.db }));
 vi.mock('@/lib/stripe/server', () => ({ getStripeServerClient: () => mocks.deepRejecting() }));
 vi.mock('@/lib/firebase/admin', () => ({ getAdminAuth: () => mocks.deepRejecting() }));
 vi.mock('@/lib/auth/verified-session', () => ({
@@ -197,7 +161,6 @@ function expectNoLeak(value: unknown) {
 describe('KAN-172: legacy server actions return generic errors', () => {
   beforeEach(() => {
     mocks.state.error = SECRET_ERROR;
-    mocks.state.resolves.clear();
     mocks.logError.mockReset();
     mocks.getVerifiedUserId.mockReset().mockResolvedValue('user-1');
     mocks.verifySession.mockReset().mockResolvedValue({ uid: 'fb-admin', email_verified: true });

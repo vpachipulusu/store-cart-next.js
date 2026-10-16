@@ -1,6 +1,6 @@
 # SaaS Boilerplate - Next.js 16
 
-A production-ready SaaS boilerplate built with Next.js 16, React 19, Prisma, Firebase Auth, Stripe, and comprehensive testing.
+A production-ready SaaS boilerplate built with Next.js 16, React 19, Firebase Auth, Stripe, and comprehensive testing.
 
 ## ⚡ Quick Start
 
@@ -11,10 +11,6 @@ npm install
 # Setup environment
 cp .env.example .env
 # Edit .env with your credentials (see docs/developer/getting-started.md)
-
-# Initialize database
-npx prisma generate
-npx prisma db push
 
 # Start development
 npm run dev
@@ -49,7 +45,7 @@ Visit `http://localhost:3000` (the default; set `PORT` to change it, see
 
 - ⚡ Next.js 16 App Router with Server Components
 - 🎨 shadcn/ui + Tailwind CSS
-- 🗄️ Prisma ORM + PostgreSQL
+- 🗄️ FastAPI backend + PostgreSQL
 - 🧪 Vitest + Playwright testing
 - 📱 Mobile-ready (PWA + Capacitor)
 - 🚀 Vercel-optimized
@@ -57,7 +53,7 @@ Visit `http://localhost:3000` (the default; set `PORT` to change it, see
 ## 🏗️ Tech Stack
 
 - **Frontend:** Next.js 16, React 19, TypeScript, Tailwind CSS v4
-- **Backend:** Next.js API Routes, Server Actions, Prisma ORM v6
+- **Backend:** Next.js API Routes, Server Actions calling the FastAPI backend
 - **Database:** PostgreSQL
 - **Auth:** Firebase Authentication
 - **Payments:** Stripe
@@ -74,9 +70,6 @@ Visit `http://localhost:3000` (the default; set `PORT` to change it, see
 ## 🔑 Environment Variables
 
 ```env
-# Database
-DATABASE_URL="postgresql://..."
-
 # Firebase
 NEXT_PUBLIC_FIREBASE_API_KEY="..."
 NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="..."
@@ -105,7 +98,6 @@ npm run lint             # Run ESLint
 npm run test             # Run all tests
 npm run test:unit        # Run unit tests
 npm run test:e2e         # Run E2E tests
-npm run prisma:studio    # Open Prisma Studio
 ```
 
 ## 🐳 Local development: Docker Compose or plain uv/npm
@@ -164,7 +156,6 @@ uv run alembic upgrade head
 cd nextjs-frontend
 cp .env.example .env.local  # BACKEND_API_URL=http://127.0.0.1:8000
 npm ci
-npm run db:generate
 npm run dev                 # :3000 (PORT to change)
 ```
 
@@ -227,7 +218,6 @@ src/
 │   ├── pricing/         # Pricing components
 │   └── providers/       # React providers
 ├── lib/
-│   ├── db/              # Prisma client
 │   ├── firebase/        # Firebase setup
 │   ├── stripe/          # Stripe integration
 │   ├── services/        # Audit logging, etc.
@@ -251,13 +241,6 @@ This project uses **npm** (not pnpm):
 ```bash
 rm -rf node_modules package-lock.json
 npm install
-```
-
-### Database Issues
-
-```bash
-npx prisma generate
-npx prisma db push
 ```
 
 See the Troubleshooting section of [getting-started.md](docs/developer/getting-started.md) for more.

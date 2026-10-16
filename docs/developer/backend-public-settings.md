@@ -39,7 +39,7 @@ The server trims and upper-cases the stored code, so a stored `" eur"` is served
 ## Seeding
 
 The `app_settings` table exists since baseline `0001`. The `currency` row is written by the
-admin settings action and by `npm run db:seed:settings`. When it is absent the service default
+admin settings action. When it is absent the service default
 applies, so no data migration or seed is needed for this endpoint.
 
 ## What is public

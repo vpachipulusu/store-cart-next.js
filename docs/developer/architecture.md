@@ -52,7 +52,7 @@ Not built yet (the ADR describes them): `db/platform`, `db/store`, `tenancy/`, `
 
 The repo is still the boilerplate with the target not yet built:
 
-- **The frontend reaches the database itself.** Server actions, route handlers and admin pages use the Prisma client (`src/lib/db/client.ts`, schema in `prisma/schema.prisma`). Firebase Admin, Stripe and Resend are also called from the frontend.
+- **The frontend no longer has a database (KAN-51).** Prisma, its schema and `src/lib/db` are gone; server code reads and writes through the FastAPI wrappers in `src/lib/api`. Firebase Admin (session verification) and Stripe (price lookup) are still called from the frontend until the stories that move them to the API land; an ESLint rule allow-lists those files and blocks new uses.
 - **The backend is the adapted template (KAN-30).** It has only a health route, the layered `app/` structure and the session seam; there is no auth, no models and no email yet. The frontend does not call it yet.
 - **Root `vercel.json`** deploys one Vercel project with two services (ADR-011): `nextjs-frontend` is public, `fastapi_backend` is internal and reached through the `BACKEND_API_URL` binding. Migrations no longer run during the build.
 - **`app/core/database.py`** uses `NullPool`, which suits serverless.
@@ -73,7 +73,7 @@ The repo is still the boilerplate with the target not yet built:
 Boilerplate features that exist today and will be rebuilt behind FastAPI. Folded in from the retired `nextjs-frontend/GUIDE.md` (KAN-146); see also [admin-settings.md](admin-settings.md).
 
 - **Customer dashboard** (`src/app/dashboard/`): home, `profile`, `settings` and `security` pages.
-- **Admin portal** (`src/app/(admin)/admin/`): `users`, `subscriptions`, `analytics`, `seo`, `settings` and `audit-logs`. An admin needs an `AdminUser` record; create one with `node scripts/create-admin.mjs <email>` (the user must have signed up first). Admin actions are written to the audit log.
+- **Admin portal** (`src/app/(admin)/admin/`): `users`, `subscriptions`, `analytics`, `seo`, `settings` and `audit-logs`. An admin needs an admin grant in the backend (`POST /v1/admin/users/{user_id}/admin`; the user must have signed up first). Admin actions are written to the audit log.
 - **Billing** (`src/app/actions/subscription-actions.ts`): `createCheckoutSessionAction` starts a Stripe Checkout session, the backend Stripe webhook (`POST /webhooks/stripe`, see [backend-billing-webhook.md](backend-billing-webhook.md)) updates the organisation's subscription, and `createBillingPortalSessionAction` opens the billing portal. The pricing page adapts its call-to-action to the sign-in state.
 
 ## Target state (Foundation complete)
@@ -113,7 +113,7 @@ Rules:
 
 ## Stripe webhook
 
-Stripe events are handled only by the backend (`POST /webhooks/stripe`), which verifies the signature and processes each event once; see [backend-billing-webhook.md](backend-billing-webhook.md). The Next.js route `/api/webhooks/stripe` and its `processed_stripe_events` idempotency flow (KAN-128) were removed in KAN-50. The `ProcessedStripeEvent` Prisma model stays in the schema until KAN-51 drops Prisma.
+Stripe events are handled only by the backend (`POST /webhooks/stripe`), which verifies the signature and processes each event once; see [backend-billing-webhook.md](backend-billing-webhook.md). The Next.js route `/api/webhooks/stripe` and its `processed_stripe_events` idempotency flow (KAN-128) were removed in KAN-50.
 
 ## Architecture decision records
 

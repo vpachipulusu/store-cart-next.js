@@ -88,7 +88,6 @@ services:
     environment:
       BACKEND_API_URL: http://backend:8000
       NEXT_PUBLIC_APP_URL: http://localhost:${FRONTEND_PORT:-3000}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-storecart}?schema=public
       WATCHPACK_POLLING: "true"
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
