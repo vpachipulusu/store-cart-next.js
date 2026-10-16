@@ -6,8 +6,12 @@
  * A 401 "Unauthorized" is a misconfigured internal key and an unreachable backend has no status; neither
  * is a reason to log anyone out.
  */
+/** The backend's 401 body for a missing, invalid or revoked session (`app/api/auth.py`). */
+export const INVALID_AUTHENTICATION_MESSAGE = 'Invalid authentication';
+
 export function isSessionRejected(result: { status?: number; error: string }): boolean {
   return (
-    result.status === 404 || (result.status === 401 && result.error === 'Invalid authentication')
+    result.status === 404 ||
+    (result.status === 401 && result.error === INVALID_AUTHENTICATION_MESSAGE)
   );
 }

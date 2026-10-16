@@ -13,7 +13,7 @@ const SESSION_CODES = [
 ];
 
 describe('isSessionVerificationError', () => {
-  it.each(SESSION_CODES)('returns true for firebase-admin code %s', (code) => {
+  it.each(SESSION_CODES)('returns true for session error code %s', (code) => {
     expect(isSessionVerificationError({ code, message: 'x' })).toBe(true);
   });
 

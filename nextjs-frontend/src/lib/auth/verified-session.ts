@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import { fetchProfile, fetchSessionStatus } from '@/lib/api/account';
 import { SESSION_COOKIE_NAME } from '@/lib/api/server';
+import { INVALID_AUTHENTICATION_MESSAGE } from '@/lib/api/session-rejected';
 import { logger } from '@/lib/logger';
 
 /**
@@ -64,7 +65,7 @@ export async function verifyVerifiedSessionCookie(): Promise<SessionClaims> {
 export async function readSessionStatus(): Promise<SessionClaims> {
   const status = await fetchSessionStatus();
   if (!status.success) {
-    if (status.status === 401 && status.error === 'Invalid authentication') {
+    if (status.status === 401 && status.error === INVALID_AUTHENTICATION_MESSAGE) {
       throw Object.assign(new Error('Invalid session'), { code: INVALID_SESSION_CODE });
     }
     throw new Error(SESSION_CHECK_FAILED_MESSAGE);

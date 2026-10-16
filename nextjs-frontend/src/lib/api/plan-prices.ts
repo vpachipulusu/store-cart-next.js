@@ -85,9 +85,3 @@ export function fetchPlanPrices(): Promise<PlanPrices> {
     });
   return inflight;
 }
-
-/** Test hook: forget the cached prices. */
-export function resetPlanPricesCache(): void {
-  cached = null;
-  inflight = null;
-}

@@ -24,6 +24,9 @@ import {
   verifyBackendIdToken,
 } from '@/lib/api/account';
 import { INVALID_SESSION_CODE, readSessionStatus } from '@/lib/auth/verified-session';
+import { INVALID_AUTHENTICATION_MESSAGE } from '@/lib/api/session-rejected';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -128,6 +131,15 @@ describe('account wrappers', () => {
     expect(request.url).toBe('http://backend.test/v1/auth/session/status');
     expect(request.headers.get('X-Session-Token')).toBe('firebase-session-cookie');
     expect(request.headers.get('X-Internal-Key')).toBe('server-key');
+  });
+
+  it('the invalid-session wording matches what the backend sends (KAN-208)', () => {
+    const backend = readFileSync(
+      path.resolve(__dirname, '../../../../../fastapi_backend/app/api/auth.py'),
+      'utf8'
+    );
+
+    expect(backend).toContain('HTTPException(401, "' + INVALID_AUTHENTICATION_MESSAGE + '")');
   });
 
   it('a revoked session answered by the real backend body becomes the invalid-session error (KAN-208)', async () => {
