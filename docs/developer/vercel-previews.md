@@ -16,7 +16,16 @@ A skipped build shows as skipped/neutral on the PR and does not count toward the
 
 `vercel.json` sets `"ignoreCommand": "bash scripts/vercel-ignore-build.sh"`. The script exits `1` (build) for `main`, for a commit message containing `[deploy preview]` (case-insensitive), or when no git branch info is available; otherwise it exits `0` (skip). It reads only `VERCEL_GIT_COMMIT_REF` and `VERCEL_GIT_COMMIT_MESSAGE` and never prints the message or any secret.
 
-The repo is a single Vercel project (root `vercel.json`, ADR-011, services `nextjs-frontend` and `fastapi_backend`), so one ignore command covers frontend and backend. If a separate backend project is ever created, point its `ignoreCommand` at the same script (the path is relative to that project's Root Directory; use `bash ../scripts/vercel-ignore-build.sh` when the root is `fastapi_backend`, and enable "Include source files outside of the Root Directory").
+There are two Vercel projects, and each reads its own config file (the one in its Root Directory):
+
+| Project | Root Directory | Config file | `ignoreCommand` |
+|---|---|---|---|
+| Frontend (`store-cart-next-js`) | repo root | `vercel.json` | `bash scripts/vercel-ignore-build.sh` |
+| Backend (`store-cart-backend`) | `fastapi_backend` | `fastapi_backend/vercel.json` | `bash ../scripts/vercel-ignore-build.sh` |
+
+The backend project's script lives outside its Root Directory, so that project needs Settings > Build and Deployment > **Include source files outside of the Root Directory in the Build Step** turned on. Without it the script is missing, the command fails, and Vercel builds (fail open: the backend keeps building every branch, but nothing is ever wrongly skipped). The script never skips `main`.
+
+(ADR-011 describes a single project with services; if the backend is ever folded into the root project, `fastapi_backend/vercel.json` can be deleted.)
 
 ## Getting a preview on purpose
 
@@ -37,14 +46,15 @@ Preview deployments need their own preview environment variables (see the backen
 bash scripts/vercel-ignore-build.test.sh
 ```
 
-It runs the script under main, feature-branch, marker, case and empty-env scenarios and checks the exit codes and that the commit message is never echoed.
+It runs the script under main, feature-branch, marker, case, empty-env and hostile-message scenarios (quotes, `$`, backticks, multi-line), checks the exit codes and that the commit message is never echoed, and checks that both `vercel.json` files parse and point at an existing script.
 
 ## Owner checklist (dashboard)
 
 Settings that only the project owner can verify or change:
 
-1. Project Settings > Build and Deployment > Ignored Build Step: leave on **Automatic**. `vercel.json` overrides it.
-2. Project Settings > Git: confirm the production branch is `main`.
-3. After the first merge, confirm a push to a throwaway branch creates no deployment, and a throwaway branch with `[deploy preview]` does create one.
-4. Confirm Git fork protection is on for the project and that preview environment variables hold no production secrets. The `[deploy preview]` marker is a quota control, not an access control: anyone who can push to the repo can use it, and the script itself lives in the pushed branch.
-5. If the `ignoreCommand` is not honoured for the `services` layout (services are in beta), set the Ignored Build Step in the dashboard to `bash scripts/vercel-ignore-build.sh` instead.
+1. Both projects, Settings > Build and Deployment > Ignored Build Step: leave on **Automatic**. The `vercel.json` files override it.
+2. Backend project (`store-cart-backend`) only: turn on **Include source files outside of the Root Directory in the Build Step**.
+3. Both projects, Settings > Git: confirm the production branch is `main`.
+4. After the first merge, on each project confirm a push to a throwaway branch creates no deployment, a push to `main` still deploys, and a throwaway branch with `[deploy preview]` does create one.
+5. Confirm Git fork protection is on for the project and that preview environment variables hold no production secrets. The `[deploy preview]` marker is a quota control, not an access control: anyone who can push to the repo can use it, and the script itself lives in the pushed branch.
+6. If the `ignoreCommand` is not honoured on a project, set its Ignored Build Step in the dashboard to the same command (`bash scripts/vercel-ignore-build.sh` for the frontend, `bash ../scripts/vercel-ignore-build.sh` for the backend).
