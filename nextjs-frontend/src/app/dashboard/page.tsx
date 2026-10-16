@@ -3,6 +3,7 @@ import { redirect, unstable_rethrow } from 'next/navigation';
 import { isEmailNotVerifiedError, verifyVerifiedSessionCookie } from '@/lib/auth/verified-session';
 import { fetchBillingSummary, NO_BILLING_ORGANIZATION_MESSAGE } from '@/lib/api/billing';
 import { fetchLoginHistory, fetchProfile, toLoginHistoryEntry, toProfile } from '@/lib/api/account';
+import { getCurrentStoreSelection } from '@/lib/stores/current';
 import { describePlanStatus } from '@/lib/billing-status';
 import { INVALID_AUTHENTICATION_MESSAGE, isSessionRejected } from '@/lib/api/session-rejected';
 import { isSessionVerificationError, logRouteError } from '@/lib/auth/session-errors';
@@ -130,6 +131,14 @@ export default async function DashboardPage({
 
   if (!user) {
     redirect('/login');
+  }
+
+  // KAN-210: a verified user with no store goes to onboarding. Only here, not in the layout (no pathname,
+  // would loop and lock them out of profile/security/billing) or the proxy. A store in any status
+  // (PROVISIONING, FAILED) counts, and an unreadable store list never redirects.
+  const storeSelection = await getCurrentStoreSelection();
+  if (storeSelection.available && storeSelection.stores.length === 0) {
+    redirect('/dashboard/onboarding');
   }
 
   const stats = getStats(user);

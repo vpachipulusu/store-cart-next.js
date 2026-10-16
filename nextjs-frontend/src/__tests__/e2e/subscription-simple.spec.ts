@@ -4,6 +4,8 @@ import {
   signInWithSavedSession,
   waitForServerActionResponse,
   navigateAndWait,
+  STRIPE_E2E_ENABLED,
+  STRIPE_E2E_SKIP_REASON,
   STRIPE_TEST_CARDS,
   fillStripeCheckout,
   submitStripeCheckout,
@@ -31,60 +33,63 @@ test.describe('Subscription Upgrade - Happy Path', () => {
     'Skipped: TEST_USER_EMAIL or STRIPE not configured'
   );
 
-  // Quarantined (KAN-165): fails on a clean main because the Stripe webhook cannot reach a local server. Tracked in
-  // KAN-157 (stripe listen locally). Remove .fixme when KAN-157 lands.
-  test.fixme('should successfully upgrade from free to pro tier', async ({
-    page,
-    throwawayAccount,
-  }) => {
-    // Checkout, the Stripe webhook and the success handler's polling (up to 30 s) take longer than the 30 s default.
-    test.setTimeout(150_000);
+  // Needs the Stripe webhook to reach the backend (`stripe listen`, KAN-157), so it runs only with E2E_STRIPE=1.
+  test.describe('with the Stripe webhook forwarded', () => {
+    test.skip(!STRIPE_E2E_ENABLED, STRIPE_E2E_SKIP_REASON);
 
-    // Step 1: Login as a fresh free-tier user (throwaway: this test changes the plan)
-    await loginAsThrowawayAccountWithOrganization(page, throwawayAccount);
+    test('should successfully upgrade from free to pro tier', async ({
+      page,
+      throwawayAccount,
+    }) => {
+      // Checkout, the Stripe webhook and the success handler's polling (up to 30 s) take longer than the 30 s default.
+      test.setTimeout(150_000);
 
-    // Step 2: Navigate to pricing page
-    await navigateAndWait(page, '/pricing');
+      // Step 1: Login as a fresh free-tier user (throwaway: this test changes the plan)
+      await loginAsThrowawayAccountWithOrganization(page, throwawayAccount);
 
-    // Step 3: Find and click Pro tier upgrade button
-    const proCard = page
-      .locator('[class*="card"]')
-      .filter({ has: page.getByRole('heading', { name: 'Pro', exact: true }) });
-    const upgradeButton = proCard.getByRole('button', { name: /upgrade to pro/i });
+      // Step 2: Navigate to pricing page
+      await navigateAndWait(page, '/pricing');
 
-    const buttonExists = await upgradeButton.count().then((count) => count > 0);
+      // Step 3: Find and click Pro tier upgrade button
+      const proCard = page
+        .locator('[class*="card"]')
+        .filter({ has: page.getByRole('heading', { name: 'Pro', exact: true }) });
+      const upgradeButton = proCard.getByRole('button', { name: /upgrade to pro/i });
 
-    if (!buttonExists) {
-      test.skip(true, 'Upgrade button not available - user may already be on Pro tier');
-      return;
-    }
+      const buttonExists = await upgradeButton.count().then((count) => count > 0);
 
-    // Step 4: Click upgrade: the app sends this tab to Stripe Checkout (window.location.href), not a new tab.
-    await upgradeButton.click();
-    await page.waitForURL(/checkout\.stripe\.com/);
-    const checkoutPage = page;
+      if (!buttonExists) {
+        test.skip(true, 'Upgrade button not available - user may already be on Pro tier');
+        return;
+      }
 
-    // Verify on Stripe checkout
-    expect(checkoutPage.url()).toContain('checkout.stripe.com');
+      // Step 4: Click upgrade: the app sends this tab to Stripe Checkout (window.location.href), not a new tab.
+      await upgradeButton.click();
+      await page.waitForURL(/checkout\.stripe\.com/);
+      const checkoutPage = page;
 
-    // Step 5: Fill checkout form with test card
-    await fillStripeCheckout(checkoutPage, STRIPE_TEST_CARDS.success);
+      // Verify on Stripe checkout
+      expect(checkoutPage.url()).toContain('checkout.stripe.com');
 
-    // Step 6: Submit payment
-    await submitStripeCheckout(checkoutPage);
+      // Step 5: Fill checkout form with test card
+      await fillStripeCheckout(checkoutPage, STRIPE_TEST_CARDS.success);
 
-    // Step 7: Wait for success redirect and webhook processing (the same tab returns to the app)
-    const success = await waitForSubscriptionSuccess(page);
-    expect(success).toBe(true);
+      // Step 6: Submit payment
+      await submitStripeCheckout(checkoutPage);
 
-    // Step 8: Verify subscription tier updated
-    await expectSubscriptionTier(page, 'pro');
+      // Step 7: Wait for success redirect and webhook processing (the same tab returns to the app)
+      const success = await waitForSubscriptionSuccess(page);
+      expect(success).toBe(true);
 
-    // Step 9: Verify upgrade banner is gone
-    const upgradeBanner = page.getByText(/upgrade to pro/i).first();
-    await expect(upgradeBanner).not.toBeVisible();
+      // Step 8: Verify subscription tier updated
+      await expectSubscriptionTier(page, 'pro');
 
-    console.log('✅ Subscription upgrade successful!');
+      // Step 9: Verify upgrade banner is gone
+      const upgradeBanner = page.getByText(/upgrade to pro/i).first();
+      await expect(upgradeBanner).not.toBeVisible();
+
+      console.log('✅ Subscription upgrade successful!');
+    });
   });
 
   test('should display subscription in admin panel after upgrade', async ({ page, context }) => {

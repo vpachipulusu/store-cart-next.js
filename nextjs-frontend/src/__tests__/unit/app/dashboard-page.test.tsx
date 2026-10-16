@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   fetchLoginHistory: vi.fn(),
   fetchBillingSummary: vi.fn(),
   loggerError: vi.fn(),
+  getCurrentStoreSelection: vi.fn(),
 }));
 
 vi.mock('next/navigation', () => navigationMock);
@@ -29,6 +30,9 @@ vi.mock('@/lib/api/billing', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api/billing')>('@/lib/api/billing');
   return { ...actual, fetchBillingSummary: mocks.fetchBillingSummary };
 });
+vi.mock('@/lib/stores/current', () => ({
+  getCurrentStoreSelection: mocks.getCurrentStoreSelection,
+}));
 vi.mock('@/lib/logger', () => ({ logger: { error: mocks.loggerError } }));
 vi.mock('@/components/dashboard/subscription-success-handler', () => ({
   SubscriptionSuccessHandler: () => null,
@@ -58,6 +62,14 @@ const PROFILE = {
   phone_number: null,
   created_at: '2026-01-01T00:00:00Z',
 };
+const STORE = {
+  id: 's1',
+  name: 'Shop',
+  slug: 'shop',
+  status: 'ACTIVE',
+  organizationId: 'o1',
+  organizationName: 'Org',
+};
 const HISTORY = {
   login_history: [
     {
@@ -84,6 +96,11 @@ describe('DashboardPage', () => {
     mocks.fetchSessionStatus.mockResolvedValue({
       success: true,
       data: { uid: 'uid-1', email_verified: true },
+    });
+    mocks.getCurrentStoreSelection.mockResolvedValue({
+      available: true,
+      stores: [STORE],
+      selected: STORE,
     });
     mocks.fetchProfile.mockResolvedValue({ success: true, data: PROFILE });
     mocks.fetchLoginHistory.mockResolvedValue({ success: true, data: HISTORY });
@@ -291,6 +308,55 @@ describe('DashboardPage', () => {
       expect(navigationMock.redirect).not.toHaveBeenCalled();
     }
   );
+
+  describe('store-less redirect (KAN-210)', () => {
+    it('sends a verified user with no store to onboarding', async () => {
+      mocks.getCurrentStoreSelection.mockResolvedValue({
+        available: true,
+        stores: [],
+        selected: null,
+      });
+
+      expect(redirectTarget(await rejection(page()))).toBe('/dashboard/onboarding');
+    });
+
+    it.each(['PROVISIONING', 'FAILED', 'ACTIVE'])(
+      'does not redirect a user whose store is %s',
+      async (status) => {
+        const store = { ...STORE, status };
+        mocks.getCurrentStoreSelection.mockResolvedValue({
+          available: true,
+          stores: [store],
+          selected: store,
+        });
+
+        expect(await page()).toBeDefined();
+        expect(navigationMock.redirect).not.toHaveBeenCalled();
+      }
+    );
+
+    it('does not redirect when the store list cannot be loaded', async () => {
+      mocks.getCurrentStoreSelection.mockResolvedValue({ available: false, error: 'down' });
+
+      expect(await page()).toBeDefined();
+      expect(navigationMock.redirect).not.toHaveBeenCalled();
+    });
+
+    it('sends an unverified user to /verify-email before looking at stores', async () => {
+      mocks.fetchSessionStatus.mockResolvedValue({
+        success: true,
+        data: { uid: 'uid-1', email_verified: false },
+      });
+      mocks.getCurrentStoreSelection.mockResolvedValue({
+        available: true,
+        stores: [],
+        selected: null,
+      });
+
+      expect(redirectTarget(await rejection(page()))).toBe('/verify-email');
+      expect(mocks.getCurrentStoreSelection).not.toHaveBeenCalled();
+    });
+  });
 
   it('sends an unverified user to /verify-email', async () => {
     mocks.fetchSessionStatus.mockResolvedValue({
