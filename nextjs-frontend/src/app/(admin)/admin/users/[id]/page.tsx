@@ -123,7 +123,7 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
           </Row>
           {user.adminPermissions.length > 0 && (
             <Row label="Permissions">
-              <ul aria-label="Permissions" className="flex flex-wrap justify-end gap-2">
+              <ul className="flex flex-wrap justify-end gap-2">
                 {user.adminPermissions.map((permission) => (
                   <li key={permission}>
                     <StatusPill variant="neutral" icon={KeyRound}>

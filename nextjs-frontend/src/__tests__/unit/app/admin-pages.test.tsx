@@ -149,6 +149,34 @@ describe('admin user detail page', () => {
     expect(failed.match(/<h1/g)).toHaveLength(1);
     expect(failed).toContain('href="/admin/users/a%20b"');
     expect(failed).toContain('Back to Users');
+    expect(failed).toContain('role="alert"');
+    expect(failed).toContain('>Retry<');
+  });
+
+  it('shows good pills for a verified user with 2FA and None for a non-admin', async () => {
+    mocks.fetchAdminUser.mockResolvedValue({
+      success: true,
+      data: {
+        ...SUMMARY,
+        is_admin: false,
+        admin_role: null,
+        bio: null,
+        location: null,
+        website: null,
+        phone_number: null,
+        two_factor_enabled: true,
+        admin_permissions: [],
+      },
+    });
+
+    const markup = html(await AdminUserDetailPage({ params: Promise.resolve({ id: 'user-1' }) }));
+
+    expect(markup).toContain('Verified');
+    expect(markup).toContain('Enabled');
+    expect(markup).toContain('bg-good');
+    expect(markup).not.toContain('bg-warn');
+    expect(markup).toContain('None');
+    expect(markup).not.toContain('Permissions');
   });
 
   it('renders the unavailable state as one panel with a way back', () => {
