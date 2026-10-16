@@ -160,6 +160,22 @@ test.describe('Customer Dashboard', () => {
         await expect(page.getByText(/manage your public profile/i)).toBeVisible();
       });
 
+      test('should have one h1 and no horizontal scroll at 375px', async ({ page }) => {
+        await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
+        await page.setViewportSize({ width: 375, height: 812 });
+        const overflow = await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth
+        );
+        expect(overflow).toBeLessThanOrEqual(0);
+      });
+
+      test('should show a success toast after saving', async ({ page }) => {
+        await page.getByRole('button', { name: /save changes/i }).click();
+        await expect(page.getByText(/profile updated successfully/i)).toBeVisible({
+          timeout: 10_000,
+        });
+      });
+
       test('should display avatar section with upload button', async ({ page }) => {
         await expect(page.getByText('Profile Picture')).toBeVisible();
         await expect(page.getByText(/upload photo/i)).toBeVisible();
@@ -234,6 +250,22 @@ test.describe('Customer Dashboard', () => {
       test('should display settings page heading', async ({ page }) => {
         await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
         await expect(page.getByText(/manage your account preferences/i)).toBeVisible();
+      });
+
+      test('should have one h1 and no horizontal scroll at 375px', async ({ page }) => {
+        await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
+        await page.setViewportSize({ width: 375, height: 812 });
+        const overflow = await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth
+        );
+        expect(overflow).toBeLessThanOrEqual(0);
+      });
+
+      test('should show a success toast after saving', async ({ page }) => {
+        await page.getByRole('button', { name: /save settings/i }).click();
+        await expect(page.getByText(/settings updated successfully/i)).toBeVisible({
+          timeout: 10_000,
+        });
       });
 
       test('should display appearance settings section', async ({ page }) => {
