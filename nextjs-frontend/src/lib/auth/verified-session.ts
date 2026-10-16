@@ -74,6 +74,7 @@ export async function getVerifiedUserId(): Promise<string | null> {
     if (!profile.success) {
       logger.error('Authentication error: backend profile lookup failed', {
         status: profile.status,
+        error: profile.error,
       });
       return null;
     }

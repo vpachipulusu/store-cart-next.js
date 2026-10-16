@@ -175,12 +175,16 @@ describe('verified-session boundary (KAN-123)', () => {
 
       mocks.fetchProfile.mockResolvedValue({ success: true, data: {} });
       expect(await getVerifiedUserId()).toBeNull();
+
+      mocks.fetchProfile.mockResolvedValue({ success: true, data: { id: 42 } });
+      expect(await getVerifiedUserId()).toBeNull();
     });
 
     it('returns the backend id, never the Firebase uid', async () => {
       mocks.fetchProfile.mockResolvedValue({ success: true, data: { id: 'backend-id-9' } });
 
       expect(await getVerifiedUserId()).toBe('backend-id-9');
+      expect(mocks.fetchProfile).toHaveBeenCalledTimes(1);
     });
 
     it('does not call the backend for a revoked session', async () => {
