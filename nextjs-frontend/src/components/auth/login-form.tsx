@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -18,6 +18,13 @@ import {
 import { Input } from '@/components/ui/input';
 import { signInWithEmail } from '@/lib/firebase/auth-helpers';
 import { verifyTokenAction } from '@/app/actions/auth-actions';
+import { AuthFormAlert, FIELD_ERROR_CLASS } from './auth-form-alert';
+import {
+  classifyAuthError,
+  classifyThrownAuthError,
+  REDIRECT_RECOVERY_MS,
+  type AuthFormError,
+} from './auth-form-errors';
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -29,7 +36,8 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 export function LoginForm() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<AuthFormError | null>(null);
+  const isSubmitting = useRef(false);
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -39,7 +47,15 @@ export function LoginForm() {
     },
   });
 
+  function release() {
+    isSubmitting.current = false;
+    setIsLoading(false);
+  }
+
   async function onSubmit(data: LoginFormValues) {
+    if (isSubmitting.current) return;
+    isSubmitting.current = true;
+    let redirected = false;
     try {
       setIsLoading(true);
       setError(null);
@@ -51,7 +67,7 @@ export function LoginForm() {
       } = await signInWithEmail(data.email, data.password);
 
       if (signInError) {
-        setError(signInError);
+        setError(classifyAuthError(signInError, 'sign-in'));
         return;
       }
 
@@ -60,27 +76,35 @@ export function LoginForm() {
         const result = await verifyTokenAction(idToken);
 
         if (!result.success) {
-          setError(result.error || 'Failed to create session. Please try again.');
+          setError(classifyAuthError(result.error, 'sign-in'));
           return;
         }
 
+        redirected = true;
+        // If navigation fails or stalls, give the form back instead of leaving it locked.
+        setTimeout(release, REDIRECT_RECOVERY_MS);
         router.push('/dashboard');
         router.refresh();
       }
     } catch (error) {
-      setError('An unexpected error occurred. Please try again.');
+      redirected = false;
+      setError(classifyThrownAuthError(error, 'sign-in'));
       console.error('Login error:', error);
     } finally {
-      setIsLoading(false);
+      // Stay locked while the redirect is in flight so a second submit cannot run.
+      if (!redirected) release();
     }
   }
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4" noValidate>
-        {error && (
-          <div className="rounded-md bg-destructive/15 p-3 text-sm text-destructive">{error}</div>
-        )}
+      <form
+        onSubmit={(event) => form.handleSubmit(onSubmit)(event)}
+        className="space-y-4"
+        noValidate
+        aria-busy={isLoading}
+      >
+        {error && <AuthFormAlert error={error} />}
 
         <FormField
           control={form.control}
@@ -94,6 +118,7 @@ export function LoginForm() {
                   type="email"
                   autoComplete="email"
                   disabled={isLoading}
+                  className={FIELD_ERROR_CLASS}
                   {...field}
                 />
               </FormControl>
@@ -122,6 +147,7 @@ export function LoginForm() {
                   type="password"
                   autoComplete="current-password"
                   disabled={isLoading}
+                  className={FIELD_ERROR_CLASS}
                   {...field}
                 />
               </FormControl>
@@ -133,7 +159,10 @@ export function LoginForm() {
         <Button type="submit" variant="accent" className="w-full" disabled={isLoading}>
           {isLoading ? (
             <>
-              <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              <div
+                aria-hidden="true"
+                className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+              />
               Signing in...
             </>
           ) : (
