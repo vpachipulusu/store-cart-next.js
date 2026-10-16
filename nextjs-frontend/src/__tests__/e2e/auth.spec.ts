@@ -208,20 +208,24 @@ test.describe('Authentication Flow', () => {
   });
 
   test.describe('Auth Layout', () => {
-    test('should center the auth card on the page', async ({ page }) => {
+    test('should centre the form column in the auth shell (KAN-228)', async ({ page }) => {
       await page.goto('/login');
       await waitForPageReady(page);
 
-      const container = page.locator('.min-h-screen.flex.items-center.justify-center');
-      await expect(container).toBeVisible();
+      const column = page.locator('main#main-content');
+      await expect(column).toBeVisible();
+      await expect(column).toHaveCSS('justify-content', 'center');
+      await expect(column).toHaveCSS('align-items', 'center');
     });
 
-    test('should have responsive width constraint', async ({ page }) => {
+    test('should limit the form width to 400px (KAN-228)', async ({ page }) => {
       await page.goto('/login');
       await waitForPageReady(page);
 
-      const wrapper = page.locator('.max-w-md');
+      const wrapper = page.locator('main#main-content > div');
       await expect(wrapper).toBeVisible();
+      const box = await wrapper.boundingBox();
+      expect(box?.width).toBeLessThanOrEqual(400);
     });
   });
 
