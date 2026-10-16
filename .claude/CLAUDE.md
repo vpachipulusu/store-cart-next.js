@@ -230,3 +230,14 @@ This project uses **npm** exclusively. Do not use `pnpm` or `yarn`.
 ### Speak to Architect if any developer is available
 
 Speak to `ecc:architect` and `ecc:planner` if any developers are free. The work should be distributed between the developers without any conflict.
+
+
+### Env files for local e2e
+
+To run local e2e (`npm run test:e2e:local`), copy the owner's env files into your worktree's `nextjs-frontend/` folder from the main checkout: `C:\MainData\AI-Projects\store-cart-next.js\nextjs-frontend` (`.env.e2e.local`, `.env.local`, and `.env` only if `docs/developer/local-e2e.md` needs it).
+
+- Copy with `cp` or `Copy-Item` only. Never open, read, cat, echo, grep or log these files, and never print any value in them. Refer to variables by name only.
+- They are gitignored. Check `git status` shows them untracked-ignored, never stage them, and delete the copies when the run is done (before removing the worktree).
+- Set `BACKEND_API_URL` and `BACKEND_INTERNAL_KEY` for your own throwaway backend by name, without printing the key.
+- `E2E_ENABLED` stays `false` in CI and is never flipped.
+- This covers copying only. Developers still do not read secrets, and the PR description gives the spec command and its pass/fail result, with no values.
