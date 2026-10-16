@@ -18,6 +18,7 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from pydantic import SecretStr
+from sqlalchemy import text
 
 from app.api.deps import get_session_provider
 from app.api.v1.org_billing import stripe_billing
@@ -316,6 +317,20 @@ async def test_organisation_roles_open_no_platform_admin_route(
     assert response.json() == {"success": False, "error": "Forbidden"}
 
 
+async def test_control_a_platform_admin_is_let_into_the_admin_routes(
+    client: AsyncClient, world: World
+) -> None:
+    # Positive control: without it the 403s above would also pass for an unmounted route.
+    await world.grant_platform_admin("root", ["users.read"])
+    try:
+        response = await client.get("/v1/admin/users", headers=as_user("root"))
+    finally:
+        async with world.platform.begin() as connection:
+            await connection.execute(text("DELETE FROM admin_users"))
+
+    assert response.status_code == 200
+
+
 BILLING_ROUTES = [
     ("GET", "", None, {}),
     (
@@ -338,6 +353,18 @@ BILLING_ROUTES = [
     ("DELETE", f"/payment-methods/{UNKNOWN_PAYMENT_METHOD}", None, IDEMPOTENCY),
     ("POST", f"/payment-methods/{UNKNOWN_PAYMENT_METHOD}/default", None, IDEMPOTENCY),
 ]
+
+
+async def test_control_the_owner_reads_their_own_billing(
+    client: AsyncClient, world: World
+) -> None:
+    # Positive control: without it the 404s below would also pass for an unmounted route.
+    response = await client.get(
+        f"/v1/organizations/{world.b.org_id}/billing", headers=as_user("bob")
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["plan"]["key"] == "free"
 
 
 @pytest.mark.parametrize("user", ["alice", "dana", "amy", "eve"])

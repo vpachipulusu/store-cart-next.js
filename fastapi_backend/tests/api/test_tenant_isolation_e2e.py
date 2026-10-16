@@ -293,6 +293,9 @@ async def test_the_platform_database_holds_no_store_data(world: World) -> None:
     found = await world.platform_value("SELECT to_regclass('marker')")
 
     assert found is None
+    for store_id in world.every_store():
+        database = await world.store_value(store_id, "SELECT current_database()")
+        assert database not in world.databases
 
 
 # --- Data: connection strings are bound to their store --------------------------

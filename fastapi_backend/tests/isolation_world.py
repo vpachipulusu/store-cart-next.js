@@ -280,7 +280,6 @@ async def open_world(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[World]:
     killed run are swept first (platform databases only: a killed run can still leave its
     ``store_<id>`` databases behind; drop them by hand).
     """
-    require_local_test_server()
     server = create_async_engine(require_local_test_server())
     async with AsyncExitStack() as cleanup:
         cleanup.push_async_callback(server.dispose)
