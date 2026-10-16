@@ -20,7 +20,7 @@ export default function HomePage() {
           </h1>
           <p className="max-w-[700px] text-balance text-center text-lg leading-relaxed text-muted-foreground sm:text-xl">
             A production-ready boilerplate with everything you need to build amazing applications.
-            TypeScript, Tailwind CSS, Prisma, and more.
+            TypeScript, Tailwind CSS, and more.
           </p>
           <div className="flex w-full items-center justify-center space-x-4 py-4 md:pb-10">
             <Button size="lg" asChild variant="accent">
@@ -119,7 +119,6 @@ export default function HomePage() {
               <TechItem name="React 19" description="Latest features and optimizations" />
               <TechItem name="TypeScript" description="Type-safe development" />
               <TechItem name="Tailwind CSS" description="Utility-first styling" />
-              <TechItem name="Prisma" description="Type-safe database ORM" />
               <TechItem name="Firebase Auth" description="Authentication made easy" />
               <TechItem name="React Query" description="Powerful data fetching" />
               <TechItem name="Zod" description="Schema validation" />

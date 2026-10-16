@@ -52,7 +52,7 @@ Not built yet (the ADR describes them): `db/platform`, `db/store`, `tenancy/`, `
 
 The repo is still the boilerplate with the target not yet built:
 
-- **The frontend reaches the database itself.** Server actions, route handlers and admin pages use the Prisma client (`src/lib/db/client.ts`, schema in `prisma/schema.prisma`). Firebase Admin, Stripe and Resend are also called from the frontend.
+- **The frontend no longer has a database (KAN-51).** Prisma, its schema and `src/lib/db` are gone; server code reads and writes through the FastAPI wrappers in `src/lib/api`. Firebase Admin (session verification) and Stripe (price lookup) are still called from the frontend until the stories that move them to the API land; an ESLint rule allow-lists those files and blocks new uses.
 - **The backend is the adapted template (KAN-30).** It has only a health route, the layered `app/` structure and the session seam; there is no auth, no models and no email yet. The frontend does not call it yet.
 - **Root `vercel.json`** deploys one Vercel project with two services (ADR-011): `nextjs-frontend` is public, `fastapi_backend` is internal and reached through the `BACKEND_API_URL` binding. Migrations no longer run during the build.
 - **`app/core/database.py`** uses `NullPool`, which suits serverless.

@@ -27,7 +27,6 @@ psql -h localhost -p 5432 -U postgres -c "CREATE DATABASE <test_db> OWNER <user>
 The URLs then have this shape:
 
 - Backend `DATABASE_URL`: `postgresql+asyncpg://<user>:<password>@localhost:5432/<db>`
-- Frontend `DATABASE_URL` (Prisma): `postgresql://<user>:<password>@localhost:5432/<db>`
 
 Most backend tests need no database (they use fake sessions). The real-route e2e tests run only when `TEST_DATABASE_URL` points at a local throwaway `*_test` database; see [testing.md](testing.md#backend-tests-pytest).
 
@@ -45,11 +44,8 @@ The repository has two apps: `nextjs-frontend/` and `fastapi_backend/`. Each has
 ```bash
 cd nextjs-frontend
 npm ci
-npm run db:generate
 npm run typecheck
 ```
-
-`npm ci` usually generates the Prisma client through the `@prisma/client` postinstall, but run `npm run db:generate` to be sure before `npm run typecheck`. It is required after any change to `prisma/schema.prisma`.
 
 ### Frontend environment
 
@@ -79,7 +75,6 @@ Stripe checkout and billing-portal return URLs are built on the server from `NEX
 ### Build the frontend
 
 ```bash
-npx prisma generate
 npm run build
 ```
 
@@ -135,8 +130,7 @@ It writes to the path in `OPENAPI_OUTPUT_FILE`.
 
 - **Stuck dev server or `.next/dev/lock` error:** run `npm run dev:kill`, then `npm run dev`.
 - **`Module not found` after switching package manager:** this project uses npm only. Delete `node_modules` and run `npm ci`.
-- **`Can't reach database server`:** check `DATABASE_URL` in `.env`, that Postgres is running, and the port (see [Local databases](#local-databases)).
-- **Prisma client out of date after a schema change:** run `npm run db:generate`, then `npm run db:push` (development) or `npm run db:migrate`.
+- **`Can't reach database server`:** check the backend `DATABASE_URL`, that Postgres is running, and the port (see [Local databases](#local-databases)).
 - **`Firebase: Error (auth/invalid-api-key)`:** the `NEXT_PUBLIC_FIREBASE_*` values must match the Firebase console, and Email/Password sign-in must be enabled there.
 - **Stripe webhook signature failures locally:** run `stripe listen --forward-to localhost:8000/webhooks/stripe` (the FastAPI backend; use its port if you changed it) and set `STRIPE_WEBHOOK_SECRET` to the secret it prints.
 - **Admin pages deny access:** the user needs an `AdminUser` record (`node scripts/create-admin.mjs <email>`).

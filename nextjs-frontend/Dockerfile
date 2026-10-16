@@ -20,7 +20,7 @@ RUN npm ci --ignore-scripts
 
 # .next is created here so the named volume mounted over it is writable by "node".
 COPY --chown=node:node . .
-RUN npx prisma generate && mkdir -p .next
+RUN mkdir -p .next
 
 EXPOSE 3000
 

@@ -4,13 +4,13 @@
 
 **Source commit:** `5fee4b8` (branch `test/KAN-113-parity-baseline`), refreshed after rebasing on `main` at `1105b29` (KAN-122 removed two actions and three auth routes; KAN-134 made the Stripe clients lazy). Taken from the code, not from docs. Removed items stay in the tables, struck through, so the porting history is kept.
 
-**Keeping it updated.** When a story ports or switches off an item, add `✅ <PR>` to its Porting story cell. Do not delete rows until KAN-51 removes Prisma. If the boilerplate changes before then, re-run these commands and update the counts:
+**Keeping it updated.** When a story ports or switches off an item, add `✅ <PR>` to its Porting story cell. **KAN-51 removed Prisma** (`prisma/`, `src/lib/db/client.ts`, the `prisma` and `@prisma/client` packages and the `db:*` scripts): no file imports `@/lib/db/client` any more, so every "Prisma" row below is history, kept for the porting record. Stripe and Firebase Admin are still used by a few allow-listed files (`eslint.config.mjs`). If the boilerplate changes, re-run these commands and update the counts:
 
 ```bash
 cd nextjs-frontend
 grep -cE '^export (async function|const)' src/app/actions/*.ts src/app/actions/admin/*.ts   # actions per file
 find src/app/api -name route.ts                                                            # routes
-grep -rl "@/lib/db/client" src | sort                                                      # Prisma importers
+grep -rl "@/lib/db/client" src | sort                                                      # Prisma importers (none since KAN-51)
 ```
 
 **Conventions.**

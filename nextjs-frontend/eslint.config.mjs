@@ -5,6 +5,40 @@ import { defineConfig, globalIgnores } from 'eslint/config';
 import nextVitals from 'eslint-config-next/core-web-vitals';
 import nextTs from 'eslint-config-next/typescript';
 
+const FRONTEND_SOURCE = ['src/**/*.{ts,tsx}', 'scripts/**/*.{mjs,cjs,ts}'];
+
+const PRISMA_MESSAGE =
+  'The frontend has no database access: read and write through the FastAPI wrappers in src/lib/api (KAN-51).';
+const SERVER_SDK_MESSAGE =
+  'Stripe and the Firebase Admin SDK are backend concerns: call the FastAPI wrappers in src/lib/api instead (KAN-51).';
+
+const PRISMA_PATHS = [
+  { name: '@prisma/client', message: PRISMA_MESSAGE },
+  { name: 'prisma', message: PRISMA_MESSAGE },
+];
+const PRISMA_PATTERNS = [
+  { group: ['@prisma/*', '@/lib/db', '@/lib/db/*', '**/db/client'], message: PRISMA_MESSAGE },
+];
+const SERVER_SDK_PATHS = [
+  { name: 'stripe', message: SERVER_SDK_MESSAGE },
+  { name: 'firebase-admin', message: SERVER_SDK_MESSAGE },
+];
+const SERVER_SDK_PATTERNS = [{ group: ['firebase-admin/*'], message: SERVER_SDK_MESSAGE }];
+
+const BACKEND_ONLY_IMPORTS = {
+  paths: [...PRISMA_PATHS, ...SERVER_SDK_PATHS],
+  patterns: [...PRISMA_PATTERNS, ...SERVER_SDK_PATTERNS],
+};
+
+// The only files still allowed to import Stripe or the Firebase Admin SDK. Do not add to this list.
+const LEGACY_SERVER_SDK_FILES = [
+  'src/lib/firebase/admin.ts',
+  'src/lib/auth/verified-session.ts',
+  'src/lib/stripe/server.ts',
+  'src/config/subscriptions.ts',
+  'scripts/e2e-accounts.mjs',
+];
+
 export default defineConfig([
   ...nextVitals,
   ...nextTs,
@@ -35,15 +69,32 @@ export default defineConfig([
     },
   },
   {
+    // Server secrets and database access live in the FastAPI backend (KAN-51): the frontend must not depend on
+    // Prisma, Stripe or the Firebase Admin SDK again. Stripe and Firebase Admin are still imported by the legacy
+    // server files allow-listed in the next block; those go away with the stories that move them to the API.
+    files: FRONTEND_SOURCE,
+    rules: {
+      'no-restricted-imports': ['error', BACKEND_ONLY_IMPORTS],
+    },
+  },
+  {
+    files: LEGACY_SERVER_SDK_FILES,
+    rules: {
+      'no-restricted-imports': ['error', { paths: PRISMA_PATHS, patterns: PRISMA_PATTERNS }],
+    },
+  },
+  {
     // The generated SDK is reached only through the server-only wrappers in src/lib/api (ADR-008), so a
     // client component can never call it directly and skip the session and internal-key forwarding.
     files: ['src/**/*.{ts,tsx}'],
-    ignores: ['src/lib/api/**', 'src/__tests__/**'],
+    ignores: ['src/lib/api/**', 'src/__tests__/**', ...LEGACY_SERVER_SDK_FILES],
     rules: {
       'no-restricted-imports': [
         'error',
         {
+          paths: BACKEND_ONLY_IMPORTS.paths,
           patterns: [
+            ...BACKEND_ONLY_IMPORTS.patterns,
             {
               group: [
                 '@/lib/api/generated',

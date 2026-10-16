@@ -1,10 +1,9 @@
 // @vitest-environment node
 /**
- * Regression tests for KAN-140: `next build` prerenders every route it considers static. With no DATABASE_URL
- * (CI, or an image built without secrets) no route may query Prisma during that prerender, and importing the
- * Prisma client must not throw.
+ * Regression tests for KAN-140: `next build` prerenders every route it considers static. Root-layout reads must
+ * return their defaults without any backend, and per-user segments must render on demand.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('next/headers', () => ({ cookies: vi.fn(), headers: vi.fn() }));
 vi.mock('next/cache', () => ({
@@ -32,56 +31,28 @@ vi.mock('next/font/google', () => {
   );
 });
 
-const findUnique = vi.fn();
-
-let savedDatabaseUrl: string | undefined;
-
 beforeEach(() => {
-  savedDatabaseUrl = process.env.DATABASE_URL;
-  delete process.env.DATABASE_URL;
-  findUnique.mockReset();
   vi.resetModules();
 });
 
-afterEach(() => {
-  if (savedDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-  else process.env.DATABASE_URL = savedDatabaseUrl;
-  vi.doUnmock('@/lib/db/client');
-});
-
-describe('KAN-140: Prisma client import is build-safe', () => {
-  it('imports and constructs the real Prisma client without DATABASE_URL', async () => {
-    const { db } = await import('@/lib/db/client');
-    expect(db).toBeDefined();
-    expect(typeof db.appSettings.findUnique).toBe('function');
-  });
-});
-
-describe('KAN-140: root layout settings reads never query the database (KAN-184)', () => {
-  beforeEach(() => {
-    vi.doMock('@/lib/db/client', () => ({ db: { appSettings: { findUnique } } }));
-  });
-
-  it('returns the default theme without querying Prisma', async () => {
+describe('KAN-140: root layout settings reads need no backend (KAN-184)', () => {
+  it('returns the default theme', async () => {
     const { getActiveTheme } = await import('@/app/actions/theme-actions');
     const { DEFAULT_THEME } = await import('@/config/themes');
 
     await expect(getActiveTheme()).resolves.toBe(DEFAULT_THEME);
-    expect(findUnique).not.toHaveBeenCalled();
   });
 
-  it('returns the default font without querying Prisma', async () => {
+  it('returns the default font', async () => {
     const { getActiveFont } = await import('@/app/actions/font-actions');
     const { DEFAULT_FONT } = await import('@/config/fonts');
 
     await expect(getActiveFont()).resolves.toBe(DEFAULT_FONT);
-    expect(findUnique).not.toHaveBeenCalled();
   });
 });
 
-describe('KAN-140: DB-backed, per-user segments render on demand', () => {
+describe('KAN-140: per-user segments render on demand', () => {
   beforeEach(() => {
-    vi.doMock('@/lib/db/client', () => ({ db: {} }));
     vi.doMock('@/lib/firebase/client', () => ({ auth: {} }));
   });
 

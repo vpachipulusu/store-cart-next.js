@@ -47,9 +47,9 @@ function definedOnly(env) {
 }
 
 /** Variables that must come only from .env.e2e.local or the real environment (never from the dev files). */
-const E2E_ONLY_VARS = new Set([...FIREBASE_WEB_VARS, ...FIREBASE_ADMIN_VARS, 'DATABASE_URL']);
+const E2E_ONLY_VARS = new Set([...FIREBASE_WEB_VARS, ...FIREBASE_ADMIN_VARS]);
 
-/** The developer's files minus every e2e-only variable, so the dev project and dev database can never leak into e2e. */
+/** The developer's files minus every e2e-only variable, so the dev project can never leak into e2e. */
 function withoutE2eOnlyVars(env) {
   return Object.fromEntries(Object.entries(env).filter(([name]) => !E2E_ONLY_VARS.has(name)));
 }
@@ -61,8 +61,8 @@ function withoutE2eOnlyVars(env) {
  */
 function loadE2eEnv(cwd = process.cwd()) {
   const devFiles = { ...parseEnvFile(cwd, '.env'), ...parseEnvFile(cwd, '.env.local') };
-  // Prisma loads .env into process.env when @prisma/client is imported, so an e2e-only value in process.env that
-  // equals the dev files' value came from those files, not from a real (CI) environment variable. Drop it.
+  // A tool that loads .env into process.env can put an e2e-only value there, so a value that equals the dev files'
+  // value came from those files, not from a real (CI) environment variable. Drop it.
   const realEnv = Object.fromEntries(
     Object.entries(definedOnly(process.env)).filter(
       ([name, value]) => !E2E_ONLY_VARS.has(name) || (value !== '' && value !== devFiles[name])
@@ -84,7 +84,7 @@ function blankMissingE2eOnlyVars(env) {
 
 /**
  * Put the e2e env into process.env (for the Playwright runner and workers). E2e-only variables the e2e env lacks are
- * set to '' so that nothing loaded later (Prisma loads .env, Next.js loads .env.local) can fill in the dev values.
+ * set to '' so that nothing loaded later (Next.js loads .env.local) can fill in the dev values.
  */
 function applyE2eEnv(cwd = process.cwd()) {
   const env = loadE2eEnv(cwd);
@@ -94,8 +94,8 @@ function applyE2eEnv(cwd = process.cwd()) {
 }
 
 /**
- * Env for a `next build` / `next start` / `prisma` child process. Next.js and Prisma fill variables that are not set
- * from .env.local / .env, which would bring in the dev project or database, so every e2e-only variable the e2e env
+ * Env for a `next build` / `next start` child process. Next.js fills variables that are not set
+ * from .env.local / .env, which would bring in the dev project, so every e2e-only variable the e2e env
  * lacks is set to an empty string.
  * Sentry is disabled (its SDK is enabled only when NEXT_PUBLIC_SENTRY_DSN is non-empty), and the output goes to the
  * separate e2e folder.
@@ -153,54 +153,6 @@ function assertE2eFirebaseEnv(env, { requireAdmin = true, cwd = process.cwd() } 
   }
 }
 
-/** Describe a database URL without exposing it: host and whether a database name is set. */
-function databaseFingerprint(url) {
-  try {
-    const parsed = new URL(url);
-    return `${parsed.hostname}${parsed.pathname.length > 1 ? '/<db>' : '/<no database name>'}`;
-  } catch {
-    return '<unparseable>';
-  }
-}
-
-/**
- * Throws, without printing any URL, unless the e2e DATABASE_URL is set, parseable, and different from the one in
- * .env.local / .env (the dev database). The e2e database is a dedicated one; the dev and test databases must never
- * be mixed. Returns a fingerprint (host only) for log messages.
- */
-function assertE2eDatabaseEnv(env, { cwd = process.cwd() } = {}) {
-  const url = env.DATABASE_URL;
-  if (!url) {
-    throw new Error(
-      `DATABASE_URL is not set for e2e. Add DATABASE_URL (the dedicated test database) to ${E2E_ENV_FILE}. ` +
-        'See docs/developer/testing.md.'
-    );
-  }
-  let parsed;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new Error(
-      `The e2e DATABASE_URL is not a valid URL. Check DATABASE_URL in ${E2E_ENV_FILE}.`
-    );
-  }
-  if (!/^postgres(ql)?:$/.test(parsed.protocol)) {
-    throw new Error(
-      `The e2e DATABASE_URL must be a postgres:// URL. Check DATABASE_URL in ${E2E_ENV_FILE}.`
-    );
-  }
-  const devUrls = ['.env.local', '.env']
-    .map((file) => parseEnvFile(cwd, file).DATABASE_URL)
-    .filter(Boolean);
-  if (devUrls.includes(url)) {
-    throw new Error(
-      `The e2e DATABASE_URL is the same as the dev database in .env.local/.env. e2e needs its own database: set ` +
-        `DATABASE_URL in ${E2E_ENV_FILE}.`
-    );
-  }
-  return databaseFingerprint(url);
-}
-
 module.exports = {
   E2E_ENV_FILE,
   E2E_DIST_DIR,
@@ -212,6 +164,4 @@ module.exports = {
   toNextProcessEnv,
   missingVars,
   assertE2eFirebaseEnv,
-  assertE2eDatabaseEnv,
-  databaseFingerprint,
 };

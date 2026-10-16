@@ -11,7 +11,6 @@ vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
   unstable_cache: (fn: unknown) => fn,
 }));
-vi.mock('@/lib/db/client', () => ({ db: {} }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/firebase/client', () => ({ auth: {} }));
 
