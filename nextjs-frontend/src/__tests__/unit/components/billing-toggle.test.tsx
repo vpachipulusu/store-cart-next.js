@@ -125,4 +125,40 @@ describe('BillingToggle', () => {
     const { monthly } = setup();
     expect(monthly.className).toContain('focus-visible:ring-2');
   });
+
+  it('gives the yearly radio the accessible name "Yearly Save 17%"', () => {
+    setup({ yearlySavingsPercent: 17 });
+    expect(screen.getByRole('radio', { name: 'Yearly Save 17%' })).toBeInTheDocument();
+  });
+
+  it('moves focus without calling onToggle when the target is already selected', async () => {
+    const { onToggle, monthly } = setup();
+    monthly.focus();
+    await userEvent.keyboard('{Home}');
+    expect(onToggle).not.toHaveBeenCalled();
+    expect(monthly).toHaveFocus();
+  });
+
+  it('does not call onToggle for End on yearly', async () => {
+    const { onToggle, yearly } = setup({ billingPeriod: 'yearly' });
+    yearly.focus();
+    await userEvent.keyboard('{End}');
+    expect(onToggle).not.toHaveBeenCalled();
+    expect(yearly).toHaveFocus();
+  });
+
+  it('wraps ArrowRight from yearly to monthly', async () => {
+    const { onToggle, monthly, yearly } = setup({ billingPeriod: 'yearly' });
+    yearly.focus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(onToggle).toHaveBeenCalledWith('monthly');
+    expect(monthly).toHaveFocus();
+  });
+
+  it('skips Shift-modified arrow keys', async () => {
+    const { onToggle, monthly } = setup();
+    monthly.focus();
+    await userEvent.keyboard('{Shift>}{ArrowRight}{/Shift}');
+    expect(onToggle).not.toHaveBeenCalled();
+  });
 });

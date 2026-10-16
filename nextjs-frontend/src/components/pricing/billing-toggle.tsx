@@ -45,7 +45,7 @@ export function BillingToggle({
     if (next === null) return;
     event.preventDefault();
     refs.current[next]?.focus();
-    onToggle(PERIODS[next].value);
+    if (PERIODS[next].value !== billingPeriod) onToggle(PERIODS[next].value);
   };
 
   return (
@@ -75,6 +75,7 @@ export function BillingToggle({
             }`}
           >
             {label}
+            {value === 'yearly' && showSavings && ' '}
             {value === 'yearly' && showSavings && (
               <span className="text-xs">Save {yearlySavingsPercent}%</span>
             )}
