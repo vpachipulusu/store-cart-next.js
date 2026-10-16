@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { CheckCircle2, Loader2, TriangleAlert } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { StatusPill } from '@/components/ui/status-pill';
 import { getStoreStatusAction } from '@/app/actions/onboarding-actions';
 import { SESSION_EXPIRED_MESSAGE } from '@/lib/onboarding/schema';
 import type { StoreStatus } from '@/lib/api/onboarding';
@@ -127,20 +128,25 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
     <div className="flex flex-col items-start gap-4" data-testid="store-status">
       <div role="status" aria-live="polite" className="flex flex-col items-start gap-2">
         {message !== null ? (
-          <div className="flex items-center gap-2 font-medium">
-            <TriangleAlert className="h-5 w-5 text-destructive" aria-hidden="true" />
-            <span>{message}</span>
-          </div>
+          <>
+            <StatusPill variant="crit" data-testid="provisioning-pill">
+              Needs attention
+            </StatusPill>
+            <p className="font-medium">{message}</p>
+          </>
         ) : ready ? (
           <>
-            <div className="flex items-center gap-2 font-medium">
-              <CheckCircle2 className="h-5 w-5 text-primary" aria-hidden="true" />
-              <span>Your store is ready</span>
-            </div>
+            <StatusPill variant="good" data-testid="provisioning-pill">
+              Ready
+            </StatusPill>
+            <p className="font-medium">Your store is ready</p>
             <p className="text-sm text-muted-foreground">{storeName} is set up and ready to use.</p>
           </>
         ) : (
           <>
+            <StatusPill variant="warn" data-testid="provisioning-pill">
+              Setting up
+            </StatusPill>
             <div className="flex items-center gap-2 font-medium">
               <Loader2
                 className="h-5 w-5 animate-spin motion-reduce:animate-none"

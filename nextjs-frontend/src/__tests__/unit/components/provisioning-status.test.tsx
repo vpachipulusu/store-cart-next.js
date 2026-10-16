@@ -59,14 +59,14 @@ describe('ProvisioningStatus', () => {
     mocks.getStoreStatusAction.mockResolvedValue(ok('PROVISIONING'));
     renderStatus();
 
-    expect(statusRegion()).toHaveTextContent(/setting up/i);
+    expect(statusRegion()).toHaveTextContent(/we are setting up your store/i);
     expect(screen.queryByRole('link', { name: /open dashboard/i })).toBeNull();
     expect(mocks.getStoreStatusAction).not.toHaveBeenCalled();
 
     await advance(nextPollDelay(0));
     expect(mocks.getStoreStatusAction).toHaveBeenCalledTimes(1);
     expect(mocks.getStoreStatusAction).toHaveBeenCalledWith(STORE_ID);
-    expect(statusRegion()).toHaveTextContent(/setting up/i);
+    expect(statusRegion()).toHaveTextContent(/we are setting up your store/i);
 
     await advance(nextPollDelay(1) - 1);
     expect(mocks.getStoreStatusAction).toHaveBeenCalledTimes(1);
@@ -82,7 +82,7 @@ describe('ProvisioningStatus', () => {
 
     await advance(POLL_INITIAL_MS);
     expect(statusRegion()).toBe(region);
-    expect(region).toHaveTextContent(/ready/i);
+    expect(region).toHaveTextContent(/your store is ready/i);
     expect(screen.getByRole('link', { name: /open dashboard/i })).toHaveAttribute(
       'href',
       '/dashboard'
@@ -107,7 +107,7 @@ describe('ProvisioningStatus', () => {
 
     await advance(POLL_MAX_MS * 4);
     expect(mocks.getStoreStatusAction).toHaveBeenCalledTimes(3);
-    expect(statusRegion()).toHaveTextContent(/ready/i);
+    expect(statusRegion()).toHaveTextContent(/your store is ready/i);
     expect(screen.queryByRole('button', { name: /try again/i })).toBeNull();
   });
 
@@ -139,7 +139,7 @@ describe('ProvisioningStatus', () => {
       screen.getByRole('button', { name: /try again/i }).click();
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(statusRegion()).toHaveTextContent(/ready/i);
+    expect(statusRegion()).toHaveTextContent(/your store is ready/i);
   });
 
   it('ignores repeated retry clicks during the cooldown, then allows another', async () => {
@@ -218,5 +218,45 @@ describe('ProvisioningStatus', () => {
     unmount();
     await advance(POLL_MAX_MS * 3);
     expect(mocks.getStoreStatusAction).not.toHaveBeenCalled();
+  });
+  describe('status pill in the live region', () => {
+    const pill = () => screen.getByTestId('provisioning-pill');
+
+    it('shows a warn pill while setting up', () => {
+      renderStatus('PROVISIONING');
+      expect(statusRegion()).toContainElement(pill());
+      expect(pill()).toHaveTextContent('Setting up');
+      expect(pill().className).toContain('bg-warn');
+    });
+
+    it('shows a good pill when ready', () => {
+      renderStatus('ACTIVE');
+      expect(statusRegion()).toContainElement(pill());
+      expect(pill()).toHaveTextContent('Ready');
+      expect(pill().className).toContain('bg-good');
+    });
+
+    it('shows a crit pill when the store is unavailable', () => {
+      renderStatus('SUSPENDED');
+      expect(statusRegion()).toContainElement(pill());
+      expect(pill()).toHaveTextContent('Needs attention');
+      expect(pill().className).toContain('bg-crit');
+    });
+
+    it('shows a crit pill when the initial status is unknown', () => {
+      renderStatus('UNKNOWN');
+      expect(statusRegion()).toContainElement(pill());
+      expect(pill()).toHaveTextContent('Needs attention');
+      expect(pill().className).toContain('bg-crit');
+    });
+
+    it('shows a crit pill after polling gives up', async () => {
+      mocks.getStoreStatusAction.mockResolvedValue(ok('PROVISIONING'));
+      renderStatus();
+      await advance(POLL_MAX_MS * (POLL_MAX_ATTEMPTS + 2));
+      expect(statusRegion()).toHaveTextContent(/taking longer/i);
+      expect(pill()).toHaveTextContent('Needs attention');
+      expect(pill().className).toContain('bg-crit');
+    });
   });
 });
