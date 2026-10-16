@@ -1,6 +1,6 @@
 # ADR-005: Per-store database access
 
-- **Status:** Accepted by the product owner, 2026-10-12. The one-database-per-store choice (D1) is **provisional** until the KAN-115 spike.
+- **Status:** Accepted by the product owner, 2026-10-12. The one-database-per-store choice (D1) was provisional until the KAN-115 spike; the spike (2026-10-16) found no blocking cost, so D1 is **accepted** with the shared-project topology for launch (see [KAN-115 spike results](#kan-115-spike-results)). One check remains before E7: re-measure the store database from inside Vercel.
 - **Date:** 2026-10-11
 - **Plan decisions:** D1 (tenant data isolation), D15 (SQLAlchemy 2 async, asyncpg, NullPool, two Alembic trees)
 - **Jira:** KAN-29; spike KAN-115; carried out in KAN-30 (seam) and E7 (KAN-52 …)
@@ -13,7 +13,7 @@ long-lived connection pools, and every store database adds connection setup cost
 
 ## Decision
 
-### Tenant isolation (D1, provisional)
+### Tenant isolation (D1, accepted after KAN-115)
 
 One Postgres database per store on Neon, plus one platform database. The platform database holds users,
 organisations, memberships, billing, the audit log and the store registry (each store's database location,
@@ -22,18 +22,57 @@ schema version and status).
 **Why:** a missing `WHERE store_id = …` cannot leak another store's data; a store can be exported, restored or
 deleted as a unit; and per-store schema versions allow staged migrations.
 
-**Topology is not decided yet.** A store can be a database inside a shared Neon project, or its own Neon
-project. With a shared project, stores share compute, so isolation is at the data level only: one busy store
-*can* still slow others, and cold starts are per project, not per store. With one project per store, compute is
-isolated too, but cold starts and cost grow with the number of stores. KAN-115 measures the shared-project
-option first; E7 (KAN-52) records the choice here.
+**Topology: a database inside one shared Neon project (decided for launch).** A store can be a database inside
+a shared Neon project, or its own Neon project. With a shared project, stores share compute, so isolation is at
+the data level only: one busy store *can* still slow others, and cold starts are per project, not per store.
+With one project per store, compute is isolated too, but cold starts and cost grow with the number of stores.
+KAN-115 measured the shared-project option and found it acceptable. One project per store stays an option for
+a single large merchant later; the provisioner and the session provider already hide the topology. E7 (KAN-52)
+may refine it.
 
-**Why provisional:** the cost is connection setup per store on serverless, plus running migrations across
-many databases. The **KAN-115 spike** (≤3 days, after KAN-30 and KAN-112) routes one request to a second Neon
-store database on Vercel and records median and p95 latency, cold starts included. If the result is not
-acceptable, we revisit before E7 starts, with two options on the table: a different backend host, or a shared
-database with `store_id` and Postgres row-level security (the recorded dissent). The outcome is recorded by
-updating this ADR or superseding it.
+**Why it was provisional:** the cost is connection setup per store on serverless, plus running migrations
+across many databases. The **KAN-115 spike** measured the connection cost (below). The numbers are low enough
+that neither fallback (a different backend host, or a shared database with `store_id` and row-level security,
+the recorded dissent) is needed now.
+
+### KAN-115 spike results
+
+Measured 2026-10-16. All figures are wall-clock milliseconds for the work one request pays with `NullPool`:
+build engine, connect through Neon's pooled endpoint, `SELECT 1`, dispose.
+
+| Case | Where measured | n | Median | p95 |
+|---|---|---|---|---|
+| `/health` (no database) | Live Vercel backend (lhr1), from a dev machine | 30 | 215 | 380 |
+| `/health/ready` (platform database) | Live Vercel backend, same | 30 | 278 | 358 |
+| Store database, warm | Local harness against Neon eu-west-2 | 30 | 607 | 795 |
+| Store database, first connect after ~7 min idle (Neon suspend) | Local harness | 1 | 1068 | n/a |
+| Store database, next requests after that | Local harness | 5 | 370 | 483 |
+
+Also: creating a store database through the Neon API took 13.4 s (a provisioning job cost, not a request cost).
+The cold first call to the platform database on Vercel was 907 ms (434 ms for `/health`).
+
+**What this says**
+- On Vercel, one platform-database connection and query adds about 63 ms median (278 vs 215).
+- The store figures were taken from a development machine, where TLS and authentication round trips dominate
+  (TCP connect to the host was 28 ms). They are an upper bound for the same query from inside Vercel, not the
+  Vercel figure. Expected same-region cost is similar to the platform database (about 60-70 ms), which would
+  put a request touching both databases near 340 ms median warm. That is an inference, not a measurement.
+- A store database that has been idle long enough for Neon to suspend its compute costs roughly 0.7 s extra on
+  the first request (1068 vs about 370 ms), once per idle period. Acceptable for merchant dashboards. A
+  storefront with traffic gaps would see it, so E7 should decide whether to turn off scale-to-zero for paid
+  plans.
+- The session provider worked as designed: a second database was created through `NeonDatabaseProvisioner` and
+  reached through `build_engine`/`NullPool`, with no code change.
+
+**Limits of this spike**
+- Vercel deploys only from `main` (KAN-212) and no spike endpoint was deployed, so the store database was not
+  queried from inside Vercel. Only the platform delta was measured there.
+- The cold-start sample is one observation.
+- Because of both, the first E7 story that adds a store-backed route must record median and p95 for it on
+  Vercel, and revisit this section if the store path is more than about 150 ms over the platform path.
+
+**Decision:** keep one database per store, in one shared Neon project; do not switch host or move to row-level
+security. Revisit only if the re-measurement above fails.
 
 ### Connections (D15)
 
