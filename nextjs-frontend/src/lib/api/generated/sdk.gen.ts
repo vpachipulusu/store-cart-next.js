@@ -479,6 +479,9 @@ export const listOrganizationStores = <ThrowOnError extends boolean = false>(opt
  * Create Store
  *
  * Create a store in PROVISIONING status (OWNER or ADMIN, within the plan limit).
+ *
+ * Provisioning runs in the background (KAN-56). If it cannot be enqueued the store is
+ * still created and returned with status FAILED.
  */
 export const createStore = <ThrowOnError extends boolean = false>(options: Options<CreateStoreData, ThrowOnError>) => (options.client ?? client).post<CreateStoreResponses, CreateStoreErrors, ThrowOnError>({
     url: '/v1/organizations/{organization_id}/stores',

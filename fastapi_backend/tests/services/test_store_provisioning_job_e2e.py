@@ -276,15 +276,14 @@ async def test_a_provider_failure_is_retried_and_leaves_the_store_provisioning(
     assert world.enqueuer.calls == []
 
 
-async def test_a_missing_provider_configuration_fails_the_store_without_retry(
-    world: World,
-):
+async def test_a_missing_provider_configuration_is_retried_not_failed(world: World):
     store_id = await world.add_store()
     world.provisioner_error = ProvisionerNotConfigured("neon", ("NEON_API_KEY",))
 
-    await world.runner().run(Step.CREATE_DATABASE, store_id)
+    with pytest.raises(StepFailed):
+        await world.runner().run(Step.CREATE_DATABASE, store_id)
 
-    assert (await world.row(store_id))["status"] == "FAILED"
+    assert (await world.row(store_id))["status"] == "PROVISIONING"
     assert world.enqueuer.calls == []
 
 

@@ -226,3 +226,74 @@ def test_secrets_are_not_shown_in_the_settings_repr():
 )
 def test_parse_step_payload(raw, expected):
     assert parse_step_payload(raw) == expected
+
+
+class CrashingEnqueuer:
+    async def enqueue(self, store_id: str, step: Step) -> None:
+        raise UnicodeError("unexpected")
+
+
+async def test_start_provisioning_marks_failed_when_the_enqueuer_crashes(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    marked: list[str] = []
+
+    async def fake_mark_failed(provider, store_id: str) -> bool:
+        marked.append(store_id)
+        return True
+
+    monkeypatch.setattr(store_provisioning_job, "mark_failed", fake_mark_failed)
+
+    started = await start_provisioning(object(), CrashingEnqueuer(), STORE_ID)  # type: ignore[arg-type]
+
+    assert started is False
+    assert marked == [STORE_ID]
+
+
+def production_settings(**values: object) -> Settings:
+    return Settings(
+        DATABASE_URL="postgresql+asyncpg://u:p@localhost/db",
+        ENVIRONMENT="production",
+        BACKEND_INTERNAL_KEY="k" * 32,
+        RATE_LIMIT_EMAIL_KEY="k" * 32,
+        FIREBASE_ADMIN_PROJECT_ID="p",
+        FIREBASE_ADMIN_CLIENT_EMAIL="e@example.test",
+        FIREBASE_ADMIN_PRIVATE_KEY="x",
+        UPSTASH_REDIS_REST_URL="https://redis.example.test",
+        UPSTASH_REDIS_REST_TOKEN="t",
+        STORE_DB_ENCRYPTION_KEY="A" * 43,
+        **values,  # type: ignore[arg-type]
+    )
+
+
+def test_production_accepts_qstash_fully_configured_or_not_at_all():
+    production_settings()
+    production_settings(
+        QSTASH_TOKEN=TOKEN,
+        PROVISIONING_BASE_URL=CALLBACK,
+        QSTASH_CURRENT_SIGNING_KEY="cur",
+    )
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"QSTASH_TOKEN": TOKEN},
+        {"QSTASH_TOKEN": TOKEN, "PROVISIONING_BASE_URL": CALLBACK},
+        {"PROVISIONING_BASE_URL": CALLBACK, "QSTASH_CURRENT_SIGNING_KEY": "cur"},
+    ],
+)
+def test_production_rejects_a_half_configured_qstash(values):
+    with pytest.raises(ValidationError):
+        production_settings(**values)
+
+
+def test_accepts_regional_qstash_hosts():
+    settings = settings_with(QSTASH_URL="https://qstash-us-east-1.upstash.io")
+
+    assert settings.QSTASH_URL.endswith("qstash-us-east-1.upstash.io")
+
+
+def test_rejects_other_upstash_hosts():
+    with pytest.raises(ValidationError):
+        settings_with(QSTASH_URL="https://my-redis.upstash.io")

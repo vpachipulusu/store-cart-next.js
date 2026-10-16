@@ -98,3 +98,29 @@ def test_rejects_a_wrong_issuer():
 def test_rejects_the_none_algorithm():
     with pytest.raises(InvalidQStashSignature):
         verify(make_token(alg="none"))
+
+
+def test_rejects_a_pathological_header_without_raising_anything_else():
+    deep = "[" * 100_000
+    token = ".".join(
+        [
+            base64.urlsafe_b64encode(deep.encode()).rstrip(b"=").decode(),
+            "e30",
+            "c2ln",
+        ]
+    )
+
+    with pytest.raises(InvalidQStashSignature):
+        verify(token)
+
+
+def test_rejects_characters_outside_the_base64url_alphabet():
+    head, payload, signature = make_token().split(".")
+
+    with pytest.raises(InvalidQStashSignature):
+        verify(f"{head}.{payload}.{signature}**")
+
+
+def test_rejects_a_token_with_an_unreasonably_long_lifetime():
+    with pytest.raises(InvalidQStashSignature):
+        verify(make_token(claims={"exp": NOW + 10 * 365 * 24 * 3600}))

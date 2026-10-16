@@ -10,6 +10,7 @@ from app.core.totp import TotpCodec, TotpUnavailable
 
 LOCAL_ENVIRONMENTS = frozenset({"local", "test"})
 VERCEL_NON_PRODUCTION = frozenset({"preview", "development"})
+QSTASH_HOST_PATTERN = re.compile(r"qstash(-[a-z0-9-]+)?\.upstash\.io")
 R2_ACCOUNT_ID_PATTERN = re.compile(r"[0-9a-fA-F]{32}")
 R2_BUCKET_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]")
 
@@ -156,11 +157,13 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_qstash_config(self) -> "Settings":
         # The Bearer token goes to QSTASH_URL: https and an upstash.io host only.
-        host = urlparse(self.QSTASH_URL).hostname or ""
-        if urlparse(self.QSTASH_URL).scheme != "https" or not (
-            host == "upstash.io" or host.endswith(".upstash.io")
-        ):
-            raise ValueError("QSTASH_URL must be an https URL on upstash.io")
+        parsed_qstash = urlparse(self.QSTASH_URL)
+        host = parsed_qstash.hostname or ""
+        if parsed_qstash.scheme != "https" or not QSTASH_HOST_PATTERN.fullmatch(host):
+            raise ValueError(
+                "QSTASH_URL must be an https URL on qstash.upstash.io "
+                "(or a qstash-<region>.upstash.io host)"
+            )
         if self.PROVISIONING_BASE_URL is not None:
             parsed = urlparse(self.PROVISIONING_BASE_URL)
             local = parsed.hostname in ("localhost", "127.0.0.1")
@@ -179,6 +182,22 @@ class Settings(BaseSettings):
                     "PROVISIONING_BASE_URL must be an https origin without "
                     "credentials, query or fragment"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def validate_qstash_set_together(self) -> "Settings":
+        # A half-configured job publishes steps its own callbacks then reject (503),
+        # leaving stores PROVISIONING forever: refuse to start instead.
+        values = (
+            self.QSTASH_TOKEN,
+            self.PROVISIONING_BASE_URL,
+            self.QSTASH_CURRENT_SIGNING_KEY or self.QSTASH_NEXT_SIGNING_KEY,
+        )
+        if not self.relaxed_environment and any(values) and not all(values):
+            raise ValueError(
+                "QSTASH_TOKEN, PROVISIONING_BASE_URL and a QStash signing key "
+                "must be set together"
+            )
         return self
 
     @property

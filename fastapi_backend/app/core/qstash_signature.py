@@ -11,6 +11,7 @@ import binascii
 import hashlib
 import hmac
 import json
+import re
 import time
 from collections.abc import Sequence
 from typing import Any
@@ -23,18 +24,38 @@ class InvalidQStashSignature(Exception):
     """The signature header is missing, malformed, expired or does not match."""
 
 
+_B64URL = re.compile(r"[A-Za-z0-9_-]*")
+# QStash tokens live minutes; a far-future exp would only come from a forged one.
+MAX_LIFETIME_SECONDS = 3600
+
+
 def _b64decode(value: str) -> bytes:
+    if not _B64URL.fullmatch(value):
+        raise InvalidQStashSignature
     try:
         return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
     except (binascii.Error, ValueError):
         raise InvalidQStashSignature from None
 
 
-def _claims(token: str) -> tuple[bytes, bytes, dict[str, Any]]:
+def _signed_by_any(signing_input: bytes, signature: bytes, keys: Sequence[str]) -> bool:
+    matched = False
+    for key in keys:
+        expected = hmac.new(key.encode(), signing_input, hashlib.sha256).digest()
+        # No short-circuit: every configured key is compared.
+        matched |= hmac.compare_digest(expected, signature)
+    return matched
+
+
+def _claims(token: str, keys: Sequence[str]) -> dict[str, Any]:
+    """Claims of ``token`` once its HMAC is verified; nothing is parsed before that."""
     parts = token.split(".")
     if len(parts) != 3:
         raise InvalidQStashSignature
     head, payload, signature = parts
+    signing_input = f"{head}.{payload}".encode()
+    if not _signed_by_any(signing_input, _b64decode(signature), keys):
+        raise InvalidQStashSignature
     try:
         header = json.loads(_b64decode(head))
         claims = json.loads(_b64decode(payload))
@@ -46,16 +67,7 @@ def _claims(token: str) -> tuple[bytes, bytes, dict[str, Any]]:
         or not isinstance(claims, dict)
     ):
         raise InvalidQStashSignature
-    return f"{head}.{payload}".encode(), _b64decode(signature), claims
-
-
-def _signed_by_any(signing_input: bytes, signature: bytes, keys: Sequence[str]) -> bool:
-    matched = False
-    for key in keys:
-        expected = hmac.new(key.encode(), signing_input, hashlib.sha256).digest()
-        # No short-circuit: every configured key is compared.
-        matched |= hmac.compare_digest(expected, signature)
-    return matched
+    return claims
 
 
 def verify_qstash_signature(
@@ -70,9 +82,7 @@ def verify_qstash_signature(
     keys = [key for key in signing_keys if key]
     if not token or not keys:
         raise InvalidQStashSignature
-    signing_input, signature, claims = _claims(token)
-    if not _signed_by_any(signing_input, signature, keys):
-        raise InvalidQStashSignature
+    claims = _claims(token, keys)
     current = time.time() if now is None else now
     exp, nbf = claims.get("exp"), claims.get("nbf")
     if (
@@ -82,6 +92,7 @@ def verify_qstash_signature(
         or not isinstance(nbf, int | float)
         or current > exp + CLOCK_SKEW_SECONDS
         or current < nbf - CLOCK_SKEW_SECONDS
+        or exp - nbf > MAX_LIFETIME_SECONDS
     ):
         raise InvalidQStashSignature
     digest = base64.urlsafe_b64encode(hashlib.sha256(body).digest()).rstrip(b"=")

@@ -359,7 +359,11 @@ async def create_store(
     user_id: CurrentUserIdDep,
     service: ServiceDep,
 ) -> StoreResponse:
-    """Create a store in PROVISIONING status (OWNER or ADMIN, within the plan limit)."""
+    """Create a store in PROVISIONING status (OWNER or ADMIN, within the plan limit).
+
+    Provisioning runs in the background (KAN-56). If it cannot be enqueued the store is
+    still created and returned with status FAILED.
+    """
     no_store(response)
     try:
         store = await service.create_store(

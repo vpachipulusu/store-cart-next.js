@@ -8097,7 +8097,7 @@
           "organizations"
         ],
         "summary": "Create Store",
-        "description": "Create a store in PROVISIONING status (OWNER or ADMIN, within the plan limit).",
+        "description": "Create a store in PROVISIONING status (OWNER or ADMIN, within the plan limit).\n\nProvisioning runs in the background (KAN-56). If it cannot be enqueued the store is\nstill created and returned with status FAILED.",
         "operationId": "create_store",
         "parameters": [
           {

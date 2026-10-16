@@ -19,7 +19,7 @@ QStash steps. Each step is one function invocation at `POST /internal/provisioni
   idempotent, an existing connection string is never overwritten, and QStash publishes carry a deduplication id
   (`provision-<store_id>-<step>`).
 - **Retries.** A transient failure answers 500 and QStash redelivers (`PROVISIONING_STEP_RETRIES`, default 5). A permanent
-  one (bad store id, provider not configured, unusable encryption key) sets `FAILED` at once and answers 200.
+  one (bad store id, unusable encryption key) sets `FAILED` at once and answers 200. A provider that is not configured yet is retried, so variables that land a minute late do not fail stores.
   When retries run out QStash calls `POST /internal/provisioning/failed` (the failure callback) and the store becomes `FAILED`.
   If the very first publish fails, store creation returns the store as `FAILED`.
 - **No secrets in transit.** Payloads are `{"store_id", "step"}` only. Logs carry the store id, step and exception class,
@@ -50,3 +50,18 @@ Without `QSTASH_TOKEN` the steps are not enqueued and a new store stays `PROVISI
 `tests/core/test_qstash_signature.py`, `tests/api/test_internal_provisioning.py` and
 `tests/services/test_store_provisioning_job.py` run without a database. `tests/services/test_store_provisioning_job_e2e.py`
 runs the real steps against Postgres when `TEST_DATABASE_URL` is set (see `testing.md`).
+
+## Operating notes and known gaps
+
+- **Stuck `PROVISIONING`.** There is no sweeper. If the process dies between the store commit and the first publish, or QStash
+  is down, a store can stay `PROVISIONING`. Find them with
+  `SELECT id FROM stores WHERE status = 'PROVISIONING' AND created_at < now() - interval '15 minutes'`.
+- **`FAILED` is terminal in this story.** No retry or re-enqueue route exists; a `FAILED` store still counts toward the plan's
+  store limit and cannot be updated. A manual re-publish of a step within QStash's deduplication window is collapsed into the
+  earlier message (the dedup id is `provision-<store_id>-<step>`).
+- **Orphans.** A `FAILED` store may leave its database and encrypted connection string behind; nothing deletes them.
+- **No audit row** is written for the `PROVISIONING` to `FAILED` / `ACTIVE` transitions (logs only).
+- **Hosts.** `QSTASH_URL` must be `qstash.upstash.io` or `qstash-<region>.upstash.io`; a local QStash emulator is not accepted.
+  `PROVISIONING_BASE_URL` must be the exact public origin (and path prefix, if any) the service is mounted at, or the signature
+  `sub` check rejects every delivery.
+- **All-or-none.** Outside local/test, setting any of `QSTASH_TOKEN`, `PROVISIONING_BASE_URL` and a signing key requires all three.

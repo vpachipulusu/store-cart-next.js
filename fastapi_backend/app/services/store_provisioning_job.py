@@ -40,11 +40,14 @@ from app.core.sentry import report_exception
 from app.core.store_crypto import StoreSecretUnavailable
 from app.models.platform.store import Store, StoreStatus
 from app.services import store_secrets
-from app.services.store_migrations import StoreMigrationFailed, migrate_store
+from app.services.store_migrations import (
+    StoreMigrationFailed,
+    migrate_store,
+    safe_reason,
+)
 from app.services.store_provisioning import (
     DatabaseProvisioner,
     InvalidStoreId,
-    ProvisionerNotConfigured,
     database_name_for,
 )
 
@@ -203,7 +206,13 @@ async def start_provisioning(
     """Enqueue the first step. On failure the store is marked FAILED; returns success."""
     try:
         await enqueuer.enqueue(store_id, Step.CREATE_DATABASE)
-    except EnqueueFailed:
+    except Exception as exc:  # noqa: BLE001 - the store is committed: never leave it stuck
+        if not isinstance(exc, EnqueueFailed):
+            logger.error(
+                "provisioning enqueue crashed: %s",
+                type(exc).__name__,
+                extra={"store_id": store_id},
+            )
         await mark_failed(provider, store_id)
         return False
     return True
@@ -242,7 +251,7 @@ class StepRunner:
                 )
                 return
             await self._execute(step, store_id)
-        except (StepAbandoned, InvalidStoreId, ProvisionerNotConfigured):
+        except (StepAbandoned, InvalidStoreId):
             await mark_failed(self.provider, store_id)
             return
         except StepFailed:
@@ -253,7 +262,10 @@ class StepRunner:
                 type(exc).__name__,
                 extra={"store_id": store_id, "step": step.value},
             )
-            report_exception(exc)
+            # Class name and SQLSTATE only: a driver or API error text can echo a DSN.
+            report_exception(
+                RuntimeError(f"provisioning step {step.value}: {safe_reason(exc)}")
+            )
             raise StepFailed from None
         await self._advance(step, store_id)
 
