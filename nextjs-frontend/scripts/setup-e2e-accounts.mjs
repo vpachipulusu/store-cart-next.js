@@ -2,7 +2,7 @@
 /**
  * Create or refresh the e2e test user and test admin (KAN-113). Run with `npm run test:setup`.
  *
- * - Accounts are created in the Firebase TEST project (storecart-test) through the Admin SDK, using the e2e env only
+ * - Accounts are created in the Firebase TEST project (storecart-test) through the Identity Toolkit admin REST API (scripts/firebase-rest-admin.mjs), using the e2e env only
  *   (scripts/e2e-env.cjs): the FIREBASE_ADMIN_* service account in .env.e2e.local, never the dev project in .env.local.
  * - The backend creates each users row on the account's first login. The admin needs an admin grant in the backend
  *   database afterwards (docs/developer/local-e2e.md).

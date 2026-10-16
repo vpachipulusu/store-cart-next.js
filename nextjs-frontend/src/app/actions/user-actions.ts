@@ -2,13 +2,12 @@
 
 import { cookies } from 'next/headers';
 import { z } from 'zod';
-import { getAdminAuth } from '@/lib/firebase/admin';
 import { profileUpdateSchema, userSettingsSchema } from '@/lib/utils/validation';
 import { logger } from '@/lib/logger';
-import { getVerifiedSessionClaims, isEmailNotVerifiedError } from '@/lib/auth/verified-session';
 import type { ApiResult } from '@/lib/api/server';
 import { SESSION_COOKIE_NAME } from '@/lib/api/server';
 import {
+  changeBackendPassword,
   disableBackendTotp,
   fetchLoginHistory,
   fetchProfile,
@@ -300,86 +299,51 @@ export async function getLoginHistoryAction(limit = 10, offset = 0): Promise<Use
   };
 }
 
-/**
- * Verified Firebase claims for the current request, or null for any failure (no session, invalid,
- * revoked or unverified). Same contract as the old `getVerifiedUserId`, without the database lookup.
- */
-async function getVerifiedClaimsOrNull() {
-  try {
-    return await getVerifiedSessionClaims();
-  } catch (error) {
-    if (isEmailNotVerifiedError(error)) {
-      logger.warn('Rejected request from a user with an unverified email');
-    } else {
-      logger.error('Authentication error:', error);
-    }
-    return null;
-  }
-}
+const MIN_PASSWORD_LENGTH = 8;
+const MAX_PASSWORD_LENGTH = 128;
 
 /**
- * Change user password
- * Verifies current password before allowing the change
+ * Changes the signed-in user's password (KAN-208). `idToken` is a Firebase ID token the browser just minted by
+ * re-authenticating with the CURRENT password (the backend checks it is fresh, belongs to the session and came
+ * from the password provider); it is forwarded once and never stored or logged, like `newPassword`.
+ *
+ * Firebase revokes the user's refresh tokens on a password change, including this session's cookie. After
+ * success the browser must sign in again with the new password and call `verifyTokenAction`, or the user is
+ * signed out on the next request.
  */
 export async function changePasswordAction(
-  currentPassword: string,
+  idToken: string,
   newPassword: string
 ): Promise<UserActionResponse> {
   try {
-    const claims = await getVerifiedClaimsOrNull();
-    if (!claims?.email) {
-      return {
-        success: false,
-        error: 'Unauthorized',
-      };
+    if (typeof idToken !== 'string' || idToken.length === 0) {
+      return { success: false, error: 'Re-authentication required' };
+    }
+    if (typeof newPassword !== 'string' || newPassword.length < MIN_PASSWORD_LENGTH) {
+      return { success: false, error: 'New password must be at least 8 characters long' };
+    }
+    if (newPassword.length > MAX_PASSWORD_LENGTH) {
+      return { success: false, error: 'New password must be at most 128 characters long' };
     }
 
-    // Validate new password (minimum 8 characters)
-    if (!newPassword || newPassword.length < 8) {
-      return {
-        success: false,
-        error: 'New password must be at least 8 characters long',
-      };
-    }
-
-    // Verify current password via Firebase REST API
-    const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
-    if (!apiKey) {
-      return {
-        success: false,
-        error: 'Server configuration error',
-      };
-    }
-
-    const verifyResponse = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: claims.email,
-          password: currentPassword,
-          returnSecureToken: false,
-        }),
+    const result = await changeBackendPassword(idToken, newPassword);
+    if (!result.success) {
+      if (result.status === 401 || result.status === 403) {
+        return { success: false, error: 'Re-authentication required' };
       }
-    );
-
-    if (!verifyResponse.ok) {
-      return {
-        success: false,
-        error: 'Current password is incorrect',
-      };
+      if (result.status === 422) {
+        return { success: false, error: 'Password does not meet requirements' };
+      }
+      if (result.status === 429) {
+        return { success: false, error: 'Too many attempts. Try again later.' };
+      }
+      return fail(
+        'Change password error:',
+        { status: result.status },
+        'Failed to change password'
+      );
     }
-
-    // Update password in Firebase Auth
-    await getAdminAuth().updateUser(claims.uid, {
-      password: newPassword,
-    });
-
-    return {
-      success: true,
-      data: { message: 'Password changed successfully' },
-    };
+    return { success: true, data: { message: 'Password changed successfully' } };
   } catch (error: unknown) {
     return failSensitive('Change password error:', error, 'Failed to change password');
   }

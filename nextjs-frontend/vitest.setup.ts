@@ -40,18 +40,3 @@ vi.mock('firebase/auth', () => ({
   GithubAuthProvider: vi.fn(),
   signInWithPopup: vi.fn(),
 }));
-
-vi.mock('firebase-admin/app', () => ({
-  initializeApp: vi.fn(),
-  getApps: vi.fn(() => []),
-  cert: vi.fn(),
-}));
-
-vi.mock('firebase-admin/auth', () => ({
-  getAuth: vi.fn(() => ({
-    verifyIdToken: vi.fn(),
-    createSessionCookie: vi.fn(),
-    verifySessionCookie: vi.fn(),
-    revokeRefreshTokens: vi.fn(),
-  })),
-}));

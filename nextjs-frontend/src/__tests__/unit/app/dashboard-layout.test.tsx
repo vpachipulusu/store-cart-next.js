@@ -2,7 +2,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DB_DOWN,
-  SESSION_EXPIRED,
+  REVOKED_SESSION,
+  SESSION_CHECK_DOWN,
   navigationMock,
   redirectTarget,
   rejection,
@@ -10,7 +11,7 @@ import {
 
 const mocks = vi.hoisted(() => ({
   cookieGet: vi.fn(),
-  verifySessionCookie: vi.fn(),
+  fetchSessionStatus: vi.fn(),
   fetchProfile: vi.fn(),
   loggerError: vi.fn(),
   fetchMerchantStores: vi.fn(),
@@ -18,10 +19,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('next/navigation', () => navigationMock);
 vi.mock('next/headers', () => ({ cookies: async () => ({ get: mocks.cookieGet }) }));
-vi.mock('@/lib/firebase/admin', () => ({
-  getAdminAuth: () => ({ verifySessionCookie: mocks.verifySessionCookie }),
+vi.mock('@/lib/api/account', () => ({
+  fetchProfile: mocks.fetchProfile,
+  fetchSessionStatus: mocks.fetchSessionStatus,
 }));
-vi.mock('@/lib/api/account', () => ({ fetchProfile: mocks.fetchProfile }));
 vi.mock('@/lib/api/stores', () => ({ fetchMerchantStores: mocks.fetchMerchantStores }));
 vi.mock('@/lib/logger', () => ({ logger: { error: mocks.loggerError } }));
 vi.mock('@/components/providers/session-provider', () => ({ SessionProvider: () => null }));
@@ -89,10 +90,13 @@ describe('DashboardLayout session check', () => {
     mocks.cookieGet.mockImplementation((name: string) =>
       name === 'session' ? { value: 'cookie-value' } : undefined
     );
-    mocks.verifySessionCookie.mockResolvedValue({
-      uid: 'uid-1',
-      email: 'a@b.test',
-      email_verified: true,
+    mocks.fetchSessionStatus.mockResolvedValue({
+      success: true,
+      data: {
+        uid: 'uid-1',
+        email: 'a@b.test',
+        email_verified: true,
+      },
     });
     mocks.fetchProfile.mockResolvedValue({
       success: true,
@@ -178,7 +182,7 @@ describe('DashboardLayout session check', () => {
       );
 
     it('sends an unverified user to /verify-email', async () => {
-      mocks.verifySessionCookie.mockResolvedValue(unverified);
+      mocks.fetchSessionStatus.mockResolvedValue({ success: true, data: unverified });
 
       const error = await rejection(DashboardLayout({ children: null }));
 
@@ -188,7 +192,7 @@ describe('DashboardLayout session check', () => {
 
     it('does not trust a forged email-verified=true cookie', async () => {
       withCookies({ session: 'cookie-value', 'email-verified': 'true' });
-      mocks.verifySessionCookie.mockResolvedValue(unverified);
+      mocks.fetchSessionStatus.mockResolvedValue({ success: true, data: unverified });
 
       const error = await rejection(DashboardLayout({ children: null }));
 
@@ -197,7 +201,7 @@ describe('DashboardLayout session check', () => {
 
     it('does not trust a missing email-verified cookie either way', async () => {
       withCookies({ session: 'cookie-value' });
-      mocks.verifySessionCookie.mockResolvedValue(unverified);
+      mocks.fetchSessionStatus.mockResolvedValue({ success: true, data: unverified });
 
       expect(redirectTarget(await rejection(DashboardLayout({ children: null })))).toBe(
         '/verify-email'
@@ -211,19 +215,28 @@ describe('DashboardLayout session check', () => {
       expect(navigationMock.redirect).not.toHaveBeenCalled();
     });
 
-    it('checks revocation, and a revoked session clears the session', async () => {
-      const revoked = Object.assign(new Error('revoked'), { code: 'auth/session-cookie-revoked' });
-      mocks.verifySessionCookie.mockRejectedValue(revoked);
+    it('asks the backend (revocation checked), and a revoked session clears the session', async () => {
+      mocks.fetchSessionStatus.mockResolvedValue(REVOKED_SESSION);
 
       const error = await rejection(DashboardLayout({ children: null }));
 
-      expect(mocks.verifySessionCookie).toHaveBeenCalledWith('cookie-value', true);
+      expect(mocks.fetchSessionStatus).toHaveBeenCalledTimes(1);
       expect(redirectTarget(error)).toBe('/api/auth/clear-session');
     });
   });
 
-  it('clears the session when the session cookie has expired', async () => {
-    mocks.verifySessionCookie.mockRejectedValue(SESSION_EXPIRED);
+  it('keeps the session and rethrows when the session check is down', async () => {
+    mocks.fetchSessionStatus.mockResolvedValue(SESSION_CHECK_DOWN);
+
+    const error = await rejection(DashboardLayout({ children: null }));
+
+    expect((error as Error).message).toBe('Session status check failed');
+    expect(navigationMock.redirect).not.toHaveBeenCalled();
+    expect(mocks.loggerError).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the session when the backend reports the session revoked or expired', async () => {
+    mocks.fetchSessionStatus.mockResolvedValue(REVOKED_SESSION);
 
     const error = await rejection(DashboardLayout({ children: null }));
 

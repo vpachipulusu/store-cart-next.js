@@ -10,7 +10,7 @@ const FRONTEND_SOURCE = ['src/**/*.{ts,tsx}', 'scripts/**/*.{mjs,cjs,ts}'];
 const PRISMA_MESSAGE =
   'The frontend has no database access: read and write through the FastAPI wrappers in src/lib/api (KAN-51).';
 const SERVER_SDK_MESSAGE =
-  'Stripe and the Firebase Admin SDK are backend concerns: call the FastAPI wrappers in src/lib/api instead (KAN-51).';
+  'Stripe and the Firebase Admin SDK are backend concerns: call the FastAPI wrappers in src/lib/api instead (KAN-51, KAN-208).';
 
 const PRISMA_PATHS = [
   { name: '@prisma/client', message: PRISMA_MESSAGE },
@@ -22,8 +22,15 @@ const PRISMA_PATTERNS = [
 const SERVER_SDK_PATHS = [
   { name: 'stripe', message: SERVER_SDK_MESSAGE },
   { name: 'firebase-admin', message: SERVER_SDK_MESSAGE },
+  { name: '@/lib/firebase/admin', message: SERVER_SDK_MESSAGE },
+  { name: '@/lib/stripe/server', message: SERVER_SDK_MESSAGE },
 ];
-const SERVER_SDK_PATTERNS = [{ group: ['firebase-admin/*'], message: SERVER_SDK_MESSAGE }];
+const SERVER_SDK_PATTERNS = [
+  {
+    group: ['firebase-admin/*', '**/firebase/admin', '**/stripe/server'],
+    message: SERVER_SDK_MESSAGE,
+  },
+];
 
 const GENERATED_CLIENT_PATTERN = {
   group: ['@/lib/api/generated', '@/lib/api/generated/*', '**/api/generated', '**/api/generated/*'],
@@ -35,15 +42,6 @@ const BACKEND_ONLY_IMPORTS = {
   paths: [...PRISMA_PATHS, ...SERVER_SDK_PATHS],
   patterns: [...PRISMA_PATTERNS, ...SERVER_SDK_PATTERNS],
 };
-
-// The only files still allowed to import Stripe or the Firebase Admin SDK. Do not add to this list.
-const LEGACY_SERVER_SDK_FILES = [
-  'src/lib/firebase/admin.ts',
-  'src/lib/auth/verified-session.ts',
-  'src/lib/stripe/server.ts',
-  'src/config/subscriptions.ts',
-  'scripts/e2e-accounts.mjs',
-];
 
 export default defineConfig([
   ...nextVitals,
@@ -75,28 +73,18 @@ export default defineConfig([
     },
   },
   {
-    // Server secrets and database access live in the FastAPI backend (KAN-51): the frontend must not depend on
-    // Prisma, Stripe or the Firebase Admin SDK again. Stripe and Firebase Admin are still imported by the legacy
-    // server files allow-listed in the next block; those go away with the stories that move them to the API.
+    // Server secrets and database access live in the FastAPI backend (KAN-51, KAN-208): the frontend must not
+    // depend on Prisma, Stripe or the Firebase Admin SDK again. There is no allow-list.
     files: FRONTEND_SOURCE,
     rules: {
       'no-restricted-imports': ['error', BACKEND_ONLY_IMPORTS],
     },
   },
   {
-    files: LEGACY_SERVER_SDK_FILES,
-    rules: {
-      'no-restricted-imports': [
-        'error',
-        { paths: PRISMA_PATHS, patterns: [...PRISMA_PATTERNS, GENERATED_CLIENT_PATTERN] },
-      ],
-    },
-  },
-  {
     // The generated SDK is reached only through the server-only wrappers in src/lib/api (ADR-008), so a
     // client component can never call it directly and skip the session and internal-key forwarding.
     files: ['src/**/*.{ts,tsx}'],
-    ignores: ['src/lib/api/**', 'src/__tests__/**', ...LEGACY_SERVER_SDK_FILES],
+    ignores: ['src/lib/api/**', 'src/__tests__/**'],
     rules: {
       'no-restricted-imports': [
         'error',

@@ -48,7 +48,7 @@ async function getUserData() {
       return null;
     }
 
-    await verifyVerifiedSessionCookie(sessionCookie);
+    await verifyVerifiedSessionCookie();
 
     const [profile, history, billing] = await Promise.all([
       fetchProfile(),

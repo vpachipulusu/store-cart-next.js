@@ -67,8 +67,6 @@ vi.mock('@/lib/api/billing', () => {
   };
 });
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn() }));
-vi.mock('@/lib/stripe/server', () => ({ getStripeServerClient: () => mocks.deepRejecting() }));
-vi.mock('@/lib/firebase/admin', () => ({ getAdminAuth: () => mocks.deepRejecting() }));
 vi.mock('@/lib/auth/verified-session', () => ({
   getVerifiedUserId: mocks.getVerifiedUserId,
   verifyVerifiedSessionCookie: mocks.verifySession,

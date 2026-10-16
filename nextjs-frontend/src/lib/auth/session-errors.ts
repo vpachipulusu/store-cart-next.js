@@ -1,7 +1,7 @@
 import { logger } from '@/lib/logger';
 
 /**
- * firebase-admin error codes that mean "this session cannot be trusted" when verifying a session
+ * Session error codes (the Firebase Admin ones, kept by the backend-based check in verified-session) that mean "this session cannot be trusted" when verifying a session
  * cookie. Anything else (database outage, network failure, quota, bug) is NOT a session problem and
  * must not log the user out. Codes overlap those in `utils/firebase-errors.ts`, which maps client-side
  * codes to user-facing text and has no server-side classification.

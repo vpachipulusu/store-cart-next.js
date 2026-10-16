@@ -4,7 +4,7 @@ import { unstable_rethrow } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PricingCardsSection } from '@/components/pricing/pricing-cards-section';
-import { getAdminAuth } from '@/lib/firebase/admin';
+import { readSessionStatus } from '@/lib/auth/verified-session';
 import { fetchBillingSummary, NO_BILLING_ORGANIZATION_MESSAGE } from '@/lib/api/billing';
 import { logger } from '@/lib/logger';
 import { isSessionVerificationError, logRouteError } from '@/lib/auth/session-errors';
@@ -50,11 +50,11 @@ async function getUserSession() {
       return { isAuthenticated: false };
     }
 
-    const decodedClaims = await getAdminAuth().verifySessionCookie(sessionCookie, true);
+    const decodedClaims = await readSessionStatus();
     uid = decodedClaims.uid;
 
-    // The plan comes from the organisation billing API (KAN-45). Prices still come from the Stripe catalogue
-    // (`getSubscriptionPlans`) because the API exposes no price list. If the API is unavailable the page falls
+    // The plan comes from the organisation billing API (KAN-45). Prices come from the backend's plan-price read
+    // (`getSubscriptionPlans`, KAN-208). If the API is unavailable the page falls
     // back to the free view, and the backend still refuses a duplicate checkout.
     const summary = await fetchBillingSummary();
     if (!summary.success && summary.error !== NO_BILLING_ORGANIZATION_MESSAGE) {

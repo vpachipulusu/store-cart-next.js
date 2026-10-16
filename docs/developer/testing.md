@@ -74,7 +74,7 @@ e2e runs against the Firebase TEST project **`storecart-test`** and a **dedicate
 ### Test accounts
 
 - `npm run test:setup` runs `scripts/setup-e2e-accounts.mjs`. It:
-  - creates one e2e user and one admin in the **test** Firebase project through the Admin SDK, using the e2e env only;
+  - creates one e2e user and one admin in the **test** Firebase project through the Identity Toolkit admin REST API (`scripts/firebase-rest-admin.mjs`, no `firebase-admin` package), using the e2e env only;
   - updates only the `TEST_*` keys in `.env.e2e.local` and keeps everything else;
   - creates their `users` rows (free tier, no Stripe links, reset on every run) and the admin's `AdminUser` row in the e2e database, and refuses a missing `DATABASE_URL` or one equal to the dev database;
   - never prints credentials.
@@ -98,7 +98,7 @@ The check (`scripts/foundation-done-check.cli.ts`) does three things:
 2. Requires `BACKEND_API_URL`, then checks `GET {BACKEND_API_URL}/health` (the backend has a trivial `GET /health` since KAN-30).
 3. Runs the Chromium e2e suite with `CI=1` against FastAPI.
 
-It fails until KAN-51 (E6.1) removes the last server secrets and database access. The failure is expected until then.
+The scan alone is `npm run foundation:scan`; the frontend CI job runs it on every change (KAN-208), so a server secret, a destructured `process.env` read of one, a `stripe`, `firebase-admin` or Prisma import, or a server-only dependency fails CI. The scan skips `.env.example` (coordinator-owned, still lists the retired server variables; remove the exemption in `scripts/foundation-done-check.ts` once it is clean) and allows the e2e Firebase service account variables only in the e2e account tooling under `scripts/`. The e2e half runs locally.
 
 ## Backend tests (pytest)
 

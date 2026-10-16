@@ -2,8 +2,9 @@
  * Foundation done-check (KAN-113).
  *
  * Foundation is done when the frontend holds no database access or server secrets and the e2e suite passes
- * against FastAPI. This check fails until E6 (KAN-51) removes the last of them; run it with
- * `npm run foundation:check`.
+ * against FastAPI. `npm run foundation:check` does both; `npm run foundation:scan` is the scan alone, which the
+ * frontend CI job runs (KAN-208) so a server secret, a Prisma, Stripe or firebase-admin import, or a server-only
+ * dependency can never come back.
  *
  * File paths are relative to nextjs-frontend/.
  */
@@ -18,6 +19,7 @@ export type FindingRule =
   | 'dynamic-env-access'
   | 'prisma-import'
   | 'firebase-admin-import'
+  | 'stripe-import'
   | 'committed-env-file'
   | 'server-only-dependency';
 
@@ -60,7 +62,7 @@ const SERVER_SECRET_ENV_NAMES = [
 /** Secret-looking names that are allowed: build-time only, never shipped to a server runtime. */
 const ALLOWED_SECRET_LOOKING_ENV = new Set(['SENTRY_AUTH_TOKEN']);
 
-const SERVER_ONLY_DEPENDENCIES = /^(prisma|@prisma\/.+|firebase-admin)$/;
+const SERVER_ONLY_DEPENDENCIES = /^(prisma|@prisma\/.+|firebase-admin|stripe)$/;
 const DEPENDENCY_SECTIONS = [
   'dependencies',
   'devDependencies',
@@ -75,12 +77,16 @@ const KNOWN_SECRET_ENV = new RegExp(
 const ENV_READ = /process\.env(?:\.([A-Z0-9_]+)|\[\s*['"`]([A-Z0-9_]+)['"`]\s*\])/g;
 const ENV_FILE_KEY = /^\s*(?:export\s+)?([A-Z0-9_]+)\s*=/;
 const SECRET_LOOKING_NAME = /(SECRET|PRIVATE_KEY|API_KEY|TOKEN)/;
+/** `const { A, B: alias, C = 1 } = process.env`, possibly over several lines. */
+const ENV_DESTRUCTURING = /\b(?:const|let|var)\s*\{([^}]*)\}\s*(?::[^=]+)?=\s*process\.env\b/g;
 const DYNAMIC_ENV_READ = /process\.env\[\s*(?!['"`])[^\]]*\]/g;
 const MODULE_REFERENCE =
   /(?:\bfrom\s+|\bimport\s+|\brequire\(\s*|\bimport\(\s*|\b(?:vi|jest)\.mock\(\s*)['"]([^'"]+)['"]/g;
 
 const PRISMA_MODULE = /^(prisma|@prisma\/.+|@\/lib\/db|@\/lib\/db\/client)$|(^|\/)db\/client$/;
-const FIREBASE_ADMIN_MODULE = /^firebase-admin(\/|$)/;
+// Includes the removed wrapper modules, so a re-created one is flagged too. `@stripe/stripe-js` is client-safe.
+const FIREBASE_ADMIN_MODULE = /^(firebase-admin(\/|$)|@\/lib\/firebase\/admin$)/;
+const STRIPE_MODULE = /^(stripe(\/|$)|@\/lib\/stripe\/server$)/;
 
 const ENV_FILE_NAME = /^\.env(\..+)?$/;
 const ENV_TEMPLATE_NAME = '.env.example';
@@ -90,7 +96,25 @@ const IGNORED_PATHS = new Set([
   'scripts/foundation-done-check.ts',
   'scripts/foundation-done-check.cli.ts',
   'src/__tests__/unit/scripts/foundation-done-check.test.ts',
+  'src/__tests__/unit/config/eslint-restricted-imports.test.ts',
 ]);
+
+/**
+ * Files where a named server secret is expected, so the name itself is not a finding:
+ * - the e2e account tooling reads the e2e Firebase service account (FIREBASE_ADMIN_*) to create and delete test
+ *   users in the dedicated TEST project (KAN-113, KAN-208). It runs only on a developer machine or in the e2e job,
+ *   never in the deployed frontend.
+ * - `.env.example` is the template the coordinator owns; it still lists the retired server variables and is
+ *   cleaned up outside the developer branches. Remove this entry once it is clean.
+ */
+const E2E_TOOLING_PATHS = new Set([
+  'scripts/e2e-accounts.mjs',
+  'scripts/e2e-env.cjs',
+  'scripts/firebase-rest-admin.mjs',
+  'scripts/setup-e2e-accounts.mjs',
+]);
+const E2E_TOOLING_ALLOWED_ENV = /^FIREBASE_ADMIN_(PROJECT_ID|CLIENT_EMAIL|PRIVATE_KEY)$/;
+const PENDING_TEMPLATE_CLEANUP = new Set(['.env.example']);
 
 const basename = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
 
@@ -105,6 +129,7 @@ function isSecretLookingEnv(name: string): boolean {
 function classifyModule(specifier: string): FindingRule | null {
   if (PRISMA_MODULE.test(specifier)) return 'prisma-import';
   if (FIREBASE_ADMIN_MODULE.test(specifier)) return 'firebase-admin-import';
+  if (STRIPE_MODULE.test(specifier)) return 'stripe-import';
   return null;
 }
 
@@ -116,8 +141,34 @@ function envNamesOnLine(text: string, isEnvFile: boolean): string[] {
   return [...new Set([...known, ...heuristic])];
 }
 
+function destructuredNames(pattern: string): string[] {
+  return pattern
+    .split(',')
+    .map((part) => part.trim().split(/[:=\s]/)[0])
+    .filter((name) => /^[A-Za-z_$][\w$]*$/.test(name));
+}
+
+/** Destructured reads (`const { SECRET } = process.env`) never match the dotted or bracketed read forms. */
+function scanEnvDestructuring(path: string, content: string): Finding[] {
+  return [...content.matchAll(ENV_DESTRUCTURING)].flatMap((m) =>
+    destructuredNames(m[1])
+      .filter((name) => isSecretLookingEnv(name) || isKnownSecretEnv(name))
+      .map((name): Finding => {
+        const nameOffset = (m.index ?? 0) + m[0].indexOf(name);
+        const line = content.slice(0, nameOffset).split('\n').length;
+        return { path, line, rule: 'server-secret-env', match: name };
+      })
+  );
+}
+
+function isKnownSecretEnv(name: string): boolean {
+  return SERVER_SECRET_ENV_NAMES.includes(name);
+}
+
 function scanLine(path: string, text: string, line: number, isEnvFile: boolean): Finding[] {
-  const envFindings = envNamesOnLine(text, isEnvFile).map(
+  const envFindings = envNamesOnLine(text, isEnvFile)
+    .filter((name) => !(E2E_TOOLING_PATHS.has(path) && E2E_TOOLING_ALLOWED_ENV.test(name)))
+    .map(
     (match): Finding => ({ path, line, rule: 'server-secret-env', match })
   );
   const dynamicFindings = [...text.matchAll(DYNAMIC_ENV_READ)].map(
@@ -155,13 +206,18 @@ function scanFile(file: SourceFile): Finding[] {
   const lineFindings = file.content
     .split(/\r?\n/)
     .flatMap((text, index) => scanLine(file.path, text, index + 1, isEnvFile));
-  return fileFindings.length > 0 ? fileFindings : [...dependencyFindings, ...lineFindings];
+  if (fileFindings.length > 0) return fileFindings;
+  const seen = new Set(lineFindings.map((f) => `${f.line}:${f.rule}:${f.match}`));
+  const destructuringFindings = scanEnvDestructuring(file.path, file.content).filter(
+    (f) => !seen.has(`${f.line}:${f.rule}:${f.match}`)
+  );
+  return [...dependencyFindings, ...lineFindings, ...destructuringFindings];
 }
 
 export function scanForServerSecrets(files: readonly SourceFile[]): Finding[] {
   return files
     .map((file) => ({ ...file, path: file.path.replace(/\\/g, '/') }))
-    .filter((file) => !IGNORED_PATHS.has(file.path))
+    .filter((file) => !IGNORED_PATHS.has(file.path) && !PENDING_TEMPLATE_CLEANUP.has(file.path))
     .flatMap(scanFile);
 }
 

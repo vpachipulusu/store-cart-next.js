@@ -1,11 +1,17 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactElement } from 'react';
-import { DB_DOWN, SESSION_EXPIRED, navigationMock, rejection } from './route-test-helpers';
+import {
+  DB_DOWN,
+  REVOKED_SESSION,
+  SESSION_CHECK_DOWN,
+  navigationMock,
+  rejection,
+} from './route-test-helpers';
 
 const mocks = vi.hoisted(() => ({
   cookieGet: vi.fn(),
-  verifySessionCookie: vi.fn(),
+  fetchSessionStatus: vi.fn(),
   fetchBillingSummary: vi.fn(),
   loggerError: vi.fn(),
   loggerWarn: vi.fn(),
@@ -13,8 +19,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('next/navigation', () => navigationMock);
 vi.mock('next/headers', () => ({ cookies: async () => ({ get: mocks.cookieGet }) }));
-vi.mock('@/lib/firebase/admin', () => ({
-  getAdminAuth: () => ({ verifySessionCookie: mocks.verifySessionCookie }),
+vi.mock('@/lib/api/account', () => ({
+  fetchProfile: vi.fn(),
+  fetchSessionStatus: mocks.fetchSessionStatus,
 }));
 vi.mock('@/lib/api/billing', () => ({
   NO_BILLING_ORGANIZATION_MESSAGE: 'No organisation you can manage billing for was found',
@@ -48,7 +55,7 @@ describe('PricingPage session check', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.cookieGet.mockReturnValue({ value: 'cookie-value' });
-    mocks.verifySessionCookie.mockResolvedValue({ uid: 'uid-1' });
+    mocks.fetchSessionStatus.mockResolvedValue({ success: true, data: { uid: 'uid-1' } });
     mocks.fetchBillingSummary.mockResolvedValue({
       success: true,
       data: { plan: { key: 'pro' } },
@@ -65,13 +72,24 @@ describe('PricingPage session check', () => {
     expect(mocks.loggerError).not.toHaveBeenCalled();
   });
 
-  it('shows the logged-out view when the session cookie has expired', async () => {
-    mocks.verifySessionCookie.mockRejectedValue(SESSION_EXPIRED);
+  it('shows the logged-out view when the backend reports the session revoked or expired', async () => {
+    mocks.fetchSessionStatus.mockResolvedValue(REVOKED_SESSION);
 
     const props = findCardsProps(await PricingPage());
 
     expect(props?.isAuthenticated).toBe(false);
     expect(mocks.loggerError).not.toHaveBeenCalled();
+  });
+
+  it('does not show the logged-out view or end the session when the session check is down', async () => {
+    mocks.fetchSessionStatus.mockResolvedValue(SESSION_CHECK_DOWN);
+
+    const error = await rejection(PricingPage());
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe('Session status check failed');
+    expect(mocks.loggerError).toHaveBeenCalledTimes(1);
+    expect(mocks.fetchBillingSummary).not.toHaveBeenCalled();
   });
 
   it('shows the plan the billing API reports for the signed-in user', async () => {

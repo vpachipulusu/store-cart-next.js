@@ -1,5 +1,4 @@
-import { unstable_cache } from 'next/cache';
-import Stripe from 'stripe';
+import { fetchPlanPrices, type PlanPrices } from '@/lib/api/plan-prices';
 import { fetchPlatformCurrency } from '@/lib/api/settings';
 import { logger } from '@/lib/logger';
 import { CURRENCIES } from './currencies';
@@ -20,23 +19,11 @@ export interface SubscriptionPlan {
     monthly: number;
     yearly: number;
   };
-  stripePriceId: {
-    monthly: string;
-    yearly: string;
-  };
   tier: SubscriptionTier;
   popular?: boolean;
 }
 
-export interface StripePrices {
-  pro: { monthly: number; yearly: number };
-  enterprise: { monthly: number; yearly: number };
-}
-
-const FALLBACK_PRICES: StripePrices = {
-  pro: { monthly: 0, yearly: 0 },
-  enterprise: { monthly: 0, yearly: 0 },
-};
+export type StripePrices = PlanPrices;
 
 export const subscriptionPlans: SubscriptionPlan[] = [
   {
@@ -52,10 +39,6 @@ export const subscriptionPlans: SubscriptionPlan[] = [
     price: {
       monthly: 0,
       yearly: 0,
-    },
-    stripePriceId: {
-      monthly: '',
-      yearly: '',
     },
     tier: SUBSCRIPTION_TIERS.FREE,
   },
@@ -74,10 +57,6 @@ export const subscriptionPlans: SubscriptionPlan[] = [
     price: {
       monthly: 0, // Resolved at runtime via getStripePrices()
       yearly: 0,
-    },
-    stripePriceId: {
-      monthly: process.env.STRIPE_PRICE_ID_PRO_MONTHLY || '',
-      yearly: process.env.STRIPE_PRICE_ID_PRO_YEARLY || '',
     },
     tier: SUBSCRIPTION_TIERS.PRO,
     popular: true,
@@ -99,71 +78,18 @@ export const subscriptionPlans: SubscriptionPlan[] = [
       monthly: 0, // Resolved at runtime via getStripePrices()
       yearly: 0,
     },
-    stripePriceId: {
-      monthly: process.env.STRIPE_PRICE_ID_ENTERPRISE_MONTHLY || '',
-      yearly: process.env.STRIPE_PRICE_ID_ENTERPRISE_YEARLY || '',
-    },
     tier: SUBSCRIPTION_TIERS.ENTERPRISE,
   },
 ];
 
-async function fetchStripePrices(): Promise<StripePrices> {
-  try {
-    if (!process.env.STRIPE_SECRET_KEY) {
-      logger.warn('STRIPE_SECRET_KEY not set, using fallback prices');
-      return FALLBACK_PRICES;
-    }
-
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-      apiVersion: '2025-08-27.basil',
-      typescript: true,
-    });
-
-    const priceIds = [
-      process.env.STRIPE_PRICE_ID_PRO_MONTHLY,
-      process.env.STRIPE_PRICE_ID_PRO_YEARLY,
-      process.env.STRIPE_PRICE_ID_ENTERPRISE_MONTHLY,
-      process.env.STRIPE_PRICE_ID_ENTERPRISE_YEARLY,
-    ].filter(Boolean) as string[];
-
-    if (priceIds.length === 0) {
-      logger.warn('No Stripe price IDs configured, using fallback prices');
-      return FALLBACK_PRICES;
-    }
-
-    const prices = await Promise.all(priceIds.map((id) => stripe.prices.retrieve(id)));
-
-    const priceMap = new Map<string, number>();
-    for (const price of prices) {
-      priceMap.set(price.id, (price.unit_amount ?? 0) / 100);
-    }
-
-    return {
-      pro: {
-        monthly: priceMap.get(process.env.STRIPE_PRICE_ID_PRO_MONTHLY || '') ?? 0,
-        yearly: priceMap.get(process.env.STRIPE_PRICE_ID_PRO_YEARLY || '') ?? 0,
-      },
-      enterprise: {
-        monthly: priceMap.get(process.env.STRIPE_PRICE_ID_ENTERPRISE_MONTHLY || '') ?? 0,
-        yearly: priceMap.get(process.env.STRIPE_PRICE_ID_ENTERPRISE_YEARLY || '') ?? 0,
-      },
-    };
-  } catch (error) {
-    logger.error('Failed to fetch Stripe prices:', error);
-    return FALLBACK_PRICES;
-  }
-}
-
 /**
- * Cached Stripe prices. Revalidates every 1 hour.
+ * Plan prices from the backend (`GET /v1/settings/plan-prices`), cached for one hour per server instance.
+ * A price the backend cannot read is 0; a failed read is all zeros.
  */
-export const getStripePrices = unstable_cache(fetchStripePrices, ['stripe-prices'], {
-  revalidate: 3600,
-  tags: ['stripe-prices'],
-});
+export const getStripePrices = fetchPlanPrices;
 
 /**
- * Returns subscription plans with prices fetched from Stripe.
+ * Returns subscription plans with prices read through the backend.
  */
 export async function getSubscriptionPlans(): Promise<SubscriptionPlan[]> {
   const prices = await getStripePrices();

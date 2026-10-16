@@ -34,6 +34,7 @@ import { Badge } from '@/components/ui/badge';
 import { Key, Loader2, Clock, ShieldCheck, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ReauthDialog } from '@/components/auth/reauth-dialog';
+import { reauthenticate, restoreSessionWithNewPassword } from '@/lib/firebase/reauth';
 import { auth } from '@/lib/firebase/client';
 import { signOut } from 'firebase/auth';
 
@@ -105,10 +106,15 @@ export default function SecurityPage() {
     try {
       setIsChangingPassword(true);
 
-      const result = await changePasswordAction(
-        passwordData.currentPassword,
-        passwordData.newPassword
-      );
+      // Re-authenticate with the CURRENT password; the backend only accepts an ID token minted in the last
+      // five minutes through the password provider.
+      const fresh = await reauthenticate('password', passwordData.currentPassword);
+      if (fresh.error !== null) {
+        toast({ title: 'Error', description: fresh.error, variant: 'destructive' });
+        return;
+      }
+
+      const result = await changePasswordAction(fresh.idToken, passwordData.newPassword);
 
       if (!result.success) {
         toast({
@@ -116,6 +122,19 @@ export default function SecurityPage() {
           description: result.error || 'Failed to change password',
           variant: 'destructive',
         });
+        return;
+      }
+
+      // The change revoked this browser's refresh tokens and session cookie. Sign in again with the NEW
+      // password to get a fresh ID token, then mint a new session cookie from it.
+      const restored = await restoreSessionWithNewPassword(passwordData.newPassword);
+      if (!restored) {
+        toast({
+          title: 'Password changed',
+          description: 'Please sign in again with your new password.',
+        });
+        await signOut(auth).catch(() => undefined);
+        router.push('/login');
         return;
       }
 
