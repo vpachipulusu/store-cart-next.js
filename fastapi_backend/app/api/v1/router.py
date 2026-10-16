@@ -7,6 +7,7 @@ from app.api.v1 import (
     admin_users,
     auth,
     health,
+    internal_provisioning,
     me,
     media,
     org_billing,
@@ -24,6 +25,7 @@ api_router.include_router(auth.router)
 api_router.include_router(me.router)
 api_router.include_router(totp.router)
 api_router.include_router(webhooks.router)
+api_router.include_router(internal_provisioning.router)
 api_router.include_router(admin_users.router)
 api_router.include_router(admin_audit_logs.router)
 api_router.include_router(admin_stores.router)

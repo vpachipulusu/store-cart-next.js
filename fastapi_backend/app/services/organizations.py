@@ -16,14 +16,16 @@ or not it exists. Every sensitive change writes an ``audit_logs`` row in the cal
 transaction, so the change and its audit entry commit or roll back together.
 """
 
+import logging
 import unicodedata
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, replace
+from typing import Any, Protocol
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.plans import PLANS, PlanKey
+from app.core.sentry import report_exception
 from app.core.slugs import normalize_slug
 from app.models.platform.membership import MembershipRole
 from app.models.platform.store import StoreStatus
@@ -35,6 +37,8 @@ from app.repositories.organizations import (
     StoreRecord,
 )
 from app.services.audit import sanitize
+
+logger = logging.getLogger("storecart.organizations")
 
 MANAGE_ROLES = frozenset({MembershipRole.OWNER, MembershipRole.ADMIN})
 SLUG_ROLES = frozenset({MembershipRole.OWNER})
@@ -125,10 +129,23 @@ class Page[T]:
     offset: int
 
 
+class ProvisioningStarter(Protocol):
+    """Hands a new store to the provisioning job (KAN-56)."""
+
+    async def start(self, store_id: str) -> bool:
+        """Enqueue provisioning; False when it could not be (the store is FAILED)."""
+
+
 class OrganizationsService:
-    def __init__(self, store: OrganizationsRepository, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        store: OrganizationsRepository,
+        session: AsyncSession,
+        provisioning: ProvisioningStarter | None = None,
+    ) -> None:
         self._store = store
         self._session = session
+        self._provisioning = provisioning
         self._audit = AuditRepository(session)
 
     # Reads -----------------------------------------------------------------
@@ -289,7 +306,23 @@ class OrganizationsService:
             request_id=request_id,
         )
         await self._session.commit()
+        if self._provisioning is not None and not await self._start(store.id):
+            return replace(store, status=StoreStatus.FAILED)
         return store
+
+    async def _start(self, store_id: str) -> bool:
+        """Hand the committed store to provisioning; never raises (the store exists)."""
+        assert self._provisioning is not None
+        try:
+            return await self._provisioning.start(store_id)
+        except Exception as exc:  # noqa: BLE001 - a 500 here would hide a created store
+            logger.error(
+                "starting store provisioning crashed: %s",
+                type(exc).__name__,
+                extra={"store_id": store_id},
+            )
+            report_exception(RuntimeError(f"provisioning start: {type(exc).__name__}"))
+            return False
 
     async def update_store(
         self,

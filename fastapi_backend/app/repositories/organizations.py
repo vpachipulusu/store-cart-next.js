@@ -227,14 +227,14 @@ class OrganizationsRepository(BaseRepository):
         return [_store(row) for row in rows], total
 
     async def count_stores(self, organization_id: str) -> int:
-        """Stores that count against the plan limit (everything not archived)."""
+        """Stores that count against the plan limit (not archived, not FAILED)."""
         return (
             await self._session.execute(
                 select(func.count())
                 .select_from(Store)
                 .where(
                     Store.organization_id == organization_id,
-                    Store.status != StoreStatus.ARCHIVED,
+                    Store.status.not_in((StoreStatus.ARCHIVED, StoreStatus.FAILED)),
                 )
             )
         ).scalar_one()

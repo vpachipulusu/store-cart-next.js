@@ -27,6 +27,7 @@ export const ADMIN_STORES_PAGE_SIZE = 20;
 export const ADMIN_STORE_STATUSES: readonly StoreStatus[] = [
   'PROVISIONING',
   'ACTIVE',
+  'FAILED',
   'SUSPENDED',
   'ARCHIVED',
 ];

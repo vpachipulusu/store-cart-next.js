@@ -35,6 +35,7 @@ const ORG_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const STATUS_BADGE: Record<StoreStatus, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   ACTIVE: 'default',
   PROVISIONING: 'secondary',
+  FAILED: 'destructive',
   SUSPENDED: 'destructive',
   ARCHIVED: 'outline',
 };
