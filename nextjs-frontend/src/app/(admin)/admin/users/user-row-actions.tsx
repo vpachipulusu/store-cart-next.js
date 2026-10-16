@@ -14,14 +14,16 @@ import {
 
 type UserRowActionsProps = {
   userId: string;
+  /** Name or email, so the trigger is distinguishable per row for screen readers. */
+  userLabel?: string;
 };
 
-export function UserRowActions({ userId }: UserRowActionsProps) {
+export function UserRowActions({ userId, userLabel }: UserRowActionsProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="h-8 w-8 p-0 hover:bg-accent">
-          <span className="sr-only">Open menu</span>
+        <Button variant="ghost" className="size-11 p-0 hover:bg-accent">
+          <span className="sr-only">{userLabel ? `Open menu for ${userLabel}` : 'Open menu'}</span>
           <MoreHorizontal className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>

@@ -16,4 +16,10 @@ describe('UserRowActions', () => {
     expect(screen.getByRole('menuitem', { name: /edit user/i })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: /suspend user/i })).toBeInTheDocument();
   });
+
+  it('names the trigger after the user when a label is given', () => {
+    render(<UserRowActions userId="user-123" userLabel="Ada" />);
+
+    expect(screen.getByRole('button', { name: 'Open menu for Ada' })).toBeInTheDocument();
+  });
 });
