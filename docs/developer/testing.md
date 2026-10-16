@@ -123,6 +123,7 @@ uv run mypy
 
 - A bare `uv run mypy` checks `app` and `commands` (`mypy.ini` sets `files = app, commands`), the same scope as the pre-commit hook.
 - mypy is blocking and runs in strict mode with zero errors. KAN-30 removed the template code behind the old 31-error baseline, fixed the rest, dropped `follow_imports = skip` from `mypy.ini` and deleted `mypy-baseline.txt`. CI runs a plain `uv run mypy`.
+- **Parallel runs (KAN-207).** With a throwaway local Postgres (`TEST_DATABASE_URL` on a `*_test` database) the full suite is dominated by the real-route tests: each rebuilds the schema with Alembic and every test builds a fresh app, so a serial run took about 11 minutes. Run it in parallel: `uv run pytest -n auto --dist loadfile --cov` (CI does the same; about 2 minutes on a 20-core machine). `tests/conftest.py` gives each pytest-xdist worker its own database (`storecart_test` becomes `storecart_gw0_test`, `storecart_gw1_test`, ..., created on first use and rebuilt by the tests themselves), so workers never share a schema. Keep `--dist loadfile`: it runs a whole test file on one worker, so a file's schema is built once instead of on every worker. A plain `uv run pytest` (no `-n`) is unchanged and uses `TEST_DATABASE_URL` itself. The worker databases are left in place for reuse; drop them (`DROP DATABASE storecart_gw0_test`, ...) when you remove your throwaway server.
 - Coverage: `uv run pytest --cov`. `fail_under` in `[tool.coverage.report]` of `pyproject.toml` is the backend ratchet (84.13% lines of `app` and `commands` when set on 2026-10-12; about 98% after KAN-30): raise it, never lower it.
 - Frontend lint: `npm run lint` runs `eslint .` with the flat config `eslint.config.mjs` (fixed in KAN-111).
 
@@ -154,7 +155,7 @@ Staleness is checked twice (ADR-008): the pre-commit `openapi-schema-check` hook
 | Detect changed paths              | always                                                                 | `dorny/paths-filter` decides frontend / backend                                                          |
 | Pre-commit (changed files)        | pull requests                                                          | `pre-commit run --from-ref origin/<base> --to-ref HEAD`                                                  |
 | Frontend (`frontend.yml`)         | `nextjs-frontend/**` or shared config                                  | lint, typecheck, Vitest with coverage ratchet, `npm run build` with placeholder `NEXT_PUBLIC_*` only     |
-| Backend (`backend.yml`)           | `fastapi_backend/**` or shared config                                  | ruff lint and format, blocking mypy, pytest with coverage ratchet (no database service; tests use fakes) |
+| Backend (`backend.yml`)           | `fastapi_backend/**` or shared config                                  | ruff lint and format, blocking mypy, pytest in parallel (`-n auto --dist loadfile`) with coverage ratchet |
 | E2E (`e2e.yml`, its own workflow) | frontend or shared config changed and repo variable `E2E_ENABLED=true` | Chromium Playwright, secrets from environment `e2e-test`. Not in the gate until KAN-113                  |
 | **CI gate**                       | always                                                                 | passes when every job above (except E2E) succeeded or was skipped                                        |
 
