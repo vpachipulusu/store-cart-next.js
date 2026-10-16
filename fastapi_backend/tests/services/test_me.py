@@ -4,6 +4,7 @@ from dataclasses import replace
 
 import pytest
 
+from app.core.config import settings
 from app.core.firebase import (
     AuthenticationFailed,
     IdentityPasswordRejected,
@@ -281,3 +282,32 @@ async def test_password_change_propagates_a_rejected_password(context):
     identity.failure = IdentityPasswordRejected()
     with pytest.raises(IdentityPasswordRejected):
         await service.change_password(current(), "token", "new-password-1")
+
+
+@pytest.mark.parametrize("offset,accepted", [(10, True), (11, False)])
+async def test_reauthentication_tolerates_future_auth_time_up_to_the_skew(
+    context, monkeypatch, offset, accepted
+):
+    monkeypatch.setattr(settings, "FIREBASE_CLOCK_SKEW_SECONDS", 10)
+    monkeypatch.setattr("app.services.auth.time.time", lambda: 1_000_000.0)
+    service, _, _, identity, _ = context
+    identity.claims["auth_time"] = 1_000_000 + offset
+    if accepted:
+        await service.delete_account(current(), "token")
+    else:
+        with pytest.raises(AuthenticationFailed):
+            await service.delete_account(current(), "token")
+
+
+@pytest.mark.parametrize("age,accepted", [(300, True), (301, False)])
+async def test_reauthentication_age_edges_with_a_pinned_clock(
+    context, monkeypatch, age, accepted
+):
+    monkeypatch.setattr("app.services.auth.time.time", lambda: 1_000_000.0)
+    service, _, _, identity, _ = context
+    identity.claims["auth_time"] = 1_000_000 - age
+    if accepted:
+        await service.delete_account(current(), "token")
+    else:
+        with pytest.raises(AuthenticationFailed):
+            await service.delete_account(current(), "token")

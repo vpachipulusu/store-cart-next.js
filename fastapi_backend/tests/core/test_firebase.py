@@ -257,4 +257,5 @@ async def test_verification_passes_the_configured_clock_skew(
 
     monkeypatch.setattr(module.auth, sdk_method, verify)
     await getattr(FirebaseIdentityProvider(), sdk_method)("credential")
-    assert seen["clock_skew_seconds"] == skew and seen["check_revoked"] is True
+    assert seen["clock_skew_seconds"] == skew
+    assert seen["check_revoked"] is True

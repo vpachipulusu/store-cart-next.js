@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 import pytest
 from cryptography.fernet import Fernet
 
+from app.core.config import settings
 from app.core.firebase import AuthenticationFailed, VerifiedIdentity
 from app.core.totp import TotpCodec, token_at
 from app.repositories.totp import TotpState
@@ -140,3 +141,20 @@ async def test_disable_requires_enabled_state(setup):
     service, current, _, _, _ = setup
     with pytest.raises(TotpConflict):
         await service.disable(current, "fresh-id", "123456")
+
+
+@pytest.mark.parametrize(
+    "auth_time_offset,accepted", [(10, True), (11, False), (-300, True), (-301, False)]
+)
+async def test_require_recent_identity_uses_the_configured_skew(
+    setup, monkeypatch, auth_time_offset, accepted
+):
+    monkeypatch.setattr(settings, "FIREBASE_CLOCK_SKEW_SECONDS", 10)
+    monkeypatch.setattr("app.services.auth.time.time", lambda: 1_000_000.0)
+    service, current, identity, _, _ = setup
+    identity.claims["auth_time"] = 1_000_000 + auth_time_offset
+    if accepted:
+        await service.require_recent_identity(current, "fresh-id")
+    else:
+        with pytest.raises(AuthenticationFailed):
+            await service.require_recent_identity(current, "fresh-id")
