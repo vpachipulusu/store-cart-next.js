@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getTwoFactorStatusAction: vi.fn(),
   getLoginHistoryAction: vi.fn(),
   reauthenticate: vi.fn(),
+  changePasswordAction: vi.fn(),
   disableTwoFactorAction: vi.fn(),
 }));
 
@@ -19,7 +20,7 @@ vi.mock('@/lib/firebase/reauth', () => ({
   reauthMethodFor: () => 'password',
 }));
 vi.mock('@/app/actions/user-actions', () => ({
-  changePasswordAction: vi.fn(),
+  changePasswordAction: mocks.changePasswordAction,
   deleteAccountAction: vi.fn(),
   disableTwoFactorAction: mocks.disableTwoFactorAction,
   getLoginHistoryAction: mocks.getLoginHistoryAction,
@@ -87,6 +88,7 @@ describe('SecurityPage redesign (KAN-220)', () => {
     const message = screen.getByText('Passwords do not match');
     expect(confirm).toHaveAttribute('aria-describedby', message.id);
     expect(mocks.reauthenticate).not.toHaveBeenCalled();
+    expect(mocks.changePasswordAction).not.toHaveBeenCalled();
 
     await user.type(confirm, 'x');
     expect(confirm).not.toHaveAttribute('aria-invalid');
@@ -140,5 +142,46 @@ describe('SecurityPage redesign (KAN-220)', () => {
     const confirm = within(dialog).getByRole('button', { name: 'Delete Account' });
     expect(confirm).toHaveClass('bg-destructive');
     expect(confirm).toBeDisabled();
+  });
+
+  it('clears the typed passwords when the dialog is dismissed with Escape', async () => {
+    const user = userEvent.setup();
+    render(<SecurityPage />);
+    await user.click(await screen.findByRole('button', { name: 'Change Password' }));
+    await user.type(await screen.findByLabelText('Current Password'), 'old-password');
+    await user.type(screen.getByLabelText('New Password'), 'new-password-1');
+    await user.type(screen.getByLabelText('Confirm New Password'), 'different-1');
+    await user.click(screen.getAllByRole('button', { name: 'Change Password' }).at(-1)!);
+    expect(screen.getByText('Passwords do not match')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    await user.click(await screen.findByRole('button', { name: 'Change Password' }));
+
+    expect(await screen.findByLabelText('Current Password')).toHaveValue('');
+    expect(screen.getByLabelText('New Password')).toHaveValue('');
+    expect(screen.getByLabelText('Confirm New Password')).toHaveValue('');
+    expect(screen.queryByText('Passwords do not match')).not.toBeInTheDocument();
+  });
+
+  it('does not mark the code field invalid for a wrong-password error', async () => {
+    mocks.reauthenticate.mockResolvedValue({ idToken: null, error: 'Incorrect password' });
+    const user = userEvent.setup();
+    render(<SecurityPage />);
+    await user.click(await screen.findByRole('button', { name: 'Disable 2FA' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Disable Two-Factor Authentication' });
+    await user.type(within(dialog).getByLabelText('Authenticator code'), '123456');
+    await user.type(within(dialog).getByLabelText('Confirm your password'), 'wrong');
+    await user.click(within(dialog).getByRole('button', { name: 'Disable 2FA' }));
+
+    const alert = await within(dialog).findByRole('alert');
+    expect(alert).toHaveTextContent('Incorrect password');
+    expect(within(dialog).getByLabelText('Confirm your password')).toHaveAttribute(
+      'aria-invalid',
+      'true'
+    );
+    const code = within(dialog).getByLabelText('Authenticator code');
+    expect(code).not.toHaveAttribute('aria-invalid');
+    expect(code).not.toHaveAttribute('aria-describedby');
+    expect(mocks.disableTwoFactorAction).not.toHaveBeenCalled();
   });
 });

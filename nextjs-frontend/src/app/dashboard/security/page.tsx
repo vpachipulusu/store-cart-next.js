@@ -64,6 +64,8 @@ export default function SecurityPage() {
 
   const [showDisableTwoFactor, setShowDisableTwoFactor] = useState(false);
   const [twoFactorCode, setTwoFactorCode] = useState('');
+  // True when the last disable attempt was refused by the API, as opposed to a wrong-password error from re-authentication.
+  const [codeError, setCodeError] = useState(false);
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
 
@@ -176,9 +178,23 @@ export default function SecurityPage() {
     }
   }
 
+  // Closing by Escape, the overlay or Cancel all land here, so typed passwords never outlive the dialog.
+  function handleChangePasswordOpenChange(open: boolean) {
+    setShowChangePassword(open);
+    if (!open) {
+      setMismatchError(null);
+      setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    }
+  }
+
   async function handleDisableTwoFactor(idToken: string): Promise<string | null> {
+    setCodeError(false);
     const result = await disableTwoFactorAction(idToken, twoFactorCode);
-    if (!result.success) return result.error || 'Failed to disable two-factor authentication';
+    if (!result.success) {
+      // Reaching the API means the password was accepted, so this failure is about the code.
+      setCodeError(true);
+      return result.error || 'Failed to disable two-factor authentication';
+    }
     setTwoFactorEnabled(false);
     setTwoFactorCode('');
     setShowDisableTwoFactor(false);
@@ -203,13 +219,7 @@ export default function SecurityPage() {
 
       <Panel title="Password" titleId="security-password">
         <PanelHint>Update your password to keep your account secure</PanelHint>
-        <Dialog
-          open={showChangePassword}
-          onOpenChange={(open) => {
-            setShowChangePassword(open);
-            if (!open) setMismatchError(null);
-          }}
-        >
+        <Dialog open={showChangePassword} onOpenChange={handleChangePasswordOpenChange}>
           <DialogTrigger asChild>
             <Button variant="accent">Change Password</Button>
           </DialogTrigger>
@@ -274,7 +284,7 @@ export default function SecurityPage() {
             <DialogFooter>
               <Button
                 variant="outline"
-                onClick={() => setShowChangePassword(false)}
+                onClick={() => handleChangePasswordOpenChange(false)}
                 disabled={isChangingPassword}
               >
                 Cancel
@@ -368,7 +378,10 @@ export default function SecurityPage() {
         open={showDisableTwoFactor}
         onOpenChange={(open) => {
           setShowDisableTwoFactor(open);
-          if (!open) setTwoFactorCode('');
+          if (!open) {
+            setTwoFactorCode('');
+            setCodeError(false);
+          }
         }}
         title="Disable Two-Factor Authentication"
         description="Confirm your password and enter a code from your authenticator app"
@@ -382,8 +395,11 @@ export default function SecurityPage() {
             id="disable-2fa-code"
             label="Authenticator code"
             value={twoFactorCode}
-            onChange={setTwoFactorCode}
-            describedBy={error ? errorId : undefined}
+            onChange={(value) => {
+              setCodeError(false);
+              setTwoFactorCode(value);
+            }}
+            describedBy={error && codeError ? errorId : undefined}
           />
         )}
       </ReauthDialog>
