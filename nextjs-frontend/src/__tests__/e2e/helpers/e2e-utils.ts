@@ -195,6 +195,8 @@ export async function loginAsThrowawayAccountWithOrganization(
   return body.data.id;
 }
 
+const SEED_REQUEST_TIMEOUT_MS = 15_000;
+
 /**
  * Makes sure the page's signed-in account owns a store (KAN-210). A signed-in user with no store is redirected from
  * /dashboard to onboarding, so the shared test user needs one for the specs that open the dashboard home page.
@@ -214,18 +216,24 @@ export async function ensureAccountHasStore(page: Page, slugBase: string): Promi
     'X-Session-Token': session.value,
   };
 
-  const listed = await fetch(`${backendUrl}/v1/organizations?limit=100`, { headers });
+  const listed = await fetch(`${backendUrl}/v1/organizations?limit=100`, {
+    headers,
+    signal: AbortSignal.timeout(SEED_REQUEST_TIMEOUT_MS),
+  });
   if (!listed.ok) throw new Error(`Listing organisations failed with HTTP ${listed.status}`);
-  const organizations = ((await listed.json()) as { data: { id: string; stores: unknown[] }[] })
-    .data;
+  const organizations = (
+    (await listed.json()) as { data: { id: string; role: string; stores: unknown[] }[] }
+  ).data;
   if (organizations.some((organization) => organization.stores.length > 0)) return;
 
-  let organizationId = organizations[0]?.id;
+  // Seed into an organisation the account owns, the same filter onboarding uses to resume.
+  let organizationId = organizations.find((organization) => organization.role === 'OWNER')?.id;
   if (!organizationId) {
     const created = await fetch(`${backendUrl}/v1/organizations`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ name: 'E2E shared organisation', slug: slugBase }),
+      signal: AbortSignal.timeout(SEED_REQUEST_TIMEOUT_MS),
     });
     if (!created.ok)
       throw new Error(`Creating the e2e organisation failed (HTTP ${created.status})`);
@@ -235,6 +243,7 @@ export async function ensureAccountHasStore(page: Page, slugBase: string): Promi
     method: 'POST',
     headers,
     body: JSON.stringify({ name: 'E2E shared store', slug: `${slugBase}-shop` }),
+    signal: AbortSignal.timeout(SEED_REQUEST_TIMEOUT_MS),
   });
   if (!store.ok) throw new Error(`Creating the e2e store failed (HTTP ${store.status})`);
 }

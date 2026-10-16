@@ -55,7 +55,8 @@ for (const { role, account, envName, configured } of ROLES) {
     await loginViaUI(page, account.email, account.password);
 
     // The shared user needs a store: without one /dashboard redirects to onboarding (KAN-210).
-    if (role === 'user' && process.env.BACKEND_INTERNAL_KEY) {
+    // A missing BACKEND_INTERNAL_KEY fails here with a clear message instead of skipping the seed.
+    if (role === 'user') {
       await ensureAccountHasStore(page, 'e2e-shared-user');
     }
 
