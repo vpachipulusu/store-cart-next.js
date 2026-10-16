@@ -46,11 +46,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async
 
 import app.models.platform  # noqa: F401  (registers every table on Base.metadata)
 from app.api.auth import get_session_identity
-from app.api.deps import get_session_provider
+from app.api.deps import get_rate_limiter, get_session_provider
 from app.core.config import settings
 from app.core.database import DefaultSessionProvider
 from app.core.firebase import AuthenticationFailed, VerifiedIdentity
 from app.core.ids import new_id
+from app.core.rate_limit import DisabledRateLimiter
 from app.core.store_crypto import StoreSecretCodec, generate_key
 from app.main import create_app
 from app.models.platform.store import Store
@@ -373,6 +374,8 @@ def header_identity_app(world: World) -> FastAPI:
 
 
 def make_client(app: FastAPI) -> AsyncClient:
+    """A client for ``app`` with the rate limiter off, so a real Upstash is never needed."""
+    app.dependency_overrides[get_rate_limiter] = DisabledRateLimiter
     return AsyncClient(
         transport=ASGITransport(app=app, raise_app_exceptions=False),
         base_url="http://test",
