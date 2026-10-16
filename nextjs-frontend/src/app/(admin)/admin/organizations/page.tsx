@@ -18,7 +18,13 @@ import {
 } from '@/lib/api/admin-stores';
 import { logger } from '@/lib/logger';
 
-type SearchParams = Promise<{ q?: string; page?: string }>;
+type Param = string | string[] | undefined;
+type SearchParams = Promise<{ q?: Param; page?: Param }>;
+
+/** A repeated query param (?q=a&q=b) arrives as an array; only the first value counts. */
+function first(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
 
 /** Deep pages are capped so a crafted ?page= never becomes an absurd offset. */
 const MAX_PAGE = 10_000;
@@ -42,8 +48,8 @@ export default async function AdminOrganizationsPage({
   searchParams: SearchParams;
 }) {
   const params = await searchParams;
-  const q = params.q?.trim().slice(0, 100) || undefined;
-  const page = parsePage(params.page);
+  const q = first(params.q)?.trim().slice(0, 100) || undefined;
+  const page = parsePage(first(params.page));
 
   const result = await fetchAdminOrganizations({
     search: q,

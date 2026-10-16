@@ -33,8 +33,10 @@ import AdminOrganizationsPage from '@/app/(admin)/admin/organizations/page';
 
 const html = (node: React.ReactNode) => renderToStaticMarkup(node as React.ReactElement);
 const ok = <T,>(data: T) => ({ success: true as const, data });
-const render = async (page: typeof AdminStoresPage, params: Record<string, string | undefined>) =>
-  html(await page({ searchParams: Promise.resolve(params) }));
+const render = async (
+  page: typeof AdminStoresPage,
+  params: Record<string, string | string[] | undefined>
+) => html(await page({ searchParams: Promise.resolve(params) }));
 
 const STORE = {
   id: 'store-1',
@@ -132,6 +134,25 @@ describe('admin stores page', () => {
     expect(mocks.fetchAdminStores.mock.calls[0][0].offset).toBe(offset);
   });
 
+  it('uses the first value of a repeated query param instead of crashing', async () => {
+    mocks.fetchAdminStores.mockResolvedValue(storesPage([]));
+
+    await render(AdminStoresPage, {
+      q: ['  first  ', 'second'],
+      status: ['ACTIVE', 'SUSPENDED'],
+      org: ['org-1', 'org-2'],
+      page: ['2', '5'],
+    });
+
+    expect(mocks.fetchAdminStores).toHaveBeenCalledWith({
+      search: 'first',
+      status: 'ACTIVE',
+      organizationId: 'org-1',
+      limit: 20,
+      offset: 20,
+    });
+  });
+
   it('shows an empty state without paging links', async () => {
     mocks.fetchAdminStores.mockResolvedValue(storesPage([]));
 
@@ -205,6 +226,18 @@ describe('admin organisations page', () => {
       offset: 20,
     });
     expect(mocks.fetchAdminOrganizations.mock.calls[1][0].search).toHaveLength(100);
+  });
+
+  it('uses the first value of a repeated query param instead of crashing', async () => {
+    mocks.fetchAdminOrganizations.mockResolvedValue(orgsPage([]));
+
+    await render(AdminOrganizationsPage, { q: ['acme', 'other'], page: ['3', '1'] });
+
+    expect(mocks.fetchAdminOrganizations).toHaveBeenCalledWith({
+      search: 'acme',
+      limit: 20,
+      offset: 40,
+    });
   });
 
   it('shows an empty state and a curated error', async () => {

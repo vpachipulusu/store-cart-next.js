@@ -152,5 +152,6 @@ describe('StoreRowActions', () => {
       })
     );
     expect(JSON.stringify(mocks.toast.mock.calls)).not.toContain('SECRET');
+    expect(mocks.refresh).toHaveBeenCalled();
   });
 });

@@ -22,7 +22,13 @@ import {
 import { logger } from '@/lib/logger';
 import { StoreRowActions } from './store-row-actions';
 
-type SearchParams = Promise<{ q?: string; status?: string; org?: string; page?: string }>;
+type Param = string | string[] | undefined;
+type SearchParams = Promise<{ q?: Param; status?: Param; org?: Param; page?: Param }>;
+
+/** A repeated query param (?q=a&q=b) arrives as an array; only the first value counts. */
+function first(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
 
 const ORG_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
@@ -60,10 +66,11 @@ function pageHref(
 
 export default async function AdminStoresPage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
-  const q = params.q?.trim().slice(0, 100) || undefined;
-  const status = parseStatus(params.status);
-  const org = params.org && ORG_ID_PATTERN.test(params.org) ? params.org : undefined;
-  const page = parsePage(params.page);
+  const q = first(params.q)?.trim().slice(0, 100) || undefined;
+  const status = parseStatus(first(params.status));
+  const orgParam = first(params.org);
+  const org = orgParam && ORG_ID_PATTERN.test(orgParam) ? orgParam : undefined;
+  const page = parsePage(first(params.page));
 
   const result = await fetchAdminStores({
     search: q,

@@ -66,6 +66,7 @@ export function StoreRowActions({ storeId, storeName, status }: StoreRowActionsP
         }
       } catch {
         toast({ title: 'Error', description: GENERIC_ERROR, variant: 'destructive' });
+        router.refresh();
       }
     });
   }
