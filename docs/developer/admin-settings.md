@@ -181,43 +181,6 @@ Apply the saved language setting throughout the app:
 - Load language files based on selected language
 - Update UI text dynamically
 
-### 3. Feature Flag Implementation
-
-Use feature flags to conditionally render features:
-
-```typescript
-// Example: Check if OAuth signup is enabled
-const flags = await db.featureFlag.findUnique({
-  where: { name: 'oauth_signup' },
-});
-
-if (flags?.enabled) {
-  // Show OAuth buttons
-}
-```
-
-### 4. Currency Formatting Helper
-
-Create a utility function to format prices:
-
-```typescript
-// src/lib/utils/format-currency.ts
-import { db } from '@/lib/db/client';
-
-export async function formatCurrency(amount: number): Promise<string> {
-  const currencySetting = await db.appSettings.findUnique({
-    where: { key: 'currency' },
-  });
-
-  const currency = (currencySetting?.value as string) || 'USD';
-
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: currency,
-  }).format(amount);
-}
-```
-
 ## Security Considerations
 
 1. **Admin-Only Access**: All settings actions require admin authentication

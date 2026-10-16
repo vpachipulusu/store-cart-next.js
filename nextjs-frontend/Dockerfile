@@ -3,9 +3,8 @@
 # the environment at run time.
 FROM node:22-bookworm-slim
 
-# Prisma's engines need OpenSSL.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir /app \
     && chown node:node /app

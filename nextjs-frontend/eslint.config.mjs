@@ -25,6 +25,12 @@ const SERVER_SDK_PATHS = [
 ];
 const SERVER_SDK_PATTERNS = [{ group: ['firebase-admin/*'], message: SERVER_SDK_MESSAGE }];
 
+const GENERATED_CLIENT_PATTERN = {
+  group: ['@/lib/api/generated', '@/lib/api/generated/*', '**/api/generated', '**/api/generated/*'],
+  message:
+    'Import the generated API client only from src/lib/api (server-only wrappers) or tests (KAN-41).',
+};
+
 const BACKEND_ONLY_IMPORTS = {
   paths: [...PRISMA_PATHS, ...SERVER_SDK_PATHS],
   patterns: [...PRISMA_PATTERNS, ...SERVER_SDK_PATTERNS],
@@ -80,7 +86,10 @@ export default defineConfig([
   {
     files: LEGACY_SERVER_SDK_FILES,
     rules: {
-      'no-restricted-imports': ['error', { paths: PRISMA_PATHS, patterns: PRISMA_PATTERNS }],
+      'no-restricted-imports': [
+        'error',
+        { paths: PRISMA_PATHS, patterns: [...PRISMA_PATTERNS, GENERATED_CLIENT_PATTERN] },
+      ],
     },
   },
   {
@@ -93,19 +102,7 @@ export default defineConfig([
         'error',
         {
           paths: BACKEND_ONLY_IMPORTS.paths,
-          patterns: [
-            ...BACKEND_ONLY_IMPORTS.patterns,
-            {
-              group: [
-                '@/lib/api/generated',
-                '@/lib/api/generated/*',
-                '**/api/generated',
-                '**/api/generated/*',
-              ],
-              message:
-                'Import the generated API client only from src/lib/api (server-only wrappers) or tests (KAN-41).',
-            },
-          ],
+          patterns: [...BACKEND_ONLY_IMPORTS.patterns, GENERATED_CLIENT_PATTERN],
         },
       ],
     },

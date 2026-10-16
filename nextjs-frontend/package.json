@@ -27,7 +27,6 @@
     "test:all": "vitest run && playwright test",
     "test:ci": "vitest run --coverage && playwright test",
     "test:setup": "node scripts/setup-e2e-accounts.mjs",
-    "test:reset": "node scripts/reset-test-user.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "typecheck": "tsc --noEmit",
     "generate:client": "openapi-ts",

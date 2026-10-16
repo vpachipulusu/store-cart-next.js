@@ -70,9 +70,6 @@ Visit `http://localhost:3000` (the default; set `PORT` to change it, see
 ## 🔑 Environment Variables
 
 ```env
-# Database
-DATABASE_URL="postgresql://..."
-
 # Firebase
 NEXT_PUBLIC_FIREBASE_API_KEY="..."
 NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="..."

@@ -133,7 +133,7 @@ It writes to the path in `OPENAPI_OUTPUT_FILE`.
 - **`Can't reach database server`:** check the backend `DATABASE_URL`, that Postgres is running, and the port (see [Local databases](#local-databases)).
 - **`Firebase: Error (auth/invalid-api-key)`:** the `NEXT_PUBLIC_FIREBASE_*` values must match the Firebase console, and Email/Password sign-in must be enabled there.
 - **Stripe webhook signature failures locally:** run `stripe listen --forward-to localhost:8000/webhooks/stripe` (the FastAPI backend; use its port if you changed it) and set `STRIPE_WEBHOOK_SECRET` to the secret it prints.
-- **Admin pages deny access:** the user needs an `AdminUser` record (`node scripts/create-admin.mjs <email>`).
+- **Admin pages deny access:** the user needs an admin grant in the backend (`POST /v1/admin/users/{user_id}/admin` from an existing admin, or the SQL in [local-e2e.md](local-e2e.md)).
 
 ## Pre-commit hooks
 

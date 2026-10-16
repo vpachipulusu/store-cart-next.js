@@ -79,7 +79,6 @@ e2e runs against the Firebase TEST project **`storecart-test`** and a **dedicate
   - creates their `users` rows (free tier, no Stripe links, reset on every run) and the admin's `AdminUser` row in the e2e database, and refuses a missing `DATABASE_URL` or one equal to the dev database;
   - never prints credentials.
 - Re-running `npm run test:setup` reuses the stored credentials and resets the Firebase passwords to match.
-- `npm run test:reset` (`scripts/reset-test-user.mjs`) is not part of the e2e flow. It resets the e2e user (`TEST_USER_EMAIL` from `.env.e2e.local`) to the free tier in the e2e database, and fails naming the variable when it is missing.
 - Accounts created before KAN-113 moved e2e to `storecart-test` still exist in the dev project. KAN-131 deletes them.
 - CI e2e uses only the dedicated Firebase test project `storecart-test` (GitHub environment `e2e-test`) and Stripe test-mode keys. It must never use the development or production projects: the e2e job refuses live Stripe keys and refuses to run when `E2E_NEXT_PUBLIC_FIREBASE_PROJECT_ID` equals the repository variable `PROD_FIREBASE_PROJECT_ID`.
 
