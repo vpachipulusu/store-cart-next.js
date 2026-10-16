@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import type { DecodedIdToken } from 'firebase-admin/auth';
 import { getAdminAuth } from '@/lib/firebase/admin';
-import { db } from '@/lib/db/client';
+import { fetchProfile } from '@/lib/api/account';
 import { logger } from '@/lib/logger';
 
 /**
@@ -60,8 +60,8 @@ export async function getVerifiedSessionClaims(): Promise<DecodedIdToken | null>
 }
 
 /**
- * Database user id of the verified, signed-in user, or null for any failure (no session, invalid,
- * revoked, unverified, unknown user). For server actions that answer "Unauthorized".
+ * Backend user id of the verified, signed-in user, or null for any failure (no session, invalid,
+ * revoked, unverified, unknown user, backend failure). For server actions that answer "Unauthorized".
  */
 export async function getVerifiedUserId(): Promise<string | null> {
   try {
@@ -69,11 +69,15 @@ export async function getVerifiedUserId(): Promise<string | null> {
     if (!claims) {
       return null;
     }
-    const user = await db.user.findUnique({
-      where: { firebaseUid: claims.uid },
-      select: { id: true },
-    });
-    return user?.id || null;
+    // GET /v1/me with the same session cookie; the backend id is authoritative.
+    const profile = await fetchProfile();
+    if (!profile.success) {
+      logger.error('Authentication error: backend profile lookup failed', {
+        status: profile.status,
+      });
+      return null;
+    }
+    return typeof profile.data.id === 'string' && profile.data.id ? profile.data.id : null;
   } catch (error) {
     if (isEmailNotVerifiedError(error)) {
       logger.warn('Rejected request from a user with an unverified email');

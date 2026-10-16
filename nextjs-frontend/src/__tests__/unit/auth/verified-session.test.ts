@@ -9,7 +9,7 @@ import { SESSION_EXPIRED } from '../app/route-test-helpers';
 const mocks = vi.hoisted(() => ({
   cookieJar: new Map<string, string>(),
   verifySessionCookie: vi.fn(),
-  userFindUnique: vi.fn(),
+  fetchProfile: vi.fn(),
   loggerError: vi.fn(),
   loggerWarn: vi.fn(),
 }));
@@ -23,7 +23,7 @@ vi.mock('next/headers', () => ({
 vi.mock('@/lib/firebase/admin', () => ({
   getAdminAuth: () => ({ verifySessionCookie: mocks.verifySessionCookie }),
 }));
-vi.mock('@/lib/db/client', () => ({ db: { user: { findUnique: mocks.userFindUnique } } }));
+vi.mock('@/lib/api/account', () => ({ fetchProfile: mocks.fetchProfile }));
 vi.mock('@/lib/logger', () => ({
   logger: { error: mocks.loggerError, warn: mocks.loggerWarn },
 }));
@@ -46,7 +46,10 @@ describe('verified-session boundary (KAN-123)', () => {
     mocks.cookieJar.clear();
     mocks.cookieJar.set('session', 'session-cookie');
     mocks.verifySessionCookie.mockResolvedValue(verifiedClaims);
-    mocks.userFindUnique.mockResolvedValue({ id: 'user-1' });
+    mocks.fetchProfile.mockResolvedValue({
+      success: true,
+      data: { id: 'user-1', email: 'a@b.test', email_verified: true },
+    });
   });
 
   it('always checks revocation when verifying the session cookie', async () => {
@@ -69,9 +72,9 @@ describe('verified-session boundary (KAN-123)', () => {
       expect(isEmailNotVerifiedError(error)).toBe(true);
     });
 
-    it('gets no user id and never reaches the database', async () => {
+    it('gets no user id and never reaches the backend', async () => {
       expect(await getVerifiedUserId()).toBeNull();
-      expect(mocks.userFindUnique).not.toHaveBeenCalled();
+      expect(mocks.fetchProfile).not.toHaveBeenCalled();
     });
 
     it('is rejected when the claim is missing entirely', async () => {
@@ -147,10 +150,45 @@ describe('verified-session boundary (KAN-123)', () => {
     });
   });
 
-  it('returns null for a verified user with no database row', async () => {
-    mocks.userFindUnique.mockResolvedValue(null);
+  describe('backend lookup (GET /v1/me)', () => {
+    it.each([
+      ['401', { success: false, error: 'Unauthorized', status: 401 }],
+      ['404 (no user)', { success: false, error: 'Not found', status: 404 }],
+      ['500', { success: false, error: 'Request failed', status: 500 }],
+      ['unreachable', { success: false, error: 'Backend unavailable' }],
+    ])('fails closed on backend %s', async (_label, result) => {
+      mocks.fetchProfile.mockResolvedValue(result);
 
-    expect(await getVerifiedUserId()).toBeNull();
+      expect(await getVerifiedUserId()).toBeNull();
+      expect(mocks.loggerError).toHaveBeenCalledTimes(1);
+    });
+
+    it('fails closed when the call throws', async () => {
+      mocks.fetchProfile.mockRejectedValue(new Error('boom'));
+
+      expect(await getVerifiedUserId()).toBeNull();
+    });
+
+    it('fails closed on an empty or malformed id', async () => {
+      mocks.fetchProfile.mockResolvedValue({ success: true, data: { id: '' } });
+      expect(await getVerifiedUserId()).toBeNull();
+
+      mocks.fetchProfile.mockResolvedValue({ success: true, data: {} });
+      expect(await getVerifiedUserId()).toBeNull();
+    });
+
+    it('returns the backend id, never the Firebase uid', async () => {
+      mocks.fetchProfile.mockResolvedValue({ success: true, data: { id: 'backend-id-9' } });
+
+      expect(await getVerifiedUserId()).toBe('backend-id-9');
+    });
+
+    it('does not call the backend for a revoked session', async () => {
+      mocks.verifySessionCookie.mockRejectedValue(REVOKED);
+
+      expect(await getVerifiedUserId()).toBeNull();
+      expect(mocks.fetchProfile).not.toHaveBeenCalled();
+    });
   });
 
   it('logs an unverified rejection as a warning without leaking the cookie', async () => {
