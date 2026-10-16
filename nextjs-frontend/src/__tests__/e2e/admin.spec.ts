@@ -267,21 +267,16 @@ test.describe('Admin Dashboard', () => {
       await expect(page.getByText(/monitor and manage all subscriptions/i)).toBeVisible();
     });
 
-    test('should display 4 subscription metric cards', async ({ page }) => {
-      await expect(page.getByText('Total Active')).toBeVisible();
-      await expect(page.getByText('Pro Plans')).toBeVisible();
-      await expect(page.getByText('Enterprise Plans', { exact: true })).toBeVisible();
-      await expect(page.getByText('MRR')).toBeVisible();
+    test('should display the 4 subscription figures in the key figures strip', async ({ page }) => {
+      const strip = page.getByRole('list', { name: 'Key figures' });
+      for (const name of ['Total active', 'Pro plans', 'Enterprise plans', 'MRR']) {
+        await expect(strip.getByRole('group', { name })).toBeVisible();
+      }
     });
 
-    test('should display pricing info in metric cards', async ({ page }) => {
-      const proCard = page.locator('[class*="card"]').filter({ hasText: 'Pro Plans' });
-      await expect(proCard.getByText(/[$£€]\d+\/month/i)).toBeVisible();
-
-      const enterpriseCard = page
-        .locator('[class*="card"]')
-        .filter({ hasText: 'Enterprise Plans' });
-      await expect(enterpriseCard.getByText(/[$£€]\d+\/month/i)).toBeVisible();
+    test('should display pricing info under the key figures', async ({ page }) => {
+      await expect(page.getByText(/Pro: [$£€]\d+\/month each/)).toBeVisible();
+      await expect(page.getByText(/Enterprise: [$£€]\d+\/month each/)).toBeVisible();
     });
 
     test('should display recent subscriptions table', async ({ page }) => {
