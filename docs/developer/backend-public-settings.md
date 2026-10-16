@@ -32,8 +32,8 @@ here but falls back to `$` in the old Prisma path; the admin page only stores cl
 - `Cache-Control` is `private` because the route needs `X-Internal-Key`: a shared cache or CDN must
   not store it (the Next.js server is the only cache). The value itself is non-sensitive.
 - A currency change can take up to 60 s to show, plus up to 300 s of stale-while-revalidate.
-- The Next.js wrapper that calls this route must stay behind `unstable_cache` (the existing
-  1 h cache, tag `currency-setting`). The 120/min limiter is keyed by the client IP, which for
+- The Next.js wrapper (`src/lib/api/settings.ts`) keeps a 60 s in-memory cache of successful reads
+  (`unstable_cache` cannot wrap `callBackend`, which reads cookies). The 120/min limiter is keyed by the client IP, which for
   server-side calls is the shared Next.js server IP, so uncached per-render calls could
   exhaust the bucket.
 
