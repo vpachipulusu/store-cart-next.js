@@ -1,5 +1,10 @@
+import type { Page } from '@playwright/test';
 import { test, expect } from './helpers/fixtures';
-import { waitForPageReady } from './helpers/e2e-utils';
+import {
+  loginAsThrowawayAccountOnPro,
+  navigateAndWait,
+  waitForPageReady,
+} from './helpers/e2e-utils';
 
 // The page shows prices in the Stripe price's currency (GBP in the e2e Stripe account), so match any symbol.
 const CURRENCY_SYMBOL = /[$£€]/;
@@ -309,26 +314,34 @@ test.describe('Pricing Page', () => {
   });
 
   test.describe('Current Plan Indicator (Authenticated Users)', () => {
-    // Skipped, tracked in KAN-197.
-    test.skip('should show "Current Plan" only on active tier', async ({ page, context }) => {
-      // This test requires authentication with a specific test user
-      // Skipped - requires test user setup with Pro subscription
-      // Implementation:
-      // 1. Login as test user with Pro tier
-      // 2. Navigate to pricing page
-      // 3. Verify "Active" badge shows only on Pro tier
-      // 4. Verify "Current Plan" button shows only on Pro tier
-      // 5. Verify "Downgrade" shows on Free tier for paid users
+    // A throwaway account whose organisation an admin has granted Pro (no Stripe needed), so Pro is the active tier.
+    test.skip(!process.env.TEST_ADMIN_EMAIL, 'Skipped: TEST_ADMIN_EMAIL not configured');
+
+    const tierCard = (page: Page, name: RegExp) =>
+      page.locator('[class*="card"]').filter({ has: page.getByRole('heading', { name }) });
+
+    test('should show "Current Plan" only on active tier', async ({ page, throwawayAccount }) => {
+      await loginAsThrowawayAccountOnPro(page, throwawayAccount);
+      await navigateAndWait(page, '/pricing');
+
+      const proCard = tierCard(page, /^pro$/i);
+      await expect(proCard.getByText('Active', { exact: true })).toBeVisible();
+      await expect(proCard.getByRole('button', { name: /current plan/i })).toBeDisabled();
+
+      // A paid user can step down to Free; the other tiers are not marked active.
+      const freeCard = tierCard(page, /^free$/i);
+      await expect(freeCard.getByRole('link', { name: /downgrade/i })).toBeVisible();
+      await expect(freeCard.getByText('Active', { exact: true })).toHaveCount(0);
+      await expect(
+        tierCard(page, /^enterprise$/i).getByText('Active', { exact: true })
+      ).toHaveCount(0);
     });
 
-    // Skipped, tracked in KAN-197.
-    test.skip('should not show multiple "Current Plan" buttons', async ({ page }) => {
-      // This test requires authentication
-      // Skipped - requires test user setup
-      // Implementation:
-      // 1. Login as authenticated user
-      // 2. Navigate to pricing page
-      // 3. Count "Current Plan" buttons - should be exactly 1
+    test('should not show multiple "Current Plan" buttons', async ({ page, throwawayAccount }) => {
+      await loginAsThrowawayAccountOnPro(page, throwawayAccount);
+      await navigateAndWait(page, '/pricing');
+
+      await expect(page.getByRole('button', { name: /current plan/i })).toHaveCount(1);
     });
   });
 
