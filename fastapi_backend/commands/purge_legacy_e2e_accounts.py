@@ -35,7 +35,7 @@ PROVIDER_ERRORS = (
     google_exceptions.GoogleAuthError,
 )
 
-# Mirrors E2E_EMAIL in nextjs-frontend/scripts/e2e-accounts.mjs.
+# The frontend E2E_EMAIL (nextjs-frontend/scripts/e2e-accounts.mjs) is user|admin|temp only; "seed" is purge-only.
 E2E_EMAIL = re.compile(r"e2e-(user|admin|temp|seed)-[0-9a-f]{12}@example\.com")
 # The default address of the removed scripts/create-test-user.mjs (git: 855cf8c^).
 LEGACY_TEST_USER_EMAIL = "testuser@example.com"

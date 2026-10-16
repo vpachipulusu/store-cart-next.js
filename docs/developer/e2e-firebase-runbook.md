@@ -29,7 +29,7 @@ Which project do the legacy e2e accounts live in? `testing.md` says the developm
 
 Selection: an account is matched only if its email is e2e-shaped:
 
-- `e2e-(user|admin|temp|seed)-<12 hex>@example.com` (the generated accounts; `seed` is accepted as a superset of the frontend's `E2E_EMAIL`), or
+- `e2e-(user|admin|temp|seed)-<12 hex>@example.com` (the generated accounts; the frontend `E2E_EMAIL` covers only `user|admin|temp`; `seed` is matched by this tool only), or
 - `testuser@example.com` (default of the removed `create-test-user.mjs`), or
 - any `e2e-...@example.com` variant that also carries the `{e2e: true}` claim.
 
