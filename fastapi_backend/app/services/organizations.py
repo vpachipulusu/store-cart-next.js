@@ -17,8 +17,8 @@ transaction, so the change and its audit entry commit or roll back together.
 """
 
 import unicodedata
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, replace
+from typing import Any, Protocol
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -125,10 +125,23 @@ class Page[T]:
     offset: int
 
 
+class ProvisioningStarter(Protocol):
+    """Hands a new store to the provisioning job (KAN-56)."""
+
+    async def start(self, store_id: str) -> bool:
+        """Enqueue provisioning; False when it could not be (the store is FAILED)."""
+
+
 class OrganizationsService:
-    def __init__(self, store: OrganizationsRepository, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        store: OrganizationsRepository,
+        session: AsyncSession,
+        provisioning: ProvisioningStarter | None = None,
+    ) -> None:
         self._store = store
         self._session = session
+        self._provisioning = provisioning
         self._audit = AuditRepository(session)
 
     # Reads -----------------------------------------------------------------
@@ -289,6 +302,10 @@ class OrganizationsService:
             request_id=request_id,
         )
         await self._session.commit()
+        if self._provisioning is not None and not await self._provisioning.start(
+            store.id
+        ):
+            return replace(store, status=StoreStatus.FAILED)
         return store
 
     async def update_store(

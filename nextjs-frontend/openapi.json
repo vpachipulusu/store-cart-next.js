@@ -11486,6 +11486,7 @@
         "enum": [
           "PROVISIONING",
           "ACTIVE",
+          "FAILED",
           "SUSPENDED",
           "ARCHIVED"
         ],

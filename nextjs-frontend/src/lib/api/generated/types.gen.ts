@@ -1485,7 +1485,7 @@ export type StoreResponse = {
 /**
  * StoreStatus
  */
-export type StoreStatus = 'PROVISIONING' | 'ACTIVE' | 'SUSPENDED' | 'ARCHIVED';
+export type StoreStatus = 'PROVISIONING' | 'ACTIVE' | 'FAILED' | 'SUSPENDED' | 'ARCHIVED';
 
 /**
  * StoreStatusData

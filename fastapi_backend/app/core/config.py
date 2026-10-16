@@ -71,6 +71,17 @@ class Settings(BaseSettings):
     NEON_ROLE_NAME: str | None = None
     NEON_API_BASE_URL: str = "https://console.neon.tech/api/v2"
 
+    # Store provisioning job (KAN-56). QSTASH_TOKEN publishes the steps; the two signing
+    # keys verify deliveries (current and next, for rotation). PROVISIONING_BASE_URL is the
+    # public https origin QStash calls back (the FastAPI service). With no token the job
+    # is not enqueued in local/test; outside them store creation marks the store FAILED.
+    QSTASH_URL: str = "https://qstash.upstash.io"
+    QSTASH_TOKEN: SecretStr | None = None
+    QSTASH_CURRENT_SIGNING_KEY: SecretStr | None = None
+    QSTASH_NEXT_SIGNING_KEY: SecretStr | None = None
+    PROVISIONING_BASE_URL: str | None = None
+    PROVISIONING_STEP_RETRIES: Annotated[int, Field(ge=0, le=10)] = 5
+
     # Stripe Billing webhook (KAN-44). Unset means the webhook answers 503.
     STRIPE_WEBHOOK_SECRET: SecretStr | None = None
     STRIPE_PRICE_ID_PRO_MONTHLY: str | None = None
@@ -141,6 +152,39 @@ class Settings(BaseSettings):
         ):
             raise ValueError("NEON_API_BASE_URL must be an https URL on neon.tech")
         return self
+
+    @model_validator(mode="after")
+    def validate_qstash_config(self) -> "Settings":
+        # The Bearer token goes to QSTASH_URL: https and an upstash.io host only.
+        host = urlparse(self.QSTASH_URL).hostname or ""
+        if urlparse(self.QSTASH_URL).scheme != "https" or not (
+            host == "upstash.io" or host.endswith(".upstash.io")
+        ):
+            raise ValueError("QSTASH_URL must be an https URL on upstash.io")
+        if self.PROVISIONING_BASE_URL is not None:
+            parsed = urlparse(self.PROVISIONING_BASE_URL)
+            local = parsed.hostname in ("localhost", "127.0.0.1")
+            if (
+                parsed.scheme not in ("https", "http")
+                or (
+                    parsed.scheme == "http" and not (local and self.relaxed_environment)
+                )
+                or not parsed.hostname
+                or parsed.query
+                or parsed.fragment
+                or parsed.username
+                or parsed.password
+            ):
+                raise ValueError(
+                    "PROVISIONING_BASE_URL must be an https origin without "
+                    "credentials, query or fragment"
+                )
+        return self
+
+    @property
+    def qstash_signing_keys(self) -> list[str]:
+        keys = (self.QSTASH_CURRENT_SIGNING_KEY, self.QSTASH_NEXT_SIGNING_KEY)
+        return [key.get_secret_value() for key in keys if key is not None]
 
     @model_validator(mode="after")
     def validate_r2_config(self) -> "Settings":

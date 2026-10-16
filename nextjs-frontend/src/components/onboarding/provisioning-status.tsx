@@ -119,7 +119,7 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
     problem ??
     (status === 'UNKNOWN'
       ? CHECK_FAILED_MESSAGE
-      : status === 'SUSPENDED' || status === 'ARCHIVED'
+      : status === 'FAILED' || status === 'SUSPENDED' || status === 'ARCHIVED'
         ? UNAVAILABLE_MESSAGE
         : null);
   const ready = message === null && status === 'ACTIVE';

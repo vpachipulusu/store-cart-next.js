@@ -9,6 +9,7 @@ fields). Responses carry ``Cache-Control: no-store``.
 caller's organisation ids (for example before calling the billing routes).
 """
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated, Literal, Self
 
@@ -16,10 +17,12 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Res
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.api.auth import require_internal_key
-from app.api.deps import SessionDep
+from app.api.deps import SessionDep, get_session_provider
 from app.api.me import CurrentUserIdDep
 from app.api.rate_limit import RATE_LIMIT_FAIL_CLOSED_RESPONSES, limit_by_subject
 from app.api.v1.auth import current_subject
+from app.core.config import settings
+from app.core.database import SessionProvider
 from app.core.errors import ErrorResponse
 from app.core.rate_limit import API_POLICY
 from app.core.slugs import SLUG_MAX_LENGTH, SLUG_MIN_LENGTH, InvalidSlug, ReservedSlug
@@ -41,6 +44,11 @@ from app.services.organizations import (
     StoreLimitReached,
     StoreNotActive,
     StoreNotFound,
+)
+from app.services.store_provisioning_job import (
+    StepEnqueuer,
+    get_step_enqueuer,
+    start_provisioning,
 )
 
 router = APIRouter(
@@ -145,8 +153,24 @@ class UpdateRequest(BaseModel):
         return self
 
 
-def get_organizations_service(session: SessionDep) -> OrganizationsService:
-    return OrganizationsService(OrganizationsRepository(session), session)
+@dataclass(frozen=True)
+class JobProvisioningStarter:
+    provider: SessionProvider
+    enqueuer: StepEnqueuer
+
+    async def start(self, store_id: str) -> bool:
+        return await start_provisioning(self.provider, self.enqueuer, store_id)
+
+
+def get_organizations_service(
+    session: SessionDep,
+    provider: Annotated[SessionProvider, Depends(get_session_provider)],
+) -> OrganizationsService:
+    return OrganizationsService(
+        OrganizationsRepository(session),
+        session,
+        JobProvisioningStarter(provider, get_step_enqueuer(settings)),
+    )
 
 
 ServiceDep = Annotated[OrganizationsService, Depends(get_organizations_service)]

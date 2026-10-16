@@ -11,6 +11,8 @@ from app.models.platform.mixins import IdMixin, TimestampMixin
 class StoreStatus(enum.StrEnum):
     PROVISIONING = "PROVISIONING"
     ACTIVE = "ACTIVE"
+    # Provisioning gave up after its retries (KAN-56); not usable, needs operator action.
+    FAILED = "FAILED"
     SUSPENDED = "SUSPENDED"
     ARCHIVED = "ARCHIVED"
 
