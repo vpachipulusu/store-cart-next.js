@@ -1,3 +1,5 @@
+'use client';
+
 import Link from 'next/link';
 
 import { buttonVariants } from '@/components/ui/button';
@@ -44,7 +46,7 @@ const LEVEL_SUFFIX: Record<UsageLevel, string> = {
 };
 
 const FILL_CLASS: Record<UsageLevel, string> = {
-  ok: 'bg-cta',
+  ok: 'bg-accent-ink',
   near: 'bg-warn-foreground',
   full: 'bg-crit-foreground',
 };
