@@ -55,11 +55,8 @@ test.describe('Merchant onboarding', () => {
     const suffix = throwawayAccount.email.split('@')[0].slice(-12).toLowerCase();
     await loginAsThrowawayAccount(page, throwawayAccount);
 
-    // No store yet: the dashboard offers onboarding.
+    // No store yet: /dashboard sends the user straight to onboarding, no click needed (KAN-210).
     await page.goto('/dashboard');
-    await waitForPageReady(page);
-    await expect(page.getByTestId('no-stores')).toBeVisible();
-    await page.getByRole('link', { name: 'Set up your store' }).click();
     await expect(page).toHaveURL(/\/dashboard\/onboarding$/);
     await waitForPageReady(page);
     await expect(page.getByRole('heading', { name: 'Set up your store' })).toBeVisible();

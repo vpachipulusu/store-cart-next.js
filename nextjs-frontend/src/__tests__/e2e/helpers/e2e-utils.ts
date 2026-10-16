@@ -195,6 +195,68 @@ export async function loginAsThrowawayAccountWithOrganization(
   return body.data.id;
 }
 
+const SEED_REQUEST_TIMEOUT_MS = 15_000;
+
+/**
+ * Makes sure the page's signed-in account owns a store (KAN-210). A signed-in user with no store is redirected from
+ * /dashboard to onboarding, so the shared test user needs one for the specs that open the dashboard home page.
+ * Idempotent: does nothing when the account already has a store. Server to server with the browser's own session
+ * cookie, like the helpers above; needs BACKEND_INTERNAL_KEY.
+ */
+export async function ensureAccountHasStore(page: Page, slugBase: string): Promise<void> {
+  const session = (await page.context().cookies()).find((cookie) => cookie.name === 'session');
+  const internalKey = process.env.BACKEND_INTERNAL_KEY;
+  if (!session || !internalKey) {
+    throw new Error('Seeding a store needs the session cookie and BACKEND_INTERNAL_KEY');
+  }
+  const backendUrl = (process.env.BACKEND_API_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '');
+  const headers = {
+    'Content-Type': 'application/json',
+    'X-Internal-Key': internalKey,
+    'X-Session-Token': session.value,
+  };
+
+  const listed = await fetch(`${backendUrl}/v1/organizations?limit=100`, {
+    headers,
+    signal: AbortSignal.timeout(SEED_REQUEST_TIMEOUT_MS),
+  });
+  if (!listed.ok) throw new Error(`Listing organisations failed with HTTP ${listed.status}`);
+  const organizations = (
+    (await listed.json()) as {
+      data: { id: string; role: string; stores: unknown[]; stores_truncated?: boolean }[];
+    }
+  ).data;
+  // A truncated embedded list means the organisation has more stores than were returned (onboarding's hasAnyStore).
+  if (
+    organizations.some(
+      (organization) => organization.stores.length > 0 || organization.stores_truncated
+    )
+  ) {
+    return;
+  }
+
+  // Seed into an organisation the account owns, the same filter onboarding uses to resume.
+  let organizationId = organizations.find((organization) => organization.role === 'OWNER')?.id;
+  if (!organizationId) {
+    const created = await fetch(`${backendUrl}/v1/organizations`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ name: 'E2E shared organisation', slug: slugBase }),
+      signal: AbortSignal.timeout(SEED_REQUEST_TIMEOUT_MS),
+    });
+    if (!created.ok)
+      throw new Error(`Creating the e2e organisation failed (HTTP ${created.status})`);
+    organizationId = ((await created.json()) as { data: { id: string } }).data.id;
+  }
+  const store = await fetch(`${backendUrl}/v1/organizations/${organizationId}/stores`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ name: 'E2E shared store', slug: `${slugBase}-shop` }),
+    signal: AbortSignal.timeout(SEED_REQUEST_TIMEOUT_MS),
+  });
+  if (!store.ok) throw new Error(`Creating the e2e store failed (HTTP ${store.status})`);
+}
+
 const GRANT_DAYS = 30;
 
 /**
