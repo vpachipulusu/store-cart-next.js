@@ -11,6 +11,10 @@ describe('getRange', () => {
     expect(getRange(13, 25, 312)).toEqual({ page: 13, from: 301, to: 312, pageCount: 13 });
   });
 
+  it('guards a non-positive page size', () => {
+    expect(getRange(1, 0, 10).pageCount).toBe(10);
+  });
+
   it('handles an empty list', () => {
     expect(getRange(1, 25, 0)).toEqual({ page: 1, from: 0, to: 0, pageCount: 1 });
   });
@@ -55,14 +59,23 @@ describe('Pagination', () => {
     expect(onPageChange).toHaveBeenNthCalledWith(2, 1);
   });
 
+  it('keeps focus on a disabled button and ignores its clicks', async () => {
+    const onPageChange = vi.fn();
+    render(<Pagination page={1} pageSize={25} total={312} onPageChange={onPageChange} />);
+    const prev = screen.getByRole('button', { name: 'Previous page' });
+    await userEvent.click(prev);
+    expect(onPageChange).not.toHaveBeenCalled();
+    expect(prev).not.toBeDisabled();
+  });
+
   it('disables previous on the first page and next on the last', () => {
     const { unmount } = render(
       <Pagination page={1} pageSize={25} total={312} onPageChange={() => {}} />
     );
-    expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Previous page' })).toHaveAttribute('aria-disabled', 'true');
     unmount();
     render(<Pagination page={13} pageSize={25} total={312} onPageChange={() => {}} />);
-    expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Next page' })).toHaveAttribute('aria-disabled', 'true');
     expect(screen.getByText('Showing 301 to 312 of 312')).toBeInTheDocument();
   });
 
@@ -74,7 +87,7 @@ describe('Pagination', () => {
   it('disables both buttons for an empty list', () => {
     render(<Pagination page={1} pageSize={25} total={0} onPageChange={() => {}} />);
     expect(screen.getByText('Showing 0 to 0 of 0')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Previous page' })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('button', { name: 'Next page' })).toHaveAttribute('aria-disabled', 'true');
   });
 });

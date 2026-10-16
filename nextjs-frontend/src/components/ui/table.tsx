@@ -3,27 +3,35 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 
 // Below 640px the header is visually hidden and each row becomes a stacked item;
-// cells show their `label` (data-label) in front of the value.
+// cells show their `label` (data-label) in front of the value. Changing `display`
+// on table parts can drop their table semantics in some browsers, so stacked
+// tables carry explicit ARIA roles. The hidden header also hides sort buttons:
+// stacked tables with SortableTableHead need a separate sort control on phones.
 const STACKED_CLASSES =
-  "max-sm:[&_thead]:sr-only max-sm:[&_tr]:flex max-sm:[&_tr]:flex-wrap max-sm:[&_tr]:items-baseline max-sm:[&_tr]:justify-between max-sm:[&_tr]:gap-x-4 max-sm:[&_tr]:py-3"
+  "max-sm:[&>thead]:sr-only max-sm:[&>tbody>tr]:flex max-sm:[&>tbody>tr]:flex-wrap max-sm:[&>tbody>tr]:items-baseline max-sm:[&>tbody>tr]:justify-between max-sm:[&>tbody>tr]:gap-x-4 max-sm:[&>tbody>tr]:py-3"
+
+const StackedContext = React.createContext(false)
 
 interface TableProps extends React.HTMLAttributes<HTMLTableElement> {
-  /** Render rows as stacked items below 640px (default true). */
+  /** Opt in to stacked rows below 640px; cells need a `label` to name their column. */
   stacked?: boolean
 }
 
 const Table = React.forwardRef<HTMLTableElement, TableProps>(
-  ({ className, stacked = true, ...props }, ref) => (
+  ({ className, stacked = false, ...props }, ref) => (
     <div className="relative w-full overflow-auto">
-      <table
-        ref={ref}
-        className={cn(
-          "w-full caption-bottom text-sm",
-          stacked && STACKED_CLASSES,
-          className
-        )}
-        {...props}
-      />
+      <StackedContext.Provider value={stacked}>
+        <table
+          ref={ref}
+          role={stacked ? "table" : undefined}
+          className={cn(
+            "w-full caption-bottom text-sm",
+            stacked && STACKED_CLASSES,
+            className
+          )}
+          {...props}
+        />
+      </StackedContext.Provider>
     </div>
   )
 )
@@ -33,7 +41,12 @@ const TableHeader = React.forwardRef<
   HTMLTableSectionElement,
   React.HTMLAttributes<HTMLTableSectionElement>
 >(({ className, ...props }, ref) => (
-  <thead ref={ref} className={cn("[&_tr]:border-b", className)} {...props} />
+  <thead
+    ref={ref}
+    role={React.useContext(StackedContext) ? "rowgroup" : undefined}
+    className={cn("[&_tr]:border-b", className)}
+    {...props}
+  />
 ))
 TableHeader.displayName = "TableHeader"
 
@@ -43,6 +56,7 @@ const TableBody = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <tbody
     ref={ref}
+    role={React.useContext(StackedContext) ? "rowgroup" : undefined}
     className={cn("[&_tr:last-child]:border-0", className)}
     {...props}
   />
@@ -70,6 +84,7 @@ const TableRow = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <tr
     ref={ref}
+    role={React.useContext(StackedContext) ? "row" : undefined}
     className={cn(
       "border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted",
       className
@@ -93,6 +108,7 @@ const TableHead = React.forwardRef<
   <th
     ref={ref}
     scope={scope}
+    role={React.useContext(StackedContext) ? "columnheader" : undefined}
     className={cn(
       "h-11 bg-secondary px-3 text-left align-middle text-xs font-semibold uppercase tracking-wider text-muted-foreground [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
       numeric && NUMERIC_CLASSES,
@@ -114,10 +130,12 @@ const TableCell = React.forwardRef<HTMLTableCellElement, TableCellProps>(
   ({ className, numeric = false, label, ...props }, ref) => (
     <td
       ref={ref}
+      role={React.useContext(StackedContext) ? "cell" : undefined}
       data-label={label}
       className={cn(
         "px-3 py-3 align-middle [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
-        "max-sm:p-0 max-sm:before:mr-2 max-sm:before:text-xs max-sm:before:font-semibold max-sm:before:uppercase max-sm:before:tracking-wider max-sm:before:text-muted-foreground max-sm:before:content-[attr(data-label)]",
+        label &&
+          "max-sm:p-0 max-sm:before:mr-2 max-sm:before:text-xs max-sm:before:font-semibold max-sm:before:uppercase max-sm:before:tracking-wider max-sm:before:text-muted-foreground max-sm:before:content-[attr(data-label)]",
         numeric && NUMERIC_CLASSES,
         className
       )}

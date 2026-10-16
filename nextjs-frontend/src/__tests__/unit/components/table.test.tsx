@@ -14,7 +14,7 @@ import {
 
 /** KAN-215: ledger table (caption, scope, numeric cells, stacked rows, aria-sort). */
 
-function Sample({ stacked }: { stacked?: boolean }) {
+function Sample({ stacked = true }: { stacked?: boolean }) {
   return (
     <Table stacked={stacked}>
       <TableCaption>Recent orders</TableCaption>
@@ -85,6 +85,15 @@ describe('Table', () => {
     expect(screen.getByText('$12.00')).toHaveAttribute('data-label', 'Total');
     // header stays in the accessibility tree (visually hidden only)
     expect(screen.getByText('Order', { selector: 'th' })).toBeInTheDocument();
+  });
+
+  it('does not stack by default so existing callers keep their scrollable table', () => {
+    render(
+      <Table>
+        <TableBody />
+      </Table>
+    );
+    expect(screen.getByRole('table').className).not.toContain('max-sm:');
   });
 
   it('does not stack when stacked is false', () => {
