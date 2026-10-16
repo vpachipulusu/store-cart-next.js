@@ -2,6 +2,8 @@
 #    uv export --frozen --no-dev --no-hashes -o requirements.txt
 agent-detector==2.0.0
     # via fastapi-cloud-cli
+alembic==1.20.0
+    # via storecart-backend
 annotated-doc==0.0.5
     # via
     #   fastapi
@@ -141,10 +143,14 @@ jmespath==1.1.0
     # via
     #   boto3
     #   botocore
+mako==1.4.3
+    # via alembic
 markdown-it-py==4.2.0
     # via rich
 markupsafe==3.0.4
-    # via jinja2
+    # via
+    #   jinja2
+    #   mako
 mdurl==0.1.2
     # via markdown-it-py
 msgpack==1.2.3
@@ -250,7 +256,9 @@ shellingham==1.5.4
 six==1.17.0
     # via python-dateutil
 sqlalchemy==2.1.4
-    # via storecart-backend
+    # via
+    #   alembic
+    #   storecart-backend
 starlette==1.8.0
     # via fastapi
 typer==0.27.3
@@ -259,6 +267,7 @@ typer==0.27.3
     #   fastapi-cloud-cli
 typing-extensions==4.16.0
     # via
+    #   alembic
     #   anyio
     #   fastapi
     #   grpcio

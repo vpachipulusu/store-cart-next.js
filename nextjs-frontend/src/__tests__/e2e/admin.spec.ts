@@ -58,8 +58,8 @@ test.describe('Admin Dashboard', () => {
       await waitForPageReady(page);
     });
 
-    test('should display admin portal branding', async ({ page }) => {
-      await expect(page.getByText('Admin Portal')).toBeVisible();
+    test('should display the Admin label in the sidebar', async ({ page }) => {
+      await await expect(page.locator('aside').getByText('Admin', { exact: true })).toBeVisible();
     });
 
     test('should display sidebar navigation with all menu items', async ({ page }) => {
