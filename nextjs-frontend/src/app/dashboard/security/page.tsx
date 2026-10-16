@@ -10,7 +10,9 @@ import {
   getTwoFactorStatusAction,
 } from '@/app/actions/user-actions';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Panel } from '@/components/dashboard/overview/panel';
+import { PageHeader, PanelHint } from '@/components/dashboard/settings/form-page';
+import { StatusPill } from '@/components/ui/status-pill';
 import {
   Dialog,
   DialogContent,
@@ -30,20 +32,31 @@ import {
 } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Key, Loader2, Clock, ShieldCheck, Trash2 } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ReauthDialog } from '@/components/auth/reauth-dialog';
+import { TwoFactorCodeField } from '@/components/auth/two-factor-code-field';
 import { reauthenticate, restoreSessionWithNewPassword } from '@/lib/firebase/reauth';
 import { setSessionRefreshPaused } from '@/lib/firebase/session-refresh-pause';
 import { auth } from '@/lib/firebase/client';
 import { signOut } from 'firebase/auth';
 
+interface LoginHistoryEntry {
+  id: string;
+  loginAt: string;
+  ipAddress?: string | null;
+  location?: string | null;
+  successful: boolean;
+}
+
+const MISMATCH_ERROR = 'Passwords do not match';
+
 export default function SecurityPage() {
   const { toast } = useToast();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
-  const [loginHistory, setLoginHistory] = useState<any[]>([]);
+  const [loginHistory, setLoginHistory] = useState<LoginHistoryEntry[]>([]);
+  const [mismatchError, setMismatchError] = useState<string | null>(null);
   // null until the status loads, or when it could not be read (nothing is claimed in that case).
   const [twoFactorEnabled, setTwoFactorEnabled] = useState<boolean | null>(null);
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -96,13 +109,10 @@ export default function SecurityPage() {
 
   async function handleChangePassword() {
     if (passwordData.newPassword !== passwordData.confirmPassword) {
-      toast({
-        title: 'Error',
-        description: 'Passwords do not match',
-        variant: 'destructive',
-      });
+      setMismatchError(MISMATCH_ERROR);
       return;
     }
+    setMismatchError(null);
 
     try {
       setIsChangingPassword(true);
@@ -186,189 +196,169 @@ export default function SecurityPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl tracking-tight">Security</h1>
-        <p className="text-muted-foreground">Manage your account security and privacy settings</p>
-      </div>
+      <PageHeader
+        title="Security"
+        description="Manage your account security and privacy settings"
+      />
 
-      {/* Password Management */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Key className="h-5 w-5 text-theme-accent" />
-            Password
-          </CardTitle>
-          <CardDescription>Update your password to keep your account secure</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Dialog open={showChangePassword} onOpenChange={setShowChangePassword}>
-            <DialogTrigger asChild>
-              <Button>Change Password</Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Change Password</DialogTitle>
-                <DialogDescription>
-                  Enter your current password and choose a new one
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <Label htmlFor="current-password">Current Password</Label>
-                  <Input
-                    id="current-password"
-                    type="password"
-                    value={passwordData.currentPassword}
-                    onChange={(e) =>
-                      setPasswordData({
-                        ...passwordData,
-                        currentPassword: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="new-password">New Password</Label>
-                  <Input
-                    id="new-password"
-                    type="password"
-                    value={passwordData.newPassword}
-                    onChange={(e) =>
-                      setPasswordData({
-                        ...passwordData,
-                        newPassword: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="confirm-password">Confirm New Password</Label>
-                  <Input
-                    id="confirm-password"
-                    type="password"
-                    value={passwordData.confirmPassword}
-                    onChange={(e) =>
-                      setPasswordData({
-                        ...passwordData,
-                        confirmPassword: e.target.value,
-                      })
-                    }
-                  />
-                </div>
+      <Panel title="Password" titleId="security-password">
+        <PanelHint>Update your password to keep your account secure</PanelHint>
+        <Dialog
+          open={showChangePassword}
+          onOpenChange={(open) => {
+            setShowChangePassword(open);
+            if (!open) setMismatchError(null);
+          }}
+        >
+          <DialogTrigger asChild>
+            <Button variant="accent">Change Password</Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Change Password</DialogTitle>
+              <DialogDescription>
+                Enter your current password and choose a new one
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="current-password">Current Password</Label>
+                <Input
+                  id="current-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={passwordData.currentPassword}
+                  onChange={(e) =>
+                    setPasswordData({ ...passwordData, currentPassword: e.target.value })
+                  }
+                />
               </div>
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => setShowChangePassword(false)}
-                  disabled={isChangingPassword}
-                >
-                  Cancel
-                </Button>
-                <Button onClick={handleChangePassword} disabled={isChangingPassword}>
-                  {isChangingPassword && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Change Password
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </CardContent>
-      </Card>
+              <div>
+                <Label htmlFor="new-password">New Password</Label>
+                <Input
+                  id="new-password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={passwordData.newPassword}
+                  onChange={(e) => {
+                    setMismatchError(null);
+                    setPasswordData({ ...passwordData, newPassword: e.target.value });
+                  }}
+                />
+              </div>
+              <div>
+                <Label htmlFor="confirm-password">Confirm New Password</Label>
+                <Input
+                  id="confirm-password"
+                  type="password"
+                  autoComplete="new-password"
+                  aria-invalid={mismatchError ? true : undefined}
+                  aria-describedby={mismatchError ? 'confirm-password-error' : undefined}
+                  value={passwordData.confirmPassword}
+                  onChange={(e) => {
+                    setMismatchError(null);
+                    setPasswordData({ ...passwordData, confirmPassword: e.target.value });
+                  }}
+                />
+                {mismatchError && (
+                  <p id="confirm-password-error" className="mt-1.5 text-sm text-destructive">
+                    {mismatchError}
+                  </p>
+                )}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setShowChangePassword(false)}
+                disabled={isChangingPassword}
+              >
+                Cancel
+              </Button>
+              <Button onClick={handleChangePassword} disabled={isChangingPassword}>
+                {isChangingPassword && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Change Password
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </Panel>
 
       {/* Two-factor status. Setup stays hidden until sign-in enforces 2FA (KAN-125, parked); disable is offered when it is on. */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <ShieldCheck className="h-5 w-5 text-theme-accent" />
-            Two-Factor Authentication
-          </CardTitle>
-          <CardDescription>An extra verification step when you sign in</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {twoFactorEnabled === null ? (
-            <p className="text-sm text-muted-foreground">Two-factor status unavailable</p>
-          ) : (
-            <p className="text-sm" data-testid="two-factor-status">
-              {twoFactorEnabled
-                ? 'Two-factor authentication is enabled'
-                : 'Two-factor authentication is not enabled'}
-            </p>
-          )}
-          {twoFactorEnabled === true && (
-            <Button
-              variant="outline"
-              className="mt-4"
-              onClick={() => setShowDisableTwoFactor(true)}
-            >
-              Disable 2FA
-            </Button>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Login History */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Clock className="h-5 w-5 text-theme-accent" />
-            Login History
-          </CardTitle>
-          <CardDescription>Review recent activity on your account</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : loginHistory.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date & Time</TableHead>
-                  <TableHead>IP Address</TableHead>
-                  <TableHead>Location</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loginHistory.map((login) => (
-                  <TableRow key={login.id}>
-                    <TableCell>{new Date(login.loginAt).toLocaleString()}</TableCell>
-                    <TableCell className="font-mono text-sm">
-                      {login.ipAddress || 'Unknown'}
-                    </TableCell>
-                    <TableCell>{login.location || 'Unknown'}</TableCell>
-                    <TableCell>
-                      <Badge variant={login.successful ? 'default' : 'destructive'}>
-                        {login.successful ? 'Success' : 'Failed'}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          ) : (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              No login history available
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Danger Zone */}
-      <Card className="border-destructive/50">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-destructive">
-            <Trash2 className="h-5 w-5" />
-            Danger Zone
-          </CardTitle>
-          <CardDescription>Permanently delete your account and all of its data</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button variant="destructive" onClick={() => setShowDeleteAccount(true)}>
-            Delete Account
+      <Panel title="Two-Factor Authentication" titleId="security-two-factor">
+        <PanelHint>An extra verification step when you sign in</PanelHint>
+        {twoFactorEnabled === null ? (
+          <p className="text-sm text-muted-foreground">Two-factor status unavailable</p>
+        ) : (
+          <p className="text-sm" data-testid="two-factor-status">
+            {twoFactorEnabled
+              ? 'Two-factor authentication is enabled'
+              : 'Two-factor authentication is not enabled'}
+          </p>
+        )}
+        {twoFactorEnabled === true && (
+          <Button variant="outline" className="mt-4" onClick={() => setShowDisableTwoFactor(true)}>
+            Disable 2FA
           </Button>
-        </CardContent>
-      </Card>
+        )}
+      </Panel>
+
+      <Panel title="Login History" titleId="security-login-history" busy={isLoading}>
+        <PanelHint>Review recent activity on your account</PanelHint>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2
+              aria-hidden="true"
+              className="h-8 w-8 text-muted-foreground motion-safe:animate-spin"
+            />
+            <span className="sr-only" role="status">
+              Loading login history
+            </span>
+          </div>
+        ) : loginHistory.length > 0 ? (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Date & Time</TableHead>
+                <TableHead>IP Address</TableHead>
+                <TableHead>Location</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loginHistory.map((login) => (
+                <TableRow key={login.id}>
+                  <TableCell>{new Date(login.loginAt).toLocaleString()}</TableCell>
+                  <TableCell className="font-mono text-sm">
+                    {login.ipAddress || 'Unknown'}
+                  </TableCell>
+                  <TableCell>{login.location || 'Unknown'}</TableCell>
+                  <TableCell>
+                    {login.successful ? (
+                      <StatusPill variant="good">Success</StatusPill>
+                    ) : (
+                      <StatusPill variant="crit" icon={X}>
+                        Failed
+                      </StatusPill>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        ) : (
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            No login history available
+          </p>
+        )}
+      </Panel>
+
+      <Panel title="Danger Zone" titleId="security-danger-zone" className="border-destructive/50">
+        <PanelHint>Permanently delete your account and all of its data</PanelHint>
+        <Button variant="destructive" onClick={() => setShowDeleteAccount(true)}>
+          Delete Account
+        </Button>
+      </Panel>
 
       <ReauthDialog
         open={showDisableTwoFactor}
@@ -383,17 +373,15 @@ export default function SecurityPage() {
         canConfirm={/^\d{6}$/.test(twoFactorCode)}
         onConfirm={handleDisableTwoFactor}
       >
-        <div>
-          <Label htmlFor="disable-2fa-code">Authenticator code</Label>
-          <Input
+        {({ error, errorId }) => (
+          <TwoFactorCodeField
             id="disable-2fa-code"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            maxLength={6}
+            label="Authenticator code"
             value={twoFactorCode}
-            onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, ''))}
+            onChange={setTwoFactorCode}
+            describedBy={error ? errorId : undefined}
           />
-        </div>
+        )}
       </ReauthDialog>
 
       <ReauthDialog
