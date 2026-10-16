@@ -17,7 +17,7 @@ A preview deployment is two services that must name the same Firebase project, o
 - Frontend (Next.js project): `NEXT_PUBLIC_FIREBASE_*` of the test project, baked in at build time (changing them needs a new build).
 - Backend (FastAPI project): `FIREBASE_ADMIN_PROJECT_ID`, `FIREBASE_ADMIN_CLIENT_EMAIL`, `FIREBASE_ADMIN_PRIVATE_KEY` of the same test project.
 
-The e2e job refuses to run when the test project id equals the repository variable `PROD_FIREBASE_PROJECT_ID`.
+The Vercel Preview rows are the target state: verify them in checklist step 4. The e2e job refuses to run when the test project id equals the repository variable `PROD_FIREBASE_PROJECT_ID`, and only warns and skips that check while the variable is unset (checklist step 2).
 
 ## Open owner confirmation
 
@@ -25,7 +25,7 @@ Which project do the legacy e2e accounts live in? `testing.md` says the developm
 
 ## The tool
 
-`fastapi_backend/commands/purge_legacy_e2e_accounts.py`. It needs no database. It reads `FIREBASE_ADMIN_*` from the environment of the shell you run it in.
+`fastapi_backend/commands/purge_legacy_e2e_accounts.py`. It needs no database. It reads `FIREBASE_ADMIN_*` through the backend settings: exported shell variables win over `fastapi_backend/.env`, but move that file away for the run and check that the project id in the first output line is the one you intend.
 
 Selection: an account is matched only if its email is e2e-shaped:
 

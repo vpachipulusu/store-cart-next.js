@@ -103,7 +103,7 @@ def test_paging_visits_every_page():
 def test_dry_run_deletes_nothing_and_prints_counts_and_masks(capsys):
     fake = FakeAuth(world())
 
-    code = main([], auth=fake)
+    code = main([], gateway_override=fake)
 
     out = capsys.readouterr().out
     assert code == 0
@@ -118,7 +118,7 @@ def test_dry_run_deletes_nothing_and_prints_counts_and_masks(capsys):
 def test_execute_requires_project_id(capsys):
     fake = FakeAuth(world())
 
-    assert main(["--execute"], auth=fake) == 2
+    assert main(["--execute"], gateway_override=fake) == 2
 
     assert fake.calls == []
     assert "--project-id" in capsys.readouterr().err
@@ -127,7 +127,7 @@ def test_execute_requires_project_id(capsys):
 def test_project_id_mismatch_is_refused(capsys):
     fake = FakeAuth(world())
 
-    code = main(["--execute", "--project-id", "storecart-test"], auth=fake)
+    code = main(["--execute", "--project-id", "storecart-test"], gateway_override=fake)
 
     assert code == 2
     assert fake.calls == []
@@ -135,13 +135,13 @@ def test_project_id_mismatch_is_refused(capsys):
 
 
 def test_project_id_mismatch_is_refused_even_in_dry_run():
-    assert main(["--project-id", "other"], auth=FakeAuth(world())) == 2
+    assert main(["--project-id", "other"], gateway_override=FakeAuth(world())) == 2
 
 
 def test_execute_revokes_before_deleting_each_account(capsys):
     fake = FakeAuth(world())
 
-    code = main(["--execute", "--project-id", PROJECT], auth=fake)
+    code = main(["--execute", "--project-id", PROJECT], gateway_override=fake)
 
     assert code == 0
     assert fake.calls == [
@@ -160,7 +160,7 @@ def test_execute_revokes_before_deleting_each_account(capsys):
 def test_not_found_counts_as_already_done(capsys):
     fake = FakeAuth(world(), missing={"u3"})
 
-    code = main(["--execute", "--project-id", PROJECT], auth=fake)
+    code = main(["--execute", "--project-id", PROJECT], gateway_override=fake)
 
     out = capsys.readouterr().out
     assert code == 0
@@ -171,7 +171,7 @@ def test_not_found_counts_as_already_done(capsys):
 def test_rerun_after_purge_finds_nothing_and_is_a_no_op(capsys):
     fake = FakeAuth([acct("u2", REAL)])
 
-    assert main(["--execute", "--project-id", PROJECT], auth=fake) == 0
+    assert main(["--execute", "--project-id", PROJECT], gateway_override=fake) == 0
 
     assert fake.calls == []
     assert "0 legacy e2e account(s)" in capsys.readouterr().out
@@ -180,7 +180,7 @@ def test_rerun_after_purge_finds_nothing_and_is_a_no_op(capsys):
 def test_other_errors_fail_without_printing_any_data(capsys):
     fake = FakeAuth(world(), fail_on=("delete", "u3"))
 
-    code = main(["--execute", "--project-id", PROJECT], auth=fake)
+    code = main(["--execute", "--project-id", PROJECT], gateway_override=fake)
 
     captured = capsys.readouterr()
     text = captured.out + captured.err
@@ -192,8 +192,8 @@ def test_other_errors_fail_without_printing_any_data(capsys):
 
 def test_output_never_contains_uids_full_emails_or_credentials(capsys):
     fake = FakeAuth(world())
-    main([], auth=fake)
-    main(["--execute", "--project-id", PROJECT], auth=fake)
+    main([], gateway_override=fake)
+    main(["--execute", "--project-id", PROJECT], gateway_override=fake)
 
     captured = capsys.readouterr()
     text = captured.out + captured.err
@@ -285,3 +285,218 @@ def test_firebase_gateway_hides_sdk_error_details(monkeypatch):
 
     assert E2E_USER not in str(caught.value)
     assert caught.value.__cause__ is None
+
+
+# --- additions from the TDD review -------------------------------------------------
+
+
+def test_revoke_failure_stops_before_any_delete(capsys):
+    fake = FakeAuth(world(), fail_on=("revoke", "u3"))
+
+    code = main(["--execute", "--project-id", PROJECT], gateway_override=fake)
+
+    assert code == 1
+    assert ("delete", "u3") not in fake.calls
+    assert "u3" not in capsys.readouterr().err
+
+
+def test_delete_not_found_after_revoke_counts_as_already_gone(capsys):
+    class DeleteRace(FakeAuth):
+        def delete_user(self, uid: str) -> None:
+            self.calls.append(("delete", uid))
+            if uid == "u3":
+                raise AccountNotFound()
+
+    fake = DeleteRace(world())
+
+    assert main(["--execute", "--project-id", PROJECT], gateway_override=fake) == 0
+
+    assert "deleted 3, already gone 1" in capsys.readouterr().out
+
+
+def test_listing_failure_changes_nothing(capsys):
+    class ListFails(FakeAuth):
+        def list_page(self, token: str | None) -> AccountPage:
+            if token:
+                raise PurgeFailed()
+            return super().list_page(token)
+
+    fake = ListFails(world())
+
+    assert main(["--execute", "--project-id", PROJECT], gateway_override=fake) == 1
+    assert fake.calls == []
+
+
+def test_empty_project_id_is_refused_with_execute():
+    fake = FakeAuth(world())
+    assert main(["--execute", "--project-id", ""], gateway_override=fake) == 2
+    assert fake.calls == []
+
+
+def test_project_id_comparison_is_case_sensitive():
+    fake = FakeAuth(world())
+    assert (
+        main(["--execute", "--project-id", PROJECT.upper()], gateway_override=fake) == 2
+    )
+    assert fake.calls == []
+
+
+def test_dry_run_with_matching_project_id_still_changes_nothing(capsys):
+    fake = FakeAuth(world())
+
+    assert main(["--project-id", PROJECT], gateway_override=fake) == 0
+
+    assert fake.calls == []
+    assert "Nothing was changed" in capsys.readouterr().out
+
+
+def test_selection_edge_cases():
+    shapes = {
+        "E2E-USER-0123456789AB@EXAMPLE.COM": True,
+        "TESTUSER@example.com": True,
+        "e2e-user-0123456789ab@example.com.evil.io": False,
+        "xe2e-user-0123456789ab@example.com": False,
+        "e2e-user-0123456789a@example.com": False,
+        "e2e-user-0123456789abc@example.com": False,
+        "e2e-user-0123456789zz@example.com": False,
+        "testuser2@example.com": False,
+        " e2e-user-0123456789ab@example.com": False,
+    }
+    for email, expected in shapes.items():
+        assert is_legacy_e2e_account(acct("x", email)) is expected, email
+
+
+def test_only_the_boolean_true_claim_counts():
+    variant = "e2e-smoke.1@example.com"
+    for claim in ("true", 1, "yes", None):
+        assert not is_legacy_e2e_account(acct("x", variant, {"e2e": claim}))
+    assert not is_legacy_e2e_account(
+        acct("x", "e2e-smoke.1@example.org", {"e2e": True})
+    )
+
+
+def test_second_execute_run_makes_no_calls(capsys):
+    class Stateful(FakeAuth):
+        def delete_user(self, uid: str) -> None:
+            super().delete_user(uid)
+            self.accounts = [a for a in self.accounts if a.uid != uid]
+
+    fake = Stateful(world())
+    assert main(["--execute", "--project-id", PROJECT], gateway_override=fake) == 0
+    first = len(fake.calls)
+
+    assert main(["--execute", "--project-id", PROJECT], gateway_override=fake) == 0
+
+    assert len(fake.calls) == first
+    assert [a.uid for a in fake.accounts if is_legacy_e2e_account(a)] == []
+
+
+def test_mask_email_edge_cases():
+    assert mask_email("") == "***"
+    assert mask_email("@example.com") == "***"
+    assert mask_email("abcdef@example.com") == "abcdef***@example.com"
+
+
+def test_missing_credentials_print_nothing_to_stdout(monkeypatch, capsys):
+    def unavailable() -> purge.AuthGateway:
+        raise purge.IdentityProviderUnavailable()
+
+    monkeypatch.setattr(purge, "_firebase_gateway", unavailable)
+
+    assert main([]) == 1
+    assert capsys.readouterr().out == ""
+
+
+class _FakeApp:
+    def __init__(self, project_id: str | None) -> None:
+        self.project_id = project_id
+
+
+def test_firebase_gateway_factory_uses_the_apps_project_id(monkeypatch):
+    monkeypatch.setattr(purge, "firebase_app", lambda: _FakeApp(PROJECT))
+
+    assert purge._firebase_gateway().project_id == PROJECT
+
+
+def test_firebase_gateway_factory_refuses_an_app_without_project_id(monkeypatch):
+    monkeypatch.setattr(purge, "firebase_app", lambda: _FakeApp(None))
+
+    with pytest.raises(purge.IdentityProviderUnavailable):
+        purge._firebase_gateway()
+
+
+def test_firebase_gateway_list_arguments_and_empty_last_token(monkeypatch):
+    seen: dict[str, object] = {}
+    app = object()
+
+    def list_users(page_token=None, max_results=None, app=None):
+        seen.update(token=page_token, max=max_results, app=app)
+        return _Page([], "")
+
+    monkeypatch.setattr(purge.auth, "list_users", list_users)
+    gateway = purge.FirebaseAuthGateway(app=app, project_id=PROJECT)  # type: ignore[arg-type]
+
+    page = gateway.list_page("tok")
+
+    assert seen == {"token": "tok", "max": purge.PAGE_SIZE, "app": app}
+    assert page.next_token is None
+
+
+@pytest.mark.parametrize(
+    "method", ["list_page", "revoke_refresh_tokens", "delete_user"]
+)
+@pytest.mark.parametrize("error", [purge.exceptions.UnknownError("x"), ValueError("x")])
+def test_firebase_gateway_flattens_sdk_errors(monkeypatch, method, error):
+    def boom(*_a, **_k):
+        raise error
+
+    for name in ("list_users", "revoke_refresh_tokens", "delete_user"):
+        monkeypatch.setattr(purge.auth, name, boom)
+    gateway = purge.FirebaseAuthGateway(app=object(), project_id=PROJECT)  # type: ignore[arg-type]
+    call = getattr(gateway, method)
+
+    with pytest.raises(PurgeFailed) as caught:
+        call(None) if method == "list_page" else call("u1")
+
+    assert caught.value.__cause__ is None
+
+
+def test_firebase_gateway_revoke_not_found_is_already_gone(monkeypatch):
+    def gone(*_a, **_k):
+        raise purge.auth.UserNotFoundError("gone", None, None)
+
+    monkeypatch.setattr(purge.auth, "revoke_refresh_tokens", gone)
+    gateway = purge.FirebaseAuthGateway(app=object(), project_id=PROJECT)  # type: ignore[arg-type]
+
+    with pytest.raises(AccountNotFound):
+        gateway.revoke_refresh_tokens("u1")
+
+
+def test_failure_reports_progress_without_details(capsys):
+    fake = FakeAuth(world(), fail_on=("delete", "u6"))
+
+    assert main(["--execute", "--project-id", PROJECT], gateway_override=fake) == 1
+
+    assert "after 2 of 4 account(s)" in capsys.readouterr().err
+
+
+def test_google_auth_errors_are_flattened(monkeypatch):
+    def boom(*_a, **_k):
+        raise purge.google_exceptions.TransportError("https://leak.example/" + E2E_USER)
+
+    monkeypatch.setattr(purge.auth, "list_users", boom)
+    gateway = purge.FirebaseAuthGateway(app=object(), project_id=PROJECT)  # type: ignore[arg-type]
+
+    with pytest.raises(PurgeFailed):
+        gateway.list_page(None)
+
+
+def test_malformed_credentials_fail_cleanly(monkeypatch, capsys):
+    def bad_key() -> purge.AuthGateway:
+        raise ValueError("bad private key material")
+
+    monkeypatch.setattr(purge, "_firebase_gateway", bad_key)
+
+    assert main([]) == 1
+    captured = capsys.readouterr()
+    assert "bad private key" not in captured.out + captured.err

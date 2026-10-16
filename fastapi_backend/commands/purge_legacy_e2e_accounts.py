@@ -3,8 +3,8 @@
     uv run python -m commands.purge_legacy_e2e_accounts                              # dry run
     uv run python -m commands.purge_legacy_e2e_accounts --execute --project-id <id>  # real
 
-Run by the owner, once, against the PRODUCTION Firebase project, with that project's FIREBASE_ADMIN_*
-variables exported (see docs/developer/e2e-firebase-runbook.md). No database access.
+Run by the owner against the Firebase project that holds the legacy accounts (see the runbook), with that
+project's FIREBASE_ADMIN_* variables exported (they override any fastapi_backend/.env) (see docs/developer/e2e-firebase-runbook.md). No database access.
 
 A user is selected only when its email is e2e-shaped: the generated e2e pattern, the old default
 test-user address, or (with the {e2e: true} claim) any e2e-prefixed @example.com address. A claim alone, or an
@@ -22,10 +22,17 @@ from typing import Protocol
 
 import firebase_admin
 from firebase_admin import auth, exceptions
+from google.auth import exceptions as google_exceptions
 
 from app.core.firebase import IdentityProviderUnavailable, firebase_app
 
 PAGE_SIZE = 1000  # the Admin SDK maximum
+# Every provider failure is flattened: the messages can contain emails or URLs.
+PROVIDER_ERRORS = (
+    exceptions.FirebaseError,
+    ValueError,
+    google_exceptions.GoogleAuthError,
+)
 
 # Mirrors E2E_EMAIL in nextjs-frontend/scripts/e2e-accounts.mjs.
 E2E_EMAIL = re.compile(r"e2e-(user|admin|temp)-[0-9a-f]{12}@example\.com")
@@ -76,7 +83,7 @@ class FirebaseAuthGateway:
             page = auth.list_users(
                 page_token=token, max_results=PAGE_SIZE, app=self._app
             )
-        except (exceptions.FirebaseError, ValueError):
+        except PROVIDER_ERRORS:
             raise PurgeFailed() from None
         accounts = tuple(
             Account(user.uid, user.email, dict(user.custom_claims or {}))
@@ -89,7 +96,7 @@ class FirebaseAuthGateway:
             auth.revoke_refresh_tokens(uid, app=self._app)
         except auth.UserNotFoundError:
             raise AccountNotFound() from None
-        except (exceptions.FirebaseError, ValueError):
+        except PROVIDER_ERRORS:
             raise PurgeFailed() from None
 
     def delete_user(self, uid: str) -> None:
@@ -97,7 +104,7 @@ class FirebaseAuthGateway:
             auth.delete_user(uid, app=self._app)
         except auth.UserNotFoundError:
             raise AccountNotFound() from None
-        except (exceptions.FirebaseError, ValueError):
+        except PROVIDER_ERRORS:
             raise PurgeFailed() from None
 
 
@@ -168,20 +175,26 @@ def _fail(message: str, code: int) -> int:
     return code
 
 
-def main(argv: Sequence[str] | None = None, auth: AuthGateway | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None, gateway_override: AuthGateway | None = None
+) -> int:
     args = parse_args(argv)
     if args.execute and not args.project_id:
         return _fail("Refusing: --execute requires --project-id <id>.", 2)
     try:
-        gateway = auth if auth is not None else _firebase_gateway()
-    except IdentityProviderUnavailable:
-        return _fail("FAILED: Firebase Admin credentials are not configured.", 1)
+        gateway = (
+            gateway_override if gateway_override is not None else _firebase_gateway()
+        )
+    except (IdentityProviderUnavailable, ValueError):
+        return _fail("FAILED: Firebase Admin credentials are missing or invalid.", 1)
     if args.project_id and args.project_id != gateway.project_id:
         return _fail(
             "Refusing: --project-id does not match the credential's Firebase project "
             f"({gateway.project_id}).",
             2,
         )
+    deleted = done = 0
+    matches: list[Account] = []
     try:
         matches = find_legacy_e2e_accounts(gateway)
         mode = "EXECUTE" if args.execute else "DRY RUN"
@@ -196,10 +209,13 @@ def main(argv: Sequence[str] | None = None, auth: AuthGateway | None = None) -> 
                 "Nothing was changed. Re-run with --execute --project-id <id> to delete."
             )
             return 0
-        deleted = sum(_purge_one(gateway, account.uid) for account in matches)
+        for account in matches:
+            deleted += _purge_one(gateway, account.uid)
+            done += 1
     except PurgeFailed:
         return _fail(
-            "FAILED: the identity provider rejected a call; stopped, details withheld.",
+            f"FAILED: the identity provider rejected a call after {done} of "
+            f"{len(matches)} account(s); stopped, details withheld. Re-run is safe.",
             1,
         )
     print(f"deleted {deleted}, already gone {len(matches) - deleted}")
