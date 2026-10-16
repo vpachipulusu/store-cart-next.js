@@ -28,9 +28,13 @@ vi.mock('@/lib/logger', () => ({ logger: { error: mocks.loggerError } }));
 vi.mock('@/components/providers/session-provider', () => ({ SessionProvider: () => null }));
 vi.mock('@/components/dashboard/dashboard-header', () => ({ DashboardHeader: () => null }));
 vi.mock('@/components/dashboard/store-switcher', () => ({ StoreSwitcher: () => null }));
+vi.mock('@/components/dashboard/sidebar', () => ({ Sidebar: () => null }));
+vi.mock('@/components/dashboard/tab-bar', () => ({ TabBar: () => null }));
 
 import DashboardLayout from '@/app/dashboard/layout';
 import { StoreSwitcher } from '@/components/dashboard/store-switcher';
+import { Sidebar } from '@/components/dashboard/sidebar';
+import { TabBar } from '@/components/dashboard/tab-bar';
 
 /** Finds the props.user handed to DashboardHeader in the rendered element tree. */
 function findHeaderUser(node: unknown): Record<string, unknown> | undefined {
@@ -103,6 +107,28 @@ describe('DashboardLayout session check', () => {
       data: { display_name: null, avatar_url: null },
     });
     mocks.fetchMerchantStores.mockResolvedValue({ success: true, data: [STORE, OTHER_STORE] });
+  });
+
+  describe('KAN-217: shell', () => {
+    it('renders the sidebar, the tab bar and a focusable main that the skip link targets', async () => {
+      const tree = await DashboardLayout({ children: 'PAGE' });
+
+      expect(hasType(tree, Sidebar)).toBe(true);
+      expect(hasType(tree, TabBar)).toBe(true);
+      expect(hasProp(tree, 'href', '#main-content')).toBe(true);
+      expect(hasProp(tree, 'id', 'main-content')).toBe(true);
+      expect(hasProp(tree, 'tabIndex', -1)).toBe(true);
+      expect(hasText(tree, 'Skip to main content')).toBe(true);
+    });
+
+    it('puts the skip link before the sidebar so it is the first tab stop', async () => {
+      const tree = (await DashboardLayout({ children: null })) as {
+        props: { children: Array<{ type: unknown; props: { href?: string } }> };
+      };
+
+      expect(tree.props.children[0].props.href).toBe('#main-content');
+      expect(tree.props.children[1].type).toBe(Sidebar);
+    });
   });
 
   describe('KAN-61: store scope', () => {
