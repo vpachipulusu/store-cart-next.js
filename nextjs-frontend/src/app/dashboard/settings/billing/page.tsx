@@ -197,7 +197,7 @@ export default function BillingPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <CreditCard className="h-5 w-5 text-theme-accent" />
+            <CreditCard className="h-5 w-5 text-theme-accent" aria-hidden="true" />
             Current Plan
           </CardTitle>
           <CardDescription>Your active subscription details</CardDescription>
@@ -237,7 +237,7 @@ export default function BillingPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <RefreshCw className="h-5 w-5 text-theme-accent" />
+              <RefreshCw className="h-5 w-5 text-theme-accent" aria-hidden="true" />
               Auto-Renewal
             </CardTitle>
             <CardDescription>
@@ -271,12 +271,15 @@ export default function BillingPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Gauge className="h-5 w-5 text-theme-accent" />
+            <Gauge className="h-5 w-5 text-theme-accent" aria-hidden="true" />
             Plan Usage
           </CardTitle>
-          <CardDescription>Sample figures: live plan usage is not available yet.</CardDescription>
+          <CardDescription>Live plan usage is not available yet.</CardDescription>
         </CardHeader>
         <CardContent>
+          <p className="mb-3 text-sm font-medium text-muted-foreground">
+            Sample figures, not your plan&apos;s entitlements.
+          </p>
           <PlanUsageMeter
             items={planUsageFixture(subscription?.subscriptionTier)}
             className="rounded-none border-0 bg-transparent p-0"
@@ -289,7 +292,7 @@ export default function BillingPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Calendar className="h-5 w-5 text-theme-accent" />
+            <Calendar className="h-5 w-5 text-theme-accent" aria-hidden="true" />
             Upcoming Invoice
           </CardTitle>
           <CardDescription>Preview of your next charge</CardDescription>
@@ -307,7 +310,7 @@ export default function BillingPage() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="flex items-center gap-2">
-                <CreditCard className="h-5 w-5 text-theme-accent" />
+                <CreditCard className="h-5 w-5 text-theme-accent" aria-hidden="true" />
                 Payment Methods
               </CardTitle>
               <CardDescription>Manage your saved payment methods</CardDescription>
@@ -387,7 +390,7 @@ export default function BillingPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Calendar className="h-5 w-5 text-theme-accent" />
+            <Calendar className="h-5 w-5 text-theme-accent" aria-hidden="true" />
             Billing History
           </CardTitle>
           <CardDescription>Your recent invoices and payments</CardDescription>

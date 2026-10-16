@@ -23,7 +23,7 @@ export interface Invoice {
   hostedUrl: string | null;
 }
 
-function formatAmount(amount: number, currency: string): string {
+export function formatAmount(amount: number, currency: string): string {
   try {
     return (amount / 100).toLocaleString('en-US', { style: 'currency', currency });
   } catch {
@@ -54,13 +54,14 @@ export function InvoiceTable({ invoices }: { invoices: ReadonlyArray<Invoice> })
       <TableBody>
         {invoices.map((invoice) => {
           const date = new Date(invoice.created).toLocaleDateString();
+          const amount = formatAmount(invoice.amount, invoice.currency);
           const pdfUrl = safeHttpsUrl(invoice.pdfUrl);
           const hostedUrl = safeHttpsUrl(invoice.hostedUrl);
           return (
             <TableRow key={invoice.id}>
               <TableCell label="Date">{date}</TableCell>
               <TableCell label="Amount" numeric>
-                {formatAmount(invoice.amount, invoice.currency)}
+                {amount}
               </TableCell>
               <TableCell label="Status">
                 <InvoiceStatusPill status={invoice.status} />
@@ -73,7 +74,7 @@ export function InvoiceTable({ invoices }: { invoices: ReadonlyArray<Invoice> })
                         href={pdfUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        aria-label={`PDF for invoice dated ${date} (opens in a new tab)`}
+                        aria-label={`PDF for invoice dated ${date}, ${amount} (opens in a new tab)`}
                       >
                         <Download className="h-4 w-4" aria-hidden="true" />
                         <span className="ml-1">PDF</span>
@@ -86,7 +87,7 @@ export function InvoiceTable({ invoices }: { invoices: ReadonlyArray<Invoice> })
                         href={hostedUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        aria-label={`View invoice dated ${date} online (opens in a new tab)`}
+                        aria-label={`View invoice dated ${date}, ${amount} online (opens in a new tab)`}
                       >
                         <ExternalLink className="h-4 w-4" aria-hidden="true" />
                         <span className="ml-1">View</span>

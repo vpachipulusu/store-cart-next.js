@@ -2,7 +2,8 @@ import type { UsageMeterItem } from '@/components/dashboard/plan-usage-meter';
 
 /**
  * Sample plan-usage figures. There is no plan-usage API yet, so the billing page shows these
- * (labelled as samples) until a real source exists. Limits are illustrative, not enforced.
+ * (labelled as samples) until a real source exists. The limits are placeholders, NOT the plan's
+ * entitlements: never use them to gate or promise anything.
  */
 export const PLAN_USAGE_FIXTURES: Readonly<Record<string, ReadonlyArray<UsageMeterItem>>> = {
   free: [
