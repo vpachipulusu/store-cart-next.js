@@ -50,6 +50,7 @@ GRANTABLE_PLANS = frozenset({PlanKey.PRO, PlanKey.ENTERPRISE})
 CANCEL_ACTION = "admin.subscriptions.cancel"
 REFUND_ACTION = "admin.subscriptions.refund"
 GRANT_ACTION = "admin.subscriptions.grant"
+REVOKE_GRANT_ACTION = "admin.subscriptions.revoke_grant"
 ENDED_STATUSES = frozenset({"canceled", "incomplete_expired"})
 
 logger = logging.getLogger("storecart.admin_subscriptions")
@@ -108,6 +109,7 @@ class SubscriptionsStore(Protocol):
     async def set_grant(
         self, organization_id: str, plan: str, until: datetime
     ) -> None: ...
+    async def clear_grant(self, organization_id: str) -> None: ...
     async def lock_request(self, key: str) -> None: ...
     async def find_request(
         self, action: str, organization_id: str, request_ref: str
@@ -159,6 +161,11 @@ class GrantResult:
     granted_plan: str
     granted_until: datetime
     changed: bool
+
+
+@dataclass(frozen=True)
+class RevokeResult:
+    already_applied: bool
 
 
 def request_ref(request_key: str) -> str:
@@ -505,6 +512,74 @@ class AdminSubscriptionsService:
         )
         await self.session.commit()
         return GrantResult(plan.value, until, changed=True)
+
+    async def revoke_grant(
+        self, actor: AdminContext, organization_id: str, *, request_key: str
+    ) -> RevokeResult:
+        """Clear a granted plan; the organisation falls back to its Stripe-derived plan.
+
+        Same two steps as a refund, minus Stripe: a pending audit row is committed
+        before the grant is cleared, then the row moves to completed in the same
+        transaction as the change. A retry with the same key resumes a pending row or
+        replays a completed one; a replay never clears a newer grant.
+        """
+        ref = request_ref(request_key)
+        record = await self._require(organization_id)
+        prior = await self.store.find_request(REVOKE_GRANT_ACTION, organization_id, ref)
+        if prior is not None and prior.details.get("state") == "completed":
+            await self.session.rollback()
+            return RevokeResult(already_applied=True)
+        if prior is None and record.granted_plan is None:
+            raise SubscriptionConflict
+        if prior is None:
+            await self._record_revoke_intent(actor, record, ref)
+        return await self._complete_revoke(organization_id, ref)
+
+    async def _record_revoke_intent(
+        self, actor: AdminContext, record: SubscriptionRecord, ref: str
+    ) -> None:
+        try:
+            await self.store.lock_request(f"{REVOKE_GRANT_ACTION}:{record.id}:{ref}")
+            twin = await self.store.find_request(REVOKE_GRANT_ACTION, record.id, ref)
+            if twin is None:  # else a concurrent request with this key staged it
+                await self.auditor.record(
+                    actor,
+                    action=REVOKE_GRANT_ACTION,
+                    resource="subscriptions",
+                    resource_id=record.id,
+                    organization_id=record.id,
+                    before={
+                        "granted_plan": record.granted_plan,
+                        "granted_until": record.granted_until,
+                    },
+                    details={"request_ref": ref, "state": "pending"},
+                )
+            await self.session.commit()
+        except Exception:  # noqa: BLE001 - any recording failure means "retry"; logged by _abandon
+            await self._abandon("revoke intent")
+            raise CommitFailed from None
+
+    async def _complete_revoke(self, organization_id: str, ref: str) -> RevokeResult:
+        try:
+            await self.store.lock_request(
+                f"{REVOKE_GRANT_ACTION}:{organization_id}:{ref}"
+            )
+            row = await self.store.find_request(
+                REVOKE_GRANT_ACTION, organization_id, ref
+            )
+            if row is None:
+                raise LookupError("revoke intent row is missing")
+            if row.details.get("state") == "completed":  # a concurrent twin won
+                await self.session.rollback()
+                return RevokeResult(already_applied=True)
+            await self._require(organization_id, lock=True)
+            await self.store.clear_grant(organization_id)
+            await self._set_state(row, "completed")
+            await self.session.commit()
+        except Exception:  # noqa: BLE001 - any recording failure means "retry"; logged by _abandon
+            await self._abandon("revoke result")
+            raise CommitFailed from None
+        return RevokeResult(already_applied=False)
 
     async def _require(
         self, organization_id: str, *, lock: bool = False

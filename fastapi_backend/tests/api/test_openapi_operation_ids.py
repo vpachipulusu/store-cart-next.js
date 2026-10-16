@@ -52,6 +52,7 @@ def test_admin_subscription_routes_use_their_own_operation_ids():
         "admin_cancel_subscription",
         "admin_refund_payment",
         "admin_grant_subscription",
+        "admin_revoke_grant",
     }
 
 

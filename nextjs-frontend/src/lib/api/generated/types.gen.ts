@@ -1165,6 +1165,31 @@ export type RefundResponse = {
 };
 
 /**
+ * RevokeData
+ */
+export type RevokeData = {
+    /**
+     * Organization Id
+     */
+    organization_id: string;
+    /**
+     * Already Applied
+     */
+    already_applied: boolean;
+};
+
+/**
+ * RevokeResponse
+ */
+export type RevokeResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: RevokeData;
+};
+
+/**
  * RevokedResponse
  */
 export type RevokedResponse = {
@@ -3933,6 +3958,82 @@ export type AdminRefundPaymentResponses = {
 };
 
 export type AdminRefundPaymentResponse = AdminRefundPaymentResponses[keyof AdminRefundPaymentResponses];
+
+export type AdminRevokeGrantData = {
+    body?: never;
+    headers: {
+        /**
+         * Idempotency-Key
+         */
+        'Idempotency-Key': string;
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+    };
+    query?: never;
+    url: '/v1/admin/subscriptions/{organization_id}/grant';
+};
+
+export type AdminRevokeGrantErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type AdminRevokeGrantError = AdminRevokeGrantErrors[keyof AdminRevokeGrantErrors];
+
+export type AdminRevokeGrantResponses = {
+    /**
+     * Successful Response
+     */
+    200: RevokeResponse;
+};
+
+export type AdminRevokeGrantResponse = AdminRevokeGrantResponses[keyof AdminRevokeGrantResponses];
 
 export type AdminGrantSubscriptionData = {
     body: GrantRequest;

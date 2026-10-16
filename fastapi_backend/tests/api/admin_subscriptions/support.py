@@ -141,6 +141,7 @@ ROUTES = [
     ("POST", f"{BASE}/org1/cancel", {}),
     ("POST", f"{BASE}/org1/refunds", {"charge_id": "ch_1"}),
     ("PUT", f"{BASE}/org1/grant", GRANT_BODY),
+    ("DELETE", f"{BASE}/org1/grant", None),
 ]
 
 
