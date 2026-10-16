@@ -5,6 +5,26 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Send } from 'lucide-react';
 
+type FieldProps = React.ComponentProps<typeof Input> & {
+  id: string;
+  label: string;
+  hint: string;
+  required?: boolean;
+};
+
+/** Plan 5.8 field: label (required marked in text), 44px control, hint linked by aria-describedby. */
+function Field({ id, label, hint, required, ...inputProps }: FieldProps) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{`${label} (${required ? 'required' : 'optional'})`}</Label>
+      <Input id={id} required={required} aria-describedby={`${id}-hint`} {...inputProps} />
+      <p id={`${id}-hint`} className="text-sm text-muted-foreground">
+        {hint}
+      </p>
+    </div>
+  );
+}
+
 export const metadata = {
   title: 'Contact Us',
   description: 'Get in touch with our team',
@@ -16,7 +36,9 @@ export default async function ContactPage({
   searchParams: Promise<{ plan?: string }>;
 }) {
   const params = await searchParams;
-  const selectedPlan = params.plan;
+  // ?plan=a&plan=b arrives as an array at runtime
+  const selectedPlan = typeof params.plan === 'string' ? params.plan : undefined;
+  const planLabel = selectedPlan && selectedPlan.charAt(0).toUpperCase() + selectedPlan.slice(1);
 
   return (
     <div className="min-h-screen px-4 py-12">
@@ -28,9 +50,7 @@ export default async function ContactPage({
             A support contact is coming soon. Messages cannot be sent from this page yet.
           </p>
           {selectedPlan && (
-            <p className="mt-4 text-sm text-primary">
-              Interested in the {selectedPlan.charAt(0).toUpperCase() + selectedPlan.slice(1)} plan
-            </p>
+            <p className="mt-4 text-sm text-accent-ink">Interested in the {planLabel} plan</p>
           )}
         </div>
 
@@ -47,62 +67,49 @@ export default async function ContactPage({
               <CardContent>
                 <fieldset disabled aria-label="Contact form unavailable" className="space-y-6">
                   <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="firstName">First Name</Label>
-                      <Input id="firstName" placeholder="John" required />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="lastName">Last Name</Label>
-                      <Input id="lastName" placeholder="Doe" required />
-                    </div>
+                    <Field id="firstName" label="First name" required hint="Your given name." />
+                    <Field id="lastName" label="Last name" required hint="Your family name." />
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
-                    <Input id="email" type="email" placeholder="Your email address" required />
-                  </div>
+                  <Field
+                    id="email"
+                    label="Email"
+                    type="email"
+                    required
+                    hint="We would reply to this address."
+                  />
 
-                  <div className="space-y-2">
-                    <Label htmlFor="company">Company (Optional)</Label>
-                    <Input id="company" placeholder="Acme Inc." />
-                  </div>
+                  <Field id="company" label="Company" hint="Leave blank if not applicable." />
 
                   {selectedPlan && (
-                    <div className="space-y-2">
-                      <Label htmlFor="plan">Interested Plan</Label>
-                      <Input
-                        id="plan"
-                        defaultValue={selectedPlan.charAt(0).toUpperCase() + selectedPlan.slice(1)}
-                        readOnly
-                        className="bg-muted"
-                      />
-                    </div>
+                    <Field
+                      id="plan"
+                      label="Interested plan"
+                      hint="Chosen on the pricing page."
+                      defaultValue={planLabel}
+                      readOnly
+                      className="bg-muted"
+                    />
                   )}
 
-                  <div className="space-y-2">
-                    <Label htmlFor="subject">Subject</Label>
-                    <Input
-                      id="subject"
-                      placeholder={
-                        selectedPlan ? `Inquiry about ${selectedPlan} plan` : 'How can we help you?'
-                      }
-                      required
-                    />
-                  </div>
+                  <Field
+                    id="subject"
+                    label="Subject"
+                    required
+                    hint="A short summary of your request."
+                  />
 
                   <div className="space-y-2">
-                    <Label htmlFor="message">Message</Label>
-                    <Textarea
-                      id="message"
-                      placeholder="Tell us more about your needs..."
-                      rows={6}
-                      required
-                    />
+                    <Label htmlFor="message">Message (required)</Label>
+                    <Textarea id="message" rows={6} required aria-describedby="message-hint" />
+                    <p id="message-hint" className="text-sm text-muted-foreground">
+                      Tell us what you need.
+                    </p>
                   </div>
 
                   <Button type="button" disabled size="lg" variant="accent" className="w-full">
                     <Send className="mr-2 h-4 w-4" />
-                    Send Message
+                    Send message
                   </Button>
 
                   <p className="text-center text-sm text-muted-foreground">
