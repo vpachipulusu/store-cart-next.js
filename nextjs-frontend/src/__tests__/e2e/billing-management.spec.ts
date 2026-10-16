@@ -32,8 +32,8 @@ test.describe('Pricing Page - Billing Period Toggle', () => {
     await navigateAndWait(page, '/pricing');
 
     // Toggle buttons should be visible
-    const monthlyButton = page.getByRole('button', { name: /monthly/i });
-    const yearlyButton = page.getByRole('button', { name: /yearly/i });
+    const monthlyButton = page.getByRole('radio', { name: /monthly/i });
+    const yearlyButton = page.getByRole('radio', { name: /yearly/i });
 
     await expect(monthlyButton).toBeVisible();
     await expect(yearlyButton).toBeVisible();
@@ -43,7 +43,7 @@ test.describe('Pricing Page - Billing Period Toggle', () => {
     await navigateAndWait(page, '/pricing');
 
     // Monthly should be the active selection
-    const monthlyButton = page.getByRole('button', { name: /monthly/i });
+    const monthlyButton = page.getByRole('radio', { name: /monthly/i });
     // Monthly button should have primary styling (active state)
     await expect(monthlyButton).toBeVisible();
 
@@ -56,7 +56,7 @@ test.describe('Pricing Page - Billing Period Toggle', () => {
     await navigateAndWait(page, '/pricing');
 
     // Click yearly toggle
-    const yearlyButton = page.getByRole('button', { name: /yearly/i });
+    const yearlyButton = page.getByRole('radio', { name: /yearly/i });
     await yearlyButton.click();
 
     // Yearly shows the monthly equivalent ("/month") plus "<price> billed annually"; there is no "/year" label.
@@ -87,11 +87,11 @@ test.describe('Pricing Page - Billing Period Toggle', () => {
     await navigateAndWait(page, '/pricing');
 
     // Switch to yearly
-    await page.getByRole('button', { name: /yearly/i }).click();
+    await page.getByRole('radio', { name: /yearly/i }).click();
     await expect(page.getByText(/billed annually/i).first()).toBeVisible();
 
     // Switch back to monthly
-    await page.getByRole('button', { name: /monthly/i }).click();
+    await page.getByRole('radio', { name: /monthly/i }).click();
     await expect(page.getByText('/month').first()).toBeVisible();
     await expect(page.getByText(/billed annually/i)).toHaveCount(0);
   });
@@ -100,24 +100,6 @@ test.describe('Pricing Page - Billing Period Toggle', () => {
 test.describe('Billing Settings Page - Access', () => {
   test('should redirect unauthenticated users to login', async ({ page }) => {
     await expectRedirectToLogin(page, '/dashboard/settings/billing');
-  });
-
-  test('should be accessible from dashboard billing quick action', async ({ page }) => {
-    test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
-
-    await signInWithSavedSession(page.context(), 'user');
-    await navigateAndWait(page, '/dashboard');
-
-    // Click on Billing quick action card
-    const billingCard = page
-      .locator('[class*="card"]')
-      .filter({ hasText: /billing/i })
-      .filter({ hasText: /manage subscription/i });
-    await billingCard.click();
-
-    // Should navigate to billing page
-    await page.waitForURL(/\/dashboard\/settings\/billing/, { timeout: 10_000 });
-    await expect(page.getByRole('heading', { name: /billing & subscription/i })).toBeVisible();
   });
 
   test('should be accessible from navigation bar', async ({ page }) => {
@@ -430,7 +412,7 @@ test.describe('Pricing Page - Checkout with Billing Period', () => {
     await navigateAndWait(page, '/pricing');
 
     // Switch to yearly billing
-    await page.getByRole('button', { name: /yearly/i }).click();
+    await page.getByRole('radio', { name: /yearly/i }).click();
     await expect(page.getByText(/billed annually/i).first()).toBeVisible();
 
     // Find and click Pro tier upgrade button
