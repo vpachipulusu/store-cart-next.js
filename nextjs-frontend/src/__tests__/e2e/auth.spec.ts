@@ -208,20 +208,33 @@ test.describe('Authentication Flow', () => {
   });
 
   test.describe('Auth Layout', () => {
-    test('should center the auth card on the page', async ({ page }) => {
+    test('should center the auth card in the form column', async ({ page }) => {
       await page.goto('/login');
       await waitForPageReady(page);
 
-      const container = page.locator('.min-h-screen.flex.items-center.justify-center');
-      await expect(container).toBeVisible();
+      const main = page.locator('main#main-content');
+      await expect(main).toBeVisible();
+      const card = main.locator('> div');
+      await expect(card).toBeVisible();
+
+      const mainBox = await main.boundingBox();
+      const cardBox = await card.boundingBox();
+      expect(mainBox).not.toBeNull();
+      expect(cardBox).not.toBeNull();
+      const mainCentre = mainBox!.x + mainBox!.width / 2;
+      const cardCentre = cardBox!.x + cardBox!.width / 2;
+      expect(Math.abs(mainCentre - cardCentre)).toBeLessThan(2);
     });
 
     test('should have responsive width constraint', async ({ page }) => {
       await page.goto('/login');
       await waitForPageReady(page);
 
-      const wrapper = page.locator('.max-w-md');
-      await expect(wrapper).toBeVisible();
+      const card = page.locator('main#main-content > div');
+      await expect(card).toBeVisible();
+      const box = await card.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.width).toBeLessThanOrEqual(400);
     });
   });
 
