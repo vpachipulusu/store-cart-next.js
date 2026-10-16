@@ -1,4 +1,3 @@
-import time
 from collections.abc import Mapping
 from typing import Any, Protocol
 
@@ -10,7 +9,7 @@ from app.core.firebase import (
     VerifiedIdentity,
 )
 from app.repositories.me import ProfileData
-from app.services.auth import REAUTH_MAX_AGE_SECONDS, identity_from_claims
+from app.services.auth import identity_from_claims, is_recent_auth
 
 
 def _sign_in_provider(claims: Mapping[str, Any]) -> object:
@@ -90,7 +89,7 @@ class MeService:
         if (
             fresh.uid != identity.uid
             or not fresh.email_verified
-            or not 0 <= time.time() - fresh.auth_time <= REAUTH_MAX_AGE_SECONDS
+            or not is_recent_auth(fresh.auth_time)
         ):
             raise AuthenticationFailed()
         if password_provider and _sign_in_provider(claims) != "password":

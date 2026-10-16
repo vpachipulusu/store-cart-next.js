@@ -1,4 +1,3 @@
-import time
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from typing import Protocol
@@ -6,7 +5,7 @@ from typing import Protocol
 from app.core.firebase import AuthenticationFailed, IdentityProvider, VerifiedIdentity
 from app.core.totp import TotpCodec, generate_secret, provisioning_uri, verify_token
 from app.repositories.totp import TotpState
-from app.services.auth import identity_from_claims
+from app.services.auth import identity_from_claims, is_recent_auth
 
 
 class TotpConflict(Exception):
@@ -58,7 +57,7 @@ class TotpService:
         if (
             fresh.uid != current.uid
             or not fresh.email_verified
-            or not 0 <= time.time() - fresh.auth_time <= 300
+            or not is_recent_auth(fresh.auth_time)
         ):
             raise AuthenticationFailed()
 
