@@ -38,6 +38,8 @@ describe('getCurrencySymbol', () => {
       .mockResolvedValueOnce('EUR');
     await expect(getCurrencySymbol()).resolves.toBe('$');
     expect(mocks.logError).toHaveBeenCalledTimes(1);
-    await expect(getCurrencySymbol()).resolves.not.toBe('$');
+    await expect(getCurrencySymbol()).resolves.toBe(
+      CURRENCIES.find((c) => c.code === 'EUR')!.symbol
+    );
   });
 });

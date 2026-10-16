@@ -16,13 +16,20 @@ export const CURRENCY_LOOKUP_FAILED_MESSAGE = 'Currency lookup failed';
 export const CURRENCY_CACHE_TTL_MS = 60_000;
 
 let cached: { code: string; expiresAt: number } | null = null;
+let inflight: Promise<string> | null = null;
 
-export async function fetchPlatformCurrency(): Promise<string> {
-  const now = Date.now();
-  if (cached && cached.expiresAt > now) return cached.code;
-
+async function loadCurrency(): Promise<string> {
   const result = await callBackend((client) => readCurrency({ client }));
   if (!result.success) throw new Error(CURRENCY_LOOKUP_FAILED_MESSAGE);
-  cached = { code: result.data.currency, expiresAt: now + CURRENCY_CACHE_TTL_MS };
+  cached = { code: result.data.currency, expiresAt: Date.now() + CURRENCY_CACHE_TTL_MS };
   return cached.code;
+}
+
+/** Concurrent callers on a cold or expired cache share one backend request. */
+export function fetchPlatformCurrency(): Promise<string> {
+  if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.code);
+  inflight ??= loadCurrency().finally(() => {
+    inflight = null;
+  });
+  return inflight;
 }

@@ -78,4 +78,13 @@ describe('fetchPlatformCurrency', () => {
     await expect(fetchPlatformCurrency()).rejects.toThrow(CURRENCY_LOOKUP_FAILED_MESSAGE);
     await expect(fetchPlatformCurrency()).resolves.toBe('EUR');
   });
+
+  it('shares one backend request between concurrent callers', async () => {
+    fetchMock.mockResolvedValue(json({ success: true, data: { currency: 'EUR' } }));
+
+    const codes = await Promise.all([fetchPlatformCurrency(), fetchPlatformCurrency()]);
+
+    expect(codes).toEqual(['EUR', 'EUR']);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
