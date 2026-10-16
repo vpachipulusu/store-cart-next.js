@@ -17,7 +17,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock('next/headers', () => ({
   cookies: async () => ({ get: vi.fn(), delete: mocks.cookieDelete }),
 }));
-vi.mock('@/lib/firebase/admin', () => ({ getAdminAuth: () => ({}) }));
 vi.mock('@/lib/auth/verified-session', () => ({
   getVerifiedSessionClaims: vi.fn(),
   isEmailNotVerifiedError: () => false,

@@ -2,12 +2,15 @@
 
 import { cookies, headers } from 'next/headers';
 import { z } from 'zod';
-import { getAdminAuth } from '@/lib/firebase/admin';
 import { auth } from '@/lib/firebase/client';
 import { applyActionCode } from 'firebase/auth';
 import { emailSchema, passwordSchema } from '@/lib/utils/validation';
 import { logger } from '@/lib/logger';
-import { isEmailNotVerifiedError, verifyVerifiedSessionCookie } from '@/lib/auth/verified-session';
+import {
+  isEmailNotVerifiedError,
+  readSessionStatus,
+  verifyVerifiedSessionCookie,
+} from '@/lib/auth/verified-session';
 import { SESSION_COOKIE_NAME } from '@/lib/api/server';
 import { isSessionRejected } from '@/lib/api/session-rejected';
 import {
@@ -17,6 +20,7 @@ import {
   refreshBackendSession,
   revokeBackendSession,
   toSettings,
+  verifyBackendIdToken,
 } from '@/lib/api/account';
 
 /**
@@ -107,15 +111,6 @@ export async function signUpAction(
   }
 }
 
-async function revokeRefreshTokensDirectly(sessionCookie: string): Promise<void> {
-  try {
-    const claims = await getAdminAuth().verifySessionCookie(sessionCookie, false);
-    await getAdminAuth().revokeRefreshTokens(claims.uid);
-  } catch (error) {
-    logger.error('Direct token revocation during logout failed:', error);
-  }
-}
-
 /**
  * Logout action - revokes the user's Firebase tokens through the API and clears the session cookie
  */
@@ -126,17 +121,17 @@ export async function logoutAction(): Promise<AuthActionResponse> {
     const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME)?.value;
     if (sessionCookie) {
       // An expired or invalid session answers 401 here; the cookie is cleared either way.
-      const revoked = await revokeBackendSession();
+      let revoked = await revokeBackendSession();
+      // The backend rejecting the session (401) means there is nothing left to revoke. For an outage or server
+      // error try once more, so a stolen cookie does not outlive the logout (there is no direct Firebase path).
+      if (!revoked.success && revoked.status !== 401) {
+        revoked = await revokeBackendSession();
+      }
       if (!revoked.success) {
         logger.error('Token revocation during logout failed:', {
           status: revoked.status,
           error: revoked.error,
         });
-        // The backend rejecting the session (401) means there is nothing left to revoke. For an outage or
-        // server error, revoke through Firebase directly so a stolen cookie does not outlive the logout.
-        if (revoked.status !== 401) {
-          await revokeRefreshTokensDirectly(sessionCookie);
-        }
       }
     }
 
@@ -186,8 +181,9 @@ async function hasMatchingActiveSession(uid: string): Promise<boolean> {
   const existing = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
   if (!existing) return false;
   try {
-    // checkRevoked = true; email_verified is deliberately not required (/verify-email runs unverified).
-    const claims = await getAdminAuth().verifySessionCookie(existing, true);
+    // Revocation is checked by the backend; email_verified is deliberately not required (/verify-email
+    // runs unverified).
+    const claims = await readSessionStatus();
     return claims.uid === uid;
   } catch {
     return false;
@@ -216,14 +212,15 @@ async function establishSession(
   try {
     // Verify Firebase ID token, rejecting revoked tokens (KAN-168). A revoked or invalid token gets the
     // generic failure only: no Firebase error detail reaches the client.
-    let decodedToken;
-    try {
-      decodedToken = await getAdminAuth().verifyIdToken(idToken, true);
-    } catch (verifyError) {
-      logger.error('ID token verification failed:', verifyError);
+    const verified = await verifyBackendIdToken(idToken);
+    if (!verified.success) {
+      logger.error('ID token verification failed:', {
+        status: verified.status,
+        error: verified.error,
+      });
       return { success: false, error: GENERIC_SIGN_IN_ERROR };
     }
-    const { uid, email, email_verified } = decodedToken;
+    const { uid, email, email_verified } = verified.data;
     const isExplicitSignIn = requestedExplicit || !(await hasMatchingActiveSession(uid));
 
     if (!email) {
@@ -290,7 +287,7 @@ export async function getCurrentSessionAction(): Promise<AuthActionResponse> {
     }
 
     // Verify session cookie (signature, revocation, verified email)
-    const decodedClaims = await verifyVerifiedSessionCookie(sessionCookie);
+    const decodedClaims = await verifyVerifiedSessionCookie();
 
     const [profile, settings] = await Promise.all([fetchProfile(), fetchSettings()]);
     if (!profile.success || !settings.success) {

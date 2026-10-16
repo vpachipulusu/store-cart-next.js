@@ -13,7 +13,11 @@ const mocks = vi.hoisted(() => ({
   reauthenticateWithCredential: vi.fn(),
   reauthenticateWithPopup: vi.fn(),
   credential: vi.fn((email: string, password: string) => ({ email, password })),
+  signInWithEmailAndPassword: vi.fn(),
+  verifyTokenAction: vi.fn(),
 }));
+
+vi.mock('@/app/actions/auth-actions', () => ({ verifyTokenAction: mocks.verifyTokenAction }));
 
 vi.mock('@/lib/firebase/client', () => ({
   auth: {
@@ -28,12 +32,17 @@ vi.mock('firebase/auth', () => ({
   GithubAuthProvider: class GithubAuthProvider {},
   reauthenticateWithCredential: mocks.reauthenticateWithCredential,
   reauthenticateWithPopup: mocks.reauthenticateWithPopup,
+  signInWithEmailAndPassword: mocks.signInWithEmailAndPassword,
 }));
 vi.mock('@/lib/utils/firebase-errors', () => ({
   getFirebaseErrorMessage: (error: { code?: string }) => `mapped:${error.code}`,
 }));
 
-import { reauthenticate, reauthMethodFor } from '@/lib/firebase/reauth';
+import {
+  reauthenticate,
+  reauthMethodFor,
+  restoreSessionWithNewPassword,
+} from '@/lib/firebase/reauth';
 
 function user(providerIds: string[], email: string | null = 'a@b.test') {
   return {
@@ -109,5 +118,54 @@ describe('reauthenticate', () => {
     const result = await reauthenticate('password', 'x');
 
     expect(result.idToken).toBeNull();
+  });
+});
+
+describe('restoreSessionWithNewPassword (KAN-208)', () => {
+  beforeEach(() => {
+    mocks.signInWithEmailAndPassword.mockReset();
+    mocks.verifyTokenAction.mockReset();
+  });
+
+  it('signs in again with the new password and mints a new session from the fresh ID token', async () => {
+    mocks.currentUser = user(['password']);
+    const fresh = { getIdToken: vi.fn().mockResolvedValue('new-id-token') };
+    mocks.signInWithEmailAndPassword.mockResolvedValue({ user: fresh });
+    mocks.verifyTokenAction.mockResolvedValue({ success: true });
+
+    await expect(restoreSessionWithNewPassword('new-pass-1')).resolves.toBe(true);
+
+    expect(mocks.signInWithEmailAndPassword).toHaveBeenCalledWith(
+      expect.anything(),
+      'a@b.test',
+      'new-pass-1'
+    );
+    expect(fresh.getIdToken).toHaveBeenCalledWith(true);
+    expect(mocks.verifyTokenAction).toHaveBeenCalledWith('new-id-token');
+  });
+
+  it('resolves false when the server refuses the new session', async () => {
+    mocks.currentUser = user(['password']);
+    mocks.signInWithEmailAndPassword.mockResolvedValue({
+      user: { getIdToken: vi.fn().mockResolvedValue('t') },
+    });
+    mocks.verifyTokenAction.mockResolvedValue({ success: false });
+
+    await expect(restoreSessionWithNewPassword('new-pass-1')).resolves.toBe(false);
+  });
+
+  it('resolves false when the Firebase sign-in fails, and never calls the server', async () => {
+    mocks.currentUser = user(['password']);
+    mocks.signInWithEmailAndPassword.mockRejectedValue({ code: 'auth/wrong-password' });
+
+    await expect(restoreSessionWithNewPassword('new-pass-1')).resolves.toBe(false);
+    expect(mocks.verifyTokenAction).not.toHaveBeenCalled();
+  });
+
+  it('resolves false when nobody is signed in', async () => {
+    mocks.currentUser = null;
+
+    await expect(restoreSessionWithNewPassword('new-pass-1')).resolves.toBe(false);
+    expect(mocks.signInWithEmailAndPassword).not.toHaveBeenCalled();
   });
 });

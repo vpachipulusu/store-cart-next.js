@@ -2,6 +2,7 @@ import 'server-only';
 
 import { callBackend } from './server';
 import {
+  changePassword,
   createSession,
   deleteAccount,
   deleteSession,
@@ -9,11 +10,13 @@ import {
   readHistory,
   readProfile,
   readSession,
+  readSessionStatus,
   readSettings,
   refreshSession,
   updateAvatar,
   updateProfile,
   updateSettings,
+  verifyIdToken,
   type HistoryEntry,
   type ProfileData,
   type ProfileRequest,
@@ -60,6 +63,37 @@ export function removeBackendAccount(idToken: string) {
 /** Turns two-factor authentication off; needs the fresh ID token plus a current authenticator code. */
 export function disableBackendTotp(idToken: string, code: string) {
   return callBackend((client) => disable({ client, body: { id_token: idToken, token: code } }));
+}
+
+/**
+ * Who the current session cookie belongs to, with revocation checked (`GET /v1/auth/session/status`, KAN-208).
+ * An unverified email is allowed; callers read `email_verified`. 401 "Invalid authentication" means the session
+ * is missing, invalid or revoked; 503 means Firebase is unreachable.
+ */
+export function fetchSessionStatus() {
+  return callBackend((client) => readSessionStatus({ client }));
+}
+
+/**
+ * Verifies a Firebase ID token (signature, expiry, revocation) without writing anything
+ * (`POST /v1/auth/id-token/verify`, KAN-208). Proves identity only, never a recent sign-in. The token is only
+ * forwarded; it is never logged or stored.
+ */
+export function verifyBackendIdToken(idToken: string) {
+  return callBackend((client) => verifyIdToken({ client, body: { id_token: idToken } }), {
+    withSession: false,
+  });
+}
+
+/**
+ * Sets a new password (`PUT /v1/me/password`, KAN-208). `idToken` is a fresh ID token the browser minted by
+ * re-authenticating with the CURRENT password. Both secrets are only forwarded, never logged. The change
+ * revokes the user's refresh tokens, including the caller's own session cookie.
+ */
+export function changeBackendPassword(idToken: string, newPassword: string) {
+  return callBackend((client) =>
+    changePassword({ client, body: { id_token: idToken, new_password: newPassword } })
+  );
 }
 
 export function fetchIdentity() {

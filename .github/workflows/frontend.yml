@@ -58,6 +58,11 @@ jobs:
       - name: OpenAPI client is up to date
         run: npm run check:client
 
+      # KAN-208: no server secrets, DATABASE_URL, Prisma, Stripe or firebase-admin in the frontend. This is the
+      # scan half of scripts/foundation-done-check.ts; the e2e half runs locally (E2E_ENABLED stays false).
+      - name: Foundation scan (no server secrets in the frontend)
+        run: npm run foundation:scan
+
       - name: Lint
         run: npm run lint
 

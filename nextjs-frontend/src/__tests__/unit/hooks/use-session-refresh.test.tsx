@@ -18,6 +18,7 @@ vi.mock('firebase/auth', () => ({
 }));
 
 import { useSessionRefresh } from '@/hooks/use-session-refresh';
+import { setSessionRefreshPaused } from '@/lib/firebase/session-refresh-pause';
 
 const USER = { getIdToken: vi.fn().mockResolvedValue('id-token') };
 
@@ -32,6 +33,20 @@ describe('useSessionRefresh (KAN-183)', () => {
 
   afterEach(() => {
     mocks.idTokenListener = null;
+  });
+
+  it('does not refresh while a password change has paused the refresh (KAN-208)', async () => {
+    renderHook(() => useSessionRefresh());
+    setSessionRefreshPaused(true);
+
+    try {
+      await mocks.idTokenListener?.(USER);
+    } finally {
+      setSessionRefreshPaused(false);
+    }
+
+    expect(mocks.refreshSessionAction).not.toHaveBeenCalled();
+    expect(mocks.signOut).not.toHaveBeenCalled();
   });
 
   it('refreshes with the ID token and stays put when the refresh succeeds', async () => {

@@ -4,8 +4,10 @@ import {
   GoogleAuthProvider,
   reauthenticateWithCredential,
   reauthenticateWithPopup,
+  signInWithEmailAndPassword,
   type User,
 } from 'firebase/auth';
+import { verifyTokenAction } from '@/app/actions/auth-actions';
 import { auth } from './client';
 import { getFirebaseErrorMessage } from '@/lib/utils/firebase-errors';
 
@@ -47,5 +49,24 @@ export async function reauthenticate(
     return { idToken: await user.getIdToken(true), error: null };
   } catch (error: unknown) {
     return { idToken: null, error: getFirebaseErrorMessage(error) };
+  }
+}
+
+/**
+ * After a password change (KAN-208): Firebase has revoked this browser's refresh tokens and the server session
+ * cookie. Signs in again with the NEW password to get a fresh ID token, then mints a new session cookie from it.
+ * Resolves false when any step fails, so the caller can send the user to /login. Neither the password nor the
+ * token is stored or logged here.
+ */
+export async function restoreSessionWithNewPassword(newPassword: string): Promise<boolean> {
+  const email = auth.currentUser?.email;
+  if (!email) return false;
+  try {
+    const credential = await signInWithEmailAndPassword(auth, email, newPassword);
+    const idToken = await credential.user.getIdToken(true);
+    const result = await verifyTokenAction(idToken);
+    return result.success;
+  } catch {
+    return false;
   }
 }

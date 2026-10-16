@@ -44,7 +44,7 @@ type AccountsModule = {
   ) => Promise<void>;
 };
 
-// Loaded only by tests that use a throwaway account, so other specs do not load firebase-admin.
+// Loaded only by tests that use a throwaway account, so other specs do not load the account tooling.
 const loadAccountsModule = (): Promise<AccountsModule> =>
   import('../../../../scripts/e2e-accounts.mjs') as Promise<AccountsModule>;
 

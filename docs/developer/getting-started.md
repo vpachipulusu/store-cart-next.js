@@ -82,7 +82,7 @@ npm run build
 - The build needs the `NEXT_PUBLIC_*` client config in `.env`.
 - Since KAN-140 it does not need `DATABASE_URL`: DB-backed routes render dynamically and the root layout falls back to defaults when no database is configured.
 - **CI and image builds must leave `DATABASE_URL` unset.** Do not copy `.env.example` into a CI build. `isDatabaseConfigured()` in `src/lib/db/config.ts` returns true for any non-blank `DATABASE_URL` (it only checks `process.env.DATABASE_URL?.trim()`), so the placeholder in `.env.example` counts as configured and prerendering would try a query against a database that is not there. Set only the `NEXT_PUBLIC_*` placeholders, as `.github/workflows/frontend.yml` does.
-- It does not need `FIREBASE_ADMIN_*`. Since KAN-136, `firebase-admin` initialises on first use (`src/lib/firebase/admin.ts`).
+- It does not need `FIREBASE_ADMIN_*`, `STRIPE_SECRET_KEY` or any other server secret: the frontend has no `firebase-admin` or `stripe` dependency (KAN-208). Sessions, ID tokens, password changes and plan prices go through the backend.
 
 ### Run the frontend
 

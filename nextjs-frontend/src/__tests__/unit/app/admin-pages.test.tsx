@@ -360,8 +360,8 @@ describe('admin subscriptions page', () => {
     expect(html(await AdminSubscriptionsPage())).toContain('No Active Subscriptions');
   });
 
-  it('still renders counts and the table when the Stripe prices fail', async () => {
-    mocks.getStripePrices.mockRejectedValue(new Error('stripe down'));
+  it('still renders counts and the table when the price read fails', async () => {
+    mocks.getStripePrices.mockRejectedValue(new Error('prices down'));
 
     const markup = html(await AdminSubscriptionsPage());
 

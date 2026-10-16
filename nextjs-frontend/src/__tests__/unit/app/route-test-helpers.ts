@@ -26,6 +26,10 @@ export const navigationMock = {
 export const SESSION_EXPIRED = Object.assign(new Error('expired'), {
   code: 'auth/session-cookie-expired',
 });
+/** What `fetchSessionStatus` returns for a revoked, expired or invalid session cookie (KAN-208). */
+export const REVOKED_SESSION = { success: false, error: 'Invalid authentication', status: 401 };
+/** What `fetchSessionStatus` returns when the backend is down: the user must stay signed in. */
+export const SESSION_CHECK_DOWN = { success: false, error: 'Backend unavailable' };
 export const DB_DOWN = Object.assign(new Error('connection refused'), { code: 'P1001' });
 
 export async function rejection(promise: Promise<unknown>): Promise<unknown> {

@@ -21,10 +21,10 @@ import { AdminHeader } from '@/components/admin/admin-header';
 /** Every /admin route is per-user (session cookie + admin check), so none can be prerendered. */
 export const dynamic = 'force-dynamic';
 
-async function loadAdminAccess(sessionCookie: string) {
+async function loadAdminAccess() {
   let uid: string | undefined;
   try {
-    const decodedClaims = await verifyVerifiedSessionCookie(sessionCookie);
+    const decodedClaims = await verifyVerifiedSessionCookie();
     uid = decodedClaims.uid;
 
     const access = await resolveAdminAccess();
@@ -59,7 +59,7 @@ async function checkAdminAccess() {
     redirect('/login');
   }
 
-  const access = await loadAdminAccess(sessionCookie);
+  const access = await loadAdminAccess();
 
   // Outside the try so a non-admin goes straight to /dashboard and is never mistaken for a failed session.
   if (access.status !== 'admin') {

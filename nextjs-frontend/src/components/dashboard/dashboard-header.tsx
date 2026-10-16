@@ -17,7 +17,6 @@ import { logoutAction } from '@/app/actions/auth-actions';
 interface DashboardHeaderProps {
   user: {
     email?: string | null;
-    picture?: string | null;
     dbDisplayName?: string | null;
     dbAvatarUrl?: string | null;
   };
@@ -38,10 +37,7 @@ export function DashboardHeader({ user }: DashboardHeaderProps) {
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" className="relative h-10 w-10 rounded-full hover:bg-accent">
             <Avatar className="h-10 w-10 ring-2 ring-transparent transition-all hover:ring-theme-accent/50">
-              <AvatarImage
-                src={user.dbAvatarUrl || user.picture || undefined}
-                alt={user.email || 'User'}
-              />
+              <AvatarImage src={user.dbAvatarUrl || undefined} alt={user.email || 'User'} />
               <AvatarFallback>{user.email?.charAt(0).toUpperCase() || 'U'}</AvatarFallback>
             </Avatar>
           </Button>

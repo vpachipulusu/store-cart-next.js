@@ -4,11 +4,10 @@
  * revocation-checked session cookie, never on the client-writable `email-verified` cookie.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { SESSION_EXPIRED } from '../app/route-test-helpers';
 
 const mocks = vi.hoisted(() => ({
   cookieJar: new Map<string, string>(),
-  verifySessionCookie: vi.fn(),
+  fetchSessionStatus: vi.fn(),
   fetchProfile: vi.fn(),
   loggerError: vi.fn(),
   loggerWarn: vi.fn(),
@@ -20,10 +19,10 @@ vi.mock('next/headers', () => ({
       mocks.cookieJar.has(name) ? { value: mocks.cookieJar.get(name) } : undefined,
   }),
 }));
-vi.mock('@/lib/firebase/admin', () => ({
-  getAdminAuth: () => ({ verifySessionCookie: mocks.verifySessionCookie }),
+vi.mock('@/lib/api/account', () => ({
+  fetchProfile: mocks.fetchProfile,
+  fetchSessionStatus: mocks.fetchSessionStatus,
 }));
-vi.mock('@/lib/api/account', () => ({ fetchProfile: mocks.fetchProfile }));
 vi.mock('@/lib/logger', () => ({
   logger: { error: mocks.loggerError, warn: mocks.loggerWarn },
 }));
@@ -33,9 +32,13 @@ import {
   getVerifiedSessionClaims,
   getVerifiedUserId,
   isEmailNotVerifiedError,
+  readSessionStatus,
   verifyVerifiedSessionCookie,
 } from '@/lib/auth/verified-session';
 
+const REVOKED_RESULT = { success: false, error: 'Invalid authentication', status: 401 };
+const OUTAGE_RESULT = { success: false, error: 'Backend unavailable' };
+const ok = (data: unknown) => ({ success: true, data });
 const REVOKED = Object.assign(new Error('revoked'), { code: 'auth/session-cookie-revoked' });
 const verifiedClaims = { uid: 'uid-1', email: 'a@b.test', email_verified: true };
 const unverifiedClaims = { uid: 'uid-1', email: 'a@b.test', email_verified: false };
@@ -45,17 +48,18 @@ describe('verified-session boundary (KAN-123)', () => {
     vi.clearAllMocks();
     mocks.cookieJar.clear();
     mocks.cookieJar.set('session', 'session-cookie');
-    mocks.verifySessionCookie.mockResolvedValue(verifiedClaims);
+    mocks.fetchSessionStatus.mockResolvedValue(ok(verifiedClaims));
     mocks.fetchProfile.mockResolvedValue({
       success: true,
       data: { id: 'user-1', email: 'a@b.test', email_verified: true },
     });
   });
 
-  it('always checks revocation when verifying the session cookie', async () => {
-    await verifyVerifiedSessionCookie('session-cookie');
+  it('verifies through the backend session status (which checks revocation), not locally', async () => {
+    const claims = await verifyVerifiedSessionCookie();
 
-    expect(mocks.verifySessionCookie).toHaveBeenCalledWith('session-cookie', true);
+    expect(claims).toEqual(verifiedClaims);
+    expect(mocks.fetchSessionStatus).toHaveBeenCalledTimes(1);
   });
 
   it('authorizes a verified user', async () => {
@@ -63,10 +67,10 @@ describe('verified-session boundary (KAN-123)', () => {
   });
 
   describe('unverified user', () => {
-    beforeEach(() => mocks.verifySessionCookie.mockResolvedValue(unverifiedClaims));
+    beforeEach(() => mocks.fetchSessionStatus.mockResolvedValue(ok(unverifiedClaims)));
 
     it('is rejected with EmailNotVerifiedError', async () => {
-      const error = await verifyVerifiedSessionCookie('session-cookie').catch((e) => e);
+      const error = await verifyVerifiedSessionCookie().catch((e) => e);
 
       expect(error).toBeInstanceOf(EmailNotVerifiedError);
       expect(isEmailNotVerifiedError(error)).toBe(true);
@@ -78,7 +82,7 @@ describe('verified-session boundary (KAN-123)', () => {
     });
 
     it('is rejected when the claim is missing entirely', async () => {
-      mocks.verifySessionCookie.mockResolvedValue({ uid: 'uid-1', email: 'a@b.test' });
+      mocks.fetchSessionStatus.mockResolvedValue(ok({ uid: 'uid-1', email: 'a@b.test' }));
 
       expect(await getVerifiedUserId()).toBeNull();
     });
@@ -87,7 +91,7 @@ describe('verified-session boundary (KAN-123)', () => {
   describe('forged email-verified cookie', () => {
     it('does not authorize an unverified user who sets email-verified=true', async () => {
       mocks.cookieJar.set('email-verified', 'true');
-      mocks.verifySessionCookie.mockResolvedValue(unverifiedClaims);
+      mocks.fetchSessionStatus.mockResolvedValue(ok(unverifiedClaims));
 
       expect(await getVerifiedUserId()).toBeNull();
       await expect(getVerifiedSessionClaims()).rejects.toBeInstanceOf(EmailNotVerifiedError);
@@ -105,7 +109,7 @@ describe('verified-session boundary (KAN-123)', () => {
   describe('missing email-verified cookie', () => {
     it('does not authorize an unverified user with no cookie at all', async () => {
       mocks.cookieJar.delete('email-verified');
-      mocks.verifySessionCookie.mockResolvedValue(unverifiedClaims);
+      mocks.fetchSessionStatus.mockResolvedValue(ok(unverifiedClaims));
 
       expect(await getVerifiedUserId()).toBeNull();
     });
@@ -118,25 +122,61 @@ describe('verified-session boundary (KAN-123)', () => {
   });
 
   describe('revoked or invalid session', () => {
-    it('rejects a revoked session', async () => {
-      mocks.verifySessionCookie.mockRejectedValue(REVOKED);
+    it('rejects a revoked session (401 Invalid authentication) with the invalid-session code', async () => {
+      mocks.fetchSessionStatus.mockResolvedValue(REVOKED_RESULT);
 
       expect(await getVerifiedUserId()).toBeNull();
-      await expect(getVerifiedSessionClaims()).rejects.toBe(REVOKED);
-    });
-
-    it('rejects an expired session', async () => {
-      mocks.verifySessionCookie.mockRejectedValue(SESSION_EXPIRED);
-
-      expect(await getVerifiedUserId()).toBeNull();
+      await expect(getVerifiedSessionClaims()).rejects.toMatchObject({
+        code: 'auth/invalid-session-cookie',
+      });
     });
 
     it('rejects a revoked session even with email-verified=true', async () => {
       mocks.cookieJar.set('email-verified', 'true');
-      mocks.verifySessionCookie.mockRejectedValue(REVOKED);
+      mocks.fetchSessionStatus.mockResolvedValue(REVOKED_RESULT);
 
       expect(await getVerifiedUserId()).toBeNull();
     });
+  });
+
+  describe('readSessionStatus', () => {
+    it('returns the claims, unverified email included', async () => {
+      mocks.fetchSessionStatus.mockResolvedValue(ok(unverifiedClaims));
+
+      expect(await readSessionStatus()).toEqual(unverifiedClaims);
+    });
+
+    it('throws the invalid-session code for a revoked session (401 Invalid authentication)', async () => {
+      mocks.fetchSessionStatus.mockResolvedValue(REVOKED_RESULT);
+
+      await expect(readSessionStatus()).rejects.toMatchObject({
+        code: 'auth/invalid-session-cookie',
+      });
+    });
+
+    it.each([
+      ['a 503', { success: false, error: 'Request failed', status: 503 }],
+      ['an unreachable backend', OUTAGE_RESULT],
+      [
+        'a 401 that is not about the session (misconfigured internal key)',
+        {
+          success: false,
+          error: 'Unauthorized',
+          status: 401,
+        },
+      ],
+    ])(
+      'throws a plain error without a session code for %s, so the user is not logged out',
+      async (_l, result) => {
+        mocks.fetchSessionStatus.mockResolvedValue(result);
+
+        const error = await readSessionStatus().catch((e) => e);
+
+        expect(error).toBeInstanceOf(Error);
+        expect(error.message).toBe('Session status check failed');
+        expect(error.code).toBeUndefined();
+      }
+    );
   });
 
   describe('no session cookie', () => {
@@ -146,7 +186,7 @@ describe('verified-session boundary (KAN-123)', () => {
 
       expect(await getVerifiedSessionClaims()).toBeNull();
       expect(await getVerifiedUserId()).toBeNull();
-      expect(mocks.verifySessionCookie).not.toHaveBeenCalled();
+      expect(mocks.fetchSessionStatus).not.toHaveBeenCalled();
     });
   });
 
@@ -187,8 +227,8 @@ describe('verified-session boundary (KAN-123)', () => {
       expect(mocks.fetchProfile).toHaveBeenCalledTimes(1);
     });
 
-    it('does not call the backend for a revoked session', async () => {
-      mocks.verifySessionCookie.mockRejectedValue(REVOKED);
+    it('does not look up the profile for a revoked session', async () => {
+      mocks.fetchSessionStatus.mockResolvedValue(REVOKED_RESULT);
 
       expect(await getVerifiedUserId()).toBeNull();
       expect(mocks.fetchProfile).not.toHaveBeenCalled();
@@ -196,7 +236,7 @@ describe('verified-session boundary (KAN-123)', () => {
   });
 
   it('logs an unverified rejection as a warning without leaking the cookie', async () => {
-    mocks.verifySessionCookie.mockResolvedValue(unverifiedClaims);
+    mocks.fetchSessionStatus.mockResolvedValue(ok(unverifiedClaims));
 
     await getVerifiedUserId();
 

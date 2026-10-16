@@ -4,7 +4,7 @@ import { isEmailNotVerifiedError, verifyVerifiedSessionCookie } from '@/lib/auth
 import { fetchBillingSummary, NO_BILLING_ORGANIZATION_MESSAGE } from '@/lib/api/billing';
 import { fetchLoginHistory, fetchProfile, toLoginHistoryEntry, toProfile } from '@/lib/api/account';
 import { describePlanStatus } from '@/lib/billing-status';
-import { isSessionRejected } from '@/lib/api/session-rejected';
+import { INVALID_AUTHENTICATION_MESSAGE, isSessionRejected } from '@/lib/api/session-rejected';
 import { isSessionVerificationError, logRouteError } from '@/lib/auth/session-errors';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -48,7 +48,7 @@ async function getUserData() {
       return null;
     }
 
-    await verifyVerifiedSessionCookie(sessionCookie);
+    await verifyVerifiedSessionCookie();
 
     const [profile, history, billing] = await Promise.all([
       fetchProfile(),
@@ -69,7 +69,7 @@ async function getUserData() {
     }
     // A 404 from billing can mean the organisation vanished mid-request, not a stale session, so only a
     // revoked session (401) clears it here; the profile call above already catches a missing platform user.
-    if (!billing.success && billing.error === 'Invalid authentication') {
+    if (!billing.success && billing.error === INVALID_AUTHENTICATION_MESSAGE) {
       redirect('/api/auth/clear-session');
     }
     // No billing organisation is the free plan; any other billing failure is an outage, not a free plan.
