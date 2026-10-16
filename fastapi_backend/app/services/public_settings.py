@@ -1,6 +1,6 @@
 """Settings that are safe for anyone to read (KAN-205)."""
 
-from typing import Any, Protocol
+from typing import Protocol
 
 CURRENCY_KEY = "currency"
 # Same default as getCurrencySymbol in nextjs-frontend/src/config/subscriptions.ts.
@@ -13,7 +13,7 @@ SUPPORTED_CURRENCIES = frozenset(
 
 
 class SettingReader(Protocol):
-    async def get_value(self, key: str) -> Any | None: ...
+    async def get_value(self, key: str) -> object | None: ...
 
 
 class PublicSettingsService:

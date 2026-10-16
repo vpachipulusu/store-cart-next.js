@@ -8141,7 +8141,7 @@
           "settings"
         ],
         "summary": "Read the platform currency",
-        "description": "The platform currency code (upper case, e.g. ``USD``).\n\nAnswers ``USD`` when the setting is missing or not a supported code. Sends\n``Cache-Control: public, max-age=60`` and an ``ETag``.",
+        "description": "The platform currency code (upper case, e.g. ``USD``).\n\nAnswers ``USD`` when the setting is missing or not a supported code. Sends\n``Cache-Control: private, max-age=60`` and an ``ETag``.",
         "operationId": "read_currency",
         "parameters": [
           {

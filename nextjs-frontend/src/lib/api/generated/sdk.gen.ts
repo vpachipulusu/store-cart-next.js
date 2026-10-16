@@ -469,6 +469,6 @@ export const readStorefront = <ThrowOnError extends boolean = false>(options: Op
  * The platform currency code (upper case, e.g. ``USD``).
  *
  * Answers ``USD`` when the setting is missing or not a supported code. Sends
- * ``Cache-Control: public, max-age=60`` and an ``ETag``.
+ * ``Cache-Control: private, max-age=60`` and an ``ETag``.
  */
 export const readCurrency = <ThrowOnError extends boolean = false>(options?: Options<ReadCurrencyData, ThrowOnError>) => (options?.client ?? client).get<ReadCurrencyResponses, ReadCurrencyErrors, ThrowOnError>({ url: '/v1/settings/currency', ...options });

@@ -17,7 +17,7 @@ from app.services.public_settings import PublicSettingsService
 from tests.fakes import FakeRateLimiter, RaisingRateLimiter, as_limiter
 
 KEY = "test-only-internal-service-key-not-for-deployment"
-CACHE = "public, max-age=60, stale-while-revalidate=300"
+CACHE = "private, max-age=60, stale-while-revalidate=300"
 
 
 class FakeSettings:
@@ -27,7 +27,7 @@ class FakeSettings:
         self._values = values
         self.reads: list[str] = []
 
-    async def get_value(self, key: str) -> Any | None:
+    async def get_value(self, key: str) -> object | None:
         self.reads.append(key)
         return self._values.get(key)
 
@@ -47,7 +47,7 @@ def build(
     return client, limiter
 
 
-async def read_currency(repo: FakeSettings) -> Response:
+async def fetch_currency(repo: FakeSettings) -> Response:
     http, _ = build(repo)
     async with http:
         return await http.get("/v1/settings/currency")
@@ -61,20 +61,20 @@ async def client() -> AsyncIterator[AsyncClient]:
 
 
 async def test_set_currency_is_returned() -> None:
-    response = await read_currency(FakeSettings(currency="EUR"))
+    response = await fetch_currency(FakeSettings(currency="EUR"))
 
     assert response.status_code == 200
     assert response.json() == {"success": True, "data": {"currency": "EUR"}}
 
 
 async def test_stored_code_is_matched_case_insensitively_and_canonical() -> None:
-    response = await read_currency(FakeSettings(currency=" gbp "))
+    response = await fetch_currency(FakeSettings(currency=" gbp "))
 
     assert response.json()["data"] == {"currency": "GBP"}
 
 
 async def test_unset_currency_falls_back_to_the_frontend_default() -> None:
-    response = await read_currency(FakeSettings())
+    response = await fetch_currency(FakeSettings())
 
     assert response.status_code == 200
     assert response.json()["data"] == {"currency": "USD"}
@@ -86,7 +86,7 @@ async def test_unset_currency_falls_back_to_the_frontend_default() -> None:
 async def test_unknown_or_malformed_value_falls_back_to_the_default(
     stored: Any,
 ) -> None:
-    response = await read_currency(FakeSettings(currency=stored))
+    response = await fetch_currency(FakeSettings(currency=stored))
 
     assert response.status_code == 200
     assert response.json()["data"] == {"currency": "USD"}
@@ -95,7 +95,7 @@ async def test_unknown_or_malformed_value_falls_back_to_the_default(
 async def test_only_the_currency_setting_is_read() -> None:
     repo = FakeSettings(currency="EUR", secret_key="s3cret", app_name="Secret Co")
 
-    response = await read_currency(repo)
+    response = await fetch_currency(repo)
 
     assert repo.reads == ["currency"]
     assert "s3cret" not in response.text
@@ -155,8 +155,8 @@ async def test_stale_if_none_match_returns_the_full_response(
 
 
 async def test_etag_changes_when_the_currency_changes() -> None:
-    first = await read_currency(FakeSettings(currency="EUR"))
-    second = await read_currency(FakeSettings(currency="GBP"))
+    first = await fetch_currency(FakeSettings(currency="EUR"))
+    second = await fetch_currency(FakeSettings(currency="GBP"))
 
     assert first.headers["ETag"] != second.headers["ETag"]
 
@@ -204,3 +204,27 @@ async def test_rate_limiter_outage_fails_open() -> None:
         response = await http.get("/v1/settings/currency")
 
     assert response.status_code == 200
+
+
+class BrokenSettings:
+    async def get_value(self, key: str) -> object | None:
+        raise RuntimeError("database is down")
+
+
+async def test_database_error_is_an_uncached_500() -> None:
+    app = create_app()
+    app.dependency_overrides[get_settings_service] = lambda: PublicSettingsService(
+        BrokenSettings()
+    )
+    app.dependency_overrides[get_rate_limiter] = lambda: as_limiter(FakeRateLimiter())
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+
+    async with AsyncClient(
+        transport=transport, base_url="http://test", headers={"X-Internal-Key": KEY}
+    ) as http:
+        response = await http.get("/v1/settings/currency")
+
+    assert response.status_code == 500
+    assert response.json() == {"success": False, "error": "Internal server error"}
+    assert "Cache-Control" not in response.headers
+    assert "ETag" not in response.headers

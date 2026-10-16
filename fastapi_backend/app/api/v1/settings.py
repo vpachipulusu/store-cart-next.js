@@ -4,7 +4,7 @@ Called only by the Next.js server (decision D14), so it needs the internal servi
 but no user session. It exposes the currency code and nothing else from ``app_settings``;
 add another route, with its own schema, to expose another setting.
 
-The body is identical for every caller, so it is cacheable: ``Cache-Control`` plus a
+The body is identical for every caller, so it is cacheable: ``Cache-Control: private`` plus a
 content-hash ``ETag`` answered with 304 on ``If-None-Match`` (same scheme as the
 storefront lookup).
 """
@@ -23,7 +23,7 @@ from app.core.rate_limit import PUBLIC_SETTINGS_POLICY
 from app.repositories.app_settings import AppSettingsRepository
 from app.services.public_settings import PublicSettingsService
 
-SUCCESS_CACHE_CONTROL = "public, max-age=60, stale-while-revalidate=300"
+SUCCESS_CACHE_CONTROL = "private, max-age=60, stale-while-revalidate=300"
 
 router = APIRouter(
     prefix="/v1/settings",
@@ -81,13 +81,12 @@ async def read_currency(
     """The platform currency code (upper case, e.g. ``USD``).
 
     Answers ``USD`` when the setting is missing or not a supported code. Sends
-    ``Cache-Control: public, max-age=60`` and an ``ETag``.
+    ``Cache-Control: private, max-age=60`` and an ``ETag``.
     """
-    content = CurrencyResponse(
-        data=CurrencyData(currency=await service.currency())
-    ).model_dump_json()
-    etag = _etag_for(content.encode())
+    currency = await service.currency()
+    etag = _etag_for(currency.encode())
     headers = {"Cache-Control": SUCCESS_CACHE_CONTROL, "ETag": etag}
     if _matches(if_none_match, etag):
         return Response(status_code=304, headers=headers)
+    content = CurrencyResponse(data=CurrencyData(currency=currency)).model_dump_json()
     return Response(content, media_type="application/json", headers=headers)

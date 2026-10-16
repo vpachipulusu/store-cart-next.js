@@ -12,7 +12,7 @@ separate follow-up. No Alembic revision, no model change.
 | Rate limit | `PUBLIC_SETTINGS_POLICY`: 120 requests per 60 s per client IP (`X-Client-IP`). Fails open; 429 with `Retry-After`. |
 | 200 | `{"success": true, "data": {"currency": "USD"}}` |
 | 304 | Empty body when `If-None-Match` matches the `ETag`. |
-| Cache | `public, max-age=60, stale-while-revalidate=300` plus a content-hash `ETag`. 429 and 401 carry no cache header. |
+| Cache | `private, max-age=60, stale-while-revalidate=300` plus an `ETag` (hash of the currency code). 429, 401 and 500 carry no cache header. |
 
 ## Value rules
 
@@ -29,9 +29,8 @@ here but falls back to `$` in the old Prisma path; the admin page only stores cl
 
 ## Caching and consumers
 
-- `Cache-Control` is `public`, so no shared cache or CDN may sit in front of FastAPI (it would
-  replay the response to callers without `X-Internal-Key`). The value is non-sensitive, same
-  stance as the storefront lookup.
+- `Cache-Control` is `private` because the route needs `X-Internal-Key`: a shared cache or CDN must
+  not store it (the Next.js server is the only cache). The value itself is non-sensitive.
 - A currency change can take up to 60 s to show, plus up to 300 s of stale-while-revalidate.
 - The Next.js wrapper that calls this route must stay behind `unstable_cache` (the existing
   1 h cache, tag `currency-setting`). The 120/min limiter is keyed by the client IP, which for
