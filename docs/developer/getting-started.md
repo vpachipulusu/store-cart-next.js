@@ -138,7 +138,7 @@ It writes to the path in `OPENAPI_OUTPUT_FILE`.
 - **`Can't reach database server`:** check `DATABASE_URL` in `.env`, that Postgres is running, and the port (see [Local databases](#local-databases)).
 - **Prisma client out of date after a schema change:** run `npm run db:generate`, then `npm run db:push` (development) or `npm run db:migrate`.
 - **`Firebase: Error (auth/invalid-api-key)`:** the `NEXT_PUBLIC_FIREBASE_*` values must match the Firebase console, and Email/Password sign-in must be enabled there.
-- **Stripe webhook signature failures locally:** run `stripe listen --forward-to localhost:3000/api/webhooks/stripe` (use your `PORT` if you changed it) and set `STRIPE_WEBHOOK_SECRET` to the secret it prints.
+- **Stripe webhook signature failures locally:** run `stripe listen --forward-to localhost:8000/v1/webhooks/stripe` (the FastAPI backend; use its port if you changed it) and set `STRIPE_WEBHOOK_SECRET` to the secret it prints.
 - **Admin pages deny access:** the user needs an `AdminUser` record (`node scripts/create-admin.mjs <email>`).
 
 ## Pre-commit hooks

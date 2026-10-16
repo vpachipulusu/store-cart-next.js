@@ -10,7 +10,6 @@ vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('@/lib/firebase/admin', () => ({ getAdminAuth: vi.fn() }));
 vi.mock('@/lib/db/client', () => ({ db: {} }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock('@/lib/utils/notifications', () => ({}));
 
 const SECRET_NAME = 'STRIPE_SECRET_KEY';
 
@@ -28,16 +27,8 @@ describe('KAN-134: Stripe clients are created on first use, not at import', () =
     else process.env[SECRET_NAME] = savedSecret;
   });
 
-  it.each([
-    ['webhook handlers', '@/lib/stripe/webhooks'],
-    ['subscription actions', '@/app/actions/subscription-actions'],
-  ])('imports the %s without the secret key', async (_name, modulePath) => {
-    await expect(import(modulePath)).resolves.toBeDefined();
-  });
-
-  it('no longer exports a module-scope Stripe client from the webhook handlers', async () => {
-    const webhooks = await import('@/lib/stripe/webhooks');
-    expect(webhooks).not.toHaveProperty('stripe');
+  it('imports the subscription actions without the secret key', async () => {
+    await expect(import('@/app/actions/subscription-actions')).resolves.toBeDefined();
   });
 
   it('fails clearly at first use when the key is missing', async () => {

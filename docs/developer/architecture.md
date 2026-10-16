@@ -74,7 +74,7 @@ Boilerplate features that exist today and will be rebuilt behind FastAPI. Folded
 
 - **Customer dashboard** (`src/app/dashboard/`): home, `profile`, `settings` and `security` pages.
 - **Admin portal** (`src/app/(admin)/admin/`): `users`, `subscriptions`, `analytics`, `seo`, `settings` and `audit-logs`. An admin needs an `AdminUser` record; create one with `node scripts/create-admin.mjs <email>` (the user must have signed up first). Admin actions are written to the audit log.
-- **Billing** (`src/app/actions/subscription-actions.ts`, `src/app/api/webhooks/stripe/route.ts`): `createCheckoutSessionAction` starts a Stripe Checkout session, the Stripe webhook at `/api/webhooks/stripe` updates the database, and `createBillingPortalSessionAction` opens the billing portal. The pricing page adapts its call-to-action to the sign-in state.
+- **Billing** (`src/app/actions/subscription-actions.ts`): `createCheckoutSessionAction` starts a Stripe Checkout session, the backend Stripe webhook (`POST /v1/webhooks/stripe`, see [backend-billing-webhook.md](backend-billing-webhook.md)) updates the organisation's subscription, and `createBillingPortalSessionAction` opens the billing portal. The pricing page adapts its call-to-action to the sign-in state.
 
 ## Target state (Foundation complete)
 
@@ -111,15 +111,9 @@ Rules:
 - **Store databases (E7):** one Postgres database per store ([ADR-005](../adr/0005-per-store-database-access.md)). This is provisional until the latency spike KAN-115 reports.
 - **Store migrations** run from CI and never inside a request. Store migrations must be backward compatible.
 
-## Stripe webhook idempotency and release step
+## Stripe webhook
 
-`POST /api/webhooks/stripe` (KAN-128) verifies the signature first, then claims the Stripe event id in the `processed_stripe_events` table (Prisma model `ProcessedStripeEvent`, primary key = event id). The claim is a 60 second lease (`claimedAt`). A duplicate of an already processed event returns 200 without running the handler. A concurrent delivery that finds a live lease, a handler failure, or any database error returns a generic 500 so Stripe retries; a failed handler releases its claim. An expired lease is taken over with a conditional update. `processedAt` is set only after the handler succeeds. Unknown event types are recorded and return 200.
-
-**Release step (required):** run `npm run db:push` against the Preview, Test and Production databases **before** deploying this code. The repo has no Prisma migrations folder, so there is no migration file. If the table is missing, the webhook returns 500; Stripe retries for up to 3 days, so nothing is lost once the table exists.
-
-**Post-deploy check:** send a Stripe test event (for example `stripe trigger invoice.payment_succeeded` or the dashboard "Send test webhook"); expect a 200 and a `processed_stripe_events` row with `processedAt` set.
-
-**Retention:** rows can be pruned after 30 days (`receivedAt` is indexed); Stripe stops retrying after 3 days.
+Stripe events are handled only by the backend (`POST /v1/webhooks/stripe`), which verifies the signature and processes each event once; see [backend-billing-webhook.md](backend-billing-webhook.md). The Next.js route `/api/webhooks/stripe` and its `processed_stripe_events` idempotency flow (KAN-128) were removed in KAN-50. The `ProcessedStripeEvent` Prisma model stays in the schema until KAN-51 drops Prisma.
 
 ## Architecture decision records
 
