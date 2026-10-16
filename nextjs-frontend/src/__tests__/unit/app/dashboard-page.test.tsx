@@ -320,6 +320,30 @@ describe('DashboardPage', () => {
       expect(redirectTarget(await rejection(page()))).toBe('/dashboard/onboarding');
     });
 
+    describe('after a checkout (?upgrade=success, KAN-157)', () => {
+      const NO_STORES = { available: true, stores: [], selected: null };
+      const pageWith = (upgrade: string | string[] | undefined) =>
+        DashboardPage({ searchParams: Promise.resolve({ upgrade }) });
+
+      it('shows the dashboard, so the subscription handler can run, to a store-less user', async () => {
+        mocks.getCurrentStoreSelection.mockResolvedValue(NO_STORES);
+
+        const tree = await pageWith('success');
+
+        expect(tree).toBeDefined();
+        expect(renderToStaticMarkup(tree as React.ReactElement)).toContain('Dashboard');
+      });
+
+      it.each([['cancelled'], ['Success'], [['success', 'success']], [undefined]])(
+        'still sends a store-less user to onboarding for upgrade=%j',
+        async (upgrade) => {
+          mocks.getCurrentStoreSelection.mockResolvedValue(NO_STORES);
+
+          expect(redirectTarget(await rejection(pageWith(upgrade)))).toBe('/dashboard/onboarding');
+        }
+      );
+    });
+
     it.each(['PROVISIONING', 'FAILED', 'ACTIVE'])(
       'does not redirect a user whose store is %s',
       async (status) => {
