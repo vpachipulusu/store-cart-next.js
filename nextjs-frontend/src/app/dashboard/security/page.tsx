@@ -261,7 +261,11 @@ export default function SecurityPage() {
                   }}
                 />
                 {mismatchError && (
-                  <p id="confirm-password-error" className="mt-1.5 text-sm text-destructive">
+                  <p
+                    id="confirm-password-error"
+                    role="alert"
+                    className="mt-1.5 text-sm text-destructive"
+                  >
                     {mismatchError}
                   </p>
                 )}
