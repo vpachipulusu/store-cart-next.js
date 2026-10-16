@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import { Mail } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /** Inline text link with a 44px target (plan 9: auth links are real targets). */
@@ -25,8 +24,6 @@ export function AuthIconTile({ children }: { children: ReactNode }) {
     </div>
   );
 }
-
-export { Mail as AuthMailIcon };
 
 /** "Or continue with email" rule between OAuth buttons and the form. */
 export function AuthDivider({ children }: { children: ReactNode }) {

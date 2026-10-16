@@ -23,7 +23,7 @@ export default async function SignupPage({
         <p className="text-sm text-muted-foreground">Enter your information to get started</p>
         {selectedPlan && (
           <p className="pt-1">
-            <span className="inline-flex min-h-6 items-center rounded-full bg-secondary px-3 py-0.5 text-[0.8125rem] font-semibold capitalize text-accent-ink">
+            <span className="inline-flex min-h-6 max-w-full items-center truncate rounded-full bg-secondary px-3 py-0.5 text-[0.8125rem] font-semibold capitalize text-accent-ink">
               Selected Plan: {selectedPlan}
             </span>
           </p>

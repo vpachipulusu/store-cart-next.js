@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
  */
 export default function AuthLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-screen bg-background text-foreground min-[760px]:grid min-[760px]:grid-cols-2">
+    <div className="min-h-dvh bg-background text-foreground min-[760px]:grid min-[760px]:grid-cols-2">
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:start-4 focus:top-4 focus:z-[60] focus:flex focus:min-h-11 focus:items-center focus:rounded-md focus:border focus:border-foreground focus:bg-background focus:px-4 focus:font-medium focus:text-foreground"
