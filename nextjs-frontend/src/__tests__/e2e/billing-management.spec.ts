@@ -170,6 +170,25 @@ test.describe('Billing Settings Page - Content', () => {
     await expect(billingHistoryCard).toBeVisible();
   });
 
+  test('should show the plan status as a pill and no inline error', async ({ page }) => {
+    await navigateToBilling(page);
+
+    const planGroup = page.getByRole('group', { name: 'Current plan' });
+    await expect(planGroup).toBeVisible();
+    await expect(planGroup.getByText(/^(active|inactive|trial|payment past due)$/i)).toBeVisible();
+    // Next's route announcer is an empty role=alert, so only count alerts that carry text.
+    await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toHaveCount(0);
+  });
+
+  test('should show plan usage meters from sample fixtures and say so', async ({ page }) => {
+    await navigateToBilling(page);
+
+    const usage = page.getByRole('group', { name: 'Plan usage' });
+    await expect(usage).toBeVisible();
+    await expect(usage.getByRole('meter').first()).toBeVisible();
+    await expect(page.getByText(/sample figures/i)).toBeVisible();
+  });
+
   test('should show upgrade button for free tier users', async ({ page }) => {
     await navigateToBilling(page);
 
@@ -384,7 +403,8 @@ test.describe('Billing Settings - Billing History', () => {
       .catch(() => false);
 
     if (hasInvoices) {
-      // Should show amount and status
+      // Invoices render in the shared table, with the status as a pill
+      await expect(billingHistoryCard.getByRole('table', { name: 'Invoices' })).toBeVisible();
       await expect(billingHistoryCard.getByText(/paid|open|draft/i).first()).toBeVisible();
 
       // Should have download/view buttons

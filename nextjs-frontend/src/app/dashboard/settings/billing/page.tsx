@@ -15,8 +15,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Switch } from '@/components/ui/switch';
-import { Loader2, CreditCard, Calendar, Download, ExternalLink, RefreshCw } from 'lucide-react';
+import { SubscriptionStatusPill } from '@/components/dashboard/billing/billing-pills';
+import { InvoiceTable, type Invoice } from '@/components/dashboard/billing/invoice-table';
+import { planUsageFixture } from '@/components/dashboard/billing/plan-usage-fixtures';
+import { PlanUsageMeter } from '@/components/dashboard/plan-usage-meter';
+import { Loader2, CreditCard, Calendar, Gauge, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface SubscriptionDetails {
@@ -38,16 +43,6 @@ interface PaymentMethod {
   isDefault: boolean;
 }
 
-interface Invoice {
-  id: string;
-  amount: number;
-  currency: string;
-  status: string;
-  created: string;
-  pdfUrl: string | null;
-  hostedUrl: string | null;
-}
-
 type ActionResult = { success: boolean; data?: { message?: string }; error?: string };
 
 export default function BillingPage() {
@@ -57,6 +52,7 @@ export default function BillingPage() {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -80,6 +76,7 @@ export default function BillingPage() {
   }, [toast]);
 
   const applyBillingData = useCallback((data: Awaited<ReturnType<typeof fetchData>>) => {
+    if (!data) setErrorMessage('Failed to load billing data');
     if (data?.subscription) setSubscription(data.subscription);
     if (data?.paymentMethods) setPaymentMethods(data.paymentMethods);
     if (data?.invoices) setInvoices(data.invoices);
@@ -99,21 +96,18 @@ export default function BillingPage() {
   /** Runs one billing action: toast the backend's curated message, then refresh the page data. */
   const runAction = async (key: string, action: () => Promise<ActionResult>, fallback: string) => {
     setBusyAction(key);
+    setErrorMessage(null);
     try {
       const result = await action();
       if (result.success) {
         toast({ title: 'Success', description: result.data?.message });
         applyBillingData(await fetchData());
       } else {
-        toast({ title: 'Error', description: result.error || fallback, variant: 'destructive' });
+        setErrorMessage(result.error || fallback);
       }
     } catch (error) {
       console.error(`Billing action ${key} failed:`, error);
-      toast({
-        title: 'Error',
-        description: 'An unexpected error occurred',
-        variant: 'destructive',
-      });
+      setErrorMessage('An unexpected error occurred');
     } finally {
       setBusyAction(null);
     }
@@ -141,24 +135,17 @@ export default function BillingPage() {
     );
 
   const handleAddPaymentMethod = async () => {
+    setErrorMessage(null);
     try {
       const result = await createBillingPortalSessionAction();
       if (result.success && result.data?.url) {
         window.location.href = result.data.url;
       } else {
-        toast({
-          title: 'Error',
-          description: result.error || 'Failed to open billing portal',
-          variant: 'destructive',
-        });
+        setErrorMessage(result.error || 'Failed to open billing portal');
       }
     } catch (error) {
       console.error('Open billing portal error:', error);
-      toast({
-        title: 'Error',
-        description: 'An unexpected error occurred',
-        variant: 'destructive',
-      });
+      setErrorMessage('An unexpected error occurred');
     }
   };
 
@@ -190,6 +177,12 @@ export default function BillingPage() {
         <p className="text-muted-foreground">Manage your subscription plan and payment methods</p>
       </div>
 
+      {errorMessage && (
+        <Alert variant="destructive">
+          <AlertDescription>{errorMessage}</AlertDescription>
+        </Alert>
+      )}
+
       {/* Current Plan */}
       <Card>
         <CardHeader>
@@ -200,17 +193,20 @@ export default function BillingPage() {
           <CardDescription>Your active subscription details</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center justify-between rounded-lg border p-4">
+          <div
+            role="group"
+            aria-label="Current plan"
+            className="flex items-center justify-between rounded-lg border p-4"
+          >
             <div className="space-y-1">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-lg font-semibold capitalize">
                   {subscription?.subscriptionTier} Plan
                 </span>
-                <Badge variant={hasActiveSubscription ? 'default' : 'secondary'}>
-                  {hasActiveSubscription
-                    ? 'Active'
-                    : subscription?.subscriptionStatus || 'Inactive'}
-                </Badge>
+                <SubscriptionStatusPill
+                  status={subscription?.subscriptionStatus}
+                  isActive={hasActiveSubscription}
+                />
                 {intervalLabel && <Badge variant="outline">{intervalLabel}</Badge>}
               </div>
               {subscription?.currentPeriodEnd && (
@@ -260,6 +256,24 @@ export default function BillingPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Plan usage: no usage API exists, so the meters come from typed sample fixtures. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Gauge className="h-5 w-5 text-theme-accent" />
+            Plan Usage
+          </CardTitle>
+          <CardDescription>Sample figures: live plan usage is not available yet.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PlanUsageMeter
+            items={planUsageFixture(subscription?.subscriptionTier)}
+            className="rounded-none border-0 bg-transparent p-0"
+            compareAction={{ label: 'Compare plans', href: '/pricing' }}
+          />
+        </CardContent>
+      </Card>
 
       {/* Upcoming invoice: the API has no route for it, so the panel stays switched off. */}
       <Card>
@@ -366,49 +380,7 @@ export default function BillingPage() {
           {invoices.length === 0 ? (
             <p className="py-4 text-center text-sm text-muted-foreground">No invoices yet</p>
           ) : (
-            <div className="space-y-3">
-              {invoices.map((invoice) => (
-                <div
-                  key={invoice.id}
-                  className="flex items-center justify-between rounded-lg border p-4"
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">
-                        {(invoice.amount / 100).toLocaleString('en-US', {
-                          style: 'currency',
-                          currency: invoice.currency,
-                        })}
-                      </span>
-                      <Badge variant={invoice.status === 'paid' ? 'default' : 'secondary'}>
-                        {invoice.status}
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      {new Date(invoice.created).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {invoice.pdfUrl && (
-                      <Button variant="ghost" asChild>
-                        <a href={invoice.pdfUrl} target="_blank" rel="noopener noreferrer">
-                          <Download className="h-4 w-4" />
-                          <span className="ml-1">PDF</span>
-                        </a>
-                      </Button>
-                    )}
-                    {invoice.hostedUrl && (
-                      <Button variant="ghost" asChild>
-                        <a href={invoice.hostedUrl} target="_blank" rel="noopener noreferrer">
-                          <ExternalLink className="h-4 w-4" />
-                          <span className="ml-1">View</span>
-                        </a>
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <InvoiceTable invoices={invoices} />
           )}
         </CardContent>
       </Card>
