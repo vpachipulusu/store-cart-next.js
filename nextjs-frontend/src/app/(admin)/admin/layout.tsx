@@ -7,6 +7,8 @@ import { isSessionVerificationError, logRouteError } from '@/lib/auth/session-er
 import {
   LayoutDashboard,
   Users,
+  Building2,
+  Store,
   CreditCard,
   BarChart3,
   Search,
@@ -77,6 +79,16 @@ const navItems = [
     title: 'Users',
     href: '/admin/users',
     icon: Users,
+  },
+  {
+    title: 'Organisations',
+    href: '/admin/organizations',
+    icon: Building2,
+  },
+  {
+    title: 'Stores',
+    href: '/admin/stores',
+    icon: Store,
   },
   {
     title: 'Subscriptions',
