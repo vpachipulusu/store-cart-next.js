@@ -52,7 +52,10 @@ test.describe('Subscription Upgrade - Happy Path', () => {
       // plan card the last steps read does not exist. The store-less checkout return is covered by a unit test.
       await ensureAccountHasStore(
         page,
-        `e2e-${throwawayAccount.email.split('@')[0].toLowerCase()}`
+        `e2e-${throwawayAccount.email
+          .split('@')[0]
+          .toLowerCase()
+          .replace(/[^a-z0-9-]/g, '-')}`
       );
 
       // Step 2: Navigate to pricing page
