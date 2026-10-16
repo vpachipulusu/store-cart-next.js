@@ -25,8 +25,7 @@ There is no `test:integration` script yet (KAN-148 removed it, because no integr
 ## Frontend end-to-end tests (Playwright)
 
 ```bash
-npm run test:e2e:db                # once: apply the Prisma schema to the dedicated e2e database
-npm run test:setup                 # once: create the e2e user and admin in the TEST Firebase project and e2e database
+npm run test:setup                 # once: create the e2e user and admin in the TEST Firebase project
 npm run test:e2e:build             # build the e2e app once (.next-e2e, test Firebase project, Sentry off)
 npm run test:e2e:baseline          # the gated Chromium baseline against that build (never builds)
 npm run test:e2e:baseline:build    # both of the above
@@ -50,7 +49,7 @@ e2e runs against the Firebase TEST project **`storecart-test`** and a **dedicate
   - the e2e accounts, written by `npm run test:setup`: `TEST_USER_EMAIL`, `TEST_USER_PASSWORD`, `TEST_ADMIN_EMAIL`, `TEST_ADMIN_PASSWORD`.
 - In the test project, Firebase Console > Authentication > Sign-in method must have **Email/Password** enabled. `auth.setup.ts` fails with a clear message if it is not.
 - `npm run test:setup`, `auth.setup.ts` and `scripts/e2e-start.mjs` fail fast and name the missing variables. They never print values.
-- `npm run test:e2e:db` (`scripts/e2e-db.mjs`) applies the Prisma schema (`prisma db push`; the repo has no migrations) to the e2e database, using the e2e env only. Plain `npm run db:push` uses `.env`, i.e. the dev database; do not use it for e2e.
+- The frontend has no database of its own (KAN-51): the backend creates each e2e user's row on the first login, and the admin needs an admin grant in the backend database ([local-e2e.md](local-e2e.md)).
 
 ### Separate e2e build
 
@@ -80,7 +79,6 @@ e2e runs against the Firebase TEST project **`storecart-test`** and a **dedicate
   - creates their `users` rows (free tier, no Stripe links, reset on every run) and the admin's `AdminUser` row in the e2e database, and refuses a missing `DATABASE_URL` or one equal to the dev database;
   - never prints credentials.
 - Re-running `npm run test:setup` reuses the stored credentials and resets the Firebase passwords to match.
-- `npm run test:reset` (`scripts/reset-test-user.mjs`) is not part of the e2e flow. It resets the e2e user (`TEST_USER_EMAIL` from `.env.e2e.local`) to the free tier in the e2e database, and fails naming the variable when it is missing.
 - Accounts created before KAN-113 moved e2e to `storecart-test` still exist in the dev project. KAN-131 deletes them.
 - CI e2e uses only the dedicated Firebase test project `storecart-test` (GitHub environment `e2e-test`) and Stripe test-mode keys. It must never use the development or production projects: the e2e job refuses live Stripe keys and refuses to run when `E2E_NEXT_PUBLIC_FIREBASE_PROJECT_ID` equals the repository variable `PROD_FIREBASE_PROJECT_ID`.
 

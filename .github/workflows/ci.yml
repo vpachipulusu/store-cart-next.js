@@ -109,7 +109,6 @@ jobs:
         working-directory: nextjs-frontend
         run: |
           npm ci --no-audit --no-fund
-          npm run db:generate
 
       # The backend hooks (mypy, requirements sync, OpenAPI check) use `uv run`;
       # the OpenAPI check also runs when only openapi.json changed.

@@ -13,7 +13,7 @@ import { HideOnOnboarding } from '@/components/dashboard/hide-on-onboarding';
 import { getCurrentStoreSelection } from '@/lib/stores/current';
 
 /**
- * Every /dashboard route is per-user (session cookie) and reads Prisma, so none can be prerendered.
+ * Every /dashboard route is per-user (session cookie) and reads the API, so none can be prerendered.
  */
 export const dynamic = 'force-dynamic';
 

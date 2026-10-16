@@ -1,7 +1,7 @@
 # Admin settings
 
 **Last updated:** 2026-10-12
-**Scope:** the admin settings area on `main` (`/admin/settings`). Moved from `nextjs-frontend/ADMIN_SETTINGS_GUIDE.md` in KAN-146. The "Next steps" are ideas, not planned work, and the area is Prisma-based boilerplate that the backend migration will replace.
+**Scope:** the admin settings area on `main` (`/admin/settings`). Moved from `nextjs-frontend/ADMIN_SETTINGS_GUIDE.md` in KAN-146. The "Next steps" are ideas, not planned work, and the area is old boilerplate that the backend migration will replace (its Prisma models are gone, KAN-51).
 
 ## Overview
 
@@ -117,62 +117,15 @@ All actions include:
 4. **Email Templates**: Email template management
 5. **Pricing**: Pricing configuration
 
-## Database Schema
+## Data storage
 
-### AppSettings Table
-
-```prisma
-model AppSettings {
-  id          String   @id @default(cuid())
-  key         String   @unique
-  value       Json
-  category    String
-  description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
-```
-
-### FeatureFlag Table
-
-```prisma
-model FeatureFlag {
-  id                String   @id @default(cuid())
-  name              String   @unique
-  enabled           Boolean  @default(false)
-  description       String?
-  rolloutPercentage Int      @default(0)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-}
-```
+The `AppSettings` and `FeatureFlag` tables were Prisma models. They were removed with Prisma (KAN-51), together with the `db:push` and `db:seed:settings` scripts; the backend settings API replaces them (see [backend-public-settings.md](backend-public-settings.md)).
 
 ## Setup Instructions
 
-### 1. Push the schema
+### 1. Access Admin Settings
 
-Make sure your development database is up to date:
-
-```bash
-npm run db:push
-```
-
-### 2. Seed Default Settings
-
-Run the settings seeder to populate default values:
-
-```bash
-npm run db:seed:settings
-```
-
-This will create:
-
-- Default app settings (app_name, support_email, timezone, currency, language)
-- Default feature flags (oauth_signup, stripe_billing, two_factor_auth, email_notifications, beta_features)
-
-### 3. Access Admin Settings
-
-1. Sign in as an admin user. To make an existing user an admin, run `node scripts/create-admin.mjs admin@example.com` from `nextjs-frontend/` (replace the address with that user's email)
+1. Sign in as an admin user. An existing admin grants admin rights to another user through `POST /v1/admin/users/{user_id}/admin`; the first admin is granted in the backend database (see [local-e2e.md](local-e2e.md))
 2. Navigate to `/admin/settings`
 3. Configure currency and language from the "General" tab
 4. Toggle feature flags from the "Feature Flags" tab
@@ -227,43 +180,6 @@ Apply the saved language setting throughout the app:
 - Set up i18n/internationalization
 - Load language files based on selected language
 - Update UI text dynamically
-
-### 3. Feature Flag Implementation
-
-Use feature flags to conditionally render features:
-
-```typescript
-// Example: Check if OAuth signup is enabled
-const flags = await db.featureFlag.findUnique({
-  where: { name: 'oauth_signup' },
-});
-
-if (flags?.enabled) {
-  // Show OAuth buttons
-}
-```
-
-### 4. Currency Formatting Helper
-
-Create a utility function to format prices:
-
-```typescript
-// src/lib/utils/format-currency.ts
-import { db } from '@/lib/db/client';
-
-export async function formatCurrency(amount: number): Promise<string> {
-  const currencySetting = await db.appSettings.findUnique({
-    where: { key: 'currency' },
-  });
-
-  const currency = (currencySetting?.value as string) || 'USD';
-
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: currency,
-  }).format(amount);
-}
-```
 
 ## Security Considerations
 

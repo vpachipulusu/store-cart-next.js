@@ -52,9 +52,6 @@ jobs:
           fi
           npm audit --omit=dev --audit-level=high
 
-      - name: Generate Prisma client
-        run: npm run db:generate
-
       # Regenerates the typed API client from openapi.json and fails if it differs from
       # src/lib/api/generated (KAN-33). Takes about a second; the schema itself is checked
       # against the backend by the pre-commit job.
@@ -85,7 +82,7 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      # Production build with public placeholders only: no DATABASE_URL and no
+      # Production build with public placeholders only: no
       # server secrets (KAN-140 made this work). These values are not secrets.
       - name: Build
         env:

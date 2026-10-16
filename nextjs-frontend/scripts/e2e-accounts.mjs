@@ -1,22 +1,19 @@
 /**
  * e2e account helpers (KAN-113), shared by scripts/setup-e2e-accounts.mjs and the Playwright throwaway-user fixture.
- *
  * Every account is created in the Firebase TEST project through the Admin SDK, using the e2e env only
- * (scripts/e2e-env.cjs), and in the dedicated e2e Postgres database (DATABASE_URL from .env.e2e.local). Only accounts whose email matches E2E_EMAIL can be touched, so a
- * real user can never be reset or deleted. Nothing here prints a credential.
+ * (scripts/e2e-env.cjs). The backend creates the matching users row on the first login. Only accounts whose
+ * email matches E2E_EMAIL can be touched, so a real user can never be reset or deleted. Nothing here prints a
+ * credential.
  */
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { cert, deleteApp, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
-import { PrismaClient } from '@prisma/client';
-import e2eEnv from './e2e-env.cjs';
 
 /**
- * user/admin: the shared role accounts. temp: throwaway accounts for state-changing tests, deleted afterwards. seed:
- * the fixed database-only subscriber below.
+ * user/admin: the shared role accounts. temp: throwaway accounts for state-changing tests, deleted afterwards.
  */
-export const E2E_EMAIL = /^e2e-(user|admin|temp|seed)-[0-9a-f]{12}@example\.com$/;
+export const E2E_EMAIL = /^e2e-(user|admin|temp)-[0-9a-f]{12}@example\.com$/;
 /** Marks the accounts for cleanup (KAN-131). */
 const E2E_CLAIMS = { e2e: true };
 const E2E_ADMIN_APP_NAME = 'e2e-accounts';
@@ -24,10 +21,8 @@ const E2E_ADMIN_APP_NAME = 'e2e-accounts';
 export const randomSuffix = () => randomBytes(6).toString('hex');
 export const randomPassword = () => randomBytes(24).toString('base64url');
 
-/** Firebase Admin and Prisma clients for the e2e env. Call `close()` when done. */
+/** Firebase Admin client for the e2e env. Call `close()` when done. */
 export function openE2eAccountClients(env) {
-  // The e2e database is a dedicated one and never the dev database (throws without printing any URL).
-  e2eEnv.assertE2eDatabaseEnv(env);
   const app =
     getApps().find((existing) => existing.name === E2E_ADMIN_APP_NAME) ??
     initializeApp(
@@ -40,12 +35,9 @@ export function openE2eAccountClients(env) {
       },
       E2E_ADMIN_APP_NAME
     );
-  const prisma = new PrismaClient({ datasources: { db: { url: env.DATABASE_URL } } });
   return {
     auth: getAuth(app),
-    prisma,
     close: async () => {
-      await prisma.$disconnect();
       await deleteApp(app);
     },
   };
@@ -77,78 +69,11 @@ export async function ensureFirebaseUser(auth, email, password, displayName) {
   return user;
 }
 
-/** Create or reset the app's users row (free tier, active) and its settings row. */
-export async function ensureDbUser(prisma, firebaseUser, displayName) {
-  assertE2eEmail(firebaseUser.email);
-  // The local database is shared with dev. An e2e row created for the same email under another Firebase project
-  // (before e2e moved to storecart-test) is re-linked to this project's uid instead of failing on the unique email.
-  await prisma.user.updateMany({
-    where: { email: firebaseUser.email, NOT: { firebaseUid: firebaseUser.uid } },
-    data: { firebaseUid: firebaseUser.uid },
-  });
-  const user = await prisma.user.upsert({
-    where: { firebaseUid: firebaseUser.uid },
-    // Deterministic starting state: free tier, no Stripe links, whatever a previous run left behind.
-    update: {
-      email: firebaseUser.email,
-      emailVerified: true,
-      subscriptionTier: 'free',
-      subscriptionStatus: 'active',
-      stripeCustomerId: null,
-      stripeSubscriptionId: null,
-      stripePriceId: null,
-      stripeCurrentPeriodEnd: null,
-    },
-    create: {
-      firebaseUid: firebaseUser.uid,
-      email: firebaseUser.email,
-      emailVerified: true,
-      displayName,
-      subscriptionTier: 'free',
-      subscriptionStatus: 'active',
-    },
-  });
-  await prisma.userSettings.upsert({
-    where: { userId: user.id },
-    update: {},
-    create: { userId: user.id },
-  });
-  return user;
-}
-
-const SEED_SUBSCRIBER_EMAIL = 'e2e-seed-000000000001@example.com';
-/** Fixed far-future renewal date, so the seeded row never expires and never changes between runs. */
-const SEED_RENEWAL_DATE = new Date('2099-01-01T00:00:00.000Z');
-
-/**
- * A fixed paying customer (database row only, no Firebase user, no real Stripe objects) so the admin subscription
- * pages always have one active Pro subscription to list, whatever earlier runs left behind. Reset on every run.
- */
-export async function ensureSeedSubscriber(prisma) {
-  assertE2eEmail(SEED_SUBSCRIBER_EMAIL);
-  const data = {
-    email: SEED_SUBSCRIBER_EMAIL,
-    emailVerified: true,
-    displayName: 'E2E Seed Subscriber',
-    subscriptionTier: 'pro',
-    subscriptionStatus: 'active',
-    stripeCustomerId: 'cus_e2e_seed_000000000001',
-    stripeSubscriptionId: 'sub_e2e_seed_000000000001',
-    stripeCurrentPeriodEnd: SEED_RENEWAL_DATE,
-  };
-  return prisma.user.upsert({
-    where: { firebaseUid: 'e2e-seed-000000000001' },
-    update: data,
-    create: { firebaseUid: 'e2e-seed-000000000001', ...data },
-  });
-}
-
 /** A fresh free-tier account for one test. Delete it with deleteThrowawayAccount. */
-export async function createThrowawayAccount({ auth, prisma }) {
+export async function createThrowawayAccount({ auth }) {
   const email = `e2e-temp-${randomSuffix()}@example.com`;
   const password = randomPassword();
   const firebaseUser = await ensureFirebaseUser(auth, email, password, 'E2E Temp');
-  await ensureDbUser(prisma, firebaseUser, 'E2E Temp');
   return { email, password, uid: firebaseUser.uid };
 }
 
@@ -171,14 +96,11 @@ export async function assertThrowawayAccountDeleted({ auth }, account) {
   }
   if (!missing)
     throw new Error('The throwaway Firebase account still exists after browser deletion.');
-  // Browser deletion goes through the API (KAN-180) and no longer touches the legacy Prisma row that
-  // ensureDbUser seeds; deleteThrowawayAccount removes it. The Firebase check above is the browser-visible proof.
 }
 
-/** Delete a throwaway account from Firebase and Postgres (related rows cascade). */
-export async function deleteThrowawayAccount({ auth, prisma }, account) {
+/** Delete a throwaway account from Firebase (the backend row goes with the app's own account deletion). */
+export async function deleteThrowawayAccount({ auth }, account) {
   assertThrowawayAccount(account);
-  await prisma.user.deleteMany({ where: { firebaseUid: account.uid } });
   try {
     await auth.deleteUser(account.uid);
   } catch (error) {

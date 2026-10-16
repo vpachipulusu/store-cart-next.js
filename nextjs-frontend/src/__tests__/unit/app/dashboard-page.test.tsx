@@ -14,7 +14,6 @@ const mocks = vi.hoisted(() => ({
   fetchProfile: vi.fn(),
   fetchLoginHistory: vi.fn(),
   fetchBillingSummary: vi.fn(),
-  dbFindUnique: vi.fn(),
   loggerError: vi.fn(),
 }));
 
@@ -23,8 +22,6 @@ vi.mock('next/headers', () => ({ cookies: async () => ({ get: mocks.cookieGet })
 vi.mock('@/lib/firebase/admin', () => ({
   getAdminAuth: () => ({ verifySessionCookie: mocks.verifySessionCookie }),
 }));
-// verified-session.ts (not part of this ticket) still imports the client for its own lookups.
-vi.mock('@/lib/db/client', () => ({ db: { user: { findUnique: mocks.dbFindUnique } } }));
 vi.mock('@/lib/api/billing', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api/billing')>('@/lib/api/billing');
   return { ...actual, fetchBillingSummary: mocks.fetchBillingSummary };
@@ -109,7 +106,6 @@ describe('DashboardPage', () => {
     expect(tree).toBeDefined();
     expect(mocks.fetchLoginHistory).toHaveBeenCalledWith(5, 0);
     expect(mocks.fetchBillingSummary).toHaveBeenCalledTimes(1);
-    expect(mocks.dbFindUnique).not.toHaveBeenCalled();
   });
 
   it('shows the plan and status read from the billing API', async () => {

@@ -3,7 +3,7 @@
  * One command for local Playwright E2E (KAN-178): `npm run test:e2e:local -- <spec...> [playwright args]`.
  *
  * Steps (each timed, summary printed at the end):
- *   setup    install deps if missing/stale (npm ci --prefer-offline), prisma generate, Chromium only if absent,
+ *   setup    install deps if missing/stale (npm ci --prefer-offline), Chromium only if absent,
  *            env files copied from the main checkout (or an exact message about what to copy)
  *   build    `next build` into .next-e2e via scripts/e2e-build.mjs, skipped when nothing changed since the last build
  *   serve    `next start` on a free, stable per-checkout port (scripts/e2e-start.mjs), then warm the pages
@@ -98,7 +98,7 @@ function ensureEnvFiles() {
     die(
       `${REQUIRED_ENV_FILE} is missing and was not found in the main checkout either.\n` +
         `Create nextjs-frontend/${REQUIRED_ENV_FILE} with the storecart-test Firebase web config, FIREBASE_ADMIN_*, ` +
-        `DATABASE_URL (test database) and the e2e accounts (see docs/developer/testing.md), or copy it from a ` +
+        `and the e2e accounts (see docs/developer/testing.md), or copy it from a ` +
         `colleague's checkout. Optional: .env and .env.local (copied automatically when present).`
     );
   }
@@ -110,8 +110,8 @@ const sameFile = (a, b) =>
   existsSync(a) && existsSync(b) && readFileSync(a).equals(readFileSync(b));
 
 /**
- * Link this checkout's node_modules to the primary checkout's (a junction on Windows) when package-lock.json and the
- * Prisma schema are byte-identical, which saves the ~4 minute `npm ci`. Opt out with E2E_LOCAL_NO_LINK=1.
+ * Link this checkout's node_modules to the primary checkout's (a junction on Windows) when package-lock.json is
+ * byte-identical, which saves the ~4 minute `npm ci`. Opt out with E2E_LOCAL_NO_LINK=1.
  * Never links over an existing node_modules folder.
  */
 function canShareMainModules(mainDir) {
@@ -119,8 +119,7 @@ function canShareMainModules(mainDir) {
     Boolean(mainDir) &&
     process.env.E2E_LOCAL_NO_LINK !== '1' &&
     existsSync(path.join(mainDir, 'node_modules', '.package-lock.json')) &&
-    sameFile('package-lock.json', path.join(mainDir, 'package-lock.json')) &&
-    sameFile(path.join('prisma', 'schema.prisma'), path.join(mainDir, 'prisma', 'schema.prisma'))
+    sameFile('package-lock.json', path.join(mainDir, 'package-lock.json'))
   );
 }
 
@@ -144,14 +143,6 @@ function ensureDependencies() {
   log('installing dependencies (npm ci --prefer-offline)');
   const result = run('npm', ['ci', '--prefer-offline', '--no-audit', '--no-fund']);
   if (result.status !== 0) die('npm ci failed.');
-}
-
-function ensurePrismaClient() {
-  const generated = path.join('node_modules', '.prisma', 'client', 'index.js');
-  if (mtime(generated) > 0 && mtime(generated) >= mtime(path.join('prisma', 'schema.prisma')))
-    return;
-  log('generating the Prisma client');
-  if (run('npm', ['run', 'db:generate']).status !== 0) die('prisma generate failed.');
 }
 
 async function ensureChromium() {
@@ -314,7 +305,6 @@ async function main() {
   await timed('setup', async () => {
     ensureEnvFiles();
     ensureDependencies();
-    ensurePrismaClient();
     await ensureChromium();
   });
 

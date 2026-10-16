@@ -3,9 +3,8 @@
 # the environment at run time.
 FROM node:22-bookworm-slim
 
-# Prisma's engines need OpenSSL.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir /app \
     && chown node:node /app
@@ -20,7 +19,7 @@ RUN npm ci --ignore-scripts
 
 # .next is created here so the named volume mounted over it is writable by "node".
 COPY --chown=node:node . .
-RUN npx prisma generate && mkdir -p .next
+RUN mkdir -p .next
 
 EXPOSE 3000
 
