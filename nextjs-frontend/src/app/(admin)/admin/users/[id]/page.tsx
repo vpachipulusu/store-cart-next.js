@@ -1,39 +1,41 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { User, Shield, Phone } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { KeyRound, Shield, ToggleLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { StatusPill } from '@/components/ui/status-pill';
+import { Panel } from '@/components/dashboard/overview/panel';
 import { adminErrorMessage, fetchAdminUser, toAdminUserDetail } from '@/lib/api/admin-users';
 import { logger } from '@/lib/logger';
+import { InlineError } from '../../_components/inline-error';
+import { formatAdminDate, formatAdminDateTime } from '../../_components/format-admin-date';
 
-function Row({
-  label,
-  children,
-  last = false,
-}: {
-  label: string;
-  children: React.ReactNode;
-  last?: boolean;
-}) {
+const USERS_HREF = '/admin/users';
+
+function BackToUsers() {
   return (
-    <div className={`flex items-center justify-between py-2 ${last ? '' : 'border-b'}`}>
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <span className="font-medium">{children}</span>
+    <Button variant="outline" asChild>
+      <Link href={USERS_HREF}>Back to Users</Link>
+    </Button>
+  );
+}
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 border-b border-border py-2 last:border-b-0">
+      <dt className="text-sm text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 break-words text-right font-medium">{children}</dd>
     </div>
   );
 }
 
-function ErrorState({ message }: { message: string }) {
+function ErrorState({ message, retryHref }: { message: string; retryHref: string }) {
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold tracking-tight">User Details</h1>
-      <p role="alert" className="text-destructive">
-        {message}
-      </p>
-      <Button variant="outline" asChild>
-        <Link href="/admin/users">Back to Users</Link>
-      </Button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-3xl font-bold tracking-tight">User Details</h1>
+        <BackToUsers />
+      </div>
+      <InlineError message={message} retryHref={retryHref} />
     </div>
   );
 }
@@ -47,108 +49,93 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
       notFound();
     }
     logger.error('Admin user page: read failed', { status: result.status });
-    return <ErrorState message={adminErrorMessage(result)} />;
+    return (
+      <ErrorState
+        message={adminErrorMessage(result)}
+        retryHref={`${USERS_HREF}/${encodeURIComponent(id)}`}
+      />
+    );
   }
 
   const user = toAdminUserDetail(result.data);
+  const lastLogin = user.lastLoginAt ? formatAdminDateTime(user.lastLoginAt) : '';
+  const memberSince = formatAdminDate(user.createdAt);
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">User Details</h1>
           <p className="text-muted-foreground">Viewing information for {user.email}</p>
         </div>
-        <Button variant="outline" asChild>
-          <Link href="/admin/users">Back to Users</Link>
-        </Button>
+        <BackToUsers />
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
-        {/* Basic Information */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <User className="h-5 w-5" />
-              Basic Information
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <Panel title="Basic Information" titleId="admin-user-basic">
+          <dl>
             <Row label="Email">{user.email}</Row>
             <Row label="Display Name">{user.displayName || '—'}</Row>
             <Row label="User ID">
-              <span className="font-mono text-sm">{user.id}</span>
+              <span className="break-all font-mono text-sm">{user.id}</span>
             </Row>
             <Row label="Email Verified">
               {user.emailVerified ? (
-                <Badge variant="default">Verified</Badge>
+                <StatusPill variant="good">Verified</StatusPill>
               ) : (
-                <Badge variant="destructive">Unverified</Badge>
+                <StatusPill variant="warn">Unverified</StatusPill>
               )}
             </Row>
             <Row label="Two-factor">
-              <Badge variant={user.twoFactorEnabled ? 'default' : 'secondary'}>
-                {user.twoFactorEnabled ? 'Enabled' : 'Disabled'}
-              </Badge>
+              {user.twoFactorEnabled ? (
+                <StatusPill variant="good">Enabled</StatusPill>
+              ) : (
+                <StatusPill variant="neutral" icon={ToggleLeft}>
+                  Disabled
+                </StatusPill>
+              )}
             </Row>
-            <Row label="Last Login">
-              {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : '—'}
-            </Row>
-            <Row label="Member Since" last>
-              {new Date(user.createdAt).toLocaleDateString()}
-            </Row>
-          </CardContent>
-        </Card>
+            <Row label="Last Login">{lastLogin || '—'}</Row>
+            <Row label="Member Since">{memberSince || '—'}</Row>
+          </dl>
+        </Panel>
 
-        {/* Profile */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Phone className="h-5 w-5" />
-              Profile
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <Panel title="Profile" titleId="admin-user-profile">
+          <dl>
             <Row label="Bio">{user.bio || '—'}</Row>
             <Row label="Location">{user.location || '—'}</Row>
             <Row label="Website">{user.website || '—'}</Row>
-            <Row label="Phone" last>
-              {user.phoneNumber || '—'}
-            </Row>
-          </CardContent>
-        </Card>
+            <Row label="Phone">{user.phoneNumber || '—'}</Row>
+          </dl>
+        </Panel>
       </div>
 
-      {/* Admin access */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Shield className="h-5 w-5" />
-            Admin Access
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Row label="Admin Role" last={user.adminPermissions.length === 0}>
+      <Panel title="Admin Access" titleId="admin-user-access">
+        <dl>
+          <Row label="Admin Role">
             {user.isAdmin ? (
-              <Badge variant="destructive" className="capitalize">
-                {(user.adminRole ?? 'admin').replace('_', ' ')}
-              </Badge>
+              <StatusPill variant="info" icon={Shield} className="capitalize">
+                {(user.adminRole ?? 'admin').replaceAll('_', ' ')}
+              </StatusPill>
             ) : (
               <span className="text-sm text-muted-foreground">None</span>
             )}
           </Row>
           {user.adminPermissions.length > 0 && (
-            <div className="flex flex-wrap gap-2 py-2">
-              {user.adminPermissions.map((permission) => (
-                <Badge key={permission} variant="secondary">
-                  {permission}
-                </Badge>
-              ))}
-            </div>
+            <Row label="Permissions">
+              <ul className="flex flex-wrap justify-end gap-2">
+                {user.adminPermissions.map((permission) => (
+                  <li key={permission}>
+                    <StatusPill variant="neutral" icon={KeyRound}>
+                      {permission}
+                    </StatusPill>
+                  </li>
+                ))}
+              </ul>
+            </Row>
           )}
-        </CardContent>
-      </Card>
+        </dl>
+      </Panel>
     </div>
   );
 }

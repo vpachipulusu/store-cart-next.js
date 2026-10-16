@@ -120,6 +120,73 @@ describe('admin user detail page', () => {
     expect(markup).toContain('users.read');
   });
 
+  it('shows status pills and one h1, with a retry link on the error state', async () => {
+    mocks.fetchAdminUser.mockResolvedValue({
+      success: true,
+      data: {
+        ...SUMMARY,
+        email_verified: false,
+        bio: null,
+        location: null,
+        website: null,
+        phone_number: null,
+        two_factor_enabled: false,
+        admin_permissions: ['users.read'],
+      },
+    });
+
+    const markup = html(await AdminUserDetailPage({ params: Promise.resolve({ id: 'user-1' }) }));
+
+    expect(markup).toContain('Unverified');
+    expect(markup).toContain('bg-warn');
+    expect(markup).toContain('bg-info');
+    expect(markup).toContain('Basic Information');
+    expect(markup).toContain('Admin Access');
+    expect(markup.match(/<h1/g)).toHaveLength(1);
+
+    mocks.fetchAdminUser.mockResolvedValue({ success: false, error: 'x', status: 500 });
+    const failed = html(await AdminUserDetailPage({ params: Promise.resolve({ id: 'a b' }) }));
+    expect(failed.match(/<h1/g)).toHaveLength(1);
+    expect(failed).toContain('href="/admin/users/a%20b"');
+    expect(failed).toContain('Back to Users');
+    expect(failed).toContain('role="alert"');
+    expect(failed).toContain('>Retry<');
+  });
+
+  it('shows good pills for a verified user with 2FA and None for a non-admin', async () => {
+    mocks.fetchAdminUser.mockResolvedValue({
+      success: true,
+      data: {
+        ...SUMMARY,
+        is_admin: false,
+        admin_role: null,
+        bio: null,
+        location: null,
+        website: null,
+        phone_number: null,
+        two_factor_enabled: true,
+        admin_permissions: [],
+      },
+    });
+
+    const markup = html(await AdminUserDetailPage({ params: Promise.resolve({ id: 'user-1' }) }));
+
+    expect(markup).toContain('Verified');
+    expect(markup).toContain('Enabled');
+    expect(markup).toContain('bg-good');
+    expect(markup).not.toContain('bg-warn');
+    expect(markup).toContain('None');
+    expect(markup).not.toContain('Permissions');
+  });
+
+  it('renders the unavailable state as one panel with a way back', () => {
+    const markup = html(<AdminSeoPage />);
+
+    expect(markup.match(/<h1/g)).toHaveLength(1);
+    expect(markup.match(/<section/g)).toHaveLength(1);
+    expect(markup).toContain('href="/admin/users"');
+  });
+
   it('calls notFound for a missing user', async () => {
     mocks.fetchAdminUser.mockResolvedValue({ success: false, error: 'x', status: 404 });
 
