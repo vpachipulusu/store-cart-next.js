@@ -8134,6 +8134,107 @@
           }
         }
       }
+    },
+    "/v1/settings/currency": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Read the platform currency",
+        "description": "The platform currency code (upper case, e.g. ``USD``).\n\nAnswers ``USD`` when the setting is missing or not a supported code. Sends\n``Cache-Control: private, max-age=60`` and an ``ETag``.",
+        "operationId": "read_currency",
+        "parameters": [
+          {
+            "name": "if-none-match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ETag from an earlier response",
+              "title": "If-None-Match"
+            },
+            "description": "ETag from an earlier response"
+          },
+          {
+            "name": "X-Internal-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrencyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "304": {
+            "description": "Not modified (If-None-Match matched)"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -8875,6 +8976,38 @@
         ],
         "title": "CreateRequest",
         "description": "Body for creating an organisation or a store (name and slug only)."
+      },
+      "CurrencyData": {
+        "properties": {
+          "currency": {
+            "type": "string",
+            "title": "Currency"
+          }
+        },
+        "type": "object",
+        "required": [
+          "currency"
+        ],
+        "title": "CurrencyData",
+        "description": "The public fields. Add a field here only when it is safe for anyone to read."
+      },
+      "CurrencyResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true,
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/CurrencyData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "CurrencyResponse"
       },
       "DeleteRequest": {
         "properties": {
