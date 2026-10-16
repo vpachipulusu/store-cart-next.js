@@ -29,7 +29,8 @@ settings and asks Stripe for each price's `unit_amount`.
 
 Amounts are **minor units** (cents); the frontend divides by 100 as it does today. A price that is not
 configured, not readable, or has no `unit_amount` is `null`, and one failing price never hides the others, so
-the caller falls back to its default exactly as `fetchStripePrices` does. A missing `STRIPE_SECRET_KEY` gives
+the frontend needs a per-price fallback: today `fetchStripePrices` maps a missing amount to 0 and falls back to
+`FALLBACK_PRICES` only as a whole. A missing `STRIPE_SECRET_KEY` gives
 all `null` (200), not 503. `Cache-Control: private, max-age=300`; the frontend keeps its own one-hour cache,
 which also keeps Stripe traffic low (there is no server-side cache; each uncached call makes four Stripe
 reads, so the Next.js cache must stay in place). Use a restricted Stripe key where possible. Price ids are validated against
@@ -69,9 +70,10 @@ The frontend currently checks the current password itself against the Identity T
 then calls Admin `updateUser`. The frontend PR should switch `changePasswordAction` to the re-authentication
 flow `deleteAccountAction` already uses (browser re-auths, server forwards the ID token) and drop the REST check.
 Firebase documents that a password change revokes the user's refresh tokens, so other sessions stop passing
-the revocation check, **including the caller's own session cookie**: after a 200 the frontend must mint a new
-session (`POST /v1/auth/session` with the same fresh ID token) or the user is signed out on the next call. This
-endpoint adds no revocation of its own, and the behaviour has not been exercised against live Firebase. Google-only accounts therefore cannot use this
+the revocation check, **including the caller's own session cookie**: after a 200 the frontend must sign the user
+in again with the **new password** to get a new ID token, then call `POST /v1/auth/session`; the re-auth ID token
+predates the revoke, so `check_revoked` would likely reject it (401). Otherwise the user is signed out on the next call. This
+endpoint adds no revocation of its own, and the behaviour (including this re-sign-in sequence) is unverified against live Firebase; the frontend PR's test plan must cover it. Google-only accounts therefore cannot use this
 endpoint; the current frontend check already fails for them too.
 
 ## Tests

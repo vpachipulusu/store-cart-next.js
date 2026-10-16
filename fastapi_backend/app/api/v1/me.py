@@ -321,7 +321,8 @@ async def change_password(
     """Set a new password. The current password is proven by the fresh ``id_token``.
 
     Firebase revokes the user's refresh tokens, which includes the caller's own session:
-    mint a new one with ``POST /v1/auth/session`` after a 200.
+    sign in again with the new password and call ``POST /v1/auth/session`` after a 200
+    (the re-auth ID token predates the revoke; unverified against live Firebase).
     """
     response.headers["Cache-Control"] = "no-store"
     try:

@@ -1680,7 +1680,7 @@
           "me"
         ],
         "summary": "Change Password",
-        "description": "Set a new password. The current password is proven by the fresh ``id_token``.\n\nFirebase revokes the user's refresh tokens, which includes the caller's own session:\nmint a new one with ``POST /v1/auth/session`` after a 200.",
+        "description": "Set a new password. The current password is proven by the fresh ``id_token``.\n\nFirebase revokes the user's refresh tokens, which includes the caller's own session:\nsign in again with the new password and call ``POST /v1/auth/session`` after a 200\n(the re-auth ID token predates the revoke; unverified against live Firebase).",
         "operationId": "change_password",
         "parameters": [
           {

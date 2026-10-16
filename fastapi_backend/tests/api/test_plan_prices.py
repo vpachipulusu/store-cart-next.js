@@ -112,3 +112,40 @@ async def test_limiter_outage_fails_open() -> None:
         response = await http.get("/v1/settings/plan-prices")
 
     assert response.status_code == 200
+
+
+def test_service_factory_maps_each_setting_to_its_tier_and_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.v1 import settings as routes
+    from app.core.config import settings
+
+    for name, value in {
+        "STRIPE_PRICE_ID_PRO_MONTHLY": "price_pm",
+        "STRIPE_PRICE_ID_PRO_YEARLY": "price_py",
+        "STRIPE_PRICE_ID_ENTERPRISE_MONTHLY": "price_em",
+        "STRIPE_PRICE_ID_ENTERPRISE_YEARLY": None,
+    }.items():
+        monkeypatch.setattr(settings, name, value)
+    monkeypatch.setattr(routes, "get_stripe_prices", lambda: None)
+
+    service = routes.get_plan_prices_service()
+
+    assert service._price_ids == {
+        ("pro", "monthly"): "price_pm",
+        ("pro", "yearly"): "price_py",
+        ("enterprise", "monthly"): "price_em",
+        ("enterprise", "yearly"): "",
+    }
+
+
+async def test_factory_without_stripe_gives_all_null_prices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.v1 import settings as routes
+
+    monkeypatch.setattr(routes, "get_stripe_prices", lambda: None)
+
+    prices = await routes.get_plan_prices_service().prices()
+
+    assert prices == PlanPrices(TierPrices(None, None), TierPrices(None, None))
