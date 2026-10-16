@@ -428,7 +428,7 @@ export async function fillStripeCheckout(
 
   // Fill email only when the page asks for it (Checkout renders it as a textbox, not type=email, and leaves it
   // empty for a customer without an email)
-  const emailField = checkoutPage.getByRole('textbox', { name: 'Email' });
+  const emailField = checkoutPage.getByRole('textbox', { name: 'Email', exact: true });
   if ((await emailField.count()) > 0 && !(await emailField.inputValue())) {
     await emailField.fill(billingDetails.email);
   }

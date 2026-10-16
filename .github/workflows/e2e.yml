@@ -172,6 +172,11 @@ jobs:
         run: |
           backend="${E2E_BACKEND_API_URL:-http://127.0.0.1:8000}"
           secret="$(stripe listen --print-secret)"
+          case "${secret}" in
+            whsec_*[!A-Za-z0-9_]*|whsec_) echo "::error::Unexpected output from stripe listen --print-secret."; exit 1 ;;
+            whsec_*) ;;
+            *) echo "::error::stripe listen --print-secret did not return a signing secret."; exit 1 ;;
+          esac
           echo "::add-mask::${secret}"
           echo "STRIPE_WEBHOOK_SECRET=${secret}" >> "$GITHUB_ENV"
           echo "BACKEND_API_URL=${backend}" >> "$GITHUB_ENV"
@@ -182,6 +187,10 @@ jobs:
           done
           echo "::error::stripe listen did not become ready."
           exit 1
+
+      - name: Check Stripe forwarder is running
+        if: vars.E2E_STRIPE == 'true'
+        run: pgrep -x stripe > /dev/null || { echo "::error::stripe listen is not running."; cat "${RUNNER_TEMP}/stripe-listen.log"; exit 1; }
 
       # Creates random e2e accounts in the Firebase test project and writes them to .env.e2e.local.
       - name: Create test accounts

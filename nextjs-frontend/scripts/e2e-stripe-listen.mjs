@@ -56,7 +56,19 @@ if (printSecret) {
     );
     process.exit(1);
   }
-  args.push('--forward-to', new URL(WEBHOOK_PATH, backend).toString());
+  let target;
+  try {
+    target = new URL(backend);
+  } catch {
+    console.error('BACKEND_API_URL is not a valid URL.');
+    process.exit(1);
+  }
+  if (!['http:', 'https:'].includes(target.protocol) || target.search || target.hash) {
+    console.error('BACKEND_API_URL must be a plain http(s) URL without a query or fragment.');
+    process.exit(1);
+  }
+  target.pathname = `${target.pathname.replace(/\/+$/, '')}${WEBHOOK_PATH}`;
+  args.push('--forward-to', target.toString());
 }
 
 const child = spawn('stripe', args, {
