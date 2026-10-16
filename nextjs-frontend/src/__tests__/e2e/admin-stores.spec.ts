@@ -87,29 +87,39 @@ test.describe('Admin stores and organisations', () => {
       const row = page.getByRole('row').filter({ hasText: ACTIVE_STORE_SLUG! });
       await expect(row.getByText('Active', { exact: true })).toBeVisible();
 
-      // Migrations are safe to repeat and say which versions they moved between.
-      await row.getByRole('button', { name: /^run migrations for/i }).click();
-      await expectToast(page, /schema/i);
+      try {
+        // Migrations are safe to repeat and say which versions they moved between.
+        await row.getByRole('button', { name: /^run migrations for/i }).click();
+        await expectToast(page, /schema/i);
 
-      // Cancelling the confirmation changes nothing.
-      await row.getByRole('button', { name: /^suspend /i }).click();
-      const dialog = page.getByRole('dialog');
-      await expect(dialog.getByText(/storefront goes offline/i)).toBeVisible();
-      await dialog.getByRole('button', { name: 'Cancel' }).click();
-      await expect(dialog).toHaveCount(0);
-      await expect(row.getByText('Active', { exact: true })).toBeVisible();
+        // Cancelling the confirmation changes nothing.
+        await row.getByRole('button', { name: /^suspend /i }).click();
+        const dialog = page.getByRole('dialog');
+        await expect(dialog.getByText(/storefront goes offline/i)).toBeVisible();
+        await dialog.getByRole('button', { name: 'Cancel' }).click();
+        await expect(dialog).toHaveCount(0);
+        await expect(row.getByText('Active', { exact: true })).toBeVisible();
 
-      // Confirming suspends the store and offers unsuspend instead.
-      await row.getByRole('button', { name: /^suspend /i }).click();
-      await page.getByRole('dialog').getByRole('button', { name: 'Suspend store' }).click();
-      await expectToast(page, 'Store suspended');
-      await expect(row.getByText('Suspended', { exact: true })).toBeVisible();
-      await expect(row.getByRole('button', { name: /^unsuspend /i })).toBeVisible();
-      await expect(row.getByRole('button', { name: /^run migrations for/i })).toBeVisible();
+        // Confirming suspends the store and offers unsuspend instead.
+        await row.getByRole('button', { name: /^suspend /i }).click();
+        await page.getByRole('dialog').getByRole('button', { name: 'Suspend store' }).click();
+        await expectToast(page, 'Store suspended');
+        await expect(row.getByText('Suspended', { exact: true })).toBeVisible();
+        await expect(row.getByRole('button', { name: /^unsuspend /i })).toBeVisible();
+        await expect(row.getByRole('button', { name: /^run migrations for/i })).toBeVisible();
 
-      await row.getByRole('button', { name: /^unsuspend /i }).click();
-      await expectToast(page, 'Store unsuspended');
-      await expect(row.getByText('Active', { exact: true })).toBeVisible();
+        await row.getByRole('button', { name: /^unsuspend /i }).click();
+        await expectToast(page, 'Store unsuspended');
+        await expect(row.getByText('Active', { exact: true })).toBeVisible();
+      } finally {
+        // A run that stopped half way must not leave the shared store suspended.
+        await page.goto(`/admin/stores?q=${encodeURIComponent(ACTIVE_STORE_SLUG!)}`);
+        const unsuspend = row.getByRole('button', { name: /^unsuspend /i });
+        if (await unsuspend.isVisible()) {
+          await unsuspend.click();
+          await expect(unsuspend).toHaveCount(0);
+        }
+      }
     });
   });
 

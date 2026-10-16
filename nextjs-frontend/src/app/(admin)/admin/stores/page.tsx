@@ -33,9 +33,12 @@ const STATUS_BADGE: Record<StoreStatus, 'default' | 'secondary' | 'destructive' 
   ARCHIVED: 'outline',
 };
 
+/** Deep pages are capped so a crafted ?page= never becomes an absurd offset. */
+const MAX_PAGE = 10_000;
+
 function parsePage(value: string | undefined): number {
   const page = Number.parseInt(value ?? '1', 10);
-  return Number.isFinite(page) && page > 0 ? page : 1;
+  return Number.isFinite(page) && page > 0 ? Math.min(page, MAX_PAGE) : 1;
 }
 
 function parseStatus(value: string | undefined): StoreStatus | undefined {
@@ -117,7 +120,7 @@ export default async function AdminStoresPage({ searchParams }: { searchParams: 
               id="store-status-filter"
               name="status"
               defaultValue={status ?? ''}
-              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               <option value="">All statuses</option>
               {ADMIN_STORE_STATUSES.map((value) => (
@@ -133,7 +136,7 @@ export default async function AdminStoresPage({ searchParams }: { searchParams: 
           </form>
           {org && (
             <p className="mt-4 text-sm text-muted-foreground">
-              Showing one organisation&apos;s stores.{' '}
+              Showing the stores of {stores[0]?.organization_name ?? 'one organisation'}.{' '}
               <Link className="underline" href={pageHref({ q, status }, 1)}>
                 Show all stores
               </Link>
@@ -182,7 +185,9 @@ export default async function AdminStoresPage({ searchParams }: { searchParams: 
                       </TableCell>
                       <TableCell>{store.schema_version}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {new Date(store.created_at).toLocaleDateString()}
+                        {new Date(store.created_at).toLocaleDateString('en-GB', {
+                          timeZone: 'UTC',
+                        })}
                       </TableCell>
                       <TableCell className="text-right">
                         <StoreRowActions

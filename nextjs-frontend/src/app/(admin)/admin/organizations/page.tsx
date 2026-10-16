@@ -20,9 +20,12 @@ import { logger } from '@/lib/logger';
 
 type SearchParams = Promise<{ q?: string; page?: string }>;
 
+/** Deep pages are capped so a crafted ?page= never becomes an absurd offset. */
+const MAX_PAGE = 10_000;
+
 function parsePage(value: string | undefined): number {
   const page = Number.parseInt(value ?? '1', 10);
-  return Number.isFinite(page) && page > 0 ? page : 1;
+  return Number.isFinite(page) && page > 0 ? Math.min(page, MAX_PAGE) : 1;
 }
 
 function pageHref(query: string | undefined, page: number): string {
@@ -121,7 +124,9 @@ export default async function AdminOrganizationsPage({
                       <TableCell>{organization.slug}</TableCell>
                       <TableCell>{organization.store_count}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {new Date(organization.created_at).toLocaleDateString()}
+                        {new Date(organization.created_at).toLocaleDateString('en-GB', {
+                          timeZone: 'UTC',
+                        })}
                       </TableCell>
                       <TableCell className="text-right">
                         <Button variant="outline" size="sm" asChild>

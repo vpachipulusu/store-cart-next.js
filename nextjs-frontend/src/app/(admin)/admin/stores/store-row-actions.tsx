@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
+import type { StoreStatus } from '@/lib/api/admin-stores';
 import {
   migrateStoreAction,
   suspendStoreAction,
@@ -21,7 +22,7 @@ import {
 type StoreRowActionsProps = {
   storeId: string;
   storeName: string;
-  status: 'PROVISIONING' | 'ACTIVE' | 'SUSPENDED' | 'ARCHIVED';
+  status: StoreStatus;
 };
 
 type ActionResult = { success: boolean; data?: unknown; error?: string };
@@ -60,6 +61,8 @@ export function StoreRowActions({ storeId, storeName, status }: StoreRowActionsP
             description: result.error ?? GENERIC_ERROR,
             variant: 'destructive',
           });
+          // The row may be stale (another admin changed the store): show what the store is now.
+          router.refresh();
         }
       } catch {
         toast({ title: 'Error', description: GENERIC_ERROR, variant: 'destructive' });
