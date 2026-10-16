@@ -105,4 +105,24 @@ describe('BillingToggle', () => {
     setup({ yearlySavingsPercent: value });
     expect(screen.queryByText(/save/i)).not.toBeInTheDocument();
   });
+
+  it('leaves modified arrow keys to the browser', async () => {
+    const { onToggle, monthly } = setup();
+    monthly.focus();
+    await userEvent.keyboard('{Alt>}{ArrowRight}{/Alt}');
+    expect(onToggle).not.toHaveBeenCalled();
+  });
+
+  it('updates aria-checked and tabindex when the period prop changes', () => {
+    const { rerender } = render(<BillingToggle billingPeriod="monthly" onToggle={vi.fn()} />);
+    rerender(<BillingToggle billingPeriod="yearly" onToggle={vi.fn()} />);
+    const yearly = screen.getByRole('radio', { name: /yearly/i });
+    expect(yearly).toHaveAttribute('aria-checked', 'true');
+    expect(yearly).toHaveAttribute('tabindex', '0');
+  });
+
+  it('has a visible focus ring', () => {
+    const { monthly } = setup();
+    expect(monthly.className).toContain('focus-visible:ring-2');
+  });
 });
