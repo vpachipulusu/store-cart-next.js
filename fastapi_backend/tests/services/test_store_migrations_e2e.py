@@ -89,8 +89,10 @@ async def world(
     try:
         yield created
     finally:
-        await platform.dispose()
-        await drop_databases(server, created.databases)
+        try:
+            await platform.dispose()
+        finally:
+            await drop_databases(server, created.databases)
 
 
 class World:

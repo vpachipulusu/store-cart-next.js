@@ -2,8 +2,10 @@
 
 Shared by ``tests/api/test_tenant_isolation_*_e2e.py`` and
 ``tests/services/test_store_migrations_e2e.py``. Every helper refuses to act unless
-``TEST_DATABASE_URL`` names a ``*_test`` database on a local host, so a mistyped URL can
-never create or drop databases on a shared server.
+``TEST_DATABASE_URL`` names a ``*_test`` database on a local host, so a mistyped URL can never
+create or drop databases on a remote server (a local server's other ``*_test`` databases
+are not protected by this check; the sweep only touches the ``ks57``/``ks58`` names the
+scaffold generates, and per-store ``store_<id>`` databases of a killed run are not swept).
 
 Database names are ``<prefix>_<unix seconds>_<random>_<tag>``. The timestamp lets
 ``sweep_stale_databases`` remove what a killed run left behind without touching the
@@ -11,6 +13,7 @@ databases of a run that is still going (another pytest-xdist worker).
 """
 
 import os
+import re
 import time
 from collections.abc import Iterable
 
@@ -65,8 +68,12 @@ async def create_platform_database(server: AsyncEngine, name: str) -> AsyncEngin
     """Create ``name`` with every platform table from the models and return an engine."""
     await create_database(server, name)
     platform = create_async_engine(url_for(name))
-    async with platform.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    try:
+        async with platform.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+    except BaseException:
+        await platform.dispose()
+        raise
     return platform
 
 
@@ -87,14 +94,12 @@ async def drop_databases(server: AsyncEngine, names: Iterable[str]) -> None:
         raise ExceptionGroup("could not drop test databases", errors)
 
 
-def _is_stale(name: str, now: float) -> bool:
-    parts = name.split("_")
-    stamp = parts[1] if len(parts) > 1 else ""
-    if not (stamp.isdigit() and len(stamp) == _EPOCH_DIGITS):
-        return (
-            True  # a name from before the timestamp was added: only a dead run left it
-        )
-    return now - int(stamp) > STALE_AFTER_SECONDS
+def _is_stale(name: str, prefix: str, now: float) -> bool:
+    """Only names this scaffold generated (``<prefix>_<epoch>_<6 hex>_<tag>``) can be stale."""
+    match = re.fullmatch(
+        rf"{re.escape(prefix)}_(\d{{{_EPOCH_DIGITS}}})_[0-9a-z]{{6}}_\w+", name
+    )
+    return match is not None and now - int(match.group(1)) > STALE_AFTER_SECONDS
 
 
 async def sweep_stale_databases(server: AsyncEngine, prefix: str) -> None:
@@ -106,4 +111,4 @@ async def sweep_stale_databases(server: AsyncEngine, prefix: str) -> None:
         )
         names = [row[0] for row in found]
     now = time.time()
-    await drop_databases(server, [n for n in names if _is_stale(n, now)])
+    await drop_databases(server, [n for n in names if _is_stale(n, prefix, now)])

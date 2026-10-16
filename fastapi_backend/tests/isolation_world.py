@@ -57,7 +57,6 @@ from app.models.platform.store import Store
 from app.services import store_secrets
 from app.services.store_provisioning import (
     LocalDatabaseProvisioner,
-    ProvisioningError,
     database_name_for,
 )
 from app.services.store_sessions import open_store_session
@@ -253,8 +252,11 @@ class World:
     async def snapshot(self) -> dict[str, list[tuple[Any, ...]]]:
         """Every platform row an attacker could change, to prove a probe changed nothing."""
         queries = {
-            "organizations": "SELECT id, name, slug FROM organizations ORDER BY id",
-            "stores": "SELECT id, name, slug, status FROM stores ORDER BY id",
+            "organizations": "SELECT id, name, slug, subscription_tier, subscription_status, "
+            "stripe_customer_id, stripe_subscription_id, stripe_price_id "
+            "FROM organizations ORDER BY id",
+            "stores": "SELECT id, name, slug, status, connection_string_encrypted "
+            "FROM stores ORDER BY id",
             "memberships": "SELECT organization_id, user_id, role FROM memberships "
             "ORDER BY organization_id, user_id",
             "users": "SELECT id, email, display_name FROM users ORDER BY id",
@@ -274,7 +276,8 @@ async def open_world(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[World]:
 
     Each teardown step runs in its own try (via ``AsyncExitStack``), so a failing drop
     of one database never leaves the others behind. Stale ``ks58_*`` databases from a
-    killed run are swept first.
+    killed run are swept first (platform databases only: a killed run can still leave its
+    ``store_<id>`` databases behind; drop them by hand).
     """
     require_local_test_server()
     server = create_async_engine(require_local_test_server())
@@ -289,11 +292,10 @@ async def open_world(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[World]:
         built = World(server, platform, names)
 
         async def delete_store_databases() -> None:
-            for store_id in built.provisioned:
-                try:
-                    await built.provisioner.delete_database(store_id)
-                except ProvisioningError:
-                    await drop_databases(server, [database_name_for(store_id)])
+            # One call: drop_databases keeps going past a failing drop and raises at the end.
+            await drop_databases(
+                server, [database_name_for(sid) for sid in built.provisioned]
+            )
 
         cleanup.push_async_callback(delete_store_databases)
         monkeypatch.setattr(store_secrets, "get_codec", lambda: built.codec)
