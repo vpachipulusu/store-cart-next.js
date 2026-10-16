@@ -155,6 +155,18 @@ class FirebaseIdentityProvider:
 
         await asyncio.to_thread(update)
 
+    async def update_password(self, uid: str, password: str) -> None:
+        def update() -> None:
+            try:
+                auth.update_user(uid, password=password, app=firebase_app())
+            except auth.UserNotFoundError:
+                raise IdentityUserNotFound() from None
+            except (exceptions.FirebaseError, ValueError):
+                # ValueError is a rejected (e.g. too short) password; keep the text out.
+                raise IdentityProviderUnavailable() from None
+
+        await asyncio.to_thread(update)
+
     async def delete_user(self, uid: str) -> None:
         def delete() -> None:
             try:

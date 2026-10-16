@@ -884,6 +884,30 @@ export type OrganizationsPageResponse = {
 };
 
 /**
+ * PasswordChangedResponse
+ */
+export type PasswordChangedResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+};
+
+/**
+ * PasswordRequest
+ */
+export type PasswordRequest = {
+    /**
+     * Id Token
+     */
+    id_token: string;
+    /**
+     * New Password
+     */
+    new_password: string;
+};
+
+/**
  * PaymentData
  */
 export type PaymentData = {
@@ -995,6 +1019,25 @@ export type PlanData = {
  * PlanKey
  */
 export type PlanKey = 'free' | 'pro' | 'enterprise';
+
+/**
+ * PlanPricesData
+ */
+export type PlanPricesData = {
+    pro: TierPricesData;
+    enterprise: TierPricesData;
+};
+
+/**
+ * PlanPricesResponse
+ */
+export type PlanPricesResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: PlanPricesData;
+};
 
 /**
  * PortalRequest
@@ -1642,6 +1685,22 @@ export type SubscriptionsPageResponse = {
 };
 
 /**
+ * TierPricesData
+ *
+ * Minor units (cents) of the Stripe price; null when unconfigured or unreadable.
+ */
+export type TierPricesData = {
+    /**
+     * Monthly
+     */
+    monthly: number | null;
+    /**
+     * Yearly
+     */
+    yearly: number | null;
+};
+
+/**
  * TotpChangedResponse
  */
 export type TotpChangedResponse = {
@@ -2054,6 +2113,112 @@ export type RefreshSessionResponses = {
 
 export type RefreshSessionResponse = RefreshSessionResponses[keyof RefreshSessionResponses];
 
+export type ReadSessionStatusData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/auth/session/status';
+};
+
+export type ReadSessionStatusErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ReadSessionStatusError = ReadSessionStatusErrors[keyof ReadSessionStatusErrors];
+
+export type ReadSessionStatusResponses = {
+    /**
+     * Successful Response
+     */
+    200: IdentityResponse;
+};
+
+export type ReadSessionStatusResponse = ReadSessionStatusResponses[keyof ReadSessionStatusResponses];
+
+export type VerifyIdTokenData = {
+    body: SessionRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/auth/id-token/verify';
+};
+
+export type VerifyIdTokenErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type VerifyIdTokenError = VerifyIdTokenErrors[keyof VerifyIdTokenErrors];
+
+export type VerifyIdTokenResponses = {
+    /**
+     * Successful Response
+     */
+    200: IdentityResponse;
+};
+
+export type VerifyIdTokenResponse = VerifyIdTokenResponses[keyof VerifyIdTokenResponses];
+
 export type DeleteAccountData = {
     body: DeleteRequest;
     headers?: {
@@ -2455,6 +2620,65 @@ export type ReadHistoryResponses = {
 };
 
 export type ReadHistoryResponse = ReadHistoryResponses[keyof ReadHistoryResponses];
+
+export type ChangePasswordData = {
+    body: PasswordRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/me/password';
+};
+
+export type ChangePasswordErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ChangePasswordError = ChangePasswordErrors[keyof ChangePasswordErrors];
+
+export type ChangePasswordResponses = {
+    /**
+     * Successful Response
+     */
+    200: PasswordChangedResponse;
+};
+
+export type ChangePasswordResponse = ChangePasswordResponses[keyof ChangePasswordResponses];
 
 export type EnrollData = {
     body: EnrollmentRequest;
@@ -5519,3 +5743,46 @@ export type ReadCurrencyResponses = {
 };
 
 export type ReadCurrencyResponse = ReadCurrencyResponses[keyof ReadCurrencyResponses];
+
+export type ReadPlanPricesData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/settings/plan-prices';
+};
+
+export type ReadPlanPricesErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+};
+
+export type ReadPlanPricesError = ReadPlanPricesErrors[keyof ReadPlanPricesErrors];
+
+export type ReadPlanPricesResponses = {
+    /**
+     * Successful Response
+     */
+    200: PlanPricesResponse;
+};
+
+export type ReadPlanPricesResponse = ReadPlanPricesResponses[keyof ReadPlanPricesResponses];

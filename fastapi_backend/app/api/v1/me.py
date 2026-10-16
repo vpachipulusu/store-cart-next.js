@@ -161,6 +161,18 @@ class DeleteRequest(BaseModel):
     id_token: SecretStr = Field(min_length=1, max_length=16384)
 
 
+class PasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # A fresh ID token from the browser re-authenticating with the current password.
+    id_token: SecretStr = Field(min_length=1, max_length=16384)
+    new_password: SecretStr = Field(min_length=8, max_length=128)
+
+
+class PasswordChangedResponse(BaseModel):
+    success: Literal[True] = True
+
+
 class DeletedResponse(BaseModel):
     success: Literal[True] = True
 
@@ -285,3 +297,30 @@ async def delete_account(
     except UserNotFound:
         raise HTTPException(404, "User not found") from None
     return DeletedResponse()
+
+
+@router.put(
+    "/password",
+    response_model=PasswordChangedResponse,
+    responses=RATE_LIMIT_FAIL_CLOSED_RESPONSES,
+    dependencies=[Depends(limit_by_subject(AUTH_POLICY, current_subject))],
+)
+async def change_password(
+    body: PasswordRequest,
+    response: Response,
+    identity: CurrentIdentityDep,
+    service: MeServiceDep,
+) -> PasswordChangedResponse:
+    """Set a new password. The current password is proven by the fresh ``id_token``."""
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        await service.change_password(
+            identity,
+            body.id_token.get_secret_value(),
+            body.new_password.get_secret_value(),
+        )
+    except (AuthenticationFailed, IdentityProviderUnavailable) as exc:
+        raise auth_error(exc) from None
+    except UserNotFound:
+        raise HTTPException(404, "User not found") from None
+    return PasswordChangedResponse()

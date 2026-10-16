@@ -105,6 +105,10 @@ class AuthService:
             raise AccountConflict() from None
         return cookie
 
+    async def verify_id_token(self, token: str) -> VerifiedIdentity:
+        """Signature, expiry and revocation only; no freshness, no database write."""
+        return identity_from_claims(await self.identity.verify_id_token(token))
+
     async def authenticate(self, token: str) -> VerifiedIdentity:
         return identity_from_claims(await self.identity.verify_session_cookie(token))
 

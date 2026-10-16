@@ -45,6 +45,7 @@ class FakeMe:
         self.uids = []
         self.changes = []
         self.deleted = []
+        self.password_changes = []
 
     async def get_profile(self, uid):
         self.uids.append(uid)
@@ -62,6 +63,11 @@ class FakeMe:
         if self.failure:
             raise self.failure
         self.deleted.append((identity.uid, token))
+
+    async def change_password(self, identity, token, password):
+        if self.failure:
+            raise self.failure
+        self.password_changes.append((identity.uid, token, password))
 
 
 class FakePreferences:
@@ -337,3 +343,96 @@ async def test_missing_profile_prevents_settings_and_history_access(context):
         assert (await http.get("/v1/me/settings")).status_code == 404
         assert (await http.get("/v1/me/login-history")).status_code == 404
     assert not preferences.calls
+
+
+async def test_password_change_passes_uid_reauth_token_and_new_password(context):
+    app, me, _, _ = context
+    async with client(app) as http:
+        result = await http.put(
+            "/v1/me/password",
+            json={"id_token": "fresh", "new_password": "new-password-1"},
+        )
+    assert result.status_code == 200
+    assert result.json() == {"success": True}
+    assert result.headers["cache-control"] == "no-store"
+    assert me.password_changes == [("firebase-user", "fresh", "new-password-1")]
+    assert "new-password-1" not in result.text
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"id_token": "fresh"},
+        {"new_password": "new-password-1"},
+        {"id_token": "", "new_password": "new-password-1"},
+        {"id_token": "fresh", "new_password": "short"},
+        {"id_token": "fresh", "new_password": "x" * 129},
+        {"id_token": "fresh", "new_password": "new-password-1", "uid": "other"},
+    ],
+)
+async def test_password_change_validates_input(context, body):
+    app, me, _, _ = context
+    async with client(app) as http:
+        result = await http.put("/v1/me/password", json=body)
+    assert result.status_code == 422
+    assert not me.password_changes
+
+
+@pytest.mark.parametrize(
+    "failure,status",
+    [
+        (UserNotFound(), 404),
+        (AuthenticationFailed(), 401),
+        (IdentityProviderUnavailable(), 503),
+        (RuntimeError("private secret"), 500),
+    ],
+)
+async def test_password_change_failures_are_safe_and_never_success(
+    context, failure, status
+):
+    app, me, _, _ = context
+    me.failure = failure
+    async with client(app) as http:
+        result = await http.put(
+            "/v1/me/password",
+            json={"id_token": "fresh", "new_password": "new-password-1"},
+        )
+    assert result.status_code == status
+    assert result.json()["success"] is False
+    assert "private secret" not in result.text
+    assert "new-password-1" not in result.text
+
+
+async def test_password_change_requires_internal_key_session_and_verified_email(
+    context,
+):
+    app, me, _, _ = context
+    body = {"id_token": "fresh", "new_password": "new-password-1"}
+    async with client(app) as http:
+        bad_key = await http.put(
+            "/v1/me/password", json=body, headers={"X-Internal-Key": "bad"}
+        )
+
+    def denied():
+        raise HTTPException(403, "Email verification required")
+
+    app.dependency_overrides[get_current_identity] = denied
+    async with client(app) as http:
+        unverified = await http.put("/v1/me/password", json=body)
+    assert bad_key.status_code == 401 and unverified.status_code == 403
+    assert not me.password_changes
+
+
+async def test_password_change_fails_closed_when_rate_limiter_is_unavailable(context):
+    app, me, _, _ = context
+    app.dependency_overrides[get_rate_limiter] = lambda: as_limiter(
+        RaisingRateLimiter()
+    )
+    async with client(app) as http:
+        result = await http.put(
+            "/v1/me/password",
+            json={"id_token": "fresh", "new_password": "new-password-1"},
+        )
+    assert result.status_code == 503
+    assert not me.password_changes

@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AdminCancelSubscriptionData, AdminCancelSubscriptionErrors, AdminCancelSubscriptionResponses, AdminGrantSubscriptionData, AdminGrantSubscriptionErrors, AdminGrantSubscriptionResponses, AdminListOrganizationsData, AdminListOrganizationsErrors, AdminListOrganizationsResponses, AdminListStoresData, AdminListStoresErrors, AdminListStoresResponses, AdminListSubscriptionsData, AdminListSubscriptionsErrors, AdminListSubscriptionsResponses, AdminMigrateStoreData, AdminMigrateStoreErrors, AdminMigrateStoreResponses, AdminReadSubscriptionData, AdminReadSubscriptionErrors, AdminReadSubscriptionResponses, AdminRefundPaymentData, AdminRefundPaymentErrors, AdminRefundPaymentResponses, AdminRevokeGrantData, AdminRevokeGrantErrors, AdminRevokeGrantResponses, AdminSuspendStoreData, AdminSuspendStoreErrors, AdminSuspendStoreResponses, AdminUnsuspendStoreData, AdminUnsuspendStoreErrors, AdminUnsuspendStoreResponses, BanUserData, BanUserErrors, BanUserResponses, CancelSubscriptionData, CancelSubscriptionErrors, CancelSubscriptionResponses, ChangePlanData, ChangePlanErrors, ChangePlanResponses, CreateCheckoutData, CreateCheckoutErrors, CreateCheckoutResponses, CreateOrganizationData, CreateOrganizationErrors, CreateOrganizationResponses, CreatePortalData, CreatePortalErrors, CreatePortalResponses, CreateSessionData, CreateSessionErrors, CreateSessionResponses, CreateStoreData, CreateStoreErrors, CreateStoreResponses, DeleteAccountData, DeleteAccountErrors, DeleteAccountResponses, DeletePaymentMethodData, DeletePaymentMethodErrors, DeletePaymentMethodResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DeleteUserData, DeleteUserErrors, DeleteUserResponses, DisableData, DisableErrors, DisableResponses, EnrollData, EnrollErrors, EnrollResponses, GrantAdminData, GrantAdminErrors, GrantAdminResponses, HealthCheckData, HealthCheckErrors, HealthCheckResponses, ListAuditLogsData, ListAuditLogsErrors, ListAuditLogsResponses, ListInvoicesData, ListInvoicesErrors, ListInvoicesResponses, ListOrganizationsData, ListOrganizationsErrors, ListOrganizationsResponses, ListOrganizationStoresData, ListOrganizationStoresErrors, ListOrganizationStoresResponses, ListPaymentMethodsData, ListPaymentMethodsErrors, ListPaymentMethodsResponses, ListUsersData, ListUsersErrors, ListUsersResponses, ReadBillingData, ReadBillingErrors, ReadBillingResponses, ReadCurrencyData, ReadCurrencyErrors, ReadCurrencyResponses, ReadHistoryData, ReadHistoryErrors, ReadHistoryResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, ReadOrganizationData, ReadOrganizationErrors, ReadOrganizationResponses, ReadProfileData, ReadProfileErrors, ReadProfileResponses, ReadSessionData, ReadSessionErrors, ReadSessionResponses, ReadSettingsData, ReadSettingsErrors, ReadSettingsResponses, ReadStoreData, ReadStoreErrors, ReadStorefrontData, ReadStorefrontErrors, ReadStorefrontResponses, ReadStoreResponses, ReadUserData, ReadUserErrors, ReadUserResponses, RefreshSessionData, RefreshSessionErrors, RefreshSessionResponses, ResumeSubscriptionData, ResumeSubscriptionErrors, ResumeSubscriptionResponses, RevokeAdminData, RevokeAdminErrors, RevokeAdminResponses, SetDefaultPaymentMethodData, SetDefaultPaymentMethodErrors, SetDefaultPaymentMethodResponses, UnbanUserData, UnbanUserErrors, UnbanUserResponses, UpdateAvatarData, UpdateAvatarErrors, UpdateAvatarResponses, UpdateOrganizationData, UpdateOrganizationErrors, UpdateOrganizationResponses, UpdateProfileData, UpdateProfileErrors, UpdateProfileResponses, UpdateSettingsData, UpdateSettingsErrors, UpdateSettingsResponses, UpdateStoreData, UpdateStoreErrors, UpdateStoreResponses, UpdateUserData, UpdateUserErrors, UpdateUserResponses, VerifyData, VerifyErrors, VerifyResponses } from './types.gen';
+import type { AdminCancelSubscriptionData, AdminCancelSubscriptionErrors, AdminCancelSubscriptionResponses, AdminGrantSubscriptionData, AdminGrantSubscriptionErrors, AdminGrantSubscriptionResponses, AdminListOrganizationsData, AdminListOrganizationsErrors, AdminListOrganizationsResponses, AdminListStoresData, AdminListStoresErrors, AdminListStoresResponses, AdminListSubscriptionsData, AdminListSubscriptionsErrors, AdminListSubscriptionsResponses, AdminMigrateStoreData, AdminMigrateStoreErrors, AdminMigrateStoreResponses, AdminReadSubscriptionData, AdminReadSubscriptionErrors, AdminReadSubscriptionResponses, AdminRefundPaymentData, AdminRefundPaymentErrors, AdminRefundPaymentResponses, AdminRevokeGrantData, AdminRevokeGrantErrors, AdminRevokeGrantResponses, AdminSuspendStoreData, AdminSuspendStoreErrors, AdminSuspendStoreResponses, AdminUnsuspendStoreData, AdminUnsuspendStoreErrors, AdminUnsuspendStoreResponses, BanUserData, BanUserErrors, BanUserResponses, CancelSubscriptionData, CancelSubscriptionErrors, CancelSubscriptionResponses, ChangePasswordData, ChangePasswordErrors, ChangePasswordResponses, ChangePlanData, ChangePlanErrors, ChangePlanResponses, CreateCheckoutData, CreateCheckoutErrors, CreateCheckoutResponses, CreateOrganizationData, CreateOrganizationErrors, CreateOrganizationResponses, CreatePortalData, CreatePortalErrors, CreatePortalResponses, CreateSessionData, CreateSessionErrors, CreateSessionResponses, CreateStoreData, CreateStoreErrors, CreateStoreResponses, DeleteAccountData, DeleteAccountErrors, DeleteAccountResponses, DeletePaymentMethodData, DeletePaymentMethodErrors, DeletePaymentMethodResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DeleteUserData, DeleteUserErrors, DeleteUserResponses, DisableData, DisableErrors, DisableResponses, EnrollData, EnrollErrors, EnrollResponses, GrantAdminData, GrantAdminErrors, GrantAdminResponses, HealthCheckData, HealthCheckErrors, HealthCheckResponses, ListAuditLogsData, ListAuditLogsErrors, ListAuditLogsResponses, ListInvoicesData, ListInvoicesErrors, ListInvoicesResponses, ListOrganizationsData, ListOrganizationsErrors, ListOrganizationsResponses, ListOrganizationStoresData, ListOrganizationStoresErrors, ListOrganizationStoresResponses, ListPaymentMethodsData, ListPaymentMethodsErrors, ListPaymentMethodsResponses, ListUsersData, ListUsersErrors, ListUsersResponses, ReadBillingData, ReadBillingErrors, ReadBillingResponses, ReadCurrencyData, ReadCurrencyErrors, ReadCurrencyResponses, ReadHistoryData, ReadHistoryErrors, ReadHistoryResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, ReadOrganizationData, ReadOrganizationErrors, ReadOrganizationResponses, ReadPlanPricesData, ReadPlanPricesErrors, ReadPlanPricesResponses, ReadProfileData, ReadProfileErrors, ReadProfileResponses, ReadSessionData, ReadSessionErrors, ReadSessionResponses, ReadSessionStatusData, ReadSessionStatusErrors, ReadSessionStatusResponses, ReadSettingsData, ReadSettingsErrors, ReadSettingsResponses, ReadStoreData, ReadStoreErrors, ReadStorefrontData, ReadStorefrontErrors, ReadStorefrontResponses, ReadStoreResponses, ReadUserData, ReadUserErrors, ReadUserResponses, RefreshSessionData, RefreshSessionErrors, RefreshSessionResponses, ResumeSubscriptionData, ResumeSubscriptionErrors, ResumeSubscriptionResponses, RevokeAdminData, RevokeAdminErrors, RevokeAdminResponses, SetDefaultPaymentMethodData, SetDefaultPaymentMethodErrors, SetDefaultPaymentMethodResponses, UnbanUserData, UnbanUserErrors, UnbanUserResponses, UpdateAvatarData, UpdateAvatarErrors, UpdateAvatarResponses, UpdateOrganizationData, UpdateOrganizationErrors, UpdateOrganizationResponses, UpdateProfileData, UpdateProfileErrors, UpdateProfileResponses, UpdateSettingsData, UpdateSettingsErrors, UpdateSettingsResponses, UpdateStoreData, UpdateStoreErrors, UpdateStoreResponses, UpdateUserData, UpdateUserErrors, UpdateUserResponses, VerifyData, VerifyErrors, VerifyIdTokenData, VerifyIdTokenErrors, VerifyIdTokenResponses, VerifyResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -62,6 +62,33 @@ export const createSession = <ThrowOnError extends boolean = false>(options: Opt
  */
 export const refreshSession = <ThrowOnError extends boolean = false>(options: Options<RefreshSessionData, ThrowOnError>) => (options.client ?? client).post<RefreshSessionResponses, RefreshSessionErrors, ThrowOnError>({
     url: '/v1/auth/session/refresh',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Read Session Status
+ *
+ * Who the session cookie belongs to, with revocation checked.
+ *
+ * Unlike ``GET /session`` an unverified email is allowed (``email_verified`` says
+ * which), and the per-user limit is the API one, so a server can call it on every
+ * request. Callers that need a verified email check the flag themselves.
+ */
+export const readSessionStatus = <ThrowOnError extends boolean = false>(options?: Options<ReadSessionStatusData, ThrowOnError>) => (options?.client ?? client).get<ReadSessionStatusResponses, ReadSessionStatusErrors, ThrowOnError>({ url: '/v1/auth/session/status', ...options });
+
+/**
+ * Verify Id Token
+ *
+ * Verify a Firebase ID token (signature, expiry, revocation) and echo its identity.
+ *
+ * No freshness check and nothing is written: sign-in and refresh keep their own checks.
+ */
+export const verifyIdToken = <ThrowOnError extends boolean = false>(options: Options<VerifyIdTokenData, ThrowOnError>) => (options.client ?? client).post<VerifyIdTokenResponses, VerifyIdTokenErrors, ThrowOnError>({
+    url: '/v1/auth/id-token/verify',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -131,6 +158,20 @@ export const updateSettings = <ThrowOnError extends boolean = false>(options: Op
  * Read History
  */
 export const readHistory = <ThrowOnError extends boolean = false>(options?: Options<ReadHistoryData, ThrowOnError>) => (options?.client ?? client).get<ReadHistoryResponses, ReadHistoryErrors, ThrowOnError>({ url: '/v1/me/login-history', ...options });
+
+/**
+ * Change Password
+ *
+ * Set a new password. The current password is proven by the fresh ``id_token``.
+ */
+export const changePassword = <ThrowOnError extends boolean = false>(options: Options<ChangePasswordData, ThrowOnError>) => (options.client ?? client).put<ChangePasswordResponses, ChangePasswordErrors, ThrowOnError>({
+    url: '/v1/me/password',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
 
 /**
  * Enroll
@@ -477,3 +518,13 @@ export const readStorefront = <ThrowOnError extends boolean = false>(options: Op
  * ``Cache-Control: private, max-age=60`` and an ``ETag``.
  */
 export const readCurrency = <ThrowOnError extends boolean = false>(options?: Options<ReadCurrencyData, ThrowOnError>) => (options?.client ?? client).get<ReadCurrencyResponses, ReadCurrencyErrors, ThrowOnError>({ url: '/v1/settings/currency', ...options });
+
+/**
+ * Read the subscription plan prices
+ *
+ * Stripe unit amounts for the paid plans, in minor units.
+ *
+ * A price that is not configured or cannot be read is ``null``; the caller falls back
+ * to its default. Sends ``Cache-Control: private, max-age=300``.
+ */
+export const readPlanPrices = <ThrowOnError extends boolean = false>(options?: Options<ReadPlanPricesData, ThrowOnError>) => (options?.client ?? client).get<ReadPlanPricesResponses, ReadPlanPricesErrors, ThrowOnError>({ url: '/v1/settings/plan-prices', ...options });

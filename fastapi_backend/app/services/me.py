@@ -4,7 +4,11 @@ from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.firebase import AuthenticationFailed, VerifiedIdentity
+from app.core.firebase import (
+    AuthenticationFailed,
+    IdentityUserNotFound,
+    VerifiedIdentity,
+)
 from app.repositories.me import ProfileData
 from app.services.auth import identity_from_claims
 
@@ -20,6 +24,7 @@ class OwnershipConflict(Exception):
 class AccountIdentityProvider(Protocol):
     async def verify_id_token(self, token: str) -> Mapping[str, Any]: ...
     async def delete_user(self, uid: str) -> None: ...
+    async def update_password(self, uid: str, password: str) -> None: ...
 
 
 class ProfileRepository(Protocol):
@@ -67,7 +72,10 @@ class MeService:
                 raise UserNotFound()
             return await self.repository.update_profile(profile.id, changes)
 
-    async def delete_account(self, identity: VerifiedIdentity, token: str) -> None:
+    async def _require_reauthentication(
+        self, identity: VerifiedIdentity, token: str
+    ) -> None:
+        """The ID token the browser just minted by re-authenticating this same user."""
         fresh = identity_from_claims(await self.identity.verify_id_token(token))
         if (
             fresh.uid != identity.uid
@@ -75,6 +83,21 @@ class MeService:
             or not 0 <= time.time() - fresh.auth_time <= 300
         ):
             raise AuthenticationFailed()
+
+    async def change_password(
+        self, identity: VerifiedIdentity, token: str, new_password: str
+    ) -> None:
+        await self._require_reauthentication(identity, token)
+        async with self.session.begin():
+            if await self.repository.get_profile(identity.uid) is None:
+                raise UserNotFound()
+        try:
+            await self.identity.update_password(identity.uid, new_password)
+        except IdentityUserNotFound:
+            raise UserNotFound() from None
+
+    async def delete_account(self, identity: VerifiedIdentity, token: str) -> None:
+        await self._require_reauthentication(identity, token)
         async with self.session.begin():
             profile = await self.repository.get_profile(identity.uid, lock=True)
             if profile is None:

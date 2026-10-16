@@ -7,6 +7,7 @@ import pytest
 from app.core.firebase import (
     AuthenticationFailed,
     IdentityProviderUnavailable,
+    IdentityUserNotFound,
     VerifiedIdentity,
 )
 from app.services.me import MeService, OwnershipConflict, UserNotFound
@@ -69,6 +70,11 @@ class Identity:
 
     async def delete_user(self, uid):
         self.events.append(("firebase-delete", uid))
+        if self.failure:
+            raise self.failure
+
+    async def update_password(self, uid, password):
+        self.events.append(("password", uid, password))
         if self.failure:
             raise self.failure
 
@@ -192,3 +198,58 @@ async def test_sql_commit_failure_after_firebase_success_propagates(context):
         ("firebase-delete", "firebase-user"),
         ("sql-delete", "platform-user"),
     ]
+
+
+async def test_password_change_verifies_fresh_reauthentication_then_updates_firebase(
+    context,
+):
+    service, _, _, _, events = context
+    await service.change_password(current(), "fresh", "new-password-1")
+    assert events == [
+        ("verify", "fresh"),
+        ("profile", "firebase-user", False),
+        ("password", "firebase-user", "new-password-1"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"uid": "another"},
+        {"email_verified": False},
+        {"auth_time": -301},
+        {"auth_time": 300},
+    ],
+)
+async def test_password_change_rejects_stale_foreign_or_unverified_reauthentication(
+    context, changed
+):
+    service, _, _, identity, events = context
+    if "auth_time" in changed:
+        changed = {"auth_time": int(time.time()) + changed["auth_time"]}
+    identity.claims.update(changed)
+    with pytest.raises(AuthenticationFailed):
+        await service.change_password(current(), "token", "new-password-1")
+    assert events == [("verify", "token")]
+
+
+async def test_password_change_for_a_missing_account_never_reaches_firebase(context):
+    service, repository, _, _, events = context
+    repository.profile = None
+    with pytest.raises(UserNotFound):
+        await service.change_password(current(), "token", "new-password-1")
+    assert not any(event[0] == "password" for event in events)
+
+
+async def test_password_change_maps_a_vanished_firebase_user_to_not_found(context):
+    service, _, _, identity, _ = context
+    identity.failure = IdentityUserNotFound()
+    with pytest.raises(UserNotFound):
+        await service.change_password(current(), "token", "new-password-1")
+
+
+async def test_password_change_propagates_provider_outages(context):
+    service, _, _, identity, _ = context
+    identity.failure = IdentityProviderUnavailable()
+    with pytest.raises(IdentityProviderUnavailable):
+        await service.change_password(current(), "token", "new-password-1")
