@@ -1,4 +1,4 @@
-import { test as base, expect } from '@playwright/test';
+import { test as base, expect, type BrowserContext } from '@playwright/test';
 
 /** Sentry ingest hosts (e.g. o123.ingest.de.sentry.io). */
 const SENTRY_HOST = /^https:\/\/([a-z0-9-]+\.)*sentry\.io\//i;
@@ -26,6 +26,12 @@ const TRACK_RSC_FETCHES = () => {
     });
   };
 };
+
+/** The standard e2e context setup (Sentry blocked, RSC fetches tracked). Also for contexts a spec opens itself. */
+export async function configureE2eContext(context: BrowserContext): Promise<void> {
+  await context.route(SENTRY_HOST, (route) => route.abort());
+  await context.addInitScript(TRACK_RSC_FETCHES);
+}
 
 export type ThrowawayAccount = { email: string; password: string; uid: string };
 
@@ -67,8 +73,7 @@ export const test = base.extend<
 >({
   // The fixture callback is named `provide` (not Playwright's usual `use`) so the React hooks lint rule ignores it.
   context: async ({ context }, provide) => {
-    await context.route(SENTRY_HOST, (route) => route.abort());
-    await context.addInitScript(TRACK_RSC_FETCHES);
+    await configureE2eContext(context);
     await provide(context);
   },
 
