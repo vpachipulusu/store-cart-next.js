@@ -11,11 +11,8 @@ only QStash calls them.
   exhausted its retries; marks the store FAILED.
 """
 
-import base64
-import binascii
-import json
 import logging
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
@@ -28,11 +25,10 @@ from app.services.store_provisioning import get_database_provisioner
 from app.services.store_provisioning_job import (
     FAILED_PATH,
     STEP_PATH,
+    InvalidPayload,
     StepFailed,
     StepRunner,
     get_step_enqueuer,
-    mark_failed,
-    parse_step_payload,
 )
 
 logger = logging.getLogger("storecart.store_provisioning_job")
@@ -41,6 +37,7 @@ router = APIRouter(
     prefix="/internal/provisioning", tags=["internal"], include_in_schema=False
 )
 
+NON_RETRYABLE_HEADER = "Upstash-NonRetryable-Error"
 MAX_BODY_BYTES = 64_000
 INVALID_SIGNATURE_MESSAGE = "Invalid signature"
 INVALID_PAYLOAD_MESSAGE = "Invalid payload"
@@ -63,6 +60,11 @@ def get_step_runner(
     )
 
 
+def _permanent(status_code: int, message: str) -> HTTPException:
+    """An error QStash must not retry: the same body would fail the same way."""
+    return HTTPException(status_code, message, headers={NON_RETRYABLE_HEADER: "true"})
+
+
 async def _verified_body(request: Request, token: str | None, path: str) -> bytes:
     base_url = settings.PROVISIONING_BASE_URL
     keys = settings.qstash_signing_keys
@@ -70,13 +72,13 @@ async def _verified_body(request: Request, token: str | None, path: str) -> byte
         raise HTTPException(503, UNAVAILABLE_MESSAGE)
     declared = request.headers.get("content-length")
     if declared and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
-        raise HTTPException(413, PAYLOAD_TOO_LARGE_MESSAGE)
+        raise _permanent(413, PAYLOAD_TOO_LARGE_MESSAGE)
     chunks: list[bytes] = []
     received = 0
     async for chunk in request.stream():
         received += len(chunk)
         if received > MAX_BODY_BYTES:
-            raise HTTPException(413, PAYLOAD_TOO_LARGE_MESSAGE)
+            raise _permanent(413, PAYLOAD_TOO_LARGE_MESSAGE)
         chunks.append(chunk)
     body = b"".join(chunks)
     try:
@@ -87,38 +89,18 @@ async def _verified_body(request: Request, token: str | None, path: str) -> byte
     return body
 
 
-def _json(raw: bytes | str) -> Any:
-    try:
-        return json.loads(raw)
-    except ValueError:
-        raise HTTPException(400, INVALID_PAYLOAD_MESSAGE) from None
-
-
-def _source_body(callback: Any) -> Any:
-    """The original step body QStash echoes (base64) in a failure callback."""
-    encoded = callback.get("sourceBody") if isinstance(callback, dict) else None
-    if not isinstance(encoded, str):
-        raise HTTPException(400, INVALID_PAYLOAD_MESSAGE)
-    try:
-        return _json(base64.b64decode(encoded, validate=True))
-    except (binascii.Error, ValueError):
-        raise HTTPException(400, INVALID_PAYLOAD_MESSAGE) from None
-
-
 @router.post("/step", response_model=Ack)
 async def run_step(
     request: Request,
     runner: Annotated[StepRunner, Depends(get_step_runner)],
     signature: Annotated[str | None, Header(alias="Upstash-Signature")] = None,
 ) -> Ack:
-    """Run one provisioning step; 500 asks QStash to retry."""
+    """Run one provisioning step; 500 asks QStash to retry, 4xx does not."""
     body = await _verified_body(request, signature, STEP_PATH)
-    parsed = parse_step_payload(_json(body))
-    if parsed is None:
-        raise HTTPException(400, INVALID_PAYLOAD_MESSAGE)
-    step, store_id = parsed
     try:
-        await runner.run(step, store_id)
+        await runner.handle_step(body)
+    except InvalidPayload:
+        raise _permanent(400, INVALID_PAYLOAD_MESSAGE) from None
     except StepFailed:
         raise HTTPException(500, STEP_FAILED_MESSAGE) from None
     return Ack()
@@ -127,13 +109,13 @@ async def run_step(
 @router.post("/failed", response_model=Ack)
 async def step_exhausted(
     request: Request,
-    provider: Annotated[SessionProvider, Depends(get_session_provider)],
+    runner: Annotated[StepRunner, Depends(get_step_runner)],
     signature: Annotated[str | None, Header(alias="Upstash-Signature")] = None,
 ) -> Ack:
     """QStash failure callback: a step ran out of retries, so the store is FAILED."""
     body = await _verified_body(request, signature, FAILED_PATH)
-    parsed = parse_step_payload(_source_body(_json(body)))
-    if parsed is None:
-        raise HTTPException(400, INVALID_PAYLOAD_MESSAGE)
-    await mark_failed(provider, parsed[1])
+    try:
+        await runner.handle_exhausted(body)
+    except InvalidPayload:
+        raise _permanent(400, INVALID_PAYLOAD_MESSAGE) from None
     return Ack()

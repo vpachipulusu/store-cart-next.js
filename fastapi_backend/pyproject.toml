@@ -68,13 +68,13 @@ extend-select = ["TID251"]
 
 # Coverage ratchet (KAN-27, PO decision on KAN-139). `uv run pytest --cov` fails
 # when line coverage of app/ and commands/ is below fail_under. fail_under is the
-# measured baseline (84.13% on 2026-10-12, CI): raise it as tests are added,
+# measured baseline (93.68% on 2026-10-17 with the real-Postgres suites, KAN-56; was 84.13% on 2026-10-12): raise it as tests are added,
 # never lower it.
 [tool.coverage.run]
 source = ["app", "commands"]
 
 [tool.coverage.report]
-fail_under = 84.13
+fail_under = 93.0
 precision = 2
 
 [tool.hatch.build.targets.sdist]

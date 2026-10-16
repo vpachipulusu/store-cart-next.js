@@ -1,37 +1,53 @@
-"""QStash callback routes of the provisioning job (KAN-56): signature, payload, retry."""
+"""QStash callback routes of the provisioning job (KAN-56): signature, payload, retry.
+
+Built from ``create_app()`` so the real mounting, error envelope and OpenAPI exclusion
+are exercised. The runner is replaced; its own behaviour is covered in the service tests.
+"""
 
 import base64
 import json
-from collections.abc import AsyncIterator
-from typing import Any
+from collections.abc import AsyncIterator, Iterator
 
 import httpx
 import pytest
-from fastapi import FastAPI
 from pydantic import SecretStr
 
-from app.api.deps import get_session_provider
 from app.api.v1 import internal_provisioning
 from app.api.v1.internal_provisioning import get_step_runner
 from app.core.config import settings
-from app.services.store_provisioning_job import FAILED_PATH, STEP_PATH, Step, StepFailed
+from app.main import create_app
+from app.services.store_provisioning_job import (
+    FAILED_PATH,
+    STEP_PATH,
+    Step,
+    StepFailed,
+    StepRunner,
+)
 from tests.qstash_tokens import make_token
 
 BASE = "https://api.example.test"
 KEY = "current-signing-key-for-tests"
 NEXT_KEY = "next-signing-key-for-tests"
 STORE_ID = "abcdefgh12345678abcdefgh"
+NON_RETRYABLE = "Upstash-NonRetryable-Error"
 
 
-class RecordingRunner:
-    def __init__(self, error: Exception | None = None) -> None:
-        self.calls: list[tuple[Step, str]] = []
-        self.error = error
+class RecordingRunner(StepRunner):
+    """Real payload handling; the step itself and the FAILED write are recorded."""
+
+    def __init__(self) -> None:
+        super().__init__(provider=None, provisioner=None, enqueuer=None)  # type: ignore[arg-type]
+        object.__setattr__(self, "calls", [])
+        object.__setattr__(self, "failed", [])
+        object.__setattr__(self, "error", None)
 
     async def run(self, step: Step, store_id: str) -> None:
-        self.calls.append((step, store_id))
-        if self.error:
-            raise self.error
+        self.calls.append((step, store_id))  # type: ignore[attr-defined]
+        if self.error:  # type: ignore[attr-defined]
+            raise self.error  # type: ignore[attr-defined]
+
+    async def fail(self, store_id: str) -> None:
+        self.failed.append(store_id)  # type: ignore[attr-defined]
 
 
 @pytest.fixture(autouse=True)
@@ -47,23 +63,9 @@ def runner() -> RecordingRunner:
 
 
 @pytest.fixture
-def failed_marks(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    marked: list[str] = []
-
-    async def fake_mark_failed(provider: Any, store_id: str) -> bool:
-        marked.append(store_id)
-        return True
-
-    monkeypatch.setattr(internal_provisioning, "mark_failed", fake_mark_failed)
-    return marked
-
-
-@pytest.fixture
 async def client(runner: RecordingRunner) -> AsyncIterator[httpx.AsyncClient]:
-    app = FastAPI()
-    app.include_router(internal_provisioning.router)
+    app = create_app()
     app.dependency_overrides[get_step_runner] = lambda: runner
-    app.dependency_overrides[get_session_provider] = lambda: object()
     transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
     async with httpx.AsyncClient(transport=transport, base_url=BASE) as http:
         yield http
@@ -96,6 +98,20 @@ async def post(
     )
 
 
+def error_of(response: httpx.Response) -> str:
+    body = response.json()
+    assert body["success"] is False
+    return str(body["error"])
+
+
+async def test_routes_are_mounted_and_hidden_from_the_openapi_schema(client):
+    schema = (await client.get("/openapi.json")).json()
+
+    assert not [path for path in schema["paths"] if path.startswith("/internal")]
+    # Mounted: an unsigned call reaches the signature check, it is not a 404.
+    assert (await client.post(STEP_PATH, content=b"{}")).status_code == 401
+
+
 async def test_runs_the_step_for_a_signed_delivery(client, runner):
     response = await post(client, STEP_PATH, step_body("run_migrations"))
 
@@ -114,6 +130,7 @@ async def test_rejects_an_unsigned_delivery(client, runner):
     response = await client.post(STEP_PATH, content=step_body())
 
     assert response.status_code == 401
+    assert error_of(response) == "Invalid signature"
     assert runner.calls == []
 
 
@@ -142,7 +159,7 @@ async def test_rejects_a_tampered_body(client, runner):
     assert runner.calls == []
 
 
-async def test_answers_503_when_signing_keys_are_not_configured(
+async def test_answers_503_and_stays_retryable_when_keys_are_not_configured(
     client, runner, monkeypatch
 ):
     monkeypatch.setattr(settings, "QSTASH_CURRENT_SIGNING_KEY", None)
@@ -151,6 +168,7 @@ async def test_answers_503_when_signing_keys_are_not_configured(
     response = await post(client, STEP_PATH, step_body())
 
     assert response.status_code == 503
+    assert NON_RETRYABLE not in response.headers
     assert runner.calls == []
 
 
@@ -165,21 +183,24 @@ async def test_answers_503_when_signing_keys_are_not_configured(
         b'{"store_id": "abcdefgh12345678abcdefgh", "step": "mark_ready", "x": 1}',
     ],
 )
-async def test_rejects_an_invalid_payload_after_the_signature_check(
+async def test_a_signed_but_invalid_payload_is_400_and_not_retried(
     client, runner, body
 ):
     response = await post(client, STEP_PATH, body)
 
     assert response.status_code == 400
+    assert response.headers[NON_RETRYABLE] == "true"
+    assert error_of(response) == "Invalid payload"
     assert runner.calls == []
 
 
-async def test_rejects_an_oversized_body(client, runner):
+async def test_an_oversized_body_is_413_and_not_retried(client, runner):
     body = b"x" * (internal_provisioning.MAX_BODY_BYTES + 1)
 
     response = await post(client, STEP_PATH, body)
 
     assert response.status_code == 413
+    assert response.headers[NON_RETRYABLE] == "true"
     assert runner.calls == []
 
 
@@ -189,21 +210,22 @@ async def test_answers_500_without_details_so_qstash_retries(client, runner):
     response = await post(client, STEP_PATH, step_body())
 
     assert response.status_code == 500
-    assert response.json() == {"detail": "Provisioning step failed"}
+    assert NON_RETRYABLE not in response.headers
+    assert error_of(response) == "Provisioning step failed"
 
 
-async def test_failure_callback_marks_the_store_failed(client, failed_marks):
+async def test_failure_callback_marks_the_store_failed(client, runner):
     response = await post(client, FAILED_PATH, callback_body(step_body()))
 
     assert response.status_code == 200
-    assert failed_marks == [STORE_ID]
+    assert runner.failed == [STORE_ID]
 
 
-async def test_failure_callback_requires_a_signature(client, failed_marks):
+async def test_failure_callback_requires_a_signature(client, runner):
     response = await client.post(FAILED_PATH, content=callback_body(step_body()))
 
     assert response.status_code == 401
-    assert failed_marks == []
+    assert runner.failed == []
 
 
 @pytest.mark.parametrize(
@@ -215,8 +237,16 @@ async def test_failure_callback_requires_a_signature(client, failed_marks):
         callback_body(b'{"store_id": "x", "step": "mark_ready"}'),
     ],
 )
-async def test_failure_callback_rejects_an_invalid_payload(client, failed_marks, body):
+async def test_failure_callback_rejects_an_invalid_payload_without_retry(
+    client, runner, body
+):
     response = await post(client, FAILED_PATH, body)
 
     assert response.status_code == 400
-    assert failed_marks == []
+    assert response.headers[NON_RETRYABLE] == "true"
+    assert runner.failed == []
+
+
+@pytest.fixture(autouse=True)
+def _reset_overrides() -> Iterator[None]:
+    yield

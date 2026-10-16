@@ -15,13 +15,15 @@ Rules:
   late delivery is a no-op), the provisioner and the migration runner are idempotent, and
   an existing connection string is never overwritten.
 * Retries: a transient failure raises ``StepFailed``; the route answers 500 and QStash
-  redelivers with backoff. A permanent one (bad id, missing configuration) marks the
-  store ``FAILED`` at once. When the retries run out QStash calls the failure callback,
+  redelivers with backoff (a provider that is not configured yet is retried too). A
+  permanent one (bad id, unusable encryption key) marks the store ``FAILED`` at once. When the retries run out QStash calls the failure callback,
   which marks the store ``FAILED`` as well.
 * Payloads and logs carry the store id and step name only: never a connection string, key
   or token. Failures log the exception class name, not its text.
 """
 
+import base64
+import binascii
 import json
 import logging
 from collections.abc import Awaitable, Callable
@@ -81,6 +83,10 @@ class StepFailed(Exception):
 
 class StepAbandoned(Exception):
     """A step can never succeed (the store is marked FAILED, no retry)."""
+
+
+class InvalidPayload(Exception):
+    """A signed delivery whose body is not a valid step or failure callback."""
 
 
 class StepEnqueuer(Protocol):
@@ -213,7 +219,15 @@ async def start_provisioning(
                 type(exc).__name__,
                 extra={"store_id": store_id},
             )
-        await mark_failed(provider, store_id)
+        try:
+            await mark_failed(provider, store_id)
+        except Exception as failure:  # noqa: BLE001 - the store is committed: never 500 here
+            logger.error(
+                "marking store FAILED crashed: %s",
+                type(failure).__name__,
+                extra={"store_id": store_id},
+            )
+            report_exception(RuntimeError(f"mark_failed: {safe_reason(failure)}"))
         return False
     return True
 
@@ -252,7 +266,7 @@ class StepRunner:
                 return
             await self._execute(step, store_id)
         except (StepAbandoned, InvalidStoreId):
-            await mark_failed(self.provider, store_id)
+            await self.fail(store_id)
             return
         except StepFailed:
             raise
@@ -268,6 +282,31 @@ class StepRunner:
             )
             raise StepFailed from None
         await self._advance(step, store_id)
+
+    async def handle_step(self, raw_body: bytes) -> None:
+        """Run the step a QStash delivery asks for. InvalidPayload or StepFailed on error."""
+        parsed = parse_step_payload(_loads(raw_body))
+        if parsed is None:
+            raise InvalidPayload
+        await self.run(*parsed)
+
+    async def handle_exhausted(self, raw_body: bytes) -> None:
+        """QStash gave up on a step (failure callback): the store becomes FAILED."""
+        callback = _loads(raw_body)
+        encoded = callback.get("sourceBody") if isinstance(callback, dict) else None
+        if not isinstance(encoded, str):
+            raise InvalidPayload
+        try:
+            source = _loads(base64.b64decode(encoded, validate=True))
+        except (binascii.Error, ValueError):
+            raise InvalidPayload from None
+        parsed = parse_step_payload(source)
+        if parsed is None:
+            raise InvalidPayload
+        await self.fail(parsed[1])
+
+    async def fail(self, store_id: str) -> None:
+        await mark_failed(self.provider, store_id)
 
     async def _is_provisioning(self, store_id: str) -> bool:
         async with self.provider.session() as session:
@@ -323,6 +362,13 @@ class StepRunner:
         except EnqueueFailed:
             # This step is idempotent: retrying it re-publishes the next one.
             raise StepFailed from None
+
+
+def _loads(raw: bytes | str) -> Any:
+    try:
+        return json.loads(raw)
+    except ValueError:
+        raise InvalidPayload from None
 
 
 def parse_step_payload(raw: Any) -> tuple[Step, str] | None:

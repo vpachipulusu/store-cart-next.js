@@ -25,7 +25,14 @@ QStash steps. Each step is one function invocation at `POST /internal/provisioni
 - **No secrets in transit.** Payloads are `{"store_id", "step"}` only. Logs carry the store id, step and exception class,
   never a connection string, token or key.
 - **One invocation per step.** Each step is a single provisioner call or a single migration run (the migration runner has its
-  own lock and statement timeouts). Set the function `maxDuration` for the backend service to cover a full migration.
+  own lock and statement timeouts), so one delivery never chains work. Measured on a local Postgres 17, the whole chain
+  (database creation, baseline migration, activation) takes about 0.2 s; against Neon expect seconds, not minutes. No
+  `maxDuration` is set in `fastapi_backend/vercel.json`: the platform default for the plan applies. Raise it in the Vercel
+  project settings if a future store revision makes `run_migrations` long.
+- **Non-retryable errors.** A signed request with a body that can never succeed (400 invalid payload, 413 too large) answers
+  with `Upstash-NonRetryable-Error: true` so QStash drops it instead of retrying. 401 (bad signature), 500 (step failed) and
+  503 (not configured) stay retryable.
+- **Quota.** `FAILED` stores do not count against the plan's store limit.
 
 `FAILED` is a new `stores.status` value (migration `0008`, CHECK constraint only). Recovering a `FAILED` store (re-enqueue
 or archive) is an operator action and not part of this story.
@@ -56,9 +63,8 @@ runs the real steps against Postgres when `TEST_DATABASE_URL` is set (see `testi
 - **Stuck `PROVISIONING`.** There is no sweeper. If the process dies between the store commit and the first publish, or QStash
   is down, a store can stay `PROVISIONING`. Find them with
   `SELECT id FROM stores WHERE status = 'PROVISIONING' AND created_at < now() - interval '15 minutes'`.
-- **`FAILED` is terminal in this story.** No retry or re-enqueue route exists; a `FAILED` store still counts toward the plan's
-  store limit and cannot be updated. A manual re-publish of a step within QStash's deduplication window is collapsed into the
-  earlier message (the dedup id is `provision-<store_id>-<step>`).
+- **`FAILED` is terminal in this story.** No retry or re-enqueue route exists; a `FAILED` store cannot be updated. A manual re-publish of a step within QStash's deduplication window (about 10 minutes) is
+  collapsed into the earlier message (the dedup id is `provision-<store_id>-<step>`).
 - **Orphans.** A `FAILED` store may leave its database and encrypted connection string behind; nothing deletes them.
 - **No audit row** is written for the `PROVISIONING` to `FAILED` / `ACTIVE` transitions (logs only).
 - **Hosts.** `QSTASH_URL` must be `qstash.upstash.io` or `qstash-<region>.upstash.io`; a local QStash emulator is not accepted.
