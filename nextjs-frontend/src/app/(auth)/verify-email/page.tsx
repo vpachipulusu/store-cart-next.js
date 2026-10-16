@@ -130,7 +130,10 @@ export default function VerifyEmailPage() {
           >
             {isResending ? (
               <>
-                <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent motion-reduce:animate-none" />
+                <div
+                  aria-hidden="true"
+                  className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent motion-reduce:animate-none"
+                />
                 Sending...
               </>
             ) : (

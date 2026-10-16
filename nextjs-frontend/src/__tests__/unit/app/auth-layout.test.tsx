@@ -39,6 +39,7 @@ describe('auth layout', () => {
     const mains = container.querySelectorAll('main');
     expect(mains).toHaveLength(1);
     expect(mains[0]).toHaveAttribute('id', 'main-content');
+    expect(mains[0]).toHaveAttribute('tabindex', '-1');
     expect(within(mains[0] as HTMLElement).getByText('child')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /skip to main content/i })).toHaveAttribute(
       'href',
@@ -109,11 +110,20 @@ describe('auth pages', () => {
     expect(container.innerHTML).not.toMatch(RAW_COLOURS);
   });
 
-  it('login and signup keep their forms and cross links with 44px targets', async () => {
+  it('login keeps its form and a sign-up cross link with a 44px target', () => {
     render(<LoginPage />);
     const signUp = screen.getByRole('link', { name: /sign up/i });
     expect(signUp).toHaveAttribute('href', '/signup');
     expect(signUp.className).toMatch(/min-h-11/);
+    expect(screen.getByTestId('login-form')).toBeInTheDocument();
+  });
+
+  it('signup keeps its form and a sign-in cross link with a 44px target', async () => {
+    render(await SignupPage({ searchParams: Promise.resolve({}) }));
+    const signIn = screen.getByRole('link', { name: /sign in/i });
+    expect(signIn).toHaveAttribute('href', '/login');
+    expect(signIn.className).toMatch(/min-h-11/);
+    expect(screen.getByTestId('signup-form')).toBeInTheDocument();
   });
 
   it('signup shows the selected plan as a pill', async () => {

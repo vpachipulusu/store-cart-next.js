@@ -26,7 +26,9 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
           StoreCart
         </Link>
         <div className="max-w-sm space-y-4">
-          <p className="font-display text-4xl font-semibold leading-tight">Back to your shop.</p>
+          <p className="font-display text-4xl font-semibold leading-tight">
+            Your shop, kept in order.
+          </p>
           <p className="text-base leading-relaxed">
             Products, orders and plan usage, kept in one tidy ledger for your store.
           </p>
@@ -35,7 +37,8 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
       </aside>
       <main
         id="main-content"
-        className="flex items-center justify-center px-4 py-10 min-[760px]:px-12"
+        tabIndex={-1}
+        className="flex items-center justify-center px-4 py-10 focus:outline-none min-[760px]:px-12"
       >
         <div className="w-full max-w-[400px]">
           <Link
