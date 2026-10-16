@@ -58,12 +58,14 @@ test.describe('Dashboard store switcher', () => {
     const suffix = throwawayAccount.email.split('@')[0].slice(-12);
     await loginAsThrowawayAccount(page, throwawayAccount);
 
-    // Zero stores: an empty state, no switcher, and the existing dashboard still renders.
-    await page.goto('/dashboard');
+    // Zero stores: /dashboard redirects to onboarding (KAN-210), so check the empty state on a page that
+    // does not: an empty state, no switcher, and the profile page still renders.
+    await page.goto('/dashboard/profile');
     await waitForPageReady(page);
     await expect(page.getByTestId('no-stores')).toBeVisible();
     await expect(page.getByTestId('store-switcher')).toHaveCount(0);
-    await expect(page.getByRole('heading', { name: /dashboard/i })).toBeVisible();
+    await expect(page).toHaveURL(/\/dashboard\/profile$/);
+    await expect(page.getByRole('heading', { name: 'Profile', level: 1 })).toBeVisible();
 
     // One store: its name is shown, with no switcher chrome.
     const alpha = await createOrganizationWithStore(page, 'alpha', suffix);
