@@ -15,7 +15,9 @@ REAUTH_MAX_AGE_SECONDS = 300
 
 
 def is_recent_auth(auth_time: float, now: float | None = None) -> bool:
-    """Whether ``auth_time`` is at most ``REAUTH_MAX_AGE_SECONDS`` old, allowing the configured clock skew.
+    """Whether ``auth_time`` is recent, allowing the configured clock skew.
+
+    Recent means at most ``REAUTH_MAX_AGE_SECONDS`` old.
 
     A token minted moments ago can carry an ``auth_time`` slightly ahead of this
     server's clock; the same skew the Admin SDK tolerates is accepted here.
