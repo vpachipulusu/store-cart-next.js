@@ -5,7 +5,7 @@ import { Box, Check, Clock, TriangleAlert, Undo2, type LucideIcon } from 'lucide
 import { cn } from '@/lib/utils';
 
 const statusPillVariants = cva(
-  'inline-flex h-6 items-center gap-1 rounded-full py-0.5 pl-2 pr-2.5 text-[13px] font-semibold leading-none whitespace-nowrap',
+  'inline-flex min-h-6 items-center gap-1 rounded-full py-0.5 pl-2 pr-2.5 text-[0.8125rem] font-semibold leading-none whitespace-nowrap',
   {
     variants: {
       variant: {
@@ -33,11 +33,14 @@ const STATUS_ICONS: Record<StatusPillVariant, LucideIcon> = {
 };
 
 export interface StatusPillProps
-  extends React.HTMLAttributes<HTMLSpanElement>, VariantProps<typeof statusPillVariants> {}
+  extends React.HTMLAttributes<HTMLSpanElement>, VariantProps<typeof statusPillVariants> {
+  /** Overrides the variant's default icon, e.g. Pencil for a Draft pill. */
+  icon?: LucideIcon;
+}
 
-/** Status is always icon + text + tint, never colour alone. The icon is decorative. */
-function StatusPill({ className, variant, children, ...props }: StatusPillProps) {
-  const Icon = STATUS_ICONS[variant ?? 'neutral'];
+/** Status is always icon + text + tint, never colour alone. The icon is decorative. Inline-safe (a span). */
+function StatusPill({ className, variant, icon, children, ...props }: StatusPillProps) {
+  const Icon = icon ?? STATUS_ICONS[variant ?? 'neutral'];
 
   return (
     <span className={cn(statusPillVariants({ variant }), className)} {...props}>

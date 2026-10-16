@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { Pencil } from 'lucide-react';
 import { StatusPill, type StatusPillVariant } from '@/components/ui/status-pill';
 
 /** KAN-214: status is always icon + text + tint, never colour alone. */
@@ -43,7 +44,10 @@ describe('StatusPill', () => {
   it('exposes its text as the accessible name, not the icon', () => {
     render(<StatusPill variant="good">Paid</StatusPill>);
 
-    expect(screen.getByText('Paid').closest('span')).toHaveTextContent(/^Paid$/);
+    const pill = screen.getByText('Paid').closest('span');
+    expect(pill).toHaveTextContent(/^Paid$/);
+    expect(pill).not.toHaveAttribute('aria-label');
+    expect(pill?.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('defaults to the neutral variant', () => {
@@ -56,8 +60,8 @@ describe('StatusPill', () => {
     render(<StatusPill variant="info">New</StatusPill>);
 
     expect(screen.getByText('New').closest('span')).toHaveClass(
-      'h-6',
-      'text-[13px]',
+      'min-h-6',
+      'text-[0.8125rem]',
       'font-semibold'
     );
   });
@@ -70,5 +74,22 @@ describe('StatusPill', () => {
     );
 
     expect(screen.getByTestId('pill')).toHaveClass('ml-2', 'bg-warn');
+  });
+
+  it('uses the same icon for an undefined variant as for neutral', () => {
+    const neutral = render(<StatusPill variant="neutral">x</StatusPill>);
+    const expected = neutral.container.querySelector('svg')?.innerHTML;
+    neutral.unmount();
+    const { container } = render(<StatusPill variant={undefined}>x</StatusPill>);
+
+    expect(container.querySelector('svg')?.innerHTML).toBe(expected);
+  });
+
+  it('lets a caller override the icon and keeps it decorative', () => {
+    const { container } = render(<StatusPill icon={Pencil}>Draft</StatusPill>);
+
+    const icon = container.querySelector('svg');
+    expect(icon).toHaveClass('lucide-pencil');
+    expect(icon).toHaveAttribute('aria-hidden', 'true');
   });
 });

@@ -5,6 +5,8 @@ import { cn } from '@/lib/utils';
 /**
  * Loading placeholder. Size comes from the caller (className) and never changes;
  * the pulse only runs when the user has not asked for reduced motion.
+ * Decorative (aria-hidden): mark the loading container `aria-busy`. Use on card or
+ * background surfaces; it blends into `--secondary` surfaces.
  */
 function Skeleton({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
