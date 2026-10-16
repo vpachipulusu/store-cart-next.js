@@ -301,7 +301,8 @@ export async function loginAsThrowawayAccountOnPro(
 
 /**
  * Tests that need a real Stripe Checkout, subscription or saved card are off unless E2E_STRIPE=1: the Stripe webhook
- * cannot reach a local server (KAN-157), so the app never learns the result. E2E_ENABLED is unrelated and stays false.
+ * must reach the backend's /webhooks/stripe (KAN-157), or the app never learns the result: run `stripe listen` first
+ * (docs/developer/local-e2e.md, "Stripe webhooks"). E2E_ENABLED is unrelated and stays false.
  * Set E2E_STRIPE=1 in the shell that runs the tests (only the value `1` enables them).
  */
 export const STRIPE_E2E_ENABLED = process.env.E2E_STRIPE === '1';
@@ -487,8 +488,9 @@ export async function fillStripeCheckout(
   const cardNumberField = checkoutPage.getByRole('textbox', { name: 'Card number' });
   await cardNumberField.waitFor({ state: 'visible', timeout: 10000 });
 
-  // Fill email only when the page asks for it (it is text when the customer already has an email)
-  const emailField = checkoutPage.locator('input[type="email"]').first();
+  // Fill email only when the page asks for it (Checkout renders it as a textbox, not type=email, and leaves it
+  // empty for a customer without an email)
+  const emailField = checkoutPage.getByRole('textbox', { name: 'Email', exact: true });
   if ((await emailField.count()) > 0 && !(await emailField.inputValue())) {
     await emailField.fill(billingDetails.email);
   }
