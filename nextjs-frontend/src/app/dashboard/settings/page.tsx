@@ -6,8 +6,13 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { getUserSettingsAction, updateUserSettingsAction } from '@/app/actions/user-actions';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Panel } from '@/components/dashboard/overview/panel';
+import {
+  FormActions,
+  FormPageSkeleton,
+  PageHeader,
+  PanelHint,
+} from '@/components/dashboard/settings/form-page';
 import {
   Form,
   FormControl,
@@ -25,7 +30,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Loader2, Moon, Sun, Bell, Globe } from 'lucide-react';
+import { Moon, Sun, Globe } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 const settingsSchema = z.object({
@@ -130,120 +135,88 @@ export default function SettingsPage() {
   }
 
   if (isLoading) {
-    return (
-      <div className="flex min-h-[400px] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <FormPageSkeleton label="Loading settings" panels={3} />;
   }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl tracking-tight">Settings</h1>
-        <p className="text-muted-foreground">Manage your account preferences and settings</p>
-      </div>
+      <PageHeader title="Settings" description="Manage your account preferences and settings" />
 
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-          {/* Appearance Settings */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Sun className="h-5 w-5 text-theme-accent" />
-                Appearance
-              </CardTitle>
-              <CardDescription>Customize how the app looks and feels</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <FormField
-                control={form.control}
-                name="theme"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Theme</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a theme" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="light">
-                          <div className="flex items-center gap-2">
-                            <Sun className="h-4 w-4" />
-                            Light
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="dark">
-                          <div className="flex items-center gap-2">
-                            <Moon className="h-4 w-4" />
-                            Dark
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="system">
-                          <div className="flex items-center gap-2">
-                            <Globe className="h-4 w-4" />
-                            System
-                          </div>
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>Choose your preferred color theme</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </CardContent>
-          </Card>
-
-          {/* Notification Settings */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Bell className="h-5 w-5 text-theme-accent" />
-                Notifications
-              </CardTitle>
-              <CardDescription>Configure how you receive notifications</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <FormField
-                control={form.control}
-                name="emailNotifications"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                    <div className="space-y-0.5">
-                      <FormLabel className="text-base">Email Notifications</FormLabel>
-                      <FormDescription>
-                        Receive email notifications about your account activity
-                      </FormDescription>
-                    </div>
+        <form noValidate onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <Panel title="Appearance" titleId="appearance-title">
+            <PanelHint>Customize how the app looks and feels</PanelHint>
+            <FormField
+              control={form.control}
+              name="theme"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Theme</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
-                      <Switch checked={field.value} onCheckedChange={field.onChange} />
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a theme" />
+                      </SelectTrigger>
                     </FormControl>
-                  </FormItem>
-                )}
-              />
-            </CardContent>
-          </Card>
+                    <SelectContent>
+                      <SelectItem value="light">
+                        <div className="flex items-center gap-2">
+                          <Sun aria-hidden="true" className="h-4 w-4" />
+                          Light
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="dark">
+                        <div className="flex items-center gap-2">
+                          <Moon aria-hidden="true" className="h-4 w-4" />
+                          Dark
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="system">
+                        <div className="flex items-center gap-2">
+                          <Globe aria-hidden="true" className="h-4 w-4" />
+                          System
+                        </div>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>Choose your preferred color theme</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </Panel>
 
-          {/* Regional Settings */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Globe className="h-5 w-5 text-theme-accent" />
-                Regional Settings
-              </CardTitle>
-              <CardDescription>Set your language and timezone preferences</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
+          <Panel title="Notifications" titleId="notifications-title">
+            <PanelHint>Configure how you receive notifications</PanelHint>
+            <FormField
+              control={form.control}
+              name="emailNotifications"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center justify-between gap-4 rounded-lg border p-4">
+                  <div className="min-w-0 space-y-0.5">
+                    <FormLabel className="text-base">Email Notifications</FormLabel>
+                    <FormDescription>
+                      Receive email notifications about your account activity
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch checked={field.value} onCheckedChange={field.onChange} />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+          </Panel>
+
+          <Panel title="Regional Settings" titleId="regional-title">
+            <PanelHint>Set your language and timezone preferences</PanelHint>
+            <div className="space-y-6">
               <FormField
                 control={form.control}
                 name="language"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Language</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Select a language" />
@@ -270,7 +243,7 @@ export default function SettingsPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Timezone</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Select a timezone" />
@@ -294,23 +267,15 @@ export default function SettingsPage() {
                   </FormItem>
                 )}
               />
-            </CardContent>
-          </Card>
+            </div>
+          </Panel>
 
-          <div className="flex gap-4">
-            <Button type="submit" disabled={isSaving} variant="accent">
-              {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Save Settings
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => form.reset()}
-              disabled={isSaving}
-            >
-              Reset
-            </Button>
-          </div>
+          <FormActions
+            isSaving={isSaving}
+            saveLabel="Save Settings"
+            secondaryLabel="Reset"
+            onSecondary={() => form.reset()}
+          />
         </form>
       </Form>
     </div>
