@@ -1,5 +1,6 @@
 import { test, expect } from './helpers/fixtures';
 import {
+  ensureAccountHasStore,
   loginAsThrowawayAccountWithOrganization,
   signInWithSavedSession,
   waitForServerActionResponse,
@@ -46,6 +47,16 @@ test.describe('Subscription Upgrade - Happy Path', () => {
 
       // Step 1: Login as a fresh free-tier user (throwaway: this test changes the plan)
       await loginAsThrowawayAccountWithOrganization(page, throwawayAccount);
+
+      // A merchant upgrading already has a store; without one the dashboard goes to onboarding (KAN-210), where the
+      // plan card the last steps read does not exist. The store-less checkout return is covered by a unit test.
+      await ensureAccountHasStore(
+        page,
+        `e2e-${throwawayAccount.email
+          .split('@')[0]
+          .toLowerCase()
+          .replace(/[^a-z0-9-]/g, '-')}`
+      );
 
       // Step 2: Navigate to pricing page
       await navigateAndWait(page, '/pricing');
