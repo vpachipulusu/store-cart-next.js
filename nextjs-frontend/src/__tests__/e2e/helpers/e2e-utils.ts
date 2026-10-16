@@ -222,9 +222,18 @@ export async function ensureAccountHasStore(page: Page, slugBase: string): Promi
   });
   if (!listed.ok) throw new Error(`Listing organisations failed with HTTP ${listed.status}`);
   const organizations = (
-    (await listed.json()) as { data: { id: string; role: string; stores: unknown[] }[] }
+    (await listed.json()) as {
+      data: { id: string; role: string; stores: unknown[]; stores_truncated?: boolean }[];
+    }
   ).data;
-  if (organizations.some((organization) => organization.stores.length > 0)) return;
+  // A truncated embedded list means the organisation has more stores than were returned (onboarding's hasAnyStore).
+  if (
+    organizations.some(
+      (organization) => organization.stores.length > 0 || organization.stores_truncated
+    )
+  ) {
+    return;
+  }
 
   // Seed into an organisation the account owns, the same filter onboarding uses to resume.
   let organizationId = organizations.find((organization) => organization.role === 'OWNER')?.id;
