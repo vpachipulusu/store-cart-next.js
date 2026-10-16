@@ -218,16 +218,6 @@ def test_mask_email_keeps_a_short_prefix_and_the_domain():
     assert mask_email("not-an-email") == "***"
 
 
-def test_missing_credentials_fail_cleanly(monkeypatch, capsys):
-    def unavailable() -> purge.AuthGateway:
-        raise purge.IdentityProviderUnavailable()
-
-    monkeypatch.setattr(purge, "_firebase_gateway", unavailable)
-
-    assert main([]) == 1
-    assert "credentials" in capsys.readouterr().err.lower()
-
-
 class _Page:
     def __init__(self, users: list[object], next_token: str | None) -> None:
         self.users = users
@@ -397,34 +387,6 @@ def test_mask_email_edge_cases():
     assert mask_email("abcdef@example.com") == "abcdef***@example.com"
 
 
-def test_missing_credentials_print_nothing_to_stdout(monkeypatch, capsys):
-    def unavailable() -> purge.AuthGateway:
-        raise purge.IdentityProviderUnavailable()
-
-    monkeypatch.setattr(purge, "_firebase_gateway", unavailable)
-
-    assert main([]) == 1
-    assert capsys.readouterr().out == ""
-
-
-class _FakeApp:
-    def __init__(self, project_id: str | None) -> None:
-        self.project_id = project_id
-
-
-def test_firebase_gateway_factory_uses_the_apps_project_id(monkeypatch):
-    monkeypatch.setattr(purge, "firebase_app", lambda: _FakeApp(PROJECT))
-
-    assert purge._firebase_gateway().project_id == PROJECT
-
-
-def test_firebase_gateway_factory_refuses_an_app_without_project_id(monkeypatch):
-    monkeypatch.setattr(purge, "firebase_app", lambda: _FakeApp(None))
-
-    with pytest.raises(purge.IdentityProviderUnavailable):
-        purge._firebase_gateway()
-
-
 def test_firebase_gateway_list_arguments_and_empty_last_token(monkeypatch):
     seen: dict[str, object] = {}
     app = object()
@@ -491,12 +453,111 @@ def test_google_auth_errors_are_flattened(monkeypatch):
         gateway.list_page(None)
 
 
-def test_malformed_credentials_fail_cleanly(monkeypatch, capsys):
-    def bad_key() -> purge.AuthGateway:
-        raise ValueError("bad private key material")
+# --- credentials come from the environment, never from app.core.config -----------------
 
-    monkeypatch.setattr(purge, "_firebase_gateway", bad_key)
+SA_EMAIL = f"svc@{PROJECT}.iam.gserviceaccount.com"
+SENTINELS = ("SENTINEL-KEY-MATERIAL", "sentinel-client@leak.example")
+
+
+def _set_env(monkeypatch, project=PROJECT, email=SA_EMAIL, key="SENTINEL-KEY-MATERIAL"):
+    for name, value in (
+        ("FIREBASE_ADMIN_PROJECT_ID", project),
+        ("FIREBASE_ADMIN_CLIENT_EMAIL", email),
+        ("FIREBASE_ADMIN_PRIVATE_KEY", key),
+    ):
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+
+
+@pytest.mark.parametrize("missing", ["project", "email", "key"])
+def test_missing_environment_fails_cleanly(monkeypatch, capsys, missing):
+    _set_env(monkeypatch, **{missing: None})
 
     assert main([]) == 1
+
     captured = capsys.readouterr()
-    assert "bad private key" not in captured.out + captured.err
+    assert captured.out == ""
+    assert "missing or invalid" in captured.err
+
+
+def test_invalid_private_key_fails_without_printing_it(monkeypatch, capsys):
+    _set_env(monkeypatch)
+
+    assert main([]) == 1
+
+    captured = capsys.readouterr()
+    assert not any(s in captured.out + captured.err for s in SENTINELS)
+
+
+def test_service_account_must_belong_to_the_project(monkeypatch, capsys):
+    _set_env(monkeypatch, email="svc@other-project.iam.gserviceaccount.com")
+
+    assert main(["--execute", "--project-id", PROJECT]) == 2
+
+    assert "service account" in capsys.readouterr().err
+
+
+def test_real_start_path_with_a_bare_environment_leaks_nothing():
+    """Runs the module as the owner would, with no backend settings at all."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if not k.startswith(("DATABASE", "FIREBASE", "UPSTASH", "ENVIRONMENT"))
+    }
+    env.update(
+        FIREBASE_ADMIN_PROJECT_ID=PROJECT,
+        FIREBASE_ADMIN_CLIENT_EMAIL=SA_EMAIL,
+        FIREBASE_ADMIN_PRIVATE_KEY="SENTINEL-KEY-MATERIAL",
+    )
+    result = subprocess.run(
+        [sys.executable, "-m", "commands.purge_legacy_e2e_accounts"],
+        cwd=Path(__file__).resolve().parents[2],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+    text = result.stdout + result.stderr
+    assert result.returncode == 1
+    assert "Traceback" not in text and "ValidationError" not in text
+    assert not any(s in text for s in (*SENTINELS, SA_EMAIL))
+
+
+def test_scan_failure_says_nothing_was_changed(capsys):
+    class ListFails(FakeAuth):
+        def list_page(self, token: str | None) -> AccountPage:
+            raise PurgeFailed()
+
+    assert (
+        main(["--execute", "--project-id", PROJECT], gateway_override=ListFails([]))
+        == 1
+    )
+
+    err = capsys.readouterr().err
+    assert "scan" in err and "nothing was changed" in err.lower()
+    assert "after 0 of 0" not in err
+
+
+def test_unexpected_exceptions_print_a_fixed_message(capsys):
+    class Exploding(FakeAuth):
+        def list_page(self, token: str | None) -> AccountPage:
+            raise RuntimeError(f"traceback detail {E2E_USER}")
+
+    assert main([], gateway_override=Exploding([])) == 1
+
+    captured = capsys.readouterr()
+    assert E2E_USER not in captured.out + captured.err
+    assert "unexpected" in captured.err.lower()
+
+
+def test_seed_accounts_are_selected():
+    assert is_legacy_e2e_account(acct("x", "e2e-seed-0123456789ab@example.com"))

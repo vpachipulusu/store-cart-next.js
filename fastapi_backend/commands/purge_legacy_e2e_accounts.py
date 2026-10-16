@@ -3,8 +3,10 @@
     uv run python -m commands.purge_legacy_e2e_accounts                              # dry run
     uv run python -m commands.purge_legacy_e2e_accounts --execute --project-id <id>  # real
 
-Run by the owner against the Firebase project that holds the legacy accounts (see the runbook), with that
-project's FIREBASE_ADMIN_* variables exported (they override any fastapi_backend/.env) (see docs/developer/e2e-firebase-runbook.md). No database access.
+Run by the owner against the Firebase project that holds the legacy accounts, with that project's
+FIREBASE_ADMIN_PROJECT_ID / _CLIENT_EMAIL / _PRIVATE_KEY exported (see docs/developer/e2e-firebase-runbook.md).
+The command reads exactly those three variables itself: it does not load the backend settings or any .env, and
+it has no database. The service account's email must end with @<project>.iam.gserviceaccount.com.
 
 A user is selected only when its email is e2e-shaped: the generated e2e pattern, the old default
 test-user address, or (with the {e2e: true} claim) any e2e-prefixed @example.com address. A claim alone, or an
@@ -14,6 +16,7 @@ Output is counts and masked emails only: no uids, full emails or credentials.
 """
 
 import argparse
+import os
 import re
 import sys
 from collections.abc import Mapping, Sequence
@@ -21,10 +24,8 @@ from dataclasses import dataclass
 from typing import Protocol
 
 import firebase_admin
-from firebase_admin import auth, exceptions
+from firebase_admin import auth, credentials, exceptions
 from google.auth import exceptions as google_exceptions
-
-from app.core.firebase import IdentityProviderUnavailable, firebase_app
 
 PAGE_SIZE = 1000  # the Admin SDK maximum
 # Every provider failure is flattened: the messages can contain emails or URLs.
@@ -35,7 +36,7 @@ PROVIDER_ERRORS = (
 )
 
 # Mirrors E2E_EMAIL in nextjs-frontend/scripts/e2e-accounts.mjs.
-E2E_EMAIL = re.compile(r"e2e-(user|admin|temp)-[0-9a-f]{12}@example\.com")
+E2E_EMAIL = re.compile(r"e2e-(user|admin|temp|seed)-[0-9a-f]{12}@example\.com")
 # The default address of the removed scripts/create-test-user.mjs (git: 855cf8c^).
 LEGACY_TEST_USER_EMAIL = "testuser@example.com"
 # Looser variants, accepted only together with the {e2e: true} claim.
@@ -108,12 +109,40 @@ class FirebaseAuthGateway:
             raise PurgeFailed() from None
 
 
+class CredentialsInvalid(Exception):
+    """Missing or unusable FIREBASE_ADMIN_* variables. Carries no details on purpose."""
+
+
+class GuardRefused(Exception):
+    """A safety check failed; the message is fixed text, never input."""
+
+
 def _firebase_gateway() -> AuthGateway:
-    app = firebase_app()
-    project_id = app.project_id
-    if not project_id:
-        raise IdentityProviderUnavailable()
-    return FirebaseAuthGateway(app, project_id)
+    project = os.environ.get("FIREBASE_ADMIN_PROJECT_ID", "").strip()
+    email = os.environ.get("FIREBASE_ADMIN_CLIENT_EMAIL", "").strip()
+    key = os.environ.get("FIREBASE_ADMIN_PRIVATE_KEY", "")
+    if not (project and email and key):
+        raise CredentialsInvalid()
+    if not email.lower().endswith(f"@{project}.iam.gserviceaccount.com"):
+        raise GuardRefused(
+            "Refusing: the service account does not belong to the credential's project."
+        )
+    try:
+        certificate = credentials.Certificate(
+            {
+                "type": "service_account",
+                "project_id": project,
+                "client_email": email,
+                "private_key": key.replace("\\n", "\n"),
+                "token_uri": "https://oauth2.googleapis.com/token",
+            }
+        )
+        app = firebase_admin.initialize_app(
+            certificate, {"projectId": project}, name="purge-legacy-e2e"
+        )
+    except Exception:  # noqa: BLE001 - parser errors can quote key material
+        raise CredentialsInvalid() from None
+    return FirebaseAuthGateway(app, project)
 
 
 def is_legacy_e2e_account(account: Account) -> bool:
@@ -185,30 +214,41 @@ def main(
         gateway = (
             gateway_override if gateway_override is not None else _firebase_gateway()
         )
-    except (IdentityProviderUnavailable, ValueError):
+    except GuardRefused as refusal:
+        return _fail(str(refusal), 2)
+    except CredentialsInvalid:
         return _fail("FAILED: Firebase Admin credentials are missing or invalid.", 1)
+    except Exception:  # noqa: BLE001
+        return _fail("FAILED: unexpected error while preparing credentials.", 1)
     if args.project_id and args.project_id != gateway.project_id:
         return _fail(
             "Refusing: --project-id does not match the credential's Firebase project "
             f"({gateway.project_id}).",
             2,
         )
-    deleted = done = 0
-    matches: list[Account] = []
+    try:
+        return _run(gateway, execute=args.execute)
+    except Exception:  # noqa: BLE001 - raw tracebacks can carry emails or URLs
+        return _fail("FAILED: unexpected error; details withheld. Re-run is safe.", 1)
+
+
+def _run(gateway: AuthGateway, *, execute: bool) -> int:
     try:
         matches = find_legacy_e2e_accounts(gateway)
-        mode = "EXECUTE" if args.execute else "DRY RUN"
-        print(
-            f"{mode} (project {gateway.project_id}): "
-            f"{len(matches)} legacy e2e account(s) matched."
-        )
-        for account in matches:
-            print(f"  {mask_email(account.email)}")
-        if not args.execute:
-            print(
-                "Nothing was changed. Re-run with --execute --project-id <id> to delete."
-            )
-            return 0
+    except PurgeFailed:
+        return _fail("FAILED: the scan failed; nothing was changed.", 1)
+    mode = "EXECUTE" if execute else "DRY RUN"
+    print(
+        f"{mode} (project {gateway.project_id}): "
+        f"{len(matches)} legacy e2e account(s) matched."
+    )
+    for account in matches:
+        print(f"  {mask_email(account.email)}")
+    if not execute:
+        print("Nothing was changed. Re-run with --execute --project-id <id> to delete.")
+        return 0
+    deleted = done = 0
+    try:
         for account in matches:
             deleted += _purge_one(gateway, account.uid)
             done += 1

@@ -25,11 +25,11 @@ Which project do the legacy e2e accounts live in? `testing.md` says the developm
 
 ## The tool
 
-`fastapi_backend/commands/purge_legacy_e2e_accounts.py`. It needs no database. It reads `FIREBASE_ADMIN_*` through the backend settings: exported shell variables win over `fastapi_backend/.env`, but move that file away for the run and check that the project id in the first output line is the one you intend.
+`fastapi_backend/commands/purge_legacy_e2e_accounts.py`. It has no database and does not load the backend settings or any `.env` file: it reads exactly `FIREBASE_ADMIN_PROJECT_ID`, `FIREBASE_ADMIN_CLIENT_EMAIL` and `FIREBASE_ADMIN_PRIVATE_KEY` from the shell you run it in, so no other backend variable is needed. It refuses (exit 2) when the service account's email does not end with `@<project>.iam.gserviceaccount.com`, which ties the credential to the project id. On any credential or provider error it prints a fixed message, never a traceback or the key. The end-to-end run against a real Firebase project has not been done by the agents; the first dry run is the owner's.
 
 Selection: an account is matched only if its email is e2e-shaped:
 
-- `e2e-(user|admin|temp)-<12 hex>@example.com` (the generated accounts), or
+- `e2e-(user|admin|temp|seed)-<12 hex>@example.com` (the generated accounts; `seed` is accepted as a superset of the frontend's `E2E_EMAIL`), or
 - `testuser@example.com` (default of the removed `create-test-user.mjs`), or
 - any `e2e-...@example.com` variant that also carries the `{e2e: true}` claim.
 
@@ -43,7 +43,7 @@ Default is a dry run: it prints the project id, a count and masked emails (`e2e-
 2. Set the repository variable `PROD_FIREBASE_PROJECT_ID` (GitHub > Settings > Secrets and variables > Actions > Variables) to the production project id.
 3. Confirm the `e2e-test` environment secrets are the test project's (`E2E_NEXT_PUBLIC_FIREBASE_*`, `E2E_FIREBASE_ADMIN_*`).
 4. Confirm the Vercel Preview environment of both the frontend and the backend project use the test project (table above). Redeploy previews after changing the frontend variables.
-5. In a shell on your machine, export the target project's `FIREBASE_ADMIN_PROJECT_ID`, `FIREBASE_ADMIN_CLIENT_EMAIL` and `FIREBASE_ADMIN_PRIVATE_KEY` (from the secret store; do not write them to a file in the repo), then run the dry run from `fastapi_backend/`:
+5. In a shell on your machine, export only the target project's `FIREBASE_ADMIN_PROJECT_ID`, `FIREBASE_ADMIN_CLIENT_EMAIL` and `FIREBASE_ADMIN_PRIVATE_KEY` (from the secret store; do not write them to a file in the repo; nothing else is needed), then run the dry run from `fastapi_backend/`:
 
    ```bash
    uv run python -m commands.purge_legacy_e2e_accounts
