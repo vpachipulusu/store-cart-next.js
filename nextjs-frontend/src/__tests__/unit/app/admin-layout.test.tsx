@@ -30,6 +30,8 @@ vi.mock('@/components/admin/admin-header', () => ({ AdminHeader: mocks.AdminHead
 
 import type { ProfileData } from '@/lib/api/generated';
 import AdminLayout from '@/app/(admin)/admin/layout';
+import { AdminSidebar } from '@/components/admin/admin-sidebar';
+import { AdminTabBar } from '@/components/admin/admin-tab-bar';
 
 type ProfileFields = Pick<
   ProfileData,
@@ -68,6 +70,24 @@ function containsChild(node: unknown, needle: string): boolean {
   if (Array.isArray(node)) return node.some((child) => containsChild(child, needle));
   const props = (node as { props?: { children?: unknown } } | null)?.props;
   return typeof node === 'object' && props ? containsChild(props.children, needle) : false;
+}
+
+type TreeNode = { type?: unknown; props?: Record<string, unknown> };
+
+function findAll(
+  node: unknown,
+  match: (el: TreeNode) => boolean,
+  out: TreeNode[] = []
+): TreeNode[] {
+  if (Array.isArray(node)) {
+    node.forEach((child) => findAll(child, match, out));
+    return out;
+  }
+  if (!node || typeof node !== 'object') return out;
+  const element = node as TreeNode;
+  if (match(element)) out.push(element);
+  findAll(element.props?.children, match, out);
+  return out;
 }
 
 describe('AdminLayout access check', () => {
@@ -196,5 +216,25 @@ describe('AdminLayout access check', () => {
     expect((error as Error).message).toBe('boom');
     expect(redirectTarget(error)).toBeNull();
     expect(mocks.loggerError).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders the KAN-230 shell: skip link, sidebar, tab bar and a focusable main landmark', async () => {
+    const tree = await AdminLayout({ children: 'page' });
+
+    expect(findAll(tree, (el) => el.type === AdminSidebar)).toHaveLength(1);
+    expect(findAll(tree, (el) => el.type === AdminTabBar)).toHaveLength(1);
+    const skip = findAll(tree, (el) => el.type === 'a');
+    expect(skip.map((el) => el.props?.href)).toContain('#main-content');
+    const [main] = findAll(tree, (el) => el.type === 'main');
+    expect(main.props).toMatchObject({ id: 'main-content', tabIndex: -1 });
+    expect(containsChild(main, 'page')).toBe(true);
+  });
+
+  it('does not render the shell for a denied user', async () => {
+    mocks.fetchProfile.mockResolvedValue(profile({ is_admin: false, admin_role: null }));
+
+    const error = await rejection(AdminLayout({ children: 'page' }));
+
+    expect(redirectTarget(error)).toBe('/dashboard');
   });
 });
