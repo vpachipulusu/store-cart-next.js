@@ -1,6 +1,6 @@
 import Link from 'next/link';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Panel } from '@/components/dashboard/overview/panel';
 
 type FeatureUnavailableProps = {
   title: string;
@@ -18,20 +18,15 @@ export function FeatureUnavailable({ title, description }: FeatureUnavailablePro
         <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
         <p className="text-muted-foreground">{description}</p>
       </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>Not available yet</CardTitle>
-          <CardDescription>
-            This page is switched off until its backend service is ready. Nothing is lost: it will
-            return in a later release.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button variant="outline" asChild>
-            <Link href="/admin/users">Go to Users</Link>
-          </Button>
-        </CardContent>
-      </Card>
+      <Panel title="Not available yet" titleId="admin-feature-unavailable">
+        <p className="mb-4 text-sm text-muted-foreground">
+          This page is switched off until its backend service is ready. Nothing is lost: it will
+          return in a later release.
+        </p>
+        <Button variant="outline" asChild>
+          <Link href="/admin/users">Go to Users</Link>
+        </Button>
+      </Panel>
     </div>
   );
 }

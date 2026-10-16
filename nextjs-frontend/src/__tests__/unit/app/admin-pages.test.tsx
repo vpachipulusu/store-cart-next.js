@@ -120,6 +120,45 @@ describe('admin user detail page', () => {
     expect(markup).toContain('users.read');
   });
 
+  it('shows status pills and one h1, with a retry link on the error state', async () => {
+    mocks.fetchAdminUser.mockResolvedValue({
+      success: true,
+      data: {
+        ...SUMMARY,
+        email_verified: false,
+        bio: null,
+        location: null,
+        website: null,
+        phone_number: null,
+        two_factor_enabled: false,
+        admin_permissions: ['users.read'],
+      },
+    });
+
+    const markup = html(await AdminUserDetailPage({ params: Promise.resolve({ id: 'user-1' }) }));
+
+    expect(markup).toContain('Unverified');
+    expect(markup).toContain('bg-warn');
+    expect(markup).toContain('bg-info');
+    expect(markup).toContain('Basic Information');
+    expect(markup).toContain('Admin Access');
+    expect(markup.match(/<h1/g)).toHaveLength(1);
+
+    mocks.fetchAdminUser.mockResolvedValue({ success: false, error: 'x', status: 500 });
+    const failed = html(await AdminUserDetailPage({ params: Promise.resolve({ id: 'a b' }) }));
+    expect(failed.match(/<h1/g)).toHaveLength(1);
+    expect(failed).toContain('href="/admin/users/a%20b"');
+    expect(failed).toContain('Back to Users');
+  });
+
+  it('renders the unavailable state as one panel with a way back', () => {
+    const markup = html(<AdminSeoPage />);
+
+    expect(markup.match(/<h1/g)).toHaveLength(1);
+    expect(markup.match(/<section/g)).toHaveLength(1);
+    expect(markup).toContain('href="/admin/users"');
+  });
+
   it('calls notFound for a missing user', async () => {
     mocks.fetchAdminUser.mockResolvedValue({ success: false, error: 'x', status: 404 });
 
