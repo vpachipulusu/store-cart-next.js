@@ -31,7 +31,7 @@ The unauthenticated auth actions and the `/api/auth/signup`, `/api/auth/login` a
 ## E2E test accounts
 
 - `npm run test:setup` generates random emails and passwords, and writes them only to `.env.e2e.local`.
-- The accounts live in the future production Firebase project until KAN-131 moves them to a separate project and deletes them before launch.
+- Since KAN-113 and KAN-162, e2e creates its accounts only in the separate test project `storecart-test`. Accounts created before that may still exist in an older project (which one is an open owner confirmation); KAN-131 deletes them with `commands.purge_legacy_e2e_accounts` before launch. See [e2e-firebase-runbook.md](e2e-firebase-runbook.md).
 - The setup script refuses to run against a non-local `DATABASE_URL` and refuses to touch any account whose email does not match the generated pattern.
 
 ## Reporting a security issue
