@@ -171,6 +171,10 @@ jobs:
           E2E_BACKEND_API_URL: ${{ vars.E2E_BACKEND_API_URL }}
         run: |
           backend="${E2E_BACKEND_API_URL:-http://127.0.0.1:8000}"
+          if ! printf '%s' "${backend}" | grep -Eq '^https?://[A-Za-z0-9._~:/-]+$'; then
+            echo "::error::E2E_BACKEND_API_URL must be a plain http(s) URL."
+            exit 1
+          fi
           secret="$(stripe listen --print-secret)"
           case "${secret}" in
             whsec_*[!A-Za-z0-9_]*|whsec_) echo "::error::Unexpected output from stripe listen --print-secret."; exit 1 ;;

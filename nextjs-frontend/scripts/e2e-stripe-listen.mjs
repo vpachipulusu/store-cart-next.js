@@ -8,11 +8,39 @@
  * The backend must run with that signing secret (see docs/developer/local-e2e.md). Never paste the value anywhere.
  *
  * The Stripe CLI uses its own login (`stripe login`, test mode; `stripe listen` never uses live mode without --live).
- * The frontend holds no server secrets, so this script reads no env files and no key.
+ * The CLI gets a minimal environment (below), so an inherited Stripe key never reaches it: it always runs on the
+ * login. The frontend holds no server secrets, so this script reads no env files and no key.
  */
 import { spawn } from 'node:child_process';
 
 const WEBHOOK_PATH = '/webhooks/stripe';
+// Just what the CLI needs to start and find its login; nothing else is inherited.
+const {
+  PATH,
+  Path,
+  HOME,
+  USERPROFILE,
+  APPDATA,
+  LOCALAPPDATA,
+  XDG_CONFIG_HOME,
+  SystemRoot,
+  TEMP,
+  TMP,
+} = process.env;
+const cliEnv = Object.fromEntries(
+  Object.entries({
+    PATH,
+    Path,
+    HOME,
+    USERPROFILE,
+    APPDATA,
+    LOCALAPPDATA,
+    XDG_CONFIG_HOME,
+    SystemRoot,
+    TEMP,
+    TMP,
+  }).filter(([, value]) => value !== undefined)
+);
 const args = ['listen'];
 if (process.argv.includes('--print-secret')) {
   args.push('--print-secret');
@@ -34,7 +62,7 @@ if (process.argv.includes('--print-secret')) {
   args.push('--forward-to', target.toString());
 }
 
-const child = spawn('stripe', args, { stdio: 'inherit' });
+const child = spawn('stripe', args, { env: cliEnv, stdio: 'inherit' });
 child.on('error', (error) => {
   console.error(`Could not start the Stripe CLI (is it installed and on PATH?): ${error.message}`);
   process.exit(1);
