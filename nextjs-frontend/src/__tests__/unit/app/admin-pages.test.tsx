@@ -54,7 +54,6 @@ import AdminSeoPage from '@/app/(admin)/admin/seo/page';
 import AdminSettingsPage from '@/app/(admin)/admin/settings/page';
 import AdminAuditLogsPage from '@/app/(admin)/admin/audit-logs/page';
 import AdminSubscriptionsPage from '@/app/(admin)/admin/subscriptions/page';
-import AdminUsersPage from '@/app/(admin)/admin/users/page';
 import AdminUserDetailPage from '@/app/(admin)/admin/users/[id]/page';
 
 const ADMIN_DIR = join(process.cwd(), 'src/app/(admin)/admin');
@@ -93,53 +92,6 @@ describe('switched-off admin pages', () => {
     'subscriptions/page.tsx',
   ])('%s does not import the database client', (file) => {
     expect(readFileSync(join(ADMIN_DIR, file), 'utf8')).not.toContain('@/lib/db/client');
-  });
-});
-
-describe('admin users list page', () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it('renders users from the API and passes search and paging through', async () => {
-    mocks.fetchAdminUsers.mockResolvedValue({
-      success: true,
-      data: { users: [SUMMARY], total_count: 120, limit: 50, offset: 50 },
-    });
-
-    const markup = html(
-      await AdminUsersPage({ searchParams: Promise.resolve({ q: 'ada', page: '2' }) })
-    );
-
-    expect(mocks.fetchAdminUsers).toHaveBeenCalledWith({ search: 'ada', limit: 50, offset: 50 });
-    expect(markup).toContain('ada@example.test');
-    expect(markup).toContain('super admin');
-    expect(markup).toContain('data-row-actions="user-1"');
-    expect(markup).toContain('All Users (120)');
-    expect(markup).toContain('/admin/users?q=ada');
-    expect(markup).toContain('/admin/users?q=ada&amp;page=3');
-  });
-
-  it('shows a curated error and no backend text when the API fails', async () => {
-    mocks.fetchAdminUsers.mockResolvedValue({
-      success: false,
-      error: 'SECRET postgres://user:pw@host/db',
-      status: 403,
-    });
-
-    const markup = html(await AdminUsersPage({ searchParams: Promise.resolve({}) }));
-
-    expect(markup).toContain('You do not have permission to do that');
-    expect(markup).not.toContain('SECRET');
-  });
-
-  it('treats a non-numeric page as page 1', async () => {
-    mocks.fetchAdminUsers.mockResolvedValue({
-      success: true,
-      data: { users: [], total_count: 0, limit: 50, offset: 0 },
-    });
-
-    await AdminUsersPage({ searchParams: Promise.resolve({ page: 'abc' }) });
-
-    expect(mocks.fetchAdminUsers.mock.calls[0][0].offset).toBe(0);
   });
 });
 

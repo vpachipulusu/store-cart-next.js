@@ -155,11 +155,35 @@ test.describe('Admin Dashboard', () => {
       await page.getByRole('button', { name: /^search$/i }).click();
 
       await expect(page).toHaveURL(/\/admin\/users\?q=zz-no-such-user-zz/);
-      await expect(page.getByText('No users found')).toBeVisible();
+      await expect(page.getByText("No users match 'zz-no-such-user-zz'")).toBeVisible();
+
+      await page.getByRole('link', { name: /^clear$/i }).click();
+      await expect(page).toHaveURL(/\/admin\/users$/);
+      await expect(page.getByRole('table')).toBeVisible();
+    });
+
+    test('should label the search field and keep it 44px tall', async ({ page }) => {
+      const search = page.getByLabel('Search users by name or email');
+      await expect(search).toBeVisible();
+      const box = await search.boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+    });
+
+    test('should stack rows without horizontal scroll at 375px', async ({ page }) => {
+      await page.setViewportSize({ width: 375, height: 812 });
+      await page.goto('/admin/users');
+      await waitForPageReady(page);
+
+      const firstRow = page.getByRole('table').getByRole('row').nth(1);
+      await expect(firstRow.getByRole('cell').first()).toBeVisible();
+      const overflows = await page.evaluate(
+        () => document.documentElement.scrollWidth > document.documentElement.clientWidth
+      );
+      expect(overflows).toBe(false);
     });
 
     test('should display users table with correct columns', async ({ page }) => {
-      await expect(page.getByText('All Users')).toBeVisible();
+      await expect(page.getByRole('heading', { name: /^all users \(\d+\)$/i })).toBeVisible();
 
       // Table headers
       // getByRole skips the transient `<table hidden>` placeholders React streaming leaves in <body> until its $RS scripts run (KAN-196).
@@ -167,10 +191,9 @@ test.describe('Admin Dashboard', () => {
       await expect(table).toBeVisible();
 
       await expect(table.getByRole('columnheader', { name: /^user$/i })).toBeVisible();
-      await expect(table.getByText(/^email$/i)).toBeVisible();
       await expect(table.getByText(/^status$/i)).toBeVisible();
       await expect(table.getByText(/^role$/i)).toBeVisible();
-      await expect(table.getByText(/^last login$/i)).toBeVisible();
+      await expect(table.getByText(/^last sign-in$/i)).toBeVisible();
       await expect(table.getByText(/^joined$/i)).toBeVisible();
       await expect(table.getByText(/^actions$/i)).toBeVisible();
     });
