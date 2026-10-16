@@ -88,7 +88,7 @@ export BACKEND_API_URL=http://127.0.0.1:8170          # your uvicorn
 node scripts/e2e-stripe-listen.mjs                   # = stripe listen --forward-to $BACKEND_API_URL/webhooks/stripe
 ```
 
-- The script reads `STRIPE_SECRET_KEY` from the environment or `.env.e2e.local`, refuses anything but a test-mode key, and gives it to the CLI through `STRIPE_API_KEY`, so it never appears on a command line. Without a key it uses the CLI login (`stripe login`; the CLI login expires, so run it again if `stripe listen` answers `api_key_expired`).
+- The script runs the Stripe CLI with its own login (`stripe login`, test mode) and reads no env files. The CLI login expires (about 90 days): run `stripe login` again if `stripe listen` answers `api_key_expired`.
 - **The backend must run with the secret `stripe listen` prints.** `.env.e2e.local` holds it as `STRIPE_WEBHOOK_SECRET` (the same variable the backend reads); it is stable for one Stripe account, so set it once. To check or refresh it: `node scripts/e2e-stripe-listen.mjs --print-secret` prints it (do not paste it anywhere). If the backend has a different secret, every event is answered `400` and the test times out.
 - Start the backend with the `STRIPE_*` variables from `.env.e2e.local`, including the four `STRIPE_PRICE_ID_{PRO,ENTERPRISE}_{MONTHLY,YEARLY}` names. Keep the forwarder running while the tests run; its log shows each event and the backend's status.
 
