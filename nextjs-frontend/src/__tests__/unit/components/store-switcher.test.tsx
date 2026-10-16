@@ -56,7 +56,7 @@ describe('StoreSwitcher', () => {
   describe('several stores', () => {
     it('has a 52px menu trigger named "Switch store" showing store, organisation and a chevron', () => {
       render(<StoreSwitcher stores={[ONE, TWO]} selectedStoreId={TWO.id} />);
-      const trigger = screen.getByRole('button', { name: 'Switch store' });
+      const trigger = screen.getByRole('button', { name: /switch store/i });
       expect(trigger).toHaveAttribute('aria-haspopup', 'menu');
       expect(trigger).toHaveAttribute('aria-expanded', 'false');
       expect(trigger.className).toContain('h-[52px]');
@@ -66,16 +66,49 @@ describe('StoreSwitcher', () => {
       expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     });
 
+    it('names the trigger with the current store and organisation (label in name)', () => {
+      render(<StoreSwitcher stores={[ONE, TWO]} selectedStoreId={TWO.id} />);
+      expect(
+        screen.getByRole('button', { name: 'Switch store, current Beta, Bravo Inc' })
+      ).toBeInTheDocument();
+    });
+
+    it('announces and shows a pending state, and ignores a second pick, while switching', async () => {
+      let finish: (value: { success: boolean }) => void = () => {};
+      mocks.selectStoreAction.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+      const user = userEvent.setup();
+      render(<StoreSwitcher stores={[ONE, TWO]} selectedStoreId={ONE.id} />);
+
+      await user.click(screen.getByRole('button', { name: /switch store/i }));
+      await user.click(await screen.findByRole('menuitemradio', { name: /Beta/ }));
+
+      await vi.waitFor(() =>
+        expect(screen.getByRole('status')).toHaveTextContent('Switching store')
+      );
+      const trigger = screen.getByRole('button', { name: /switch store/i });
+      expect(trigger).toHaveAttribute('aria-busy', 'true');
+      expect(trigger.querySelector('svg.animate-spin')).not.toBeNull();
+      expect(mocks.selectStoreAction).toHaveBeenCalledTimes(1);
+
+      await user.click(trigger);
+      for (const item of await screen.findAllByRole('menuitemradio')) {
+        expect(item).toHaveAttribute('aria-disabled', 'true');
+      }
+
+      finish({ success: true });
+      await vi.waitFor(() => expect(screen.getByRole('status')).toBeEmptyDOMElement());
+    });
+
     it('falls back to the first store when the selected id is unknown', () => {
       render(<StoreSwitcher stores={[ONE, TWO]} selectedStoreId="missing" />);
-      expect(screen.getByRole('button', { name: 'Switch store' })).toHaveTextContent('Alpha');
+      expect(screen.getByRole('button', { name: /switch store/i })).toHaveTextContent('Alpha');
     });
 
     it('opens a menu of 44px radio items with the current store checked', async () => {
       const user = userEvent.setup();
       render(<StoreSwitcher stores={[ONE, TWO]} selectedStoreId={ONE.id} />);
 
-      await user.click(screen.getByRole('button', { name: 'Switch store' }));
+      await user.click(screen.getByRole('button', { name: /switch store/i }));
 
       const menu = await screen.findByRole('menu');
       const items = within(menu).getAllByRole('menuitemradio');
@@ -90,7 +123,7 @@ describe('StoreSwitcher', () => {
       const user = userEvent.setup();
       render(<StoreSwitcher stores={[ONE, TWO]} selectedStoreId={ONE.id} />);
 
-      await user.click(screen.getByRole('button', { name: 'Switch store' }));
+      await user.click(screen.getByRole('button', { name: /switch store/i }));
       await user.click(await screen.findByRole('menuitemradio', { name: /Beta/ }));
 
       expect(mocks.selectStoreAction).toHaveBeenCalledWith(TWO.id);
@@ -102,7 +135,7 @@ describe('StoreSwitcher', () => {
       const user = userEvent.setup();
       render(<StoreSwitcher stores={[ONE, TWO]} selectedStoreId={ONE.id} />);
 
-      await user.click(screen.getByRole('button', { name: 'Switch store' }));
+      await user.click(screen.getByRole('button', { name: /switch store/i }));
       await user.click(await screen.findByRole('menuitemradio', { name: /Alpha/ }));
 
       expect(mocks.selectStoreAction).not.toHaveBeenCalled();
@@ -113,7 +146,7 @@ describe('StoreSwitcher', () => {
       render(<StoreSwitcher stores={[ONE, TWO]} selectedStoreId={ONE.id} />);
 
       await user.tab();
-      expect(screen.getByRole('button', { name: 'Switch store' })).toHaveFocus();
+      expect(screen.getByRole('button', { name: /switch store/i })).toHaveFocus();
       await user.keyboard('{Enter}');
       await screen.findByRole('menu');
       await user.keyboard('{ArrowDown}{Enter}');
@@ -124,7 +157,7 @@ describe('StoreSwitcher', () => {
     it('closes the menu with Escape and returns focus to the trigger', async () => {
       const user = userEvent.setup();
       render(<StoreSwitcher stores={[ONE, TWO]} selectedStoreId={ONE.id} />);
-      const trigger = screen.getByRole('button', { name: 'Switch store' });
+      const trigger = screen.getByRole('button', { name: /switch store/i });
 
       await user.click(trigger);
       await screen.findByRole('menu');
@@ -139,7 +172,7 @@ describe('StoreSwitcher', () => {
       const user = userEvent.setup();
       render(<StoreSwitcher stores={[ONE, TWO]} selectedStoreId={ONE.id} />);
 
-      await user.click(screen.getByRole('button', { name: 'Switch store' }));
+      await user.click(screen.getByRole('button', { name: /switch store/i }));
       await user.click(await screen.findByRole('menuitemradio', { name: /Beta/ }));
 
       await vi.waitFor(() =>
@@ -159,7 +192,7 @@ describe('StoreSwitcher', () => {
       const user = userEvent.setup();
       render(<StoreSwitcher stores={[ONE, TWO]} selectedStoreId={ONE.id} />);
 
-      await user.click(screen.getByRole('button', { name: 'Switch store' }));
+      await user.click(screen.getByRole('button', { name: /switch store/i }));
       await user.click(await screen.findByRole('menuitemradio', { name: /Beta/ }));
 
       await vi.waitFor(() =>
@@ -174,7 +207,7 @@ describe('StoreSwitcher', () => {
   describe('sidebar variant', () => {
     it('uses inverse-surface colours that work in light and dark', () => {
       render(<StoreSwitcher variant="sidebar" stores={[ONE, TWO]} selectedStoreId={ONE.id} />);
-      const trigger = screen.getByRole('button', { name: 'Switch store' });
+      const trigger = screen.getByRole('button', { name: /switch store/i });
       expect(trigger.className).toContain('text-background');
       expect(trigger.className).toContain('dark:text-foreground');
       expect(trigger.className).toContain('w-full');

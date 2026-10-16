@@ -2,7 +2,7 @@
 
 import { useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronsUpDown, Store } from 'lucide-react';
+import { ChevronsUpDown, Loader2, Store } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -109,42 +109,55 @@ export function StoreSwitcher({ stores, selectedStoreId, variant = 'header' }: S
   };
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        aria-label="Switch store"
-        data-testid="store-switcher"
-        aria-busy={isPending}
-        className={cn(
-          SLOT_CLASS,
-          VARIANT_CLASS[variant],
-          HOVER_CLASS[variant],
-          'transition-colors',
-          isPending && 'opacity-70'
-        )}
-      >
-        <StoreText store={selected} variant={variant} />
-        <ChevronsUpDown
-          className={cn('h-4 w-4 shrink-0', MUTED_CLASS[variant])}
-          aria-hidden="true"
-        />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        className="min-w-[var(--radix-dropdown-menu-trigger-width)]"
-      >
-        <DropdownMenuRadioGroup value={selected.id} onValueChange={handleChange}>
-          {stores.map((store) => (
-            <DropdownMenuRadioItem
-              key={store.id}
-              value={store.id}
-              className="min-h-11 flex-col items-start justify-center [&>span:first-child]:top-1/2 [&>span:first-child]:-translate-y-1/2"
-            >
-              <span className="text-sm font-medium">{store.name}</span>
-              <span className="text-xs text-muted-foreground">{store.organizationName}</span>
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <span role="status" aria-live="polite" className="sr-only">
+        {isPending ? 'Switching store…' : ''}
+      </span>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          aria-label={`Switch store, current ${selected.name}, ${selected.organizationName}`}
+          data-testid="store-switcher"
+          aria-busy={isPending}
+          className={cn(
+            SLOT_CLASS,
+            VARIANT_CLASS[variant],
+            HOVER_CLASS[variant],
+            'transition-colors',
+            isPending && 'opacity-70'
+          )}
+        >
+          <StoreText store={selected} variant={variant} />
+          {isPending ? (
+            <Loader2
+              className={cn('h-4 w-4 shrink-0 animate-spin', MUTED_CLASS[variant])}
+              aria-hidden="true"
+            />
+          ) : (
+            <ChevronsUpDown
+              className={cn('h-4 w-4 shrink-0', MUTED_CLASS[variant])}
+              aria-hidden="true"
+            />
+          )}
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          className="min-w-[var(--radix-dropdown-menu-trigger-width)]"
+        >
+          <DropdownMenuRadioGroup value={selected.id} onValueChange={handleChange}>
+            {stores.map((store) => (
+              <DropdownMenuRadioItem
+                key={store.id}
+                value={store.id}
+                disabled={isPending}
+                className="min-h-11 flex-col items-start justify-center [&>span:first-child]:top-1/2 [&>span:first-child]:-translate-y-1/2"
+              >
+                <span className="text-sm font-medium">{store.name}</span>
+                <span className="text-xs text-muted-foreground">{store.organizationName}</span>
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
   );
 }

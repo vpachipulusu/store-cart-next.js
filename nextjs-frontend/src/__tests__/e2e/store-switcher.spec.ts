@@ -85,7 +85,7 @@ test.describe('Dashboard store switcher', () => {
     const beta = await createOrganizationWithStore(page, 'beta', suffix);
     await page.goto('/dashboard');
     await waitForPageReady(page);
-    let trigger = page.getByRole('button', { name: 'Switch store' });
+    let trigger = page.getByRole('button', { name: /switch store/i });
     await expect(trigger).toBeVisible();
     await expect(trigger).toHaveAttribute('aria-haspopup', 'menu');
     const box = await trigger.boundingBox();
@@ -105,11 +105,11 @@ test.describe('Dashboard store switcher', () => {
 
     await page.goto('/dashboard/profile');
     await waitForPageReady(page);
-    await expect(page.getByRole('button', { name: 'Switch store' })).toContainText(other);
+    await expect(page.getByRole('button', { name: /switch store/i })).toContainText(other);
 
     await page.reload();
     await waitForPageReady(page);
-    await expect(page.getByRole('button', { name: 'Switch store' })).toContainText(other);
+    await expect(page.getByRole('button', { name: /switch store/i })).toContainText(other);
 
     // A forged cookie naming a store the user cannot open falls back to the first store.
     await page.context().clearCookies({ name: 'selected-store' });
@@ -122,14 +122,14 @@ test.describe('Dashboard store switcher', () => {
     ]);
     await page.goto('/dashboard');
     await waitForPageReady(page);
-    await expect(page.getByRole('button', { name: 'Switch store' })).toContainText(first);
+    await expect(page.getByRole('button', { name: /switch store/i })).toContainText(first);
 
     // Phone (375px) and desktop (1440px): one visible switcher, inside the viewport, no horizontal overflow.
     for (const width of [375, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto('/dashboard');
       await waitForPageReady(page);
-      trigger = page.getByRole('button', { name: 'Switch store' });
+      trigger = page.getByRole('button', { name: /switch store/i });
       await expect(trigger).toHaveCount(1);
       const rect = await trigger.boundingBox();
       expect((rect?.x ?? 0) + (rect?.width ?? 0)).toBeLessThanOrEqual(width);
