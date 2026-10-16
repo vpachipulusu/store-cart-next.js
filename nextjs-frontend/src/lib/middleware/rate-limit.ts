@@ -31,10 +31,7 @@ export interface RateLimitResult {
  * @param identifier - Unique identifier (e.g., IP address, user ID)
  * @param config - Rate limit configuration
  */
-export function rateLimit(
-  identifier: string,
-  config: RateLimitConfig
-): RateLimitResult {
+export function rateLimit(identifier: string, config: RateLimitConfig): RateLimitResult {
   const now = Date.now();
   const { maxRequests, windowMs, message } = config;
 
