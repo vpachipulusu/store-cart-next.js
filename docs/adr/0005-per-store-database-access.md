@@ -1,6 +1,6 @@
 # ADR-005: Per-store database access
 
-- **Status:** Accepted by the product owner, 2026-10-12. The one-database-per-store choice (D1) was provisional until the KAN-115 spike; the spike (2026-10-16) found no blocking cost, so D1 is **accepted** with the shared-project topology for launch (see [KAN-115 spike results](#kan-115-spike-results)). One check remains before E7: re-measure the store database from inside Vercel.
+- **Status:** Accepted by the product owner, 2026-10-12. The one-database-per-store choice (D1) was provisional until the KAN-115 spike; the spike (2026-10-16) found no blocking cost in the numbers it could take, so D1 is **provisionally accepted** with the shared-project topology for launch (see [KAN-115 spike results](#kan-115-spike-results)). One check remains before E7: re-measure the store database from inside Vercel.
 - **Date:** 2026-10-11
 - **Plan decisions:** D1 (tenant data isolation), D15 (SQLAlchemy 2 async, asyncpg, NullPool, two Alembic trees)
 - **Jira:** KAN-29; spike KAN-115; carried out in KAN-30 (seam) and E7 (KAN-52 …)
@@ -30,6 +30,12 @@ KAN-115 measured the shared-project option and found it acceptable. One project 
 a single large merchant later; the provisioner and the session provider already hide the topology. E7 (KAN-52)
 may refine it.
 
+**Isolation limit in the shared project:** with one Neon role serving every store database, isolation is per
+database, not per credential. A wrong store-to-database mapping, or a leaked privileged connection string,
+exposes all stores in the project. The application chooses the database (`get_store_session`, with the backend
+authorizing the store id). E7 should decide whether to create a role per store (`CREATE ROLE` plus
+`REVOKE CONNECT ON DATABASE ... FROM PUBLIC`) so the database enforces it too.
+
 **Why it was provisional:** the cost is connection setup per store on serverless, plus running migrations
 across many databases. The **KAN-115 spike** measured the connection cost (below). The numbers are low enough
 that neither fallback (a different backend host, or a shared database with `store_id` and row-level security,
@@ -46,7 +52,7 @@ build engine, connect through Neon's pooled endpoint, `SELECT 1`, dispose.
 | `/health/ready` (platform database) | Live Vercel backend, same | 30 | 278 | 358 |
 | Store database, warm | Local harness against Neon eu-west-2 | 30 | 607 | 795 |
 | Store database, first connect after ~7 min idle (Neon suspend) | Local harness | 1 | 1068 | n/a |
-| Store database, next requests after that | Local harness | 5 | 370 | 483 |
+| Store database, next requests after that | Local harness | 5 | 370 | max 483 |
 
 Also: creating a store database through the Neon API took 13.4 s (a provisioning job cost, not a request cost).
 The cold first call to the platform database on Vercel was 907 ms (434 ms for `/health`).
@@ -54,11 +60,12 @@ The cold first call to the platform database on Vercel was 907 ms (434 ms for `/
 **What this says**
 - On Vercel, one platform-database connection and query adds about 63 ms median (278 vs 215).
 - The store figures were taken from a development machine, where TLS and authentication round trips dominate
-  (TCP connect to the host was 28 ms). They are an upper bound for the same query from inside Vercel, not the
-  Vercel figure. Expected same-region cost is similar to the platform database (about 60-70 ms), which would
+  (TCP connect to the host was 28 ms). They are not the Vercel figure; we infer they overstate it, because a
+  development machine is farther from Neon than same-region compute, but that is not measured. Expected same-region cost is similar to the platform database (about 60-70 ms), which would
   put a request touching both databases near 340 ms median warm. That is an inference, not a measurement.
-- A store database that has been idle long enough for Neon to suspend its compute costs roughly 0.7 s extra on
-  the first request (1068 vs about 370 ms), once per idle period. Acceptable for merchant dashboards. A
+- A store database that has been idle long enough for Neon to suspend its compute costs roughly 0.5-0.7 s extra
+  on the first request, once per idle period (1068 ms vs 607 ms warm median, or vs 370 ms for the five requests
+  right after wake-up; the two baselines differ, which we put down to run-to-run noise on one sample). Acceptable for merchant dashboards. A
   storefront with traffic gaps would see it, so E7 should decide whether to turn off scale-to-zero for paid
   plans.
 - The session provider worked as designed: a second database was created through `NeonDatabaseProvisioner` and
@@ -71,8 +78,9 @@ The cold first call to the platform database on Vercel was 907 ms (434 ms for `/
 - Because of both, the first E7 story that adds a store-backed route must record median and p95 for it on
   Vercel, and revisit this section if the store path is more than about 150 ms over the platform path.
 
-**Decision:** keep one database per store, in one shared Neon project; do not switch host or move to row-level
-security. Revisit only if the re-measurement above fails.
+**Decision:** keep one database per store, in one shared Neon project, provisionally accepted pending the
+Vercel re-measurement above; do not switch host or move to row-level security now. Revisit if that
+re-measurement fails.
 
 ### Connections (D15)
 
