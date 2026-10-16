@@ -6,6 +6,8 @@ import {
   waitForPageReady,
   waitForServerActionResponse,
   navigateAndWait,
+  STRIPE_E2E_ENABLED,
+  STRIPE_E2E_SKIP_REASON,
 } from './helpers/e2e-utils';
 
 /**
@@ -81,38 +83,24 @@ test.describe('Subscription Upgrade Flow', () => {
   });
 
   test.describe('Authenticated User - Subscription Upgrade', () => {
-    test.skip(
-      !process.env.TEST_USER_EMAIL || !process.env.STRIPE_PUBLISHABLE_KEY,
-      'Skipped: TEST_USER_EMAIL or STRIPE keys not configured (STRIPE_PUBLISHABLE_KEY is never set locally; tracked in KAN-197)'
-    );
+    test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
 
-    // Test user (should be on free tier), session saved by auth.setup.ts. Tests that open Stripe checkout get a
-    // throwaway account instead: checkout stores a Stripe customer on the user and can change the plan.
+    // Test user (free tier), session saved by auth.setup.ts. Nothing here starts a checkout, so no Stripe is needed;
+    // the tests that do are in 'Stripe Checkout' below and run with a throwaway account.
     test.use({ storageState: STORAGE_STATE.user });
 
     test('should show upgrade banner on dashboard for free tier users', async ({ page }) => {
       await navigateAndWait(page, '/dashboard');
 
-      // Free tier users should see upgrade banner
-      const upgradeBanner = page.getByText(/upgrade to pro/i).first();
-      const isVisible = await upgradeBanner.isVisible().catch(() => false);
-
-      if (isVisible) {
-        await expect(upgradeBanner).toBeVisible();
-        await expect(page.getByRole('link', { name: /upgrade now/i })).toBeVisible();
-      }
+      await expect(page.getByText(/upgrade to pro/i).first()).toBeVisible();
+      await expect(page.getByRole('link', { name: /upgrade now/i })).toBeVisible();
     });
 
     test('should navigate to pricing page from dashboard upgrade banner', async ({ page }) => {
       await navigateAndWait(page, '/dashboard');
 
-      const upgradeLink = page.getByRole('link', { name: /upgrade now/i });
-      const isVisible = await upgradeLink.isVisible().catch(() => false);
-
-      if (isVisible) {
-        await upgradeLink.click();
-        await expect(page).toHaveURL(/\/pricing/);
-      }
+      await page.getByRole('link', { name: /upgrade now/i }).click();
+      await expect(page).toHaveURL(/\/pricing/);
     });
 
     test('should display pricing tiers on pricing page', async ({ page }) => {
@@ -129,19 +117,12 @@ test.describe('Subscription Upgrade Flow', () => {
     }) => {
       await navigateAndWait(page, '/pricing');
 
-      // For authenticated users on free tier, Pro tier should show upgrade button
-      const proCard = page.locator('[class*="card"]').filter({ hasText: /^Pro$/i });
-
-      // Button text might be "Upgrade to Pro" or "Get Started with Pro"
-      const upgradeButton = proCard.getByRole('button', {
-        name: /upgrade to pro|get started with pro/i,
-      });
-      const ctaExists = await upgradeButton.count().then((count) => count > 0);
-
-      if (ctaExists) {
-        await expect(upgradeButton.first()).toBeVisible();
-      }
+      await expect(page.getByRole('button', { name: /^upgrade to pro$/i })).toBeVisible();
     });
+  });
+
+  test.describe('Stripe Checkout', () => {
+    test.skip(!process.env.TEST_USER_EMAIL || !STRIPE_E2E_ENABLED, STRIPE_E2E_SKIP_REASON);
 
     test('should initiate Stripe checkout when clicking upgrade button', async ({
       page,
@@ -365,10 +346,7 @@ test.describe('Subscription Upgrade Flow', () => {
   });
 
   test.describe('Stripe Test Cards - Payment Scenarios', () => {
-    test.skip(
-      !process.env.TEST_USER_EMAIL || !process.env.STRIPE_PUBLISHABLE_KEY,
-      'Skipped: Stripe not configured for testing'
-    );
+    test.skip(!process.env.TEST_USER_EMAIL || !STRIPE_E2E_ENABLED, STRIPE_E2E_SKIP_REASON);
 
     test('should handle declined card gracefully', async ({ page, context, throwawayAccount }) => {
       await loginAsThrowawayAccountWithOrganization(page, throwawayAccount);

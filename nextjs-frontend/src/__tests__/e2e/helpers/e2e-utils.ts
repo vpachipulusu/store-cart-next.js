@@ -163,7 +163,7 @@ export async function loginAsThrowawayAccount(
 export async function loginAsThrowawayAccountWithOrganization(
   page: Page,
   account: { email: string; password: string }
-): Promise<void> {
+): Promise<string> {
   await loginAsThrowawayAccount(page, account);
 
   const session = (await page.context().cookies()).find((cookie) => cookie.name === 'session');
@@ -188,7 +188,63 @@ export async function loginAsThrowawayAccountWithOrganization(
   if (!response.ok) {
     throw new Error(`Creating the e2e organisation failed with HTTP ${response.status}`);
   }
+  const body = (await response.json()) as { data?: { id?: string } };
+  if (typeof body.data?.id !== 'string' || !body.data.id) {
+    throw new Error('The backend did not return the id of the e2e organisation');
+  }
+  return body.data.id;
 }
+
+const GRANT_DAYS = 30;
+
+/**
+ * Logs in a throwaway account whose own organisation is on the Pro plan, without Stripe. The super admin grants Pro
+ * through the existing admin API (PUT /v1/admin/subscriptions/{id}/grant, KAN-199), the same call the admin
+ * subscriptions page makes, so no test-only backend endpoint is needed. A grant has no Stripe subscription: the plan
+ * is Pro but there is no auto-renewal and no saved card. Needs the saved admin session (auth.setup.ts), the
+ * `subscriptions.grant` admin permission and BACKEND_INTERNAL_KEY.
+ */
+export async function loginAsThrowawayAccountOnPro(
+  page: Page,
+  account: { email: string; password: string }
+): Promise<void> {
+  const organizationId = await loginAsThrowawayAccountWithOrganization(page, account);
+
+  const state = JSON.parse(readFileSync(STORAGE_STATE.admin, 'utf8')) as {
+    cookies: { name: string; value: string }[];
+  };
+  const adminSession = state.cookies.find((cookie) => cookie.name === 'session');
+  const internalKey = process.env.BACKEND_INTERNAL_KEY;
+  if (!adminSession || !internalKey) {
+    throw new Error('Granting the Pro plan needs the saved admin session and BACKEND_INTERNAL_KEY');
+  }
+  const backendUrl = (process.env.BACKEND_API_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '');
+  const expiresAt = new Date(Date.now() + GRANT_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+  const response = await fetch(`${backendUrl}/v1/admin/subscriptions/${organizationId}/grant`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Internal-Key': internalKey,
+      'X-Session-Token': adminSession.value,
+    },
+    body: JSON.stringify({ plan: 'pro', expires_at: expiresAt }),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Granting Pro to the e2e organisation failed with HTTP ${response.status} (a 401 or 403 means the saved admin session is stale or revoked, or the admin account lacks the subscriptions.grant permission; see docs/developer/local-e2e.md)`
+    );
+  }
+}
+
+/**
+ * Tests that need a real Stripe Checkout, subscription or saved card are off unless E2E_STRIPE=1: the Stripe webhook
+ * cannot reach a local server (KAN-157), so the app never learns the result. E2E_ENABLED is unrelated and stays false.
+ * Set E2E_STRIPE=1 in the shell that runs the tests (only the value `1` enables them).
+ */
+export const STRIPE_E2E_ENABLED = process.env.E2E_STRIPE === '1';
+export const STRIPE_E2E_SKIP_REASON =
+  'Needs Stripe Checkout and the Stripe webhook (stripe listen); set E2E_STRIPE=1 to run. Tracked in KAN-157';
 
 /**
  * Set a mock session cookie for authenticated tests.
