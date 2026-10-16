@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ fetchPlatformCurrency: vi.fn(), logError: vi.fn() }));
 
+// getStripePrices in the same module wraps itself in unstable_cache at import time; make it a passthrough.
 vi.mock('next/cache', () => ({ unstable_cache: (fn: unknown) => fn }));
 vi.mock('@/lib/api/settings', () => ({ fetchPlatformCurrency: mocks.fetchPlatformCurrency }));
 vi.mock('@/lib/logger', () => ({

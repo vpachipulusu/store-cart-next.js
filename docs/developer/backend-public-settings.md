@@ -23,19 +23,18 @@ list (`SUPPORTED_CURRENCIES` in `app/services/public_settings.py`, kept in step 
 `currencies.ts`) answers the default `USD`, the same default `getCurrencySymbol` uses. A
 database error is a 500 and is not cached.
 
-The server trims and upper-cases the stored code, while the legacy frontend
-(`fetchCurrencySymbol`) does an exact match on it. A stored `" eur"` therefore reads as `EUR`
-here but falls back to `$` in the old Prisma path; the admin page only stores clean codes.
+The server trims and upper-cases the stored code, so a stored `" eur"` is served as `EUR`.
 
 ## Caching and consumers
 
 - `Cache-Control` is `private` because the route needs `X-Internal-Key`: a shared cache or CDN must
   not store it (the Next.js server is the only cache). The value itself is non-sensitive.
 - A currency change can take up to 60 s to show, plus up to 300 s of stale-while-revalidate.
-- The Next.js wrapper (`src/lib/api/settings.ts`) keeps a 60 s in-memory cache of successful reads
-  (`unstable_cache` cannot wrap `callBackend`, which reads cookies). The 120/min limiter is keyed by the client IP, which for
-  server-side calls is the shared Next.js server IP, so uncached per-render calls could
-  exhaust the bucket.
+- The Next.js wrapper (`src/lib/api/settings.ts`) calls the route without the user's session cookie,
+  with a 3 s timeout, and keeps a 60 s in-memory cache of successful reads (`unstable_cache` cannot
+  wrap `callBackend`, which reads cookies). The 120/min limiter is keyed by the client IP, which for
+  server-side calls is the shared Next.js server IP, so uncached per-render calls could exhaust
+  the bucket.
 
 ## Seeding
 

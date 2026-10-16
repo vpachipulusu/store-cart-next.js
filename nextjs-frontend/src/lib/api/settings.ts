@@ -14,15 +14,23 @@ import { readCurrency } from './generated';
 
 export const CURRENCY_LOOKUP_FAILED_MESSAGE = 'Currency lookup failed';
 export const CURRENCY_CACHE_TTL_MS = 60_000;
+export const CURRENCY_REQUEST_TIMEOUT_MS = 3_000;
 
 let cached: { code: string; expiresAt: number } | null = null;
 let inflight: Promise<string> | null = null;
 
 async function loadCurrency(): Promise<string> {
-  const result = await callBackend((client) => readCurrency({ client }));
-  if (!result.success) throw new Error(CURRENCY_LOOKUP_FAILED_MESSAGE);
-  cached = { code: result.data.currency, expiresAt: Date.now() + CURRENCY_CACHE_TTL_MS };
-  return cached.code;
+  // Public route: no session cookie. The timeout keeps a backend outage from hanging page renders.
+  const result = await callBackend(
+    (client) => readCurrency({ client, signal: AbortSignal.timeout(CURRENCY_REQUEST_TIMEOUT_MS) }),
+    { withSession: false }
+  );
+  const code: unknown = result.success ? result.data?.currency : undefined;
+  if (typeof code !== 'string' || code.trim() === '') {
+    throw new Error(CURRENCY_LOOKUP_FAILED_MESSAGE);
+  }
+  cached = { code, expiresAt: Date.now() + CURRENCY_CACHE_TTL_MS };
+  return code;
 }
 
 /** Concurrent callers on a cold or expired cache share one backend request. */

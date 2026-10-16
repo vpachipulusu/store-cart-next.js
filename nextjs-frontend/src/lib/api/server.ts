@@ -42,8 +42,8 @@ function getBackendUrl(): string {
 }
 
 /** A fresh client per call, so one request's session can never leak into another. */
-export async function getBackendClient(): Promise<Client> {
-  const sessionToken = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
+export async function getBackendClient({ withSession = true } = {}): Promise<Client> {
+  const sessionToken = withSession ? (await cookies()).get(SESSION_COOKIE_NAME)?.value : undefined;
   const internalKey = process.env.BACKEND_INTERNAL_KEY;
   // Caller headers are trusted only at Vercel's boundary, never raw X-Forwarded-For.
   const forwardedIp =
@@ -83,10 +83,12 @@ function unwrap<T>(body: unknown): BackendData<T> {
   return body as BackendData<T>;
 }
 
+/** `withSession: false` leaves the caller's session cookie out, for public internal-key-only routes. */
 export async function callBackend<TData>(
-  call: (client: Client) => Promise<SdkResult<TData>>
+  call: (client: Client) => Promise<SdkResult<TData>>,
+  options: { withSession?: boolean } = {}
 ): Promise<ApiResult<BackendData<TData>>> {
-  const client = await getBackendClient();
+  const client = await getBackendClient(options);
   let result: SdkResult<TData>;
   try {
     result = await call(client);
