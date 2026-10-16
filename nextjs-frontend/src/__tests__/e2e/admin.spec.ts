@@ -250,6 +250,8 @@ test.describe('Admin Dashboard', () => {
       await expect(page.getByRole('heading', { name: /user details/i })).toBeVisible();
       await expect(page.getByText('Basic Information')).toBeVisible();
       await expect(page.getByText('Admin Access')).toBeVisible();
+      await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
+      await expect(page.getByRole('link', { name: /back to users/i })).toBeVisible();
     });
   });
 
