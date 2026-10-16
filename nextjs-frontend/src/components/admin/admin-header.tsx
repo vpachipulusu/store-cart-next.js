@@ -36,7 +36,7 @@ export function AdminHeader({ user, adminRole }: AdminHeaderProps) {
         variant="secondary"
         className="border-theme-accent/20 bg-theme-accent/10 font-medium capitalize text-theme-accent-dark"
       >
-        {adminRole.replace('_', ' ')}
+        {adminRole.replaceAll('_', ' ')}
       </Badge>
 
       <DropdownMenu>
@@ -62,7 +62,7 @@ export function AdminHeader({ user, adminRole }: AdminHeaderProps) {
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
             <Link href="/dashboard" className="cursor-pointer">
-              <LayoutDashboard className="mr-2 h-4 w-4" />
+              <LayoutDashboard className="mr-2 h-4 w-4" aria-hidden="true" />
               <span>Back to Dashboard</span>
             </Link>
           </DropdownMenuItem>
@@ -71,7 +71,7 @@ export function AdminHeader({ user, adminRole }: AdminHeaderProps) {
             onClick={handleLogout}
             className="cursor-pointer text-destructive focus:text-destructive"
           >
-            <LogOut className="mr-2 h-4 w-4" />
+            <LogOut className="mr-2 h-4 w-4" aria-hidden="true" />
             <span>Logout</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
