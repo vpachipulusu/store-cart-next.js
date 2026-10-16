@@ -111,7 +111,7 @@ describe('TabBar', () => {
     mocks.pathname = MORE_ITEMS[0].href;
     const user = userEvent.setup();
     render(<TabBar />);
-    const more = screen.getByRole('button', { name: 'More' });
+    const more = screen.getByRole('button', { name: /^More.*current section$/ });
     expect(more).toHaveAttribute('data-current', 'true');
     await user.click(more);
     const dialog = await screen.findByRole('dialog', { name: 'More' });
@@ -142,5 +142,36 @@ describe('TabBar', () => {
     setWide(true);
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('does not bring the sheet back when returning to the page it was opened on', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<TabBar />);
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await screen.findByRole('dialog', { name: 'More' });
+
+    mocks.pathname = '/dashboard/settings';
+    rerender(<TabBar />);
+    mocks.pathname = '/dashboard';
+    rerender(<TabBar />);
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('does not bring the sheet back after a resize round trip', async () => {
+    const user = userEvent.setup();
+    render(<TabBar />);
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await screen.findByRole('dialog', { name: 'More' });
+
+    setWide(true);
+    setWide(false);
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('says More holds the current section only when it does', () => {
+    render(<TabBar />);
+    expect(screen.getByRole('button', { name: 'More' })).not.toHaveAttribute('data-current');
   });
 });

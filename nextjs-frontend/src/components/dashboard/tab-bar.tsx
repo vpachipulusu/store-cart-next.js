@@ -33,11 +33,13 @@ function readWide(): boolean {
 export function TabBar() {
   const pathname = usePathname();
   const current = activeNavHref(pathname);
-  // The sheet is open only for the page it was opened on and below 900px: navigating (including back and forward)
-  // or rotating a tablet past the breakpoint closes it without an effect.
+  // The sheet belongs to the page it was opened on and to phone widths. Once either stops being true the stored
+  // state is cleared (during render, not in an effect), so Back or Forward and a resize round trip cannot bring a
+  // stale sheet back.
   const [openedOn, setOpenedOn] = useState<string | null>(null);
   const isWide = useSyncExternalStore(subscribeWide, readWide, () => false);
-  const moreOpen = !isWide && openedOn === pathname;
+  if (openedOn !== null && (openedOn !== pathname || isWide)) setOpenedOn(null);
+  const moreOpen = openedOn === pathname;
   const setMoreOpen = (open: boolean) => setOpenedOn(open ? pathname : null);
   const moreIsCurrent = MORE_ITEMS.some((item) => item.href === current);
 
@@ -68,6 +70,7 @@ export function TabBar() {
         >
           <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
           More
+          {moreIsCurrent && <span className="sr-only">, current section</span>}
         </DialogPrimitive.Trigger>
         <DialogPrimitive.Portal>
           <DialogOverlay />
