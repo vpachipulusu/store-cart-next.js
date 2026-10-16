@@ -46,9 +46,9 @@ describe('Pagination', () => {
     }
   });
 
-  it('marks the current page with aria-current', () => {
+  it('shows the current page as plain text, not as a set item', () => {
     setup(2);
-    expect(screen.getByText('Page 2 of 13')).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByText('Page 2 of 13')).not.toHaveAttribute('aria-current');
   });
 
   it('calls onPageChange with neighbouring pages', async () => {

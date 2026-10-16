@@ -6,6 +6,7 @@ import {
   TableBody,
   TableCaption,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -108,6 +109,33 @@ describe('Table', () => {
       </Table>
     );
     expect(screen.getByRole('table', { name: 'Audit log entries' })).toHaveClass('extra');
+  });
+});
+
+describe('Table roles when stacked', () => {
+  it('gives every part an explicit role so display changes keep table semantics', () => {
+    render(
+      <Table stacked>
+        <TableHeader>
+          <TableRow>
+            <TableHead>H</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow>
+            <TableCell label="H">v</TableCell>
+          </TableRow>
+        </TableBody>
+        <TableFooter>
+          <TableRow>
+            <TableCell label="H">t</TableCell>
+          </TableRow>
+        </TableFooter>
+      </Table>
+    );
+    expect(screen.getAllByRole('rowgroup')).toHaveLength(3);
+    expect(screen.getByRole('columnheader', { name: 'H' })).toBeInTheDocument();
+    expect(screen.getAllByRole('cell')).toHaveLength(2);
   });
 });
 

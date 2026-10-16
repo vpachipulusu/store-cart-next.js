@@ -58,7 +58,7 @@ function Pagination({ page, pageSize, total, onPageChange, className, ...props }
         >
           <ChevronLeft aria-hidden="true" />
         </Button>
-        <span aria-current="page" className="min-w-24 text-center tabular-nums">
+        <span className="min-w-24 text-center tabular-nums">
           {`Page ${range.page} of ${range.pageCount}`}
         </span>
         <Button

@@ -3,9 +3,21 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 // Simple Button component for testing
-function Button({ children, onClick, disabled }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean }) {
+function Button({
+  children,
+  onClick,
+  disabled,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
   return (
-    <button onClick={onClick} disabled={disabled} className="px-4 py-2 bg-blue-500 text-white rounded">
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="rounded bg-blue-500 px-4 py-2 text-white"
+    >
       {children}
     </button>
   );
@@ -43,7 +55,11 @@ describe('Button Component', () => {
       const user = userEvent.setup();
       const handleClick = vi.fn();
 
-      render(<Button onClick={handleClick} disabled>Click me</Button>);
+      render(
+        <Button onClick={handleClick} disabled>
+          Click me
+        </Button>
+      );
 
       await user.click(screen.getByRole('button'));
 

@@ -15,7 +15,11 @@ const STACKED_CLASSES =
 const StackedContext = React.createContext(false);
 
 interface TableProps extends React.HTMLAttributes<HTMLTableElement> {
-  /** Opt in to stacked rows below 640px; cells need a `label` to name their column. */
+  /**
+   * Opt in to stacked rows below 640px; cells need a `label` to name their column.
+   * Do not combine with SortableTableHead: the header is visually hidden when
+   * stacked, so the sort buttons become invisible while staying focusable.
+   */
   stacked?: boolean;
 }
 
@@ -67,6 +71,7 @@ const TableFooter = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <tfoot
     ref={ref}
+    role={React.useContext(StackedContext) ? 'rowgroup' : undefined}
     className={cn('border-t bg-muted/50 font-medium [&>tr]:last:border-b-0', className)}
     {...props}
   />
@@ -79,7 +84,7 @@ const TableRow = React.forwardRef<HTMLTableRowElement, React.HTMLAttributes<HTML
       ref={ref}
       role={React.useContext(StackedContext) ? 'row' : undefined}
       className={cn(
-        'border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted',
+        'border-b transition-colors hover:bg-secondary data-[state=selected]:bg-muted',
         className
       )}
       {...props}
@@ -104,7 +109,7 @@ const TableHead = React.forwardRef<
     scope={scope}
     role={React.useContext(StackedContext) ? 'columnheader' : undefined}
     className={cn(
-      'h-11 bg-secondary px-3 text-left align-middle text-xs font-semibold uppercase tracking-wider text-muted-foreground [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]',
+      'h-11 bg-secondary px-4 text-left align-middle text-xs font-semibold uppercase tracking-wider text-muted-foreground [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]',
       numeric && NUMERIC_CLASSES,
       className
     )}
@@ -125,7 +130,7 @@ const TableCell = React.forwardRef<HTMLTableCellElement, TableCellProps>(
       role={React.useContext(StackedContext) ? 'cell' : undefined}
       data-label={label}
       className={cn(
-        'px-3 py-3 align-middle [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]',
+        'px-4 py-3 align-middle [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]',
         label &&
           'max-sm:p-0 max-sm:before:mr-2 max-sm:before:text-xs max-sm:before:font-semibold max-sm:before:uppercase max-sm:before:tracking-wider max-sm:before:text-muted-foreground max-sm:before:content-[attr(data-label)]',
         numeric && NUMERIC_CLASSES,
@@ -180,7 +185,7 @@ const SortableTableHead = React.forwardRef<HTMLTableCellElement, SortableTableHe
         type="button"
         onClick={onSort}
         className={cn(
-          'inline-flex min-h-11 w-full items-center gap-1 px-3 text-xs font-semibold uppercase tracking-wider hover:text-foreground',
+          'inline-flex min-h-11 w-full items-center gap-1 px-4 text-xs font-semibold uppercase tracking-wider hover:text-foreground',
           numeric ? 'justify-end' : 'justify-start'
         )}
       >
