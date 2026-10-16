@@ -72,10 +72,16 @@ describe('Pagination', () => {
     const { unmount } = render(
       <Pagination page={1} pageSize={25} total={312} onPageChange={() => {}} />
     );
-    expect(screen.getByRole('button', { name: 'Previous page' })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('button', { name: 'Previous page' })).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
     unmount();
     render(<Pagination page={13} pageSize={25} total={312} onPageChange={() => {}} />);
-    expect(screen.getByRole('button', { name: 'Next page' })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('button', { name: 'Next page' })).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
     expect(screen.getByText('Showing 301 to 312 of 312')).toBeInTheDocument();
   });
 
@@ -87,7 +93,13 @@ describe('Pagination', () => {
   it('disables both buttons for an empty list', () => {
     render(<Pagination page={1} pageSize={25} total={0} onPageChange={() => {}} />);
     expect(screen.getByText('Showing 0 to 0 of 0')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Previous page' })).toHaveAttribute('aria-disabled', 'true');
-    expect(screen.getByRole('button', { name: 'Next page' })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('button', { name: 'Previous page' })).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
+    expect(screen.getByRole('button', { name: 'Next page' })).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
   });
 });
