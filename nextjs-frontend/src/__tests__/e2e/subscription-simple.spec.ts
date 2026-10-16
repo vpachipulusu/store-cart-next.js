@@ -4,6 +4,8 @@ import {
   signInWithSavedSession,
   waitForServerActionResponse,
   navigateAndWait,
+  STRIPE_E2E_ENABLED,
+  STRIPE_E2E_SKIP_REASON,
   STRIPE_TEST_CARDS,
   fillStripeCheckout,
   submitStripeCheckout,
@@ -31,12 +33,10 @@ test.describe('Subscription Upgrade - Happy Path', () => {
     'Skipped: TEST_USER_EMAIL or STRIPE not configured'
   );
 
-  // Quarantined (KAN-165): fails on a clean main because the Stripe webhook cannot reach a local server. Tracked in
-  // KAN-157 (stripe listen locally). Remove .fixme when KAN-157 lands.
-  test.fixme('should successfully upgrade from free to pro tier', async ({
-    page,
-    throwawayAccount,
-  }) => {
+  // Needs the Stripe webhook to reach the backend (`stripe listen`, KAN-157), so it runs only with E2E_STRIPE=1.
+  test('should successfully upgrade from free to pro tier', async ({ page, throwawayAccount }) => {
+    test.skip(!STRIPE_E2E_ENABLED, STRIPE_E2E_SKIP_REASON);
+
     // Checkout, the Stripe webhook and the success handler's polling (up to 30 s) take longer than the 30 s default.
     test.setTimeout(150_000);
 

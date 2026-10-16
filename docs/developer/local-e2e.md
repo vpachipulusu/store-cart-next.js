@@ -1,6 +1,6 @@
 # Running Playwright E2E locally
 
-**Last updated:** 2026-10-15 (KAN-196, KAN-198)
+**Last updated:** 2026-10-16 (KAN-157)
 
 CI skips Playwright (`E2E_ENABLED=false`), so developers run E2E before opening a PR for user-facing changes. This page is the fast path. Test accounts, the test Firebase project and the test database are described in [testing.md](testing.md).
 
@@ -77,6 +77,29 @@ Remove the container when done (`docker rm -f my-e2e-pg`). A spec that fails wit
 
 **3. A server you start yourself (optional).** `E2E_REUSE_SERVER=1` makes plain Playwright (`npm run test:e2e`, `test:e2e:baseline`) reuse a server already on `E2E_PORT` instead of starting one, so a normal dev server is never tested by accident. Build with `npm run test:e2e:build`, start it with `node scripts/e2e-start.mjs`. `npm run test:e2e:local` does not need this: it builds, serves and stops its own server.
 
+## Stripe webhooks (KAN-157)
+
+Stripe cannot reach `localhost`, so a checkout completes at Stripe but the app never learns it ("Processing Your Subscription..." forever). The backend receives the events at `POST /webhooks/stripe` and verifies each one with `STRIPE_WEBHOOK_SECRET`. For e2e the Stripe CLI forwards test-mode events to your local uvicorn. The Stripe specs run only with `E2E_STRIPE=1` (`E2E_ENABLED` is unrelated and stays `false`).
+
+**Locally**, after the backend from step 2 above is up, in a separate terminal from `nextjs-frontend/`:
+
+```bash
+export BACKEND_API_URL=http://127.0.0.1:8170          # your uvicorn
+node scripts/e2e-stripe-listen.mjs                   # = stripe listen --forward-to $BACKEND_API_URL/webhooks/stripe
+```
+
+- The script reads `STRIPE_SECRET_KEY` from the environment or `.env.e2e.local`, refuses anything but a test-mode key, and gives it to the CLI through `STRIPE_API_KEY`, so it never appears on a command line. Without a key it uses the CLI login (`stripe login`; the CLI login expires, so run it again if `stripe listen` answers `api_key_expired`).
+- **The backend must run with the secret `stripe listen` prints.** `.env.e2e.local` holds it as `STRIPE_WEBHOOK_SECRET` (the same variable the backend reads); it is stable for one Stripe account, so set it once. To check or refresh it: `node scripts/e2e-stripe-listen.mjs --print-secret` prints it (do not paste it anywhere). If the backend has a different secret, every event is answered `400` and the test times out.
+- Start the backend with the `STRIPE_*` variables from `.env.e2e.local`, including the four `STRIPE_PRICE_ID_{PRO,ENTERPRISE}_{MONTHLY,YEARLY}` names. Keep the forwarder running while the tests run; its log shows each event and the backend's status.
+
+Then run the spec with the flag in the test shell:
+
+```bash
+E2E_STRIPE=1 npm run test:e2e:local -- src/__tests__/e2e/subscription-simple.spec.ts
+```
+
+**In CI** (`.github/workflows/e2e.yml`, still switched off by `E2E_ENABLED`): when the repository variable `E2E_STRIPE` is `true`, the job installs a pinned Stripe CLI (checksum verified), runs `stripe listen --print-secret` and exports the result as `STRIPE_WEBHOOK_SECRET` (masked), forwards events to `BACKEND_API_URL` (variable `E2E_BACKEND_API_URL`, default `http://127.0.0.1:8000`) and sets `E2E_STRIPE=1` for the Playwright step. It uses the test-mode key `E2E_STRIPE_SECRET_KEY` from the `e2e-test` environment, which the job's check step already restricts to `sk_test_`/`rk_test_`. The job does not start a backend yet; when one is added it must start after the forwarding step so it picks up the exported secret. Alternative if forwarding from the runner is ever unsuitable: register a test-mode webhook endpoint on a public deployed test backend and give the backend that endpoint's signing secret.
+
 ## Focused specs vs the full run
 
 Measured on `main` 1a4c9e2 (Windows 11, 4 workers), against a fresh throwaway backend:
@@ -93,12 +116,12 @@ Run the full suite for broad changes or anything touching auth, the proxy or sha
 
 A test that fails on a clean `main` is quarantined, never skipped silently: `test.fixme(...)` with the Jira key in a comment beside it. Remove the `.fixme` in the PR that closes the ticket. The full local run is green with exactly these left out:
 
-| Test                                                                                                  | Spec                                 | Ticket                                                    | Why                                                                                                                       |
-| ----------------------------------------------------------------------------------------------------- | ------------------------------------ | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `should successfully upgrade from free to pro tier` (fixme)                                           | `subscription-simple.spec`           | [KAN-157](https://storecart.atlassian.net/browse/KAN-157) | The Stripe webhook cannot reach a local server (needs `stripe listen`)                                                    |
-| Stripe Checkout, test cards, auto-renewal toggle and saved-card tests (skipped unless `E2E_STRIPE=1`) | `subscription`, `billing-management` | [KAN-157](https://storecart.atlassian.net/browse/KAN-157) | They need Stripe Checkout and the Stripe webhook (`stripe listen`); an admin grant creates no Stripe subscription or card |
-| 2FA section and authenticator enrolment (skipped)                                                     | `dashboard`, `settings-totp`         | KAN-125                                                   | Sign-in 2FA is parked; the controls are hidden                                                                            |
-| Data export section (skipped)                                                                         | `dashboard`                          | KAN-114                                                   | Switched off until KAN-114                                                                                                |
+| Test                                                                                                  | Spec                                 | Ticket                                                    | Why                                                                                                                                                                                                |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------------ | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stripe Checkout upgrade test (skipped unless `E2E_STRIPE=1`)                                          | `subscription-simple.spec`           | [KAN-157](https://storecart.atlassian.net/browse/KAN-157) | Needs Stripe Checkout and the webhook forwarded to the backend: see [Stripe webhooks](#stripe-webhooks-kan-157)                                                                                    |
+| Stripe Checkout, test cards, auto-renewal toggle and saved-card tests (skipped unless `E2E_STRIPE=1`) | `subscription`, `billing-management` | [KAN-157](https://storecart.atlassian.net/browse/KAN-157) | Skipped by default. With `E2E_STRIPE=1` and the webhook forwarded they still need a real Stripe subscription or card, which an admin grant does not create (KAN-157 revived only the upgrade test) |
+| 2FA section and authenticator enrolment (skipped)                                                     | `dashboard`, `settings-totp`         | KAN-125                                                   | Sign-in 2FA is parked; the controls are hidden                                                                                                                                                     |
+| Data export section (skipped)                                                                         | `dashboard`                          | KAN-114                                                   | Switched off until KAN-114                                                                                                                                                                         |
 
 KAN-154, 155, 156, 158, 196 and 198 are Done (fixed, or not reproducible on current `main`) and are no longer baseline failures.
 
