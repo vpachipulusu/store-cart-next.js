@@ -82,7 +82,8 @@ test.describe('Dashboard shell', () => {
       await expect(page.getByRole('complementary', { name: 'Workspace' })).toBeHidden();
       const tabs = page.getByRole('navigation', { name: 'Main' });
       await expect(tabs).toBeVisible();
-      expect((await tabs.boundingBox())?.height).toBeCloseTo(56, 0);
+      // 56px of content (h-14, box-content) plus the 1px top border.
+      expect((await tabs.boundingBox())?.height).toBeCloseTo(57, 0);
       await expectNoHorizontalScroll(page);
     });
 
