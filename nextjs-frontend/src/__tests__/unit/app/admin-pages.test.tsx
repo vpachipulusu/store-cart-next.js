@@ -188,6 +188,26 @@ describe('admin audit logs page', () => {
     expect(html(await AdminAuditLogsPage())).toContain('No audit logs found');
   });
 
+  it('renders a stacked table with a labelled cell per column', async () => {
+    mocks.fetchAdminAuditLogs.mockResolvedValue(auditPage([ENTRY]));
+
+    const markup = html(await AdminAuditLogsPage());
+
+    expect(markup).toContain('role="table"');
+    for (const label of ['Timestamp', 'Action', 'Resource', 'User ID', 'IP Address']) {
+      expect(markup).toContain(`data-label="${label}"`);
+    }
+  });
+
+  it('shows an inline error with a Retry link back to the page', async () => {
+    mocks.fetchAdminAuditLogs.mockResolvedValue({ success: false, error: 'SECRET', status: 500 });
+
+    const markup = html(await AdminAuditLogsPage());
+
+    expect(markup).toMatch(/<a[^>]*href="\/admin\/audit-logs"[^>]*>Retry<\/a>/);
+    expect(markup).not.toContain('<table');
+  });
+
   it.each([
     [403, 'You do not have permission to do that'],
     [404, 'Not found'],
@@ -306,6 +326,47 @@ describe('admin subscriptions page', () => {
     expect(markup).toContain('<span class="sr-only">None</span>');
   });
 
+  it('shows the counts and MRR in a key figures strip', async () => {
+    const markup = html(await AdminSubscriptionsPage());
+
+    expect(markup).toContain('aria-label="Key figures"');
+    for (const label of ['Total active', 'Pro plans', 'Enterprise plans', 'MRR']) {
+      expect(markup).toContain(`aria-label="${label}"`);
+    }
+    expect(markup).toContain('>5<');
+    expect(markup).toContain('$10/month each');
+    expect(markup).toContain('$100/month each');
+  });
+
+  it('marks a missing price in the strip without hiding the counts', async () => {
+    mocks.getStripePrices.mockRejectedValue(new Error('prices down'));
+
+    const markup = html(await AdminSubscriptionsPage());
+
+    expect(markup).toContain('Price unavailable');
+    expect(markup).toContain('aria-label="MRR"');
+  });
+
+  it('shows plan and status as pills in a stacked table', async () => {
+    const markup = html(await AdminSubscriptionsPage());
+
+    expect(markup).toContain('role="table"');
+    expect(markup).toContain('data-label="Plan"');
+    expect(markup).toContain('data-label="Status"');
+    expect(markup).toMatch(/rounded-full[^>]*>(<svg.*?<\/svg>)?Enterprise<\/span>/);
+    expect(markup).toMatch(/rounded-full[^>]*>(<svg.*?<\/svg>)?Active<\/span>/);
+  });
+
+  it('shows a non-active status as a warning pill', async () => {
+    mocks.fetchAdminSubscriptions.mockImplementation(async (q: Query) =>
+      q.plan === 'pro'
+        ? page([{ ...sub('p1', 'pro', '2026-01-02T00:00:00Z'), status: 'past_due' }])
+        : page([])
+    );
+
+    expect(html(await AdminSubscriptionsPage())).toMatch(/bg-warn[^>]*>(<svg.*?<\/svg>)?Past due/);
+  });
+
   it('shows the empty state when no paid organisation exists', async () => {
     mocks.fetchAdminSubscriptions.mockImplementation(async () => page([]));
 
@@ -340,6 +401,7 @@ describe('admin subscriptions page', () => {
     expect(markup).not.toContain('SECRET');
     expect(markup).not.toContain('Newest paid organisations');
     expect(markup).toContain('role="alert"');
+    expect(markup).toMatch(/<a[^>]*href="\/admin\/subscriptions"[^>]*>Retry<\/a>/);
     expect(mocks.logError).toHaveBeenCalled();
   });
 });
