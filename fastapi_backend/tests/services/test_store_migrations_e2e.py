@@ -7,18 +7,14 @@ database and its stores are never touched.
 """
 
 import asyncio
-import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
-import app.models.platform  # noqa: F401  (registers every table on Base.metadata)
-from app.core.base import Base
 from app.core.database import DefaultSessionProvider
 from app.core.ids import new_id
 from app.core.store_crypto import StoreSecretCodec, generate_key
@@ -31,8 +27,16 @@ from app.services.store_migrations import (
     migrate_store,
 )
 from commands.migrate_stores import format_report
-
-TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
+from tests.pg_scaffold import (
+    TEST_DATABASE_URL,
+    create_database,
+    create_platform_database,
+    drop_databases,
+    require_local_test_server,
+    sweep_stale_databases,
+    unique_name,
+    url_for,
+)
 
 pytestmark = pytest.mark.skipif(
     not TEST_DATABASE_URL, reason="TEST_DATABASE_URL is not set"
@@ -58,36 +62,19 @@ def downgrade() -> None:
 '''
 
 
-def url_for(database: str, password: str | None = None) -> str:
-    assert TEST_DATABASE_URL is not None
-    url = make_url(TEST_DATABASE_URL).set(database=database)
-    if password is not None:
-        url = url.set(password=password)
-    return url.render_as_string(False)
+DATABASE_PREFIX = "ks57"
 
 
 def short_name(tag: str) -> str:
-    return f"ks57_{new_id()[:8].lower()}_{tag}"
+    return unique_name(DATABASE_PREFIX, tag)
 
 
 @pytest.fixture
 async def server() -> AsyncIterator[AsyncEngine]:
-    assert TEST_DATABASE_URL is not None
-    assert (make_url(TEST_DATABASE_URL).database or "").endswith("_test")
-    built = create_async_engine(TEST_DATABASE_URL)
+    built = create_async_engine(require_local_test_server())
+    await sweep_stale_databases(built, DATABASE_PREFIX)
     yield built
     await built.dispose()
-
-
-async def create_database(server: AsyncEngine, name: str) -> None:
-    async with server.execution_options(isolation_level="AUTOCOMMIT").connect() as c:
-        await c.execute(text(f'CREATE DATABASE "{name}"'))
-
-
-async def drop_databases(server: AsyncEngine, names: list[str]) -> None:
-    async with server.execution_options(isolation_level="AUTOCOMMIT").connect() as c:
-        for name in names:
-            await c.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
 
 
 @pytest.fixture
@@ -97,14 +84,15 @@ async def world(
     codec = StoreSecretCodec(generate_key())
     monkeypatch.setattr(store_secrets, "get_codec", lambda: codec)
     platform_name = short_name("plat")
-    await create_database(server, platform_name)
-    platform = create_async_engine(url_for(platform_name))
-    async with platform.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    platform = await create_platform_database(server, platform_name)
     created = World(server, platform, codec, [platform_name])
-    yield created
-    await platform.dispose()
-    await drop_databases(server, created.databases)
+    try:
+        yield created
+    finally:
+        try:
+            await platform.dispose()
+        finally:
+            await drop_databases(server, created.databases)
 
 
 class World:

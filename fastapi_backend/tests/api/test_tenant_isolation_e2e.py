@@ -1,45 +1,35 @@
-"""Tenant isolation suite (KAN-58, ADR-005): no one reads or writes another tenant's data.
+"""Tenant isolation suite, part 1 (KAN-58, ADR-005): writes, store data and migrations.
 
 Two organisations with three stores each, every store on its own real Postgres database
-(created by the local provisioner, connection string encrypted with the store id as AAD,
-reached only through ``open_store_session``). Two layers are proven:
+(see ``tests/isolation_world.py`` for the world, the users and the limits of what is
+proven). This module holds the tests that change the world or provision store databases,
+so each gets a fresh one:
 
-* API: a user of one organisation gets the same 404 for another organisation's ids as for
-  ids that do not exist, and nothing changes in the other organisation.
+* API: owners can manage their own stores but never a foreign one; a role in one
+  organisation grants nothing in the other.
 * Data: rows written through one store session never appear in any other store database
   (other organisation or sibling store), a connection string cannot be replayed under
   another store id, and the migration runner stays inside the database it was told to.
+
+The read-only API probes (foreign ids answer exactly like missing ones) are in
+``test_tenant_isolation_probes_e2e.py`` and share one world; roles, the real auth chain
+and removed or banned users are in ``test_tenant_isolation_roles_e2e.py``.
 
 Runs only when ``TEST_DATABASE_URL`` points at a throwaway local server whose database
 name ends in ``_test``. It builds its own platform database (tables from the models) and
 store databases, and drops them afterwards; the shared test database is not touched.
 """
 
-import contextlib
-import os
-import time
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Annotated
 
 import pytest
-from fastapi import Header, HTTPException
-from httpx import ASGITransport, AsyncClient, Response
+from httpx import AsyncClient
 from sqlalchemy import text
-from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
-import app.models.platform  # noqa: F401  (registers every table on Base.metadata)
-from app.api.auth import get_session_identity
-from app.api.deps import get_session_provider
-from app.core.base import Base
-from app.core.database import DefaultSessionProvider
-from app.core.firebase import VerifiedIdentity
 from app.core.ids import new_id
-from app.core.store_crypto import StoreSecretCodec, StoreSecretUnavailable, generate_key
-from app.main import create_app
+from app.core.store_crypto import StoreSecretUnavailable
 from app.models.platform.store import Store
 from app.services import store_secrets
 from app.services.store_migrations import (
@@ -47,22 +37,22 @@ from app.services.store_migrations import (
     migrate_active_stores,
     migrate_store,
 )
-from app.services.store_provisioning import (
-    LocalDatabaseProvisioner,
-    ProvisioningError,
-    database_name_for,
-)
+from app.services.store_provisioning import database_name_for
 from app.services.store_sessions import (
     StoreDatabaseNotConfigured,
     StoreDatabaseUnavailable,
     StoreNotFound,
     open_store_session,
 )
-
-TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
-KEY = "test-only-internal-service-key-not-for-deployment"
-STORE_SLUGS = ("north", "south", "east")
-LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+from tests.isolation_world import (
+    World,
+    as_user,
+    header_identity_app,
+    make_client,
+    open_world,
+    same_failure,
+)
+from tests.pg_scaffold import TEST_DATABASE_URL
 
 pytestmark = pytest.mark.skipif(
     not TEST_DATABASE_URL, reason="TEST_DATABASE_URL is not set"
@@ -87,304 +77,23 @@ def downgrade() -> None:
     op.drop_table("widgets")
 '''
 
-COPY_CIPHERTEXT = (
-    "UPDATE stores SET connection_string_encrypted = "
-    "(SELECT connection_string_encrypted FROM stores WHERE id = :donor) "
-    "WHERE id = :victim"
-)
-
-
-def url_for(database: str) -> str:
-    assert TEST_DATABASE_URL is not None
-    return make_url(TEST_DATABASE_URL).set(database=database).render_as_string(False)
-
-
-@dataclass
-class Tenant:
-    """One organisation: its id and its stores' ids by slug."""
-
-    org_id: str
-    stores: dict[str, str] = field(default_factory=dict)
-
-
-class World:
-    """Platform database, provisioner and the two tenants of one test."""
-
-    def __init__(self, server: AsyncEngine, platform: AsyncEngine, names: list[str]):
-        self.server = server
-        self.platform = platform
-        self.databases = names
-        self.codec = StoreSecretCodec(generate_key())
-        self.provider = DefaultSessionProvider(
-            async_sessionmaker(platform, expire_on_commit=False)
-        )
-        self.provisioner = LocalDatabaseProvisioner(server)
-        self.provisioned: list[str] = []
-        self.a = Tenant(new_id())
-        self.b = Tenant(new_id())
-
-    def every_store(self) -> list[str]:
-        return [sid for tenant in (self.a, self.b) for sid in tenant.stores.values()]
-
-    async def seed(self) -> None:
-        users = {name: new_id() for name in ("alice", "amy", "bob", "carol", "eve")}
-        memberships = [
-            ("alice", self.a, "OWNER"),
-            ("amy", self.a, "STAFF"),
-            ("bob", self.b, "OWNER"),
-            ("carol", self.a, "STAFF"),
-            ("carol", self.b, "OWNER"),
-        ]
-        async with self.platform.begin() as connection:
-            for name, user_id in users.items():
-                await connection.execute(
-                    text(
-                        "INSERT INTO users (id, firebase_uid, email, email_verified) "
-                        "VALUES (:id, :uid, :email, true)"
-                    ),
-                    {"id": user_id, "uid": f"fb-{name}", "email": f"{name}@x.test"},
-                )
-            for label, tenant in (("a", self.a), ("b", self.b)):
-                await connection.execute(
-                    text(
-                        "INSERT INTO organizations (id, name, slug) VALUES (:i, :n, :s)"
-                    ),
-                    {"i": tenant.org_id, "n": f"Org {label}", "s": f"org-{label}"},
-                )
-                for slug in STORE_SLUGS:
-                    tenant.stores[slug] = new_id()
-                    await connection.execute(
-                        text(
-                            "INSERT INTO stores (id, organization_id, name, slug, status) "
-                            "VALUES (:id, :org, :n, :s, 'ACTIVE')"
-                        ),
-                        {
-                            "id": tenant.stores[slug],
-                            "org": tenant.org_id,
-                            "n": f"{label} {slug}",
-                            "s": f"{label}-{slug}",
-                        },
-                    )
-            for name, tenant, role in memberships:
-                await connection.execute(
-                    text(
-                        "INSERT INTO memberships (id, organization_id, user_id, role) "
-                        "VALUES (:id, :o, :u, :r)"
-                    ),
-                    {"id": new_id(), "o": tenant.org_id, "u": users[name], "r": role},
-                )
-
-    async def provision(self, store_id: str) -> str:
-        """Create the store's own database, encrypt its string onto the row, add a marker."""
-        dsn = await self.provisioner.create_database(store_id)
-        self.provisioned.append(store_id)
-        async with self.provider.session() as session:
-            store = await session.get(Store, store_id)
-            assert store is not None
-            store_secrets.set_connection_string(store, dsn, self.codec)
-            await session.commit()
-        async with open_store_session(store_id, self.provider) as session:
-            await session.execute(text("CREATE TABLE marker (owner text NOT NULL)"))
-            await session.execute(
-                text("INSERT INTO marker (owner) VALUES (:o)"), {"o": store_id}
-            )
-            await session.commit()
-        return dsn
-
-    async def provision_all(self) -> None:
-        for store_id in self.every_store():
-            await self.provision(store_id)
-
-    async def markers(self, store_id: str) -> list[str]:
-        async with open_store_session(store_id, self.provider) as session:
-            rows = await session.execute(
-                text("SELECT owner FROM marker ORDER BY owner")
-            )
-            return [row[0] for row in rows]
-
-    async def platform_value(self, sql: str, **params: str) -> object:
-        async with self.platform.connect() as connection:
-            return (await connection.execute(text(sql), params)).scalar_one()
-
-    async def raw_markers(self, store_id: str) -> list[str]:
-        """Marker rows read over a direct admin connection, bypassing the registry."""
-        engine = create_async_engine(url_for(database_name_for(store_id)))
-        try:
-            async with engine.connect() as connection:
-                rows = await connection.execute(text("SELECT owner FROM marker"))
-                return [row[0] for row in rows]
-        finally:
-            await engine.dispose()
-
-    async def store_value(self, store_id: str, sql: str) -> object:
-        async with open_store_session(store_id, self.provider) as session:
-            return (await session.execute(text(sql))).scalar_one()
-
-    async def copy_ciphertext(self, donor: str, victim: str) -> None:
-        async with self.platform.begin() as connection:
-            await connection.execute(
-                text(COPY_CIPHERTEXT), {"donor": donor, "victim": victim}
-            )
-
 
 @pytest.fixture
 async def world(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[World]:
-    if TEST_DATABASE_URL is None:
-        pytest.skip("TEST_DATABASE_URL is not set")
-    target = make_url(TEST_DATABASE_URL)
-    if not (target.database or "").endswith("_test") or target.host not in LOCAL_HOSTS:
-        pytest.fail(
-            "refusing to create and drop databases outside a local *_test server"
-        )
-    server = create_async_engine(TEST_DATABASE_URL)
-    admin = server.execution_options(isolation_level="AUTOCOMMIT")
-    quote = server.dialect.identifier_preparer.quote_identifier
-    platform_name = f"ks58_{new_id()[:8]}_plat"
-    platform = create_async_engine(url_for(platform_name))
-    built = World(server, platform, [platform_name])
-    try:
-        async with admin.connect() as connection:
-            await connection.execute(text(f"CREATE DATABASE {quote(platform_name)}"))
-        async with platform.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
-        monkeypatch.setattr(store_secrets, "get_codec", lambda: built.codec)
-        await built.seed()
+    async with open_world(monkeypatch) as built:
         yield built
-    finally:
-        await platform.dispose()
-        for store_id in built.provisioned:
-            with contextlib.suppress(ProvisioningError):
-                await built.provisioner.delete_database(store_id)
-        async with admin.connect() as connection:
-            for name in built.databases:
-                await connection.execute(
-                    text(f"DROP DATABASE IF EXISTS {quote(name)} WITH (FORCE)")
-                )
-        await server.dispose()
 
 
 @pytest.fixture
 async def client(world: World) -> AsyncIterator[AsyncClient]:
-    app = create_app()
-    app.dependency_overrides[get_session_provider] = lambda: world.provider
-
-    async def identity(
-        x_test_uid: Annotated[str | None, Header()] = None,
-    ) -> VerifiedIdentity:
-        if x_test_uid is None:
-            raise HTTPException(401, "Invalid authentication")
-        return VerifiedIdentity(
-            x_test_uid, f"{x_test_uid}@x.test", True, int(time.time())
-        )
-
-    app.dependency_overrides[get_session_identity] = identity
-    transport = ASGITransport(app=app, raise_app_exceptions=False)
-    async with AsyncClient(
-        transport=transport, base_url="http://test", headers={"X-Internal-Key": KEY}
-    ) as http:
+    async with make_client(header_identity_app(world)) as http:
         yield http
-
-
-def as_user(name: str) -> dict[str, str]:
-    return {"X-Test-Uid": f"fb-{name}"}
-
-
-def same_failure(response: Response, reference: Response) -> None:
-    """Both responses are indistinguishable: status, body and cache header."""
-    assert response.status_code == reference.status_code
-    assert response.json() == reference.json()
-    assert response.headers.get("cache-control") == reference.headers.get(
-        "cache-control"
-    )
 
 
 # --- API: organisations ---------------------------------------------------------
 
 
-async def test_listing_returns_only_the_callers_organisation_and_its_stores(
-    client: AsyncClient, world: World
-) -> None:
-    alice = (await client.get("/v1/organizations", headers=as_user("alice"))).json()
-    bob = (await client.get("/v1/organizations", headers=as_user("bob"))).json()
-    eve = (await client.get("/v1/organizations", headers=as_user("eve"))).json()
-
-    assert [org["id"] for org in alice["data"]] == [world.a.org_id]
-    assert [org["id"] for org in bob["data"]] == [world.b.org_id]
-    assert eve["data"] == []
-    listed = {store["id"] for store in alice["data"][0]["stores"]}
-    assert listed == set(world.a.stores.values())
-    assert not listed & set(world.b.stores.values())
-
-
-@pytest.mark.parametrize("user", ["alice", "amy", "eve"])
-@pytest.mark.parametrize(
-    ("method", "path", "body"),
-    [
-        ("GET", "/v1/organizations/{org}", None),
-        ("PATCH", "/v1/organizations/{org}", {"name": "Hijacked"}),
-        ("GET", "/v1/organizations/{org}/stores", None),
-        ("POST", "/v1/organizations/{org}/stores", {"name": "Evil", "slug": "evil"}),
-    ],
-)
-async def test_other_organisation_routes_are_not_found_and_indistinguishable(
-    client: AsyncClient,
-    world: World,
-    user: str,
-    method: str,
-    path: str,
-    body: dict[str, str] | None,
-) -> None:
-    foreign = await client.request(
-        method, path.format(org=world.b.org_id), json=body, headers=as_user(user)
-    )
-    missing = await client.request(
-        method, path.format(org=new_id()), json=body, headers=as_user(user)
-    )
-
-    assert foreign.status_code == 404
-    same_failure(foreign, missing)
-    assert world.b.org_id not in foreign.text
-    org_name = await world.platform_value(
-        "SELECT name FROM organizations WHERE id = :i", i=world.b.org_id
-    )
-    store_count = await world.platform_value(
-        "SELECT count(*) FROM stores WHERE organization_id = :i", i=world.b.org_id
-    )
-    assert (org_name, store_count) == ("Org b", len(STORE_SLUGS))
-
-
 # --- API: stores ----------------------------------------------------------------
-
-
-@pytest.mark.parametrize("user", ["alice", "amy", "eve"])
-@pytest.mark.parametrize("slug", STORE_SLUGS)
-@pytest.mark.parametrize(
-    ("method", "body"), [("GET", None), ("PATCH", {"name": "Hijacked"})]
-)
-async def test_other_organisations_store_is_not_found_and_indistinguishable(
-    client: AsyncClient,
-    world: World,
-    user: str,
-    slug: str,
-    method: str,
-    body: dict[str, str] | None,
-) -> None:
-    store_id = world.b.stores[slug]
-
-    foreign = await client.request(
-        method, f"/v1/stores/{store_id}", json=body, headers=as_user(user)
-    )
-    missing = await client.request(
-        method, f"/v1/stores/{new_id()}", json=body, headers=as_user(user)
-    )
-
-    assert foreign.status_code == 404
-    same_failure(foreign, missing)
-    assert store_id not in foreign.text
-    name = await world.platform_value(
-        "SELECT name FROM stores WHERE id = :i", i=store_id
-    )
-    assert name == f"b {slug}"
 
 
 async def test_owner_controls_prove_the_foreign_404s_are_not_routing_artifacts(
@@ -430,47 +139,6 @@ async def test_foreign_store_in_any_status_is_still_plain_not_found(
     assert "not active" not in foreign.text
 
 
-async def test_ids_of_the_wrong_kind_and_other_tenants_attackers_find_nothing(
-    client: AsyncClient, world: World
-) -> None:
-    probes = [
-        (f"/v1/stores/{world.a.org_id}", "alice"),
-        (f"/v1/organizations/{world.a.stores['north']}", "alice"),
-        (f"/v1/stores/{world.a.stores['north']}", "bob"),
-        (f"/v1/organizations/{world.a.org_id}", "bob"),
-        (f"/v1/organizations/{world.a.org_id}/stores", "bob"),
-    ]
-
-    for path, user in probes:
-        response = await client.get(path, headers=as_user(user))
-        assert response.status_code == 404, path
-
-
-async def test_forged_ownership_fields_in_a_foreign_write_change_nothing(
-    client: AsyncClient, world: World
-) -> None:
-    target = world.b.stores["south"]
-    forged = {
-        "name": "Hijacked",
-        "slug": "hijacked",
-        "organization_id": world.a.org_id,
-        "status": "ACTIVE",
-        "connection_string_encrypted": "v1.x.y",
-    }
-
-    response = await client.patch(
-        f"/v1/stores/{target}", json=forged, headers=as_user("alice")
-    )
-
-    assert response.status_code in (404, 422)
-    row = await world.platform_value(
-        "SELECT name || '|' || slug || '|' || organization_id || '|' || "
-        "coalesce(connection_string_encrypted, '') FROM stores WHERE id = :i",
-        i=target,
-    )
-    assert row == f"b south|b-south|{world.b.org_id}|"
-
-
 async def test_owner_manages_every_own_store_but_never_a_foreign_one(
     client: AsyncClient, world: World
 ) -> None:
@@ -495,39 +163,6 @@ async def test_owner_manages_every_own_store_but_never_a_foreign_one(
     assert names == "b east,b north,b south"
 
 
-@pytest.mark.parametrize("store_id", ["x" * 129, "%00", "' OR 1=1 --", "A" * 24, "*"])
-async def test_malformed_and_guessed_store_ids_are_all_plain_not_found(
-    client: AsyncClient, store_id: str
-) -> None:
-    reference = await client.get(f"/v1/stores/{new_id()}", headers=as_user("alice"))
-
-    response = await client.get(f"/v1/stores/{store_id}", headers=as_user("alice"))
-
-    assert response.status_code == 404
-    same_failure(response, reference)
-
-
-async def test_selected_store_claims_are_not_an_authorisation_boundary(
-    client: AsyncClient, world: World
-) -> None:
-    own = world.a.stores["north"]
-    target = world.b.stores["north"]
-    claims = {
-        "X-Store-Id": own,
-        "X-Selected-Store": own,
-        "X-Organization-Id": world.a.org_id,
-        "Cookie": f"selected_store={own}; store_id={own}",
-    }
-
-    response = await client.get(
-        f"/v1/stores/{target}?store_id={own}&organization_id={world.a.org_id}",
-        headers={**as_user("alice"), **claims},
-    )
-
-    assert response.status_code == 404
-    assert target not in response.text
-
-
 async def test_role_in_one_organisation_grants_nothing_in_the_other(
     client: AsyncClient, world: World
 ) -> None:
@@ -549,28 +184,6 @@ async def test_role_in_one_organisation_grants_nothing_in_the_other(
         "SELECT name FROM stores WHERE id = :i", i=world.a.stores["east"]
     )
     assert name_in_a == "a east"
-
-
-async def test_member_without_write_role_is_forbidden_in_own_org_and_blind_elsewhere(
-    client: AsyncClient, world: World
-) -> None:
-    own_read = await client.get(
-        f"/v1/stores/{world.a.stores['north']}", headers=as_user("amy")
-    )
-    own_write = await client.patch(
-        f"/v1/stores/{world.a.stores['north']}",
-        json={"name": "x"},
-        headers=as_user("amy"),
-    )
-    foreign_write = await client.patch(
-        f"/v1/stores/{world.b.stores['north']}",
-        json={"name": "x"},
-        headers=as_user("amy"),
-    )
-
-    assert own_read.status_code == 200
-    assert own_write.status_code == 403
-    assert foreign_write.status_code == 404
 
 
 async def test_responses_never_carry_connection_details(
@@ -600,22 +213,6 @@ async def test_responses_never_carry_connection_details(
             database_name_for(north),
         ):
             assert secret not in response.text, path
-
-
-async def test_cross_organisation_store_create_adds_nothing(
-    client: AsyncClient, world: World
-) -> None:
-    response = await client.post(
-        f"/v1/organizations/{world.b.org_id}/stores",
-        json={"name": "Intruder", "slug": "intruder"},
-        headers=as_user("alice"),
-    )
-
-    assert response.status_code == 404
-    count = await world.platform_value(
-        "SELECT count(*) FROM stores WHERE slug = 'intruder'"
-    )
-    assert count == 0
 
 
 # --- Data: separate databases ---------------------------------------------------
@@ -680,6 +277,7 @@ async def test_a_store_session_cannot_query_another_database_or_the_platform(
     other_database = database_name_for(world.b.stores["north"])
 
     async with open_store_session(mine, world.provider) as session:
+        # Postgres's own wording, see the limits in tests/isolation_world.py.
         with pytest.raises(DBAPIError, match="cross-database"):
             await session.execute(
                 text(f'SELECT owner FROM "{other_database}".public.marker')
