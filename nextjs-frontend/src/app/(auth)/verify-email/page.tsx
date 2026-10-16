@@ -3,19 +3,13 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { MailCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import { auth } from '@/lib/firebase/client';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { resendVerificationEmail } from '@/lib/firebase/auth-helpers';
 import { refreshSessionAction } from '@/app/actions/auth-actions';
+import { AUTH_LINK_CLASS, AuthHeading, AuthIconTile } from '../_components/auth-shared';
 
 export default function VerifyEmailPage() {
   const router = useRouter();
@@ -97,38 +91,26 @@ export default function VerifyEmailPage() {
   };
 
   return (
-    <Card>
-      <CardHeader className="space-y-1">
-        <div className="mb-4 flex justify-center">
-          <div className="rounded-full bg-theme-accent/10 p-3">
-            <svg
-              className="h-6 w-6 text-theme-accent"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-              />
-            </svg>
-          </div>
-        </div>
-        <CardTitle className="text-center text-2xl">Verify your email</CardTitle>
-        <CardDescription className="text-center">
+    <section className="space-y-6">
+      <header className="space-y-2 text-center">
+        <AuthIconTile>
+          <MailCheck className="h-6 w-6" aria-hidden="true" />
+        </AuthIconTile>
+        <AuthHeading>Verify your email</AuthHeading>
+        <p className="text-sm text-muted-foreground">
           We&apos;ve sent a verification link to{' '}
           <span className="font-medium text-foreground">{userEmail}</span>
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+        </p>
+      </header>
+      <div className="space-y-4">
         {error && (
-          <div className="rounded-md bg-destructive/15 p-3 text-sm text-destructive">{error}</div>
+          <div role="alert" className="rounded-md bg-crit p-3 text-sm text-crit-foreground">
+            {error}
+          </div>
         )}
 
         {resendSuccess && (
-          <div className="rounded-md bg-green-50 p-3 text-sm text-green-800 dark:bg-green-900/20 dark:text-green-400">
+          <div role="status" className="rounded-md bg-good p-3 text-sm text-good-foreground">
             Verification email sent! Please check your inbox.
           </div>
         )}
@@ -142,12 +124,16 @@ export default function VerifyEmailPage() {
           <Button
             onClick={handleResendEmail}
             variant="outline"
+            size="lg"
             className="w-full"
             disabled={isResending}
           >
             {isResending ? (
               <>
-                <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                <div
+                  aria-hidden="true"
+                  className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent motion-reduce:animate-none"
+                />
                 Sending...
               </>
             ) : (
@@ -155,19 +141,17 @@ export default function VerifyEmailPage() {
             )}
           </Button>
 
-          <Button onClick={handleRefresh} className="w-full">
+          <Button onClick={handleRefresh} variant="accent" size="lg" className="w-full">
             I&apos;ve verified my email
           </Button>
         </div>
-      </CardContent>
-      <CardFooter>
-        <p className="w-full text-center text-sm text-muted-foreground">
-          Wrong email?{' '}
-          <Link href="/signup" className="font-medium text-primary hover:underline">
-            Create a new account
-          </Link>
-        </p>
-      </CardFooter>
-    </Card>
+      </div>
+      <p className="text-center text-sm text-muted-foreground">
+        Wrong email?{' '}
+        <Link href="/signup" className={AUTH_LINK_CLASS}>
+          Create a new account
+        </Link>
+      </p>
+    </section>
   );
 }
