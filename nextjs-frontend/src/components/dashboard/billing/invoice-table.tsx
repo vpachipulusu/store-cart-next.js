@@ -32,10 +32,15 @@ function formatAmount(amount: number, currency: string): string {
   }
 }
 
+/** Provider-supplied links are only rendered when they are https. */
+function safeHttpsUrl(url: string | null): string | null {
+  return url?.startsWith('https://') ? url : null;
+}
+
 export function InvoiceTable({ invoices }: { invoices: ReadonlyArray<Invoice> }) {
   return (
-    <Table stacked aria-label="Invoices">
-      <TableCaption>Your recent invoices and payments</TableCaption>
+    <Table stacked>
+      <TableCaption>Invoices</TableCaption>
       <TableHeader>
         <TableRow>
           <TableHead>Date</TableHead>
@@ -47,37 +52,52 @@ export function InvoiceTable({ invoices }: { invoices: ReadonlyArray<Invoice> })
         </TableRow>
       </TableHeader>
       <TableBody>
-        {invoices.map((invoice) => (
-          <TableRow key={invoice.id}>
-            <TableCell label="Date">{new Date(invoice.created).toLocaleDateString()}</TableCell>
-            <TableCell label="Amount" numeric>
-              {formatAmount(invoice.amount, invoice.currency)}
-            </TableCell>
-            <TableCell label="Status">
-              <InvoiceStatusPill status={invoice.status} />
-            </TableCell>
-            <TableCell>
-              <div className="flex items-center gap-1">
-                {invoice.pdfUrl && (
-                  <Button variant="ghost" asChild>
-                    <a href={invoice.pdfUrl} target="_blank" rel="noopener noreferrer">
-                      <Download className="h-4 w-4" aria-hidden="true" />
-                      <span className="ml-1">PDF</span>
-                    </a>
-                  </Button>
-                )}
-                {invoice.hostedUrl && (
-                  <Button variant="ghost" asChild>
-                    <a href={invoice.hostedUrl} target="_blank" rel="noopener noreferrer">
-                      <ExternalLink className="h-4 w-4" aria-hidden="true" />
-                      <span className="ml-1">View</span>
-                    </a>
-                  </Button>
-                )}
-              </div>
-            </TableCell>
-          </TableRow>
-        ))}
+        {invoices.map((invoice) => {
+          const date = new Date(invoice.created).toLocaleDateString();
+          const pdfUrl = safeHttpsUrl(invoice.pdfUrl);
+          const hostedUrl = safeHttpsUrl(invoice.hostedUrl);
+          return (
+            <TableRow key={invoice.id}>
+              <TableCell label="Date">{date}</TableCell>
+              <TableCell label="Amount" numeric>
+                {formatAmount(invoice.amount, invoice.currency)}
+              </TableCell>
+              <TableCell label="Status">
+                <InvoiceStatusPill status={invoice.status} />
+              </TableCell>
+              <TableCell>
+                <div className="flex items-center gap-1">
+                  {pdfUrl && (
+                    <Button variant="ghost" asChild>
+                      <a
+                        href={pdfUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label={`PDF for invoice dated ${date} (opens in a new tab)`}
+                      >
+                        <Download className="h-4 w-4" aria-hidden="true" />
+                        <span className="ml-1">PDF</span>
+                      </a>
+                    </Button>
+                  )}
+                  {hostedUrl && (
+                    <Button variant="ghost" asChild>
+                      <a
+                        href={hostedUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label={`View invoice dated ${date} online (opens in a new tab)`}
+                      >
+                        <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                        <span className="ml-1">View</span>
+                      </a>
+                    </Button>
+                  )}
+                </div>
+              </TableCell>
+            </TableRow>
+          );
+        })}
       </TableBody>
     </Table>
   );

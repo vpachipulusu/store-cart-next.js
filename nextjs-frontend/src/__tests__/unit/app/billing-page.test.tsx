@@ -131,7 +131,7 @@ describe('BillingPage invoice table', () => {
     expect(rows).toHaveLength(3);
     expect(within(rows[1]).getByText('Paid')).toBeInTheDocument();
     expect(within(rows[1]).getByText('$29.00')).toBeInTheDocument();
-    expect(within(rows[1]).getByRole('link', { name: /PDF/ })).toHaveAttribute(
+    expect(within(rows[1]).getByRole('link', { name: /PDF for invoice/ })).toHaveAttribute(
       'href',
       'https://example.test/in_1.pdf'
     );
@@ -196,6 +196,18 @@ describe('BillingPage inline errors', () => {
     await vi.waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
   });
 
+  it('shows the backend message inline when one of the loads reports failure', async () => {
+    givenBilling();
+    mocks.getSubscriptionInvoicesAction.mockResolvedValue({
+      success: false,
+      error: 'Invoices unavailable',
+    });
+
+    await renderPage();
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Invoices unavailable');
+  });
+
   it('shows an inline alert when the billing portal cannot be opened', async () => {
     const user = userEvent.setup();
     givenBilling();
@@ -244,7 +256,9 @@ describe('BillingPage actions are unchanged', () => {
     await renderPage();
 
     expect(screen.getByText('Default')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /set as default/i }));
+    await user.click(
+      screen.getByRole('button', { name: /set mastercard ending in 1111 as default/i })
+    );
     expect(mocks.setDefaultPaymentMethodAction).toHaveBeenCalledWith('pm_2');
 
     await user.click(screen.getAllByRole('button', { name: /remove/i })[1]);

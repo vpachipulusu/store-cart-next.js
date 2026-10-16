@@ -15,13 +15,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Switch } from '@/components/ui/switch';
 import { SubscriptionStatusPill } from '@/components/dashboard/billing/billing-pills';
 import { InvoiceTable, type Invoice } from '@/components/dashboard/billing/invoice-table';
 import { planUsageFixture } from '@/components/dashboard/billing/plan-usage-fixtures';
 import { PlanUsageMeter } from '@/components/dashboard/plan-usage-meter';
-import { Loader2, CreditCard, Calendar, Gauge, RefreshCw } from 'lucide-react';
+import { Loader2, CreditCard, Calendar, Gauge, RefreshCw, TriangleAlert } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface SubscriptionDetails {
@@ -62,7 +62,10 @@ export default function BillingPage() {
         getSubscriptionInvoicesAction(10),
       ]);
 
+      const failed = [subResult, pmResult, invResult].find((result) => !result.success);
+
       return {
+        loadError: failed ? failed.error || 'Failed to load billing data' : undefined,
         subscription: subResult.success && subResult.data ? subResult.data : undefined,
         paymentMethods:
           pmResult.success && pmResult.data ? pmResult.data.paymentMethods : undefined,
@@ -77,6 +80,7 @@ export default function BillingPage() {
 
   const applyBillingData = useCallback((data: Awaited<ReturnType<typeof fetchData>>) => {
     if (!data) setErrorMessage('Failed to load billing data');
+    else if (data.loadError) setErrorMessage(data.loadError);
     if (data?.subscription) setSubscription(data.subscription);
     if (data?.paymentMethods) setPaymentMethods(data.paymentMethods);
     if (data?.invoices) setInvoices(data.invoices);
@@ -136,6 +140,7 @@ export default function BillingPage() {
 
   const handleAddPaymentMethod = async () => {
     setErrorMessage(null);
+    setBusyAction('portal');
     try {
       const result = await createBillingPortalSessionAction();
       if (result.success && result.data?.url) {
@@ -147,12 +152,15 @@ export default function BillingPage() {
       console.error('Open billing portal error:', error);
       setErrorMessage('An unexpected error occurred');
     }
+    // A successful redirect leaves the page; only a failure returns here.
+    setBusyAction(null);
   };
 
   if (isLoading) {
     return (
-      <div className="flex min-h-[400px] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div role="status" className="flex min-h-[400px] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden="true" />
+        <span className="sr-only">Loading billing</span>
       </div>
     );
   }
@@ -179,6 +187,8 @@ export default function BillingPage() {
 
       {errorMessage && (
         <Alert variant="destructive">
+          <TriangleAlert className="h-4 w-4" aria-hidden="true" />
+          <AlertTitle>Error</AlertTitle>
           <AlertDescription>{errorMessage}</AlertDescription>
         </Alert>
       )}
@@ -303,7 +313,11 @@ export default function BillingPage() {
               <CardDescription>Manage your saved payment methods</CardDescription>
             </div>
             {subscription?.hasStripeCustomer && (
-              <Button variant="outline" onClick={handleAddPaymentMethod}>
+              <Button
+                variant="outline"
+                disabled={busyAction !== null}
+                onClick={handleAddPaymentMethod}
+              >
                 Add Payment Method
               </Button>
             )}
@@ -339,6 +353,7 @@ export default function BillingPage() {
                       <Button
                         variant="outline"
                         size="sm"
+                        aria-label={`Set ${pm.brand} ending in ${pm.last4} as default`}
                         disabled={busyAction !== null}
                         onClick={() => handleSetDefault(pm.id)}
                       >
@@ -348,6 +363,7 @@ export default function BillingPage() {
                     <Button
                       variant="ghost"
                       size="sm"
+                      aria-label={`Remove ${pm.brand} ending in ${pm.last4}`}
                       disabled={busyAction !== null}
                       onClick={() => handleDeleteCard(pm.id)}
                     >
