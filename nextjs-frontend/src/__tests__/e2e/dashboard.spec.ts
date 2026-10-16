@@ -5,7 +5,7 @@ import { STORAGE_STATE, clickNavLink, waitForPageReady } from './helpers/e2e-uti
  * Customer Dashboard E2E Tests
  *
  * These tests cover the customer-facing dashboard pages including:
- * - Dashboard home (stats, quick actions, account info, activity)
+ * - Dashboard Overview (key figures, setup checklist, plan usage, account links)
  * - Profile management (view/edit profile, avatar upload)
  * - Settings (theme, notifications, language, timezone)
  * - Security (password change, 2FA, login history, data export, account deletion)
@@ -32,91 +32,62 @@ test.describe('Customer Dashboard', () => {
         await waitForPageReady(page);
       });
 
-      test('should display dashboard heading and welcome message', async ({ page }) => {
-        await expect(page.getByRole('heading', { name: /dashboard/i })).toBeVisible();
-        await expect(page.getByText(/welcome back/i)).toBeVisible();
+      test('should display one h1 welcoming the user', async ({ page }) => {
+        await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
+        await expect(page.getByRole('heading', { level: 1 })).toContainText(/welcome back/i);
       });
 
-      test('should display stats grid with 4 metric cards', async ({ page }) => {
-        // Account Status card
-        await expect(page.getByText('Account Status')).toBeVisible();
-
-        // Subscription Plan card
-        await expect(page.getByText('Subscription Plan')).toBeVisible();
-
-        // Notifications card
-        await expect(
-          page.getByRole('heading', { name: 'Notifications', exact: true })
-        ).toBeVisible();
-
-        // Total Logins card
-        await expect(
-          page.getByRole('heading', { name: 'Total Logins', exact: true })
-        ).toBeVisible();
+      test('should display the empty-store key figures', async ({ page }) => {
+        const strip = page.getByRole('list', { name: 'Key figures' });
+        await expect(strip).toBeVisible();
+        await expect(strip.getByRole('group')).toHaveCount(4);
+        await expect(strip.getByText('No sales yet').first()).toBeVisible();
       });
 
-      test('should display quick action cards', async ({ page }) => {
-        await expect(page.getByText('Quick Actions')).toBeVisible();
-
-        // Quick action links
-        // Each quick action card is one link named by its title and description.
-        await expect(page.getByRole('link', { name: /^edit profile update/i })).toBeVisible();
-        await expect(page.getByRole('link', { name: /^settings configure/i })).toBeVisible();
-        await expect(page.getByRole('link', { name: /^security manage/i })).toBeVisible();
-        await expect(page.getByRole('link', { name: /^billing manage/i })).toBeVisible();
+      test('should show the setup checklist instead of an orders table', async ({ page }) => {
+        const steps = page.getByRole('list', { name: 'Set up your store' });
+        await expect(steps.getByRole('listitem')).toHaveCount(3);
+        await expect(steps.getByText('Add a product')).toBeVisible();
+        await expect(steps.getByText('Connect Stripe')).toBeVisible();
+        await expect(steps.getByText('Add a domain')).toBeVisible();
+        await expect(page.getByRole('table')).toHaveCount(0);
+        await expect(page.getByText('Nothing needs attention')).toBeVisible();
       });
 
-      test('should display account information section', async ({ page }) => {
-        await expect(page.getByText('Account Information')).toBeVisible();
-        await expect(page.getByText('Email', { exact: true })).toBeVisible();
-        await expect(page.getByText(/member since/i)).toBeVisible();
-        await expect(page.getByText(/last login/i)).toBeVisible();
+      test('should show the plan panel with its usage meters', async ({ page }) => {
+        const plan = page.getByRole('region', { name: 'Plan', exact: true });
+        await expect(plan).toBeVisible();
+        await expect(plan.getByText(/ plan$/i).first()).toBeVisible();
+        await expect(plan.getByRole('link', { name: 'Compare plans' })).toBeVisible();
       });
 
-      test('should display recent activity section', async ({ page }) => {
-        await expect(page.getByText('Recent Activity')).toBeVisible();
-      });
-
-      test('should display account summary section', async ({ page }) => {
-        await expect(page.getByText('Account Summary')).toBeVisible();
-        await expect(page.getByText(/account age/i)).toBeVisible();
-        await expect(page.getByText(/current plan/i)).toBeVisible();
-      });
-
-      test('should show upgrade banner for free tier users', async ({ page }) => {
-        // This depends on the test user being on free tier
-        const upgradeBanner = page.getByText(/upgrade to pro/i);
-        const isVisible = await upgradeBanner.isVisible().catch(() => false);
-
-        if (isVisible) {
-          await expect(page.getByRole('link', { name: /upgrade now/i })).toBeVisible();
+      test('should no longer show account info, login history or notifications', async ({
+        page,
+      }) => {
+        for (const gone of ['Account Information', 'Recent Activity', 'Account Summary']) {
+          await expect(page.getByText(gone)).toHaveCount(0);
         }
       });
 
-      test('should navigate to profile via quick action', async ({ page }) => {
-        await page.getByRole('link', { name: /^edit profile update/i }).click();
-        await expect(page).toHaveURL(/\/dashboard\/profile/);
+      test('should link to Profile, Security and Settings from the page', async ({ page }) => {
+        const main = page.locator('main');
+        await expect(main.getByRole('link', { name: 'Profile', exact: true })).toHaveAttribute(
+          'href',
+          '/dashboard/profile'
+        );
+        await expect(main.getByRole('link', { name: 'Security', exact: true })).toHaveAttribute(
+          'href',
+          '/dashboard/security'
+        );
+        await expect(main.getByRole('link', { name: 'Settings', exact: true })).toHaveAttribute(
+          'href',
+          '/dashboard/settings'
+        );
       });
 
-      test('should navigate to settings via quick action', async ({ page }) => {
-        await page
-          .getByRole('link', { name: /settings/i })
-          .first()
-          .click();
-        await expect(page).toHaveURL(/\/dashboard\/settings/);
-      });
-
-      test('should navigate to security via quick action', async ({ page }) => {
-        await page
-          .getByRole('link', { name: /security/i })
-          .first()
-          .click();
+      test('should navigate to security from the page link', async ({ page }) => {
+        await page.locator('main').getByRole('link', { name: 'Security', exact: true }).click();
         await expect(page).toHaveURL(/\/dashboard\/security/);
-      });
-
-      test('should display edit profile button in account info', async ({ page }) => {
-        const editProfileBtn = page.getByRole('link', { name: /edit profile/i });
-        await expect(editProfileBtn.first()).toBeVisible();
       });
     });
   });
@@ -142,10 +113,11 @@ test.describe('Customer Dashboard', () => {
       const nav = page.getByRole('navigation', { name: 'Main' });
       await expect(nav).toBeVisible();
 
-      await expect(page.getByRole('link', { name: 'Overview', exact: true })).toBeVisible();
-      await expect(page.getByRole('link', { name: 'Profile', exact: true })).toBeVisible();
-      await expect(page.getByRole('link', { name: /settings/i }).first()).toBeVisible();
-      await expect(page.getByRole('link', { name: /security/i }).first()).toBeVisible();
+      // Scoped to the nav: the Overview page body also links to Profile, Security and Settings.
+      await expect(nav.getByRole('link', { name: 'Overview', exact: true })).toBeVisible();
+      await expect(nav.getByRole('link', { name: 'Profile', exact: true })).toBeVisible();
+      await expect(nav.getByRole('link', { name: /settings/i }).first()).toBeVisible();
+      await expect(nav.getByRole('link', { name: /security/i }).first()).toBeVisible();
     });
 
     test('should navigate between dashboard pages', async ({ page }) => {

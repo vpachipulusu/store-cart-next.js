@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
- * KAN-41 / KAN-50: the dashboard home page reads profile, login history and the plan through the API; an
- * account with no billing organisation is on the free plan.
+ * KAN-41 / KAN-50 / KAN-219: the dashboard Overview reads the profile and the plan through the API; an
+ * account with no billing organisation is on the free plan. Login history moved to the security page.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -24,7 +24,7 @@ const mocks = vi.hoisted(() => ({
   getCurrentStoreSelection: vi.fn(),
 }));
 
-vi.mock('next/navigation', () => navigationMock);
+vi.mock('next/navigation', () => ({ ...navigationMock, useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock('next/headers', () => ({ cookies: async () => ({ get: mocks.cookieGet }) }));
 vi.mock('@/lib/api/billing', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api/billing')>('@/lib/api/billing');
@@ -70,23 +70,10 @@ const STORE = {
   organizationId: 'o1',
   organizationName: 'Org',
 };
-const HISTORY = {
-  login_history: [
-    {
-      id: 'h1',
-      ip_address: '203.0.113.9',
-      user_agent: 'UA',
-      location: null,
-      login_at: '2026-01-02T03:04:05Z',
-      successful: true,
-    },
-  ],
-  total_count: 7,
-};
-// The dashboard shows the plan in a capitalised stat and the status (or renewal date) under it.
-const PLAN_ELEMENT = (plan: string) => `<div class="text-2xl font-bold capitalize">${plan}</div>`;
+// The plan panel shows the plan key capitalised and the status (or renewal date) under it.
+const PLAN_ELEMENT = (plan: string) => `<p class="text-sm font-medium capitalize">${plan} plan</p>`;
 const STATUS_ELEMENT = (status: string) =>
-  `<p class="mt-1 text-xs text-muted-foreground">${status}</p>`;
+  `<p class="text-[0.8125rem] text-muted-foreground">${status}</p>`;
 const page = () => DashboardPage({ searchParams: Promise.resolve({}) });
 
 describe('DashboardPage', () => {
@@ -103,7 +90,6 @@ describe('DashboardPage', () => {
       selected: STORE,
     });
     mocks.fetchProfile.mockResolvedValue({ success: true, data: PROFILE });
-    mocks.fetchLoginHistory.mockResolvedValue({ success: true, data: HISTORY });
     mocks.fetchBillingSummary.mockResolvedValue({
       success: true,
       data: {
@@ -124,29 +110,101 @@ describe('DashboardPage', () => {
     expect(redirectTarget(await rejection(page()))).toBe('/login');
   });
 
-  it('renders from the API data and asks for the five most recent logins', async () => {
+  it('renders from the API data and no longer loads the login history', async () => {
     const tree = await page();
 
     expect(tree).toBeDefined();
-    expect(mocks.fetchLoginHistory).toHaveBeenCalledWith(5, 0);
+    expect(mocks.fetchLoginHistory).not.toHaveBeenCalled();
     expect(mocks.fetchBillingSummary).toHaveBeenCalledTimes(1);
+  });
+
+  describe('overview layout (KAN-219)', () => {
+    const render = async () => renderToStaticMarkup((await page()) as React.ReactElement);
+
+    it('has exactly one h1, greeting the user by display name', async () => {
+      const markup = await render();
+
+      expect(markup.match(/<h1/g)).toHaveLength(1);
+      expect(markup).toContain('Welcome back, Ada');
+    });
+
+    it('falls back to the email when there is no display name', async () => {
+      mocks.fetchProfile.mockResolvedValue({
+        success: true,
+        data: { ...PROFILE, display_name: null },
+      });
+
+      expect(await render()).toContain('Welcome back, a@b.test');
+    });
+
+    it('shows the empty-store KPI strip and the three-step checklist', async () => {
+      const markup = await render();
+
+      expect(markup).toContain('Key figures');
+      expect(markup).toContain('No sales yet');
+      expect(markup).toContain('Set up your store');
+      expect(markup).toContain('Add a product');
+      expect(markup).toContain('Connect Stripe');
+      expect(markup).toContain('Add a domain');
+      expect(markup).toContain('Nothing needs attention');
+    });
+
+    it('drops the account, activity and notification cards but links to Profile and Security', async () => {
+      const markup = await render();
+
+      for (const gone of [
+        'Account Information',
+        'Recent Activity',
+        'Account Summary',
+        'Notifications',
+      ]) {
+        expect(markup).not.toContain(gone);
+      }
+      expect(markup).toContain('href="/dashboard/profile"');
+      expect(markup).toContain('href="/dashboard/security"');
+      expect(markup).toContain('href="/dashboard/settings"');
+    });
+
+    it('measures stores against the plan limit', async () => {
+      mocks.fetchBillingSummary.mockResolvedValue({
+        success: true,
+        data: {
+          plan: { key: 'free', name: 'Free', max_stores: 3, max_products: 10, max_staff: 1 },
+          subscription_status: 'inactive',
+          current_period_end: null,
+          has_billing_account: false,
+          has_subscription: false,
+          cancel_at_period_end: false,
+          interval: 'monthly',
+        },
+      });
+
+      const markup = await render();
+
+      expect(markup).toContain('role="meter"');
+      expect(markup).toContain('1 of 3');
+      expect(markup).toContain('Compare plans');
+    });
+
+    it('does not nest a bordered panel inside another', async () => {
+      const markup = await render();
+
+      expect(markup).not.toContain('theme-card');
+    });
   });
 
   it('shows the plan and status read from the billing API', async () => {
     const markup = renderToStaticMarkup((await page()) as React.ReactElement);
 
-    // The plan card renders the plan key from the billing API, and a paid plan has no upgrade banner.
+    // The plan panel renders the plan key from the billing API.
     expect(markup).toContain(PLAN_ELEMENT('pro'));
     expect(markup).not.toContain(PLAN_ELEMENT('free'));
-    expect(markup).not.toContain('Upgrade to Pro');
     expect(markup).toContain('Active until');
   });
 
   describe('plan status line', () => {
     const PERIOD_END = '2027-01-01T00:00:00Z';
     const DATE = new Date(PERIOD_END).toLocaleDateString();
-    const SUMMARY_STATUS_ELEMENT = (status: string) =>
-      `<p class="text-xs text-muted-foreground">${status}</p>`;
     const summary = (
       status: string,
       overrides: { planKey?: string; hasSubscription?: boolean; periodEnd?: string | null } = {}
@@ -180,14 +238,13 @@ describe('DashboardPage', () => {
       ['incomplete', 'Incomplete'],
       ['incomplete_expired', 'Incomplete expired'],
       ['paused', 'Paused'],
-    ])('shows %s as "%s" on the plan card and the account summary', async (status, label) => {
+    ])('shows %s as "%s" on the plan panel', async (status, label) => {
       mocks.fetchBillingSummary.mockResolvedValue(summary(status));
 
       const markup = renderToStaticMarkup((await page()) as React.ReactElement);
 
       expect(markup).toContain(PLAN_ELEMENT('pro'));
       expect(markup).toContain(STATUS_ELEMENT(label));
-      expect(markup).toContain(SUMMARY_STATUS_ELEMENT(label));
       expect(markup).not.toContain(STATUS_ELEMENT(status));
     });
 
@@ -212,9 +269,7 @@ describe('DashboardPage', () => {
 
       expect(markup).toContain(PLAN_ELEMENT('enterprise'));
       expect(markup).toContain(STATUS_ELEMENT('Granted by admin'));
-      expect(markup).toContain(SUMMARY_STATUS_ELEMENT('Granted by admin'));
       expect(markup).not.toContain(STATUS_ELEMENT('inactive'));
-      expect(markup).not.toContain('Upgrade to Pro');
     });
 
     it('does not call a paid plan with no subscription "granted" unless its status is inactive', async () => {
@@ -247,7 +302,6 @@ describe('DashboardPage', () => {
 
     expect(markup).toContain(PLAN_ELEMENT('free'));
     expect(markup).not.toContain(PLAN_ELEMENT('pro'));
-    expect(markup).toContain('Upgrade to Pro');
     expect(markup).not.toContain('Active until');
     expect(markup).toContain(STATUS_ELEMENT('Inactive'));
   });
@@ -331,7 +385,7 @@ describe('DashboardPage', () => {
         const tree = await pageWith('success');
 
         expect(tree).toBeDefined();
-        expect(renderToStaticMarkup(tree as React.ReactElement)).toContain('Dashboard');
+        expect(renderToStaticMarkup(tree as React.ReactElement)).toContain('Welcome back');
       });
 
       it.each([['cancelled'], ['Success'], [['success', 'success']], [undefined]])(
@@ -422,7 +476,7 @@ describe('DashboardPage', () => {
     [{ success: false, error: 'Unauthorized', status: 401 }, '401'],
     [{ success: false, error: 'Request failed', status: 500 }, '500'],
   ])('keeps the session and rethrows on an outage (%o)', async (failure, detail) => {
-    mocks.fetchLoginHistory.mockResolvedValue(failure);
+    mocks.fetchProfile.mockResolvedValue(failure);
 
     const error = await rejection(page());
 
