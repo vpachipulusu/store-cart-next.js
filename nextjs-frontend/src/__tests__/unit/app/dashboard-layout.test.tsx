@@ -140,6 +140,19 @@ describe('DashboardLayout session check', () => {
       expect(hasProp(tree, 'data-testid', 'no-stores')).toBe(false);
     });
 
+    it('KAN-218: mounts the switcher in the sidebar slot and in the header for narrow screens', async () => {
+      const tree = (await DashboardLayout({ children: null })) as {
+        props: { children: Array<{ type: unknown; props: { children?: unknown } }> };
+      };
+
+      const sidebar = tree.props.children[1];
+      expect(sidebar.type).toBe(Sidebar);
+      expect(hasType(sidebar.props.children, StoreSwitcher)).toBe(true);
+      expect(hasProp(sidebar, 'variant', 'sidebar')).toBe(true);
+      // the header copy sits in a wrapper that is hidden from 900px up
+      expect(hasProp(tree, 'className', 'min-[900px]:hidden')).toBe(true);
+    });
+
     it('scopes to the store in the cookie when the user may open it', async () => {
       mocks.cookieGet.mockImplementation((name: string) =>
         name === 'session'

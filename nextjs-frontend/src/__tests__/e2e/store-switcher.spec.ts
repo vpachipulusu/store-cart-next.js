@@ -3,7 +3,7 @@ import { test, expect } from './helpers/fixtures';
 import { loginAsThrowawayAccount, waitForPageReady } from './helpers/e2e-utils';
 
 /**
- * KAN-61: the dashboard is scoped to the selected store and merchants with several stores can switch.
+ * KAN-61/KAN-218: the dashboard is scoped to the selected store and merchants with several stores can switch.
  *
  * Needs the FastAPI backend (BACKEND_API_URL) and BACKEND_INTERNAL_KEY in the environment. Organisations and
  * stores are created through the real API with the throwaway account's own session; a free plan allows one store
@@ -45,6 +45,11 @@ async function createOrganizationWithStore(
   return `Store ${label}`;
 }
 
+/** The sidebar and header each mount a switcher; CSS shows one per width, so only the visible one counts. */
+function visible(page: Page, testId: string) {
+  return page.locator(`[data-testid="${testId}"]:visible`);
+}
+
 test.describe('Dashboard store switcher', () => {
   test.skip(
     !process.env.BACKEND_INTERNAL_KEY,
@@ -67,40 +72,44 @@ test.describe('Dashboard store switcher', () => {
     await expect(page).toHaveURL(/\/dashboard\/profile$/);
     await expect(page.getByRole('heading', { name: 'Profile', level: 1 })).toBeVisible();
 
-    // One store: its name is shown, with no switcher chrome.
+    // One store: its name and organisation are a label, with no menu trigger.
     const alpha = await createOrganizationWithStore(page, 'alpha', suffix);
     await page.goto('/dashboard');
     await waitForPageReady(page);
-    await expect(page.getByTestId('store-name')).toHaveText(alpha);
+    await expect(visible(page, 'store-name')).toContainText(alpha);
+    await expect(visible(page, 'store-name')).toContainText(`Org alpha`);
     await expect(page.getByTestId('store-switcher')).toHaveCount(0);
     await expect(page.getByTestId('no-stores')).toHaveCount(0);
 
-    // Several stores: a labelled 44px switcher that defaults to the first store.
+    // Several stores: a 52px "Switch store" menu trigger that defaults to the first store.
     const beta = await createOrganizationWithStore(page, 'beta', suffix);
     await page.goto('/dashboard');
     await waitForPageReady(page);
-    const switcher = page.getByRole('combobox', { name: 'Switch store' });
-    await expect(switcher).toBeVisible();
-    const box = await switcher.boundingBox();
-    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
-    const first = (await switcher.textContent())?.trim() ?? '';
+    let trigger = page.getByRole('button', { name: 'Switch store' });
+    await expect(trigger).toBeVisible();
+    await expect(trigger).toHaveAttribute('aria-haspopup', 'menu');
+    const box = await trigger.boundingBox();
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(52);
+    const first = (await trigger.textContent())?.includes(alpha) ? alpha : beta;
     expect([alpha, beta]).toContain(first);
     const other = first === alpha ? beta : alpha;
 
     // Switch with the keyboard, and the choice survives navigation and a reload.
-    await switcher.focus();
+    await trigger.focus();
     await page.keyboard.press('Enter');
-    await page.getByRole('option', { name: new RegExp(other) }).click();
-    await expect(switcher).toHaveText(other);
+    const option = page.getByRole('menuitemradio', { name: new RegExp(other) });
+    expect((await option.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await option.click();
+    await expect(trigger).toContainText(other);
     await expect(page.locator('main[data-store-id]')).toBeVisible();
 
     await page.goto('/dashboard/profile');
     await waitForPageReady(page);
-    await expect(page.getByRole('combobox', { name: 'Switch store' })).toHaveText(other);
+    await expect(page.getByRole('button', { name: 'Switch store' })).toContainText(other);
 
     await page.reload();
     await waitForPageReady(page);
-    await expect(page.getByRole('combobox', { name: 'Switch store' })).toHaveText(other);
+    await expect(page.getByRole('button', { name: 'Switch store' })).toContainText(other);
 
     // A forged cookie naming a store the user cannot open falls back to the first store.
     await page.context().clearCookies({ name: 'selected-store' });
@@ -113,15 +122,20 @@ test.describe('Dashboard store switcher', () => {
     ]);
     await page.goto('/dashboard');
     await waitForPageReady(page);
-    await expect(page.getByRole('combobox', { name: 'Switch store' })).toHaveText(first);
+    await expect(page.getByRole('button', { name: 'Switch store' })).toContainText(first);
 
-    // Phone width: the header does not overflow and the switcher stays inside the viewport.
-    await page.setViewportSize({ width: 375, height: 812 });
-    await page.goto('/dashboard');
-    await waitForPageReady(page);
-    const narrow = await page.getByRole('combobox', { name: 'Switch store' }).boundingBox();
-    expect((narrow?.x ?? 0) + (narrow?.width ?? 0)).toBeLessThanOrEqual(375);
-    const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
-    expect(scrollWidth).toBeLessThanOrEqual(375);
+    // Phone (375px) and desktop (1440px): one visible switcher, inside the viewport, no horizontal overflow.
+    for (const width of [375, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/dashboard');
+      await waitForPageReady(page);
+      trigger = page.getByRole('button', { name: 'Switch store' });
+      await expect(trigger).toHaveCount(1);
+      const rect = await trigger.boundingBox();
+      expect((rect?.x ?? 0) + (rect?.width ?? 0)).toBeLessThanOrEqual(width);
+      expect(rect?.height ?? 0).toBeGreaterThanOrEqual(52);
+      const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+      expect(scrollWidth).toBeLessThanOrEqual(width);
+    }
   });
 });
