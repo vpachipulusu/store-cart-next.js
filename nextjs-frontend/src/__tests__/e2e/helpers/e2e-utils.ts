@@ -189,7 +189,7 @@ export async function loginAsThrowawayAccountWithOrganization(
     throw new Error(`Creating the e2e organisation failed with HTTP ${response.status}`);
   }
   const body = (await response.json()) as { data?: { id?: string } };
-  if (!body.data?.id) {
+  if (typeof body.data?.id !== 'string' || !body.data.id) {
     throw new Error('The backend did not return the id of the e2e organisation');
   }
   return body.data.id;
@@ -240,6 +240,7 @@ export async function loginAsThrowawayAccountOnPro(
 /**
  * Tests that need a real Stripe Checkout, subscription or saved card are off unless E2E_STRIPE=1: the Stripe webhook
  * cannot reach a local server (KAN-157), so the app never learns the result. E2E_ENABLED is unrelated and stays false.
+ * Set E2E_STRIPE=1 in the shell that runs the tests (only the value `1` enables them).
  */
 export const STRIPE_E2E_ENABLED = process.env.E2E_STRIPE === '1';
 export const STRIPE_E2E_SKIP_REASON =
