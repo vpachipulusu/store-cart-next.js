@@ -1,16 +1,7 @@
 import Link from 'next/link';
 import { SignupForm } from '@/components/auth/signup-form';
 import { OAuthButtons } from '@/components/auth/oauth-buttons';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
-import { Badge } from '@/components/ui/badge';
+import { AUTH_LINK_CLASS, AuthDivider, AuthHeading } from '../_components/auth-shared';
 
 export const metadata = {
   title: 'Sign Up',
@@ -26,41 +17,29 @@ export default async function SignupPage({
   const selectedPlan = params.plan;
 
   return (
-    <Card>
-      <CardHeader className="space-y-1">
-        <div className="mb-3 h-px w-12 bg-gradient-to-r from-theme-accent to-transparent" />
-        <CardTitle className="text-2xl">Create an account</CardTitle>
-        <CardDescription>Enter your information to get started</CardDescription>
+    <section className="space-y-6">
+      <header className="space-y-2">
+        <AuthHeading>Create an account</AuthHeading>
+        <p className="text-sm text-muted-foreground">Enter your information to get started</p>
         {selectedPlan && (
-          <div className="pt-2">
-            <Badge variant="secondary" className="capitalize border-theme-accent/20 bg-theme-accent/10 text-theme-accent-dark dark:text-theme-accent-light">
+          <p className="pt-1">
+            <span className="inline-flex min-h-6 items-center rounded-full bg-secondary px-3 py-0.5 text-[0.8125rem] font-semibold capitalize text-accent-ink">
               Selected Plan: {selectedPlan}
-            </Badge>
-          </div>
+            </span>
+          </p>
         )}
-      </CardHeader>
-      <CardContent className="space-y-4">
+      </header>
+      <div className="space-y-4">
         <OAuthButtons />
-
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <Separator />
-          </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-card px-2 text-muted-foreground">Or continue with email</span>
-          </div>
-        </div>
-
+        <AuthDivider>Or continue with email</AuthDivider>
         <SignupForm selectedPlan={selectedPlan} />
-      </CardContent>
-      <CardFooter>
-        <p className="w-full text-center text-sm text-muted-foreground">
-          Already have an account?{' '}
-          <Link href="/login" className="font-medium text-primary hover:underline">
-            Sign in
-          </Link>
-        </p>
-      </CardFooter>
-    </Card>
+      </div>
+      <p className="text-center text-sm text-muted-foreground">
+        Already have an account?{' '}
+        <Link href="/login" className={AUTH_LINK_CLASS}>
+          Sign in
+        </Link>
+      </p>
+    </section>
   );
 }
