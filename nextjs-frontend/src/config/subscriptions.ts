@@ -1,6 +1,6 @@
 import { unstable_cache } from 'next/cache';
 import Stripe from 'stripe';
-import { db } from '@/lib/db/client';
+import { fetchPlatformCurrency } from '@/lib/api/settings';
 import { logger } from '@/lib/logger';
 import { CURRENCIES } from './currencies';
 
@@ -181,34 +181,16 @@ export async function getSubscriptionPlans(): Promise<SubscriptionPlan[]> {
 
 export { CURRENCIES };
 
-async function fetchCurrencySymbol(): Promise<string> {
-  try {
-    const setting = await db.appSettings.findUnique({
-      where: { key: 'currency' },
-    });
-
-    const code = (setting?.value as string) || 'USD';
-    return CURRENCIES.find((c) => c.code === code)?.symbol ?? '$';
-  } catch (error) {
-    // Log and rethrow so unstable_cache does not store the fallback for the whole revalidate window.
-    logger.error('Failed to fetch currency symbol:', error);
-    throw error;
-  }
-}
-
-const getCachedCurrencySymbol = unstable_cache(fetchCurrencySymbol, ['currency-symbol'], {
-  revalidate: 3600,
-  tags: ['currency-setting'],
-});
-
 /**
- * Currency symbol from admin settings, cached for 1 hour. A database error is logged and answered
- * with '$' outside the cache, so the fallback is never cached.
+ * Currency symbol of the platform currency, read from the backend. Any failure is logged and answered with
+ * '$'. The read is cached in `fetchPlatformCurrency`.
  */
 export async function getCurrencySymbol(): Promise<string> {
   try {
-    return await getCachedCurrencySymbol();
-  } catch {
+    const code = await fetchPlatformCurrency();
+    return CURRENCIES.find((c) => c.code === code)?.symbol ?? '$';
+  } catch (error) {
+    logger.error('Failed to fetch currency symbol:', error);
     return '$';
   }
 }

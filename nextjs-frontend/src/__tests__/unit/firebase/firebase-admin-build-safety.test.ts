@@ -14,7 +14,6 @@ vi.mock('next/cache', () => ({
 vi.mock('@/lib/db/client', () => ({ db: {} }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/firebase/client', () => ({ auth: {} }));
-vi.mock('@/lib/utils/notifications', () => ({}));
 
 const SECRET_NAMES = [
   'FIREBASE_ADMIN_PROJECT_ID',

@@ -63,7 +63,7 @@ The repo is still the boilerplate with the target not yet built:
 1. The Firebase client SDK signs the user in and sends the ID token to the `verifyTokenAction` server action (`src/app/actions/auth-actions.ts`).
 2. `verifyTokenAction` creates a Firebase session cookie with `createSessionCookie` (5 days) and sets it as the httpOnly `session` cookie. It no longer sets an `email-verified` cookie (KAN-123); it deletes any left over from an older deployment, and returns `claimsEmailVerified` from the verified ID token.
    2a. `refreshSessionAction` (Firebase token refresh, `/verify-email`) calls `POST /v1/auth/session/refresh` through `refreshBackendSession` (`src/lib/api/account.ts`, KAN-183): the API needs the current session and a same-UID ID token, issues the new cookie and records no login history. If the API refuses (for example a revoked or mismatched session, or an ID token Firebase will not mint a cookie from), the action deletes the `session` cookie and returns `data.signInRequired`; `useSessionRefresh` then signs out of Firebase and goes to `/login`. An outage or rate limit keeps the current cookie and the next refresh retries.
-3. `src/proxy.ts` (the Next.js 16 proxy; the exported function is `proxy`) only checks that a credential exists. The protected pages (`/dashboard`, `/settings`, `/profile`, `/security`) and `/admin` need a `session` cookie; `/api/*` (except `/api/webhooks/` and `/api/health`) needs a `session` cookie or any `Bearer` header. It does not verify either value (KAN-137) and no longer reads the `email-verified` cookie (KAN-123): the edge cannot verify Firebase tokens, and that cookie is client-writable.
+3. `src/proxy.ts` (the Next.js 16 proxy; the exported function is `proxy`) only checks that a credential exists. The protected pages (`/dashboard`, `/settings`, `/profile`, `/security`) and `/admin` need a `session` cookie; `/api/*` (except `/api/health`) needs a `session` cookie or any `Bearer` header. It does not verify either value (KAN-137) and no longer reads the `email-verified` cookie (KAN-123): the edge cannot verify Firebase tokens, and that cookie is client-writable.
    3a. Email verification is enforced server-side, from the signed `email_verified` claim in the session cookie, by `src/lib/auth/verified-session.ts` (`verifyVerifiedSessionCookie` always checks revocation; `getVerifiedUserId` is for server actions). The dashboard and admin layouts, the dashboard page, the user/notification/subscription actions and the admin actions all go through it. An unverified user is sent to `/verify-email` (pages) or gets `Unauthorized` (actions). The verify-email page re-mints the session cookie once Firebase reports the email verified. This is the legacy Next.js boundary; the FastAPI guards (KAN-37) do not count for it.
 4. The admin role is verified server-side: the admin layout (`src/app/(admin)/admin/layout.tsx`) and each admin server action (`src/app/actions/admin/*`) verify the session cookie with Firebase Admin and look up the `adminUser` record.
 5. Vercel service bindings such as `BACKEND_API_URL` are not available in the proxy ([ADR-011](../adr/0011-single-vercel-project-with-services.md)).
@@ -74,7 +74,7 @@ Boilerplate features that exist today and will be rebuilt behind FastAPI. Folded
 
 - **Customer dashboard** (`src/app/dashboard/`): home, `profile`, `settings` and `security` pages.
 - **Admin portal** (`src/app/(admin)/admin/`): `users`, `subscriptions`, `analytics`, `seo`, `settings` and `audit-logs`. An admin needs an `AdminUser` record; create one with `node scripts/create-admin.mjs <email>` (the user must have signed up first). Admin actions are written to the audit log.
-- **Billing** (`src/app/actions/subscription-actions.ts`, `src/app/api/webhooks/stripe/route.ts`): `createCheckoutSessionAction` starts a Stripe Checkout session, the Stripe webhook at `/api/webhooks/stripe` updates the database, and `createBillingPortalSessionAction` opens the billing portal. The pricing page adapts its call-to-action to the sign-in state.
+- **Billing** (`src/app/actions/subscription-actions.ts`): `createCheckoutSessionAction` starts a Stripe Checkout session, the backend Stripe webhook (`POST /webhooks/stripe`, see [backend-billing-webhook.md](backend-billing-webhook.md)) updates the organisation's subscription, and `createBillingPortalSessionAction` opens the billing portal. The pricing page adapts its call-to-action to the sign-in state.
 
 ## Target state (Foundation complete)
 
@@ -111,15 +111,9 @@ Rules:
 - **Store databases (E7):** one Postgres database per store ([ADR-005](../adr/0005-per-store-database-access.md)). This is provisional until the latency spike KAN-115 reports.
 - **Store migrations** run from CI and never inside a request. Store migrations must be backward compatible.
 
-## Stripe webhook idempotency and release step
+## Stripe webhook
 
-`POST /api/webhooks/stripe` (KAN-128) verifies the signature first, then claims the Stripe event id in the `processed_stripe_events` table (Prisma model `ProcessedStripeEvent`, primary key = event id). The claim is a 60 second lease (`claimedAt`). A duplicate of an already processed event returns 200 without running the handler. A concurrent delivery that finds a live lease, a handler failure, or any database error returns a generic 500 so Stripe retries; a failed handler releases its claim. An expired lease is taken over with a conditional update. `processedAt` is set only after the handler succeeds. Unknown event types are recorded and return 200.
-
-**Release step (required):** run `npm run db:push` against the Preview, Test and Production databases **before** deploying this code. The repo has no Prisma migrations folder, so there is no migration file. If the table is missing, the webhook returns 500; Stripe retries for up to 3 days, so nothing is lost once the table exists.
-
-**Post-deploy check:** send a Stripe test event (for example `stripe trigger invoice.payment_succeeded` or the dashboard "Send test webhook"); expect a 200 and a `processed_stripe_events` row with `processedAt` set.
-
-**Retention:** rows can be pruned after 30 days (`receivedAt` is indexed); Stripe stops retrying after 3 days.
+Stripe events are handled only by the backend (`POST /webhooks/stripe`), which verifies the signature and processes each event once; see [backend-billing-webhook.md](backend-billing-webhook.md). The Next.js route `/api/webhooks/stripe` and its `processed_stripe_events` idempotency flow (KAN-128) were removed in KAN-50. The `ProcessedStripeEvent` Prisma model stays in the schema until KAN-51 drops Prisma.
 
 ## Architecture decision records
 
