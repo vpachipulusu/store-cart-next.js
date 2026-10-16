@@ -95,8 +95,6 @@ function applyRateLimit(request: NextRequest, pathname: string): NextResponse | 
   // Apply different rate limits based on path
   if (pathname.startsWith('/api/auth/')) {
     rateLimitConfig = RATE_LIMIT_CONFIGS.auth;
-  } else if (pathname.startsWith('/api/webhooks/')) {
-    rateLimitConfig = RATE_LIMIT_CONFIGS.webhook;
   } else if (pathname.startsWith('/api/')) {
     rateLimitConfig = RATE_LIMIT_CONFIGS.api;
   }
@@ -195,11 +193,8 @@ export async function proxy(request: NextRequest) {
   }
 
   // Public API routes (no auth required)
-  const publicApiPrefixes = ['/api/webhooks/'];
   const publicApiExact = ['/api/health'];
-  const isPublicApiRoute =
-    publicApiPrefixes.some((route) => pathname.startsWith(route)) ||
-    publicApiExact.includes(pathname);
+  const isPublicApiRoute = publicApiExact.includes(pathname);
 
   // Protected API routes (require authentication)
   if (pathname.startsWith('/api/') && !isPublicApiRoute) {

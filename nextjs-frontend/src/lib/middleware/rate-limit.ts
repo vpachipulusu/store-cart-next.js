@@ -31,10 +31,7 @@ export interface RateLimitResult {
  * @param identifier - Unique identifier (e.g., IP address, user ID)
  * @param config - Rate limit configuration
  */
-export function rateLimit(
-  identifier: string,
-  config: RateLimitConfig
-): RateLimitResult {
+export function rateLimit(identifier: string, config: RateLimitConfig): RateLimitResult {
   const now = Date.now();
   const { maxRequests, windowMs, message } = config;
 
@@ -124,12 +121,6 @@ export const RATE_LIMIT_CONFIGS = {
     maxRequests: 100,
     windowMs: 60 * 1000, // 1 minute
     message: 'API rate limit exceeded. Please slow down.',
-  },
-  // Webhook limits
-  webhook: {
-    maxRequests: 200,
-    windowMs: 60 * 1000, // 1 minute
-    message: 'Webhook rate limit exceeded.',
   },
   // General limits
   general: {
