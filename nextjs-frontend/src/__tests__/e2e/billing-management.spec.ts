@@ -8,6 +8,8 @@ import {
   navigateToBilling,
   toggleAutoRenewal,
   expectRedirectToLogin,
+  STRIPE_E2E_ENABLED,
+  STRIPE_E2E_SKIP_REASON,
   STRIPE_TEST_CARDS,
   fillStripeCheckout,
   submitStripeCheckout,
@@ -216,16 +218,15 @@ test.describe('Billing Settings - Auto-Renewal', () => {
     page,
     throwawayAccount,
   }) => {
+    test.skip(
+      !STRIPE_E2E_ENABLED,
+      `${STRIPE_E2E_SKIP_REASON}: auto-renewal needs an active Stripe subscription, which an admin grant does not create`
+    );
     await loginAsThrowawayAccount(page, throwawayAccount);
     await navigateToBilling(page);
 
     const autoRenewalCard = page.locator('[class*="card"]').filter({ hasText: /auto-renewal/i });
-    const isVisible = await autoRenewalCard.isVisible().catch(() => false);
-
-    if (!isVisible) {
-      test.skip(true, 'User does not have active subscription');
-      return;
-    }
+    await expect(autoRenewalCard).toBeVisible();
 
     const toggle = autoRenewalCard.locator('button[role="switch"]');
     const isChecked = await toggle.getAttribute('aria-checked');
@@ -244,16 +245,15 @@ test.describe('Billing Settings - Auto-Renewal', () => {
     page,
     throwawayAccount,
   }) => {
+    test.skip(
+      !STRIPE_E2E_ENABLED,
+      `${STRIPE_E2E_SKIP_REASON}: auto-renewal needs an active Stripe subscription, which an admin grant does not create`
+    );
     await loginAsThrowawayAccount(page, throwawayAccount);
     await navigateToBilling(page);
 
     const autoRenewalCard = page.locator('[class*="card"]').filter({ hasText: /auto-renewal/i });
-    const isVisible = await autoRenewalCard.isVisible().catch(() => false);
-
-    if (!isVisible) {
-      test.skip(true, 'User does not have active subscription');
-      return;
-    }
+    await expect(autoRenewalCard).toBeVisible();
 
     const toggle = autoRenewalCard.locator('button[role="switch"]');
     const isChecked = await toggle.getAttribute('aria-checked');
@@ -321,6 +321,11 @@ test.describe('Billing Settings - Payment Methods', () => {
   test('should offer set-default and remove actions and explain the default card rule', async ({
     page,
   }) => {
+    test.skip(
+      !STRIPE_E2E_ENABLED,
+      `${STRIPE_E2E_SKIP_REASON}: a saved card is only created by completing Stripe Checkout`
+    );
+
     await navigateToBilling(page);
 
     const paymentCard = page.locator('[class*="card"]').filter({ hasText: /payment methods/i });
@@ -330,10 +335,7 @@ test.describe('Billing Settings - Payment Methods', () => {
       .isVisible()
       .catch(() => false);
 
-    if (!hasPaymentMethods) {
-      test.skip(true, 'User has no saved payment methods');
-      return;
-    }
+    expect(hasPaymentMethods).toBe(true);
 
     await expect(paymentCard.getByRole('button', { name: /remove/i }).first()).toBeEnabled();
 
