@@ -37,6 +37,7 @@ vi.mock('@/app/actions/user-actions', () => ({
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: mocks.toast }) }));
 
 import SecurityPage from '@/app/dashboard/security/page';
+import { isSessionRefreshPaused } from '@/lib/firebase/session-refresh-pause';
 
 async function submitPasswordChange() {
   const user = userEvent.setup();
@@ -53,6 +54,20 @@ async function submitPasswordChange() {
 vi.setConfig({ testTimeout: 30_000 });
 
 describe('SecurityPage password change (KAN-208)', () => {
+  it('pauses the background session refresh during the flow and resumes it afterwards', async () => {
+    let pausedDuringRestore: boolean | undefined;
+    mocks.restoreSessionWithNewPassword.mockImplementation(async () => {
+      pausedDuringRestore = isSessionRefreshPaused();
+      return true;
+    });
+
+    await submitPasswordChange();
+
+    await waitFor(() => expect(mocks.restoreSessionWithNewPassword).toHaveBeenCalled());
+    expect(pausedDuringRestore).toBe(true);
+    await waitFor(() => expect(isSessionRefreshPaused()).toBe(false));
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.signOut.mockResolvedValue(undefined);

@@ -88,7 +88,9 @@ function printFindings(findings: readonly Finding[]): void {
 function scanOnly(): boolean {
   const findings = scanForServerSecrets(frontendFiles());
   if (findings.length === 0) {
-    process.stdout.write('Foundation scan passed: no server secrets or backend SDKs in the frontend.\n');
+    process.stdout.write(
+      'Foundation scan passed: no server secrets or backend SDKs in the frontend.\n'
+    );
     return true;
   }
   printFindings(findings);

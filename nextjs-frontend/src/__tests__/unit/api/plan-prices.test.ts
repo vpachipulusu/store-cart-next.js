@@ -115,11 +115,14 @@ describe('fetchPlanPrices', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it.each([500, 503, 429])('falls back to all zeros when the backend answers %i', async (status) => {
-    fetchMock.mockResolvedValue(json({ success: false, error: 'Request failed' }, status));
+  it.each([500, 503, 429])(
+    'falls back to all zeros when the backend answers %i',
+    async (status) => {
+      fetchMock.mockResolvedValue(json({ success: false, error: 'Request failed' }, status));
 
-    await expect(fetchPlanPrices()).resolves.toEqual(FALLBACK_PLAN_PRICES);
-  });
+      await expect(fetchPlanPrices()).resolves.toEqual(FALLBACK_PLAN_PRICES);
+    }
+  );
 
   it('falls back to all zeros when the backend is unreachable', async () => {
     fetchMock.mockRejectedValue(new TypeError('fetch failed'));

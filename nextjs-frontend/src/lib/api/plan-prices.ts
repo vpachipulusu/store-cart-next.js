@@ -77,6 +77,7 @@ export function fetchPlanPrices(): Promise<PlanPrices> {
   inflight ??= loadPlanPrices()
     .catch((error: unknown) => {
       logger.error('Failed to fetch plan prices:', error);
+      cached = { prices: FALLBACK_PLAN_PRICES, expiresAt: Date.now() + PLAN_PRICES_FAILURE_TTL_MS };
       return FALLBACK_PLAN_PRICES;
     })
     .finally(() => {

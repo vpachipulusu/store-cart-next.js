@@ -55,7 +55,7 @@ export const subscriptionPlans: SubscriptionPlan[] = [
       'Example: API access',
     ],
     price: {
-      monthly: 0, // Resolved at runtime via getStripePrices()
+      monthly: 0, // Resolved at runtime via getStripePrices() (fetchPlanPrices)
       yearly: 0,
     },
     tier: SUBSCRIPTION_TIERS.PRO,

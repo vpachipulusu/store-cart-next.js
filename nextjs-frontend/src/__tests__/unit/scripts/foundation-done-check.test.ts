@@ -254,6 +254,15 @@ describe('scanForServerSecrets', () => {
     ]);
   });
 
+  it('applies the e2e tooling allowance to destructured reads too', () => {
+    const findings = scanForServerSecrets([
+      file('scripts/e2e-env.cjs', 'const { FIREBASE_ADMIN_PRIVATE_KEY } = process.env;'),
+      file('src/lib/a.ts', 'const { FIREBASE_ADMIN_PRIVATE_KEY } = process.env;'),
+    ]);
+
+    expect(findings.map((f) => f.path)).toEqual(['src/lib/a.ts']);
+  });
+
   it('flags server-only dependencies in package.json', () => {
     const pkg = JSON.stringify({
       dependencies: {

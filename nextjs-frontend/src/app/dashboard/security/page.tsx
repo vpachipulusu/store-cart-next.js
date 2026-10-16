@@ -35,6 +35,7 @@ import { Key, Loader2, Clock, ShieldCheck, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ReauthDialog } from '@/components/auth/reauth-dialog';
 import { reauthenticate, restoreSessionWithNewPassword } from '@/lib/firebase/reauth';
+import { setSessionRefreshPaused } from '@/lib/firebase/session-refresh-pause';
 import { auth } from '@/lib/firebase/client';
 import { signOut } from 'firebase/auth';
 
@@ -105,6 +106,9 @@ export default function SecurityPage() {
 
     try {
       setIsChangingPassword(true);
+      // The re-authentication and re-sign-in below are ID token changes; keep the background session refresh
+      // from racing the revoked cookie.
+      setSessionRefreshPaused(true);
 
       // Re-authenticate with the CURRENT password; the backend only accepts an ID token minted in the last
       // five minutes through the password provider.
@@ -157,6 +161,7 @@ export default function SecurityPage() {
         variant: 'destructive',
       });
     } finally {
+      setSessionRefreshPaused(false);
       setIsChangingPassword(false);
     }
   }

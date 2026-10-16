@@ -209,7 +209,9 @@ function scanFile(file: SourceFile): Finding[] {
   if (fileFindings.length > 0) return fileFindings;
   const seen = new Set(lineFindings.map((f) => `${f.line}:${f.rule}:${f.match}`));
   const destructuringFindings = scanEnvDestructuring(file.path, file.content).filter(
-    (f) => !seen.has(`${f.line}:${f.rule}:${f.match}`)
+    (f) =>
+      !seen.has(`${f.line}:${f.rule}:${f.match}`) &&
+      !(E2E_TOOLING_PATHS.has(f.path) && E2E_TOOLING_ALLOWED_ENV.test(f.match))
   );
   return [...dependencyFindings, ...lineFindings, ...destructuringFindings];
 }

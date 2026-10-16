@@ -12,14 +12,18 @@ vi.mock('next/headers', () => ({
 }));
 
 import {
+  changeBackendPassword,
   createBackendSession,
   fetchLoginHistory,
   fetchProfile,
+  fetchSessionStatus,
   patchAvatar,
   revokeBackendSession,
   toLoginHistoryEntry,
   toProfile,
+  verifyBackendIdToken,
 } from '@/lib/api/account';
+import { INVALID_SESSION_CODE, readSessionStatus } from '@/lib/auth/verified-session';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -106,6 +110,72 @@ describe('account wrappers', () => {
     expect(url.pathname).toBe('/v1/me/login-history');
     expect(url.searchParams.get('limit')).toBe('25');
     expect(url.searchParams.get('offset')).toBe('50');
+  });
+
+  it('fetchSessionStatus GETs /v1/auth/session/status with the session cookie and internal key (KAN-208)', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ success: true, data: { uid: 'u1', email: 'a@b.test', email_verified: true } })
+    );
+
+    const result = await fetchSessionStatus();
+
+    expect(result).toEqual({
+      success: true,
+      data: { uid: 'u1', email: 'a@b.test', email_verified: true },
+    });
+    const request = fetchMock.mock.calls[0][0];
+    expect(request.method).toBe('GET');
+    expect(request.url).toBe('http://backend.test/v1/auth/session/status');
+    expect(request.headers.get('X-Session-Token')).toBe('firebase-session-cookie');
+    expect(request.headers.get('X-Internal-Key')).toBe('server-key');
+  });
+
+  it('a revoked session answered by the real backend body becomes the invalid-session error (KAN-208)', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ success: false, error: 'Invalid authentication' }, 401)
+    );
+
+    await expect(readSessionStatus()).rejects.toMatchObject({ code: INVALID_SESSION_CODE });
+  });
+
+  it('an outage answered by the backend is not an invalid-session error (KAN-208)', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ success: false, error: 'Service unavailable' }, 503));
+
+    const failure = await readSessionStatus().catch((error: Error) => error);
+
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as { code?: string }).code).toBeUndefined();
+  });
+
+  it('verifyBackendIdToken POSTs the token to /v1/auth/id-token/verify WITHOUT the session cookie (KAN-208)', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ success: true, data: { uid: 'u1', email: 'a@b.test', email_verified: false } })
+    );
+
+    await verifyBackendIdToken('the-id-token');
+
+    const request = fetchMock.mock.calls[0][0];
+    expect(request.method).toBe('POST');
+    expect(request.url).toBe('http://backend.test/v1/auth/id-token/verify');
+    expect(request.headers.get('X-Session-Token')).toBeNull();
+    expect(request.headers.get('X-Internal-Key')).toBe('server-key');
+    expect(await request.json()).toEqual({ id_token: 'the-id-token' });
+  });
+
+  it('changeBackendPassword PUTs both secrets to /v1/me/password with the session cookie (KAN-208)', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ success: true }));
+
+    await changeBackendPassword('fresh-id-token', 'new-password-1');
+
+    const request = fetchMock.mock.calls[0][0];
+    expect(request.method).toBe('PUT');
+    expect(request.url).toBe('http://backend.test/v1/me/password');
+    expect(request.headers.get('X-Session-Token')).toBe('firebase-session-cookie');
+    expect(request.headers.get('X-Internal-Key')).toBe('server-key');
+    expect(await request.json()).toEqual({
+      id_token: 'fresh-id-token',
+      new_password: 'new-password-1',
+    });
   });
 
   it('revokeBackendSession surfaces the status of a rejected session', async () => {

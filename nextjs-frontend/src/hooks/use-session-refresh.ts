@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { auth } from '@/lib/firebase/client';
 import { onIdTokenChanged, signOut } from 'firebase/auth';
 import { refreshSessionAction } from '@/app/actions/auth-actions';
+import { isSessionRefreshPaused } from '@/lib/firebase/session-refresh-pause';
 
 /**
  * Refreshes the server session cookie through the API with a fresh ID token. When the API refuses
@@ -29,7 +30,7 @@ export function useSessionRefresh() {
   useEffect(() => {
     // Listen for token changes (Firebase auto-refreshes ~every hour)
     const unsubscribe = onIdTokenChanged(auth, async (user) => {
-      if (user) {
+      if (user && !isSessionRefreshPaused()) {
         try {
           const idToken = await user.getIdToken();
           await refreshOrSignIn(idToken);
@@ -43,7 +44,7 @@ export function useSessionRefresh() {
     const interval = setInterval(
       async () => {
         const user = auth.currentUser;
-        if (user) {
+        if (user && !isSessionRefreshPaused()) {
           try {
             const idToken = await user.getIdToken(true); // Force refresh
             await refreshOrSignIn(idToken);
