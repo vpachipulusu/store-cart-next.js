@@ -1,10 +1,16 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { SESSION_EXPIRED, navigationMock, redirectTarget, rejection } from './route-test-helpers';
+import {
+  REVOKED_SESSION,
+  SESSION_CHECK_DOWN,
+  navigationMock,
+  redirectTarget,
+  rejection,
+} from './route-test-helpers';
 
 const mocks = vi.hoisted(() => ({
   cookieGet: vi.fn(),
-  verifySessionCookie: vi.fn(),
+  fetchSessionStatus: vi.fn(),
   fetchProfile: vi.fn(),
   loggerError: vi.fn(),
   loggerWarn: vi.fn(),
@@ -13,10 +19,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('next/navigation', () => navigationMock);
 vi.mock('next/headers', () => ({ cookies: async () => ({ get: mocks.cookieGet }) }));
-vi.mock('@/lib/firebase/admin', () => ({
-  getAdminAuth: () => ({ verifySessionCookie: mocks.verifySessionCookie }),
+vi.mock('@/lib/api/account', () => ({
+  fetchProfile: mocks.fetchProfile,
+  fetchSessionStatus: mocks.fetchSessionStatus,
 }));
-vi.mock('@/lib/api/account', () => ({ fetchProfile: mocks.fetchProfile }));
 vi.mock('@/lib/logger', () => ({
   logger: { error: mocks.loggerError, warn: mocks.loggerWarn },
 }));
@@ -68,7 +74,10 @@ describe('AdminLayout access check', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.cookieGet.mockReturnValue({ value: 'cookie-value' });
-    mocks.verifySessionCookie.mockResolvedValue({ uid: 'uid-1', email_verified: true });
+    mocks.fetchSessionStatus.mockResolvedValue({
+      success: true,
+      data: { uid: 'uid-1', email_verified: true },
+    });
     mocks.fetchProfile.mockResolvedValue(profile());
   });
 
@@ -117,7 +126,10 @@ describe('AdminLayout access check', () => {
   });
 
   it('sends an unverified admin to /verify-email without calling the backend (KAN-123)', async () => {
-    mocks.verifySessionCookie.mockResolvedValue({ uid: 'uid-1', email_verified: false });
+    mocks.fetchSessionStatus.mockResolvedValue({
+      success: true,
+      data: { uid: 'uid-1', email_verified: false },
+    });
 
     const error = await rejection(AdminLayout({ children: null }));
 
@@ -125,8 +137,19 @@ describe('AdminLayout access check', () => {
     expect(mocks.fetchProfile).not.toHaveBeenCalled();
   });
 
-  it('redirects to /login when the session cookie has expired', async () => {
-    mocks.verifySessionCookie.mockRejectedValue(SESSION_EXPIRED);
+  it('does not log the admin out when the session check is down (fails closed, logged)', async () => {
+    mocks.fetchSessionStatus.mockResolvedValue(SESSION_CHECK_DOWN);
+
+    const error = await rejection(AdminLayout({ children: null }));
+
+    expect(redirectTarget(error)).toBeNull();
+    expect((error as Error).message).toBe('Session status check failed');
+    expect(mocks.loggerError).toHaveBeenCalledTimes(1);
+    expect(mocks.fetchProfile).not.toHaveBeenCalled();
+  });
+
+  it('redirects to /login when the backend reports the session revoked or expired', async () => {
+    mocks.fetchSessionStatus.mockResolvedValue(REVOKED_SESSION);
 
     const error = await rejection(AdminLayout({ children: null }));
 

@@ -32,7 +32,7 @@ async function getUser() {
       return null;
     }
 
-    const decodedClaims = await verifyVerifiedSessionCookie(sessionCookie);
+    const decodedClaims = await verifyVerifiedSessionCookie();
     uid = decodedClaims.uid;
 
     // Display name and avatar come from the API (the session cookie is forwarded to the backend).
@@ -49,7 +49,7 @@ async function getUser() {
     }
 
     return {
-      ...decodedClaims,
+      email: decodedClaims.email,
       dbDisplayName: profile.data.display_name,
       dbAvatarUrl: profile.data.avatar_url,
     };
@@ -118,7 +118,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
             <DashboardHeader
               user={{
                 email: user.email,
-                picture: user.picture,
                 dbDisplayName: user.dbDisplayName,
                 dbAvatarUrl: user.dbAvatarUrl,
               }}

@@ -34,16 +34,8 @@ The e2e user credentials (`TEST_USER_EMAIL`, `TEST_USER_PASSWORD`) are written t
 `npm run test:setup`; do not hand-edit them. Required in `.env.local`:
 
 ```env
-# Stripe keys (test mode)
+# Stripe (test mode). The secret key, webhook secret and price IDs belong to the backend service, not here.
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
-STRIPE_SECRET_KEY=sk_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-
-# Stripe price IDs
-STRIPE_PRICE_ID_PRO_MONTHLY=price_...
-STRIPE_PRICE_ID_PRO_YEARLY=price_...
-STRIPE_PRICE_ID_ENTERPRISE_MONTHLY=price_...
-STRIPE_PRICE_ID_ENTERPRISE_YEARLY=price_...
 ```
 
 ### 2. Test User Setup
@@ -298,8 +290,6 @@ These tests are configured to run in CI:
   env:
     TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
     TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
-    STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
-    STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
 ```
 
 ## Related Files

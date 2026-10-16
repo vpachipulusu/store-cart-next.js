@@ -19,12 +19,12 @@ describe('scanForServerSecrets', () => {
   it('flags DATABASE_URL anywhere, including the Prisma schema and env templates', () => {
     const findings = scanForServerSecrets([
       file('prisma/schema.prisma', 'url = env("DATABASE_URL")'),
-      file('.env.example', 'DATABASE_URL=postgresql://localhost/db'),
+      file('docker/.env.example', 'DATABASE_URL=postgresql://localhost/db'),
     ]);
 
     expect(findings).toEqual([
       { path: 'prisma/schema.prisma', line: 1, rule: 'server-secret-env', match: 'DATABASE_URL' },
-      { path: '.env.example', line: 1, rule: 'server-secret-env', match: 'DATABASE_URL' },
+      { path: 'docker/.env.example', line: 1, rule: 'server-secret-env', match: 'DATABASE_URL' },
     ]);
   });
 
@@ -131,13 +131,13 @@ describe('scanForServerSecrets', () => {
           'process.env.BACKEND_INTERNAL_KEY',
         ].join('\n')
       ),
-      file('.env.example', 'OPENAI_API_KEY=\nNEXT_PUBLIC_APP_URL=http://localhost:3000'),
+      file('docker/.env.example', 'OPENAI_API_KEY=\nNEXT_PUBLIC_APP_URL=http://localhost:3000'),
     ]);
 
     expect(findings.map((f) => `${f.path}:${f.line}:${f.match}`)).toEqual([
       'src/lib/a.ts:1:GOOGLE_CLIENT_SECRET',
       'src/lib/a.ts:2:UPSTASH_REDIS_REST_TOKEN',
-      '.env.example:1:OPENAI_API_KEY',
+      'docker/.env.example:1:OPENAI_API_KEY',
     ]);
   });
 
@@ -172,9 +172,106 @@ describe('scanForServerSecrets', () => {
     ]);
   });
 
+  it.each([
+    ["import Stripe from 'stripe';", 'stripe'],
+    ["const Stripe = require('stripe');", 'stripe'],
+    ["import { x } from 'stripe/cjs/stripe.core';", 'stripe/cjs/stripe.core'],
+    ["import { getStripeServerClient } from '@/lib/stripe/server';", '@/lib/stripe/server'],
+  ])('flags the Stripe server SDK in %s', (source, match) => {
+    const findings = scanForServerSecrets([file('src/lib/a.ts', source)]);
+
+    expect(findings).toEqual([{ path: 'src/lib/a.ts', line: 1, rule: 'stripe-import', match }]);
+  });
+
+  it('does not flag the client-side Stripe SDK or look-alike module names', () => {
+    const findings = scanForServerSecrets([
+      file(
+        'src/lib/a.ts',
+        "import { loadStripe } from '@stripe/stripe-js';\nimport x from '@/lib/stripe/return-urls';\nimport y from 'stripe-utils';"
+      ),
+    ]);
+
+    expect(findings).toEqual([]);
+  });
+
+  it('flags the removed firebase-admin wrapper module', () => {
+    const findings = scanForServerSecrets([
+      file('src/a.ts', "import { getAdminAuth } from '@/lib/firebase/admin';"),
+    ]);
+
+    expect(findings.map((f) => f.rule)).toEqual(['firebase-admin-import']);
+  });
+
+  it.each([
+    ['const { STRIPE_SECRET_KEY } = process.env;', 'STRIPE_SECRET_KEY'],
+    ['const { MY_SERVICE_API_KEY: key } = process.env;', 'MY_SERVICE_API_KEY'],
+    ['const { A_TOKEN = "x" } = process.env as Record<string, string>;', 'A_TOKEN'],
+    ['let { NEXT_PUBLIC_X, SOME_PRIVATE_KEY } = process.env;', 'SOME_PRIVATE_KEY'],
+  ])('flags a destructured process.env read: %s', (source, match) => {
+    const findings = scanForServerSecrets([file('src/lib/a.ts', source)]);
+
+    expect(findings.map((f) => f.match)).toEqual([match]);
+  });
+
+  it('flags a multi-line destructured read on the line of the secret', () => {
+    const findings = scanForServerSecrets([
+      file(
+        'src/lib/a.ts',
+        ['const {', '  NEXT_PUBLIC_OK,', '  HIDDEN_SECRET,', '} = process.env;'].join('\n')
+      ),
+    ]);
+
+    expect(findings).toEqual([
+      { path: 'src/lib/a.ts', line: 3, rule: 'server-secret-env', match: 'HIDDEN_SECRET' },
+    ]);
+  });
+
+  it('does not flag destructuring of public variables or of other objects', () => {
+    const findings = scanForServerSecrets([
+      file(
+        'src/lib/a.ts',
+        'const { NEXT_PUBLIC_APP_URL } = process.env;\nconst { API_KEY } = config;'
+      ),
+    ]);
+
+    expect(findings).toEqual([]);
+  });
+
+  it('allows the e2e Firebase service account only in the e2e account tooling', () => {
+    const tooling = scanForServerSecrets([
+      file('scripts/e2e-accounts.mjs', 'env.FIREBASE_ADMIN_PRIVATE_KEY'),
+      file('scripts/e2e-env.cjs', "'FIREBASE_ADMIN_PROJECT_ID'"),
+    ]);
+    const elsewhere = scanForServerSecrets([
+      file('src/lib/a.ts', 'process.env.FIREBASE_ADMIN_PRIVATE_KEY'),
+      file('scripts/e2e-accounts.mjs', 'process.env.STRIPE_SECRET_KEY'),
+    ]);
+
+    expect(tooling).toEqual([]);
+    expect(elsewhere.map((f) => `${f.path}:${f.match}`)).toEqual([
+      'src/lib/a.ts:FIREBASE_ADMIN_PRIVATE_KEY',
+      'scripts/e2e-accounts.mjs:STRIPE_SECRET_KEY',
+    ]);
+  });
+
+  it('applies the e2e tooling allowance to destructured reads too', () => {
+    const findings = scanForServerSecrets([
+      file('scripts/e2e-env.cjs', 'const { FIREBASE_ADMIN_PRIVATE_KEY } = process.env;'),
+      file('src/lib/a.ts', 'const { FIREBASE_ADMIN_PRIVATE_KEY } = process.env;'),
+    ]);
+
+    expect(findings.map((f) => f.path)).toEqual(['src/lib/a.ts']);
+  });
+
   it('flags server-only dependencies in package.json', () => {
     const pkg = JSON.stringify({
-      dependencies: { next: '16.0.0', '@prisma/client': '6.0.0', 'firebase-admin': '13.0.0' },
+      dependencies: {
+        next: '16.0.0',
+        '@prisma/client': '6.0.0',
+        'firebase-admin': '13.0.0',
+        stripe: '18.0.0',
+        '@stripe/stripe-js': '5.0.0',
+      },
       devDependencies: { prisma: '6.0.0' },
     });
 
@@ -183,6 +280,7 @@ describe('scanForServerSecrets', () => {
     expect(findings.map((f) => `${f.rule}:${f.match}`)).toEqual([
       'server-only-dependency:@prisma/client',
       'server-only-dependency:firebase-admin',
+      'server-only-dependency:stripe',
       'server-only-dependency:prisma',
     ]);
   });
@@ -210,7 +308,7 @@ describe('runDoneCheck', () => {
     const runE2E = vi.fn();
 
     const result = await runDoneCheck({
-      files: [file('.env.example', 'DATABASE_URL=x')],
+      files: [file('docker/.env.example', 'DATABASE_URL=x')],
       backendUrl: 'http://localhost:8000',
       checkHealth,
       runE2E,
@@ -288,5 +386,15 @@ describe('runDoneCheck', () => {
       ok: false,
       reason: expect.stringContaining('spawn npx ENOENT'),
     });
+  });
+});
+
+describe('pending template cleanup', () => {
+  it('does not scan the coordinator-owned .env.example template (remove once it is clean)', () => {
+    const findings = scanForServerSecrets([
+      file('.env.example', 'DATABASE_URL=x\nSTRIPE_SECRET_KEY=y'),
+    ]);
+
+    expect(findings).toEqual([]);
   });
 });

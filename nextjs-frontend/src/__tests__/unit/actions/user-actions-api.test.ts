@@ -4,7 +4,7 @@
  * Keeps the guarantees of KAN-123 (verified session only), KAN-126 (only safe profile fields reach the
  * browser) and KAN-170 (no raw error text, no secrets in logs).
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const SECRET = 'SECRET-sk_live_abc123 postgres://user:pw@host/db';
 
@@ -15,8 +15,7 @@ const mocks = vi.hoisted(() => ({
   patchProfile: vi.fn(),
   patchAvatar: vi.fn(),
   patchSettings: vi.fn(),
-  verifySessionCookie: vi.fn(),
-  updateUser: vi.fn(),
+  changeBackendPassword: vi.fn(),
   cookieGet: vi.fn(),
   logError: vi.fn(),
   logWarn: vi.fn(),
@@ -24,12 +23,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('next/headers', () => ({
   cookies: async () => ({ get: mocks.cookieGet }),
-}));
-vi.mock('@/lib/firebase/admin', () => ({
-  getAdminAuth: () => ({
-    verifySessionCookie: mocks.verifySessionCookie,
-    updateUser: mocks.updateUser,
-  }),
 }));
 vi.mock('@/lib/api/account', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api/account')>('@/lib/api/account');
@@ -43,6 +36,7 @@ vi.mock('@/lib/api/account', async () => {
     patchProfile: mocks.patchProfile,
     patchAvatar: mocks.patchAvatar,
     patchSettings: mocks.patchSettings,
+    changeBackendPassword: mocks.changeBackendPassword,
   };
 });
 vi.mock('@/lib/logger', () => ({
@@ -416,68 +410,75 @@ describe('API failures', () => {
   });
 });
 
-describe('changePasswordAction', () => {
-  const fetchMock = vi.fn();
-  const verified = { uid: 'uid-1', email: 'a@b.test', email_verified: true };
+describe('changePasswordAction (KAN-208: forwarded to the backend)', () => {
+  const ID_TOKEN = 'fresh-id-token';
+  const NEW_PASSWORD = 'newpw-Hunter2!';
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('fetch', fetchMock);
-    vi.stubEnv('NEXT_PUBLIC_FIREBASE_API_KEY', 'test-api-key');
-    mocks.cookieGet.mockReturnValue({ value: 'session-cookie' });
-    mocks.verifySessionCookie.mockResolvedValue(verified);
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.unstubAllEnvs();
-  });
+  it('forwards the ID token and the new password to the backend', async () => {
+    mocks.changeBackendPassword.mockResolvedValue(ok({}));
 
-  it('changes the password for the verified session user', async () => {
-    fetchMock.mockResolvedValue({ ok: true });
-    mocks.updateUser.mockResolvedValue({});
-
-    const result = await changePasswordAction('oldpw-Hunter1!', 'newpw-Hunter2!');
+    const result = await changePasswordAction(ID_TOKEN, NEW_PASSWORD);
 
     expect(result).toEqual({ success: true, data: { message: 'Password changed successfully' } });
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ email: 'a@b.test' });
-    expect(mocks.updateUser).toHaveBeenCalledWith('uid-1', { password: 'newpw-Hunter2!' });
-    expect(mocks.verifySessionCookie).toHaveBeenCalledWith('session-cookie', true);
+    expect(mocks.changeBackendPassword).toHaveBeenCalledTimes(1);
+    expect(mocks.changeBackendPassword).toHaveBeenCalledWith(ID_TOKEN, NEW_PASSWORD);
   });
 
-  it('rejects an unverified user without touching Firebase', async () => {
-    mocks.verifySessionCookie.mockResolvedValue({ ...verified, email_verified: false });
+  it.each([401, 403])(
+    'maps a %s from the backend to "Re-authentication required"',
+    async (status) => {
+      mocks.changeBackendPassword.mockResolvedValue(failure(status));
 
-    expect(await changePasswordAction('old', 'newpassword')).toEqual({
+      expect(await changePasswordAction(ID_TOKEN, NEW_PASSWORD)).toEqual({
+        success: false,
+        error: 'Re-authentication required',
+      });
+    }
+  );
+
+  it('maps a 422 to "Password does not meet requirements"', async () => {
+    mocks.changeBackendPassword.mockResolvedValue(failure(422));
+
+    expect(await changePasswordAction(ID_TOKEN, NEW_PASSWORD)).toEqual({
       success: false,
-      error: 'Unauthorized',
-    });
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(mocks.updateUser).not.toHaveBeenCalled();
-    expect(mocks.logWarn).toHaveBeenCalled();
-  });
-
-  it('rejects a revoked or missing session', async () => {
-    mocks.verifySessionCookie.mockRejectedValue(
-      Object.assign(new Error('revoked'), { code: 'auth/session-cookie-revoked' })
-    );
-    expect(await changePasswordAction('old', 'newpassword')).toMatchObject({
-      error: 'Unauthorized',
-    });
-
-    mocks.cookieGet.mockReturnValue(undefined);
-    expect(await changePasswordAction('old', 'newpassword')).toMatchObject({
-      error: 'Unauthorized',
+      error: 'Password does not meet requirements',
     });
   });
 
-  it('hides a Firebase admin failure, never logs the passwords, and logs the error name', async () => {
-    fetchMock.mockResolvedValue({ ok: true });
-    mocks.updateUser.mockRejectedValue(
-      Object.assign(new Error(`${SECRET} newpw-Hunter2!`), { code: 'auth/internal-error' })
+  it('maps a 429 to the rate-limit message', async () => {
+    mocks.changeBackendPassword.mockResolvedValue(failure(429));
+
+    expect(await changePasswordAction(ID_TOKEN, NEW_PASSWORD)).toEqual({
+      success: false,
+      error: 'Too many attempts. Try again later.',
+    });
+  });
+
+  it.each([500, 503, undefined])(
+    'hides a %s backend failure behind a generic message and never logs the passwords',
+    async (status) => {
+      mocks.changeBackendPassword.mockResolvedValue(failure(status));
+
+      const result = await changePasswordAction(ID_TOKEN, NEW_PASSWORD);
+
+      expectNoLeak(result, 'Failed to change password');
+      expect(mocks.logError).toHaveBeenCalled();
+      expect(loggedPayload()).not.toContain('SECRET');
+      expect(loggedPayload()).not.toContain('Hunter');
+      expect(loggedPayload()).not.toContain(ID_TOKEN);
+    }
+  );
+
+  it('hides an unexpected exception, never logs the passwords, and logs the error name', async () => {
+    mocks.changeBackendPassword.mockRejectedValue(
+      Object.assign(new Error(`${SECRET} ${NEW_PASSWORD}`), { code: 'auth/internal-error' })
     );
 
-    const result = await changePasswordAction('oldpw-Hunter1!', 'newpw-Hunter2!');
+    const result = await changePasswordAction(ID_TOKEN, NEW_PASSWORD);
 
     expectNoLeak(result, 'Failed to change password');
     expect(mocks.logError).toHaveBeenCalledWith(
@@ -488,37 +489,33 @@ describe('changePasswordAction', () => {
     expect(loggedPayload()).not.toContain('Hunter');
   });
 
-  it('hides a network failure of the current-password check', async () => {
-    fetchMock.mockRejectedValue(new Error(SECRET));
-
-    expectNoLeak(await changePasswordAction('old', 'newpassword'), 'Failed to change password');
-    expect(loggedPayload()).not.toContain('SECRET');
-  });
-
-  it('still tells the signed-in user their current password is wrong', async () => {
-    fetchMock.mockResolvedValue({ ok: false });
-
-    expect(await changePasswordAction('wrong', 'newpassword')).toEqual({
+  it.each([
+    ['empty', ''],
+    ['not a string', undefined],
+  ])('requires an ID token (%s) without calling the backend', async (_label, token) => {
+    expect(await changePasswordAction(token as never, NEW_PASSWORD)).toEqual({
       success: false,
-      error: 'Current password is incorrect',
+      error: 'Re-authentication required',
     });
-    expect(mocks.updateUser).not.toHaveBeenCalled();
+    expect(mocks.changeBackendPassword).not.toHaveBeenCalled();
   });
 
-  it('keeps the real new-password validation message', async () => {
-    expect(await changePasswordAction('old', 'short')).toEqual({
+  it('keeps the real new-password length messages without calling the backend', async () => {
+    expect(await changePasswordAction(ID_TOKEN, 'short')).toEqual({
       success: false,
       error: 'New password must be at least 8 characters long',
     });
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await changePasswordAction(ID_TOKEN, 'x'.repeat(129))).toEqual({
+      success: false,
+      error: 'New password must be at most 128 characters long',
+    });
+    expect(mocks.changeBackendPassword).not.toHaveBeenCalled();
   });
 
-  it('reports a missing Firebase API key as a configuration error', async () => {
-    vi.stubEnv('NEXT_PUBLIC_FIREBASE_API_KEY', '');
+  it('accepts the boundary lengths 8 and 128', async () => {
+    mocks.changeBackendPassword.mockResolvedValue(ok({}));
 
-    expect(await changePasswordAction('old', 'newpassword')).toEqual({
-      success: false,
-      error: 'Server configuration error',
-    });
+    expect((await changePasswordAction(ID_TOKEN, 'x'.repeat(8))).success).toBe(true);
+    expect((await changePasswordAction(ID_TOKEN, 'x'.repeat(128))).success).toBe(true);
   });
 });

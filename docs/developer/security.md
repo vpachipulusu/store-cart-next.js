@@ -16,7 +16,7 @@ The unauthenticated auth actions and the `/api/auth/signup`, `/api/auth/login` a
 ## Server secrets and database access
 
 - After Foundation, the frontend holds no `DATABASE_URL`, no Firebase Admin credentials, and no other server secrets. FastAPI owns them.
-- The frontend no longer has Prisma or a database (KAN-51). It still uses the Firebase Admin SDK and a Stripe secret key in a few allow-listed files (`eslint.config.mjs`); do not add more.
+- The frontend no longer has Prisma or a database (KAN-51). It no longer has the Firebase Admin SDK or Stripe either (KAN-208): ESLint blocks `stripe`, `firebase-admin`, `@/lib/firebase/admin` and `@/lib/stripe/server` everywhere, with no allow-list, and CI runs `npm run foundation:scan`.
 - **Planned, not yet implemented:** the frontend calls FastAPI from the server only, with the internal service key `BACKEND_INTERNAL_KEY`, sent as the `X-Internal-Key` header (ADR-003). The key is held only in the project's server environment, a separate key per environment (ADR-011, ADR-003). On `main`, nothing in `fastapi_backend/app` checks this header, and the variable is not in `.env.example`.
 - Open question: the service key is itself a server secret in the Next.js environment, and the done-check does not flag it. Decide before KAN-51 is closed whether it counts under the Foundation rule. See [known-issues.md](known-issues.md#open-questions).
 - Never put a secret in a `NEXT_PUBLIC_*` variable; anything with that prefix is bundled into the browser.

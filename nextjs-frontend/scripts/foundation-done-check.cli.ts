@@ -1,6 +1,7 @@
 /**
  * CLI for the Foundation done-check (KAN-113): `npm run foundation:check`.
  * Scans every git-tracked file in nextjs-frontend/, then runs the e2e suite against FastAPI at BACKEND_API_URL.
+ * `--scan-only` (`npm run foundation:scan`) stops after the scan; CI runs that (KAN-208).
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -9,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import {
   BACKEND_URL_ENV,
   runDoneCheck,
+  scanForServerSecrets,
   type Finding,
   type SourceFile,
 } from './foundation-done-check';
@@ -83,7 +85,26 @@ function printFindings(findings: readonly Finding[]): void {
   }
 }
 
+function scanOnly(): boolean {
+  const findings = scanForServerSecrets(frontendFiles());
+  if (findings.length === 0) {
+    process.stdout.write(
+      'Foundation scan passed: no server secrets or backend SDKs in the frontend.\n'
+    );
+    return true;
+  }
+  printFindings(findings);
+  process.stderr.write(
+    `\nFoundation scan FAILED: ${findings.length} reference(s) to database access or server secrets remain in the frontend\n`
+  );
+  return false;
+}
+
 async function main(): Promise<void> {
+  if (process.argv.includes('--scan-only')) {
+    if (!scanOnly()) process.exitCode = 1;
+    return;
+  }
   const result = await runDoneCheck({
     files: frontendFiles(),
     backendUrl: process.env[BACKEND_URL_ENV],

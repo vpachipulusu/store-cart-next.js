@@ -27,13 +27,23 @@ setup('verify e2e environment', async ({ page }) => {
 });
 
 const ROLES = [
-  { role: 'user', account: TEST_USER, envName: 'TEST_USER_EMAIL' },
-  { role: 'admin', account: TEST_ADMIN, envName: 'TEST_ADMIN_EMAIL' },
+  {
+    role: 'user',
+    account: TEST_USER,
+    envName: 'TEST_USER_EMAIL',
+    configured: Boolean(process.env.TEST_USER_EMAIL),
+  },
+  {
+    role: 'admin',
+    account: TEST_ADMIN,
+    envName: 'TEST_ADMIN_EMAIL',
+    configured: Boolean(process.env.TEST_ADMIN_EMAIL),
+  },
 ] as const;
 
-for (const { role, account, envName } of ROLES) {
+for (const { role, account, envName, configured } of ROLES) {
   setup(`log in once as ${role}`, async ({ page }) => {
-    setup.skip(!process.env[envName], `${envName} not configured; run \`npm run test:setup\``);
+    setup.skip(!configured, `${envName} not configured; run \`npm run test:setup\``);
 
     // Fails with a clear message if Firebase Email/Password sign-in is disabled.
     await loginViaUI(page, account.email, account.password);

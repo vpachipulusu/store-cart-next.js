@@ -60,8 +60,13 @@ describe('KAN-140: per-user segments render on demand', () => {
     ['admin layout (covers every /admin route)', '@/app/(admin)/admin/layout'],
     ['dashboard layout (covers every /dashboard route)', '@/app/dashboard/layout'],
     ['pricing page', '@/app/pricing/page'],
-  ])('%s is force-dynamic', async (_name, modulePath) => {
-    const segment = await import(modulePath);
-    expect(segment.dynamic).toBe('force-dynamic');
-  });
+  ])(
+    '%s is force-dynamic',
+    async (_name, modulePath) => {
+      const segment = await import(modulePath);
+      expect(segment.dynamic).toBe('force-dynamic');
+      // The first import transforms the whole route graph, which can pass 5s when the full suite runs in parallel.
+    },
+    30_000
+  );
 });

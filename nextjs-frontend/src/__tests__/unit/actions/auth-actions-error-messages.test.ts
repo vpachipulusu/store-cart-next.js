@@ -8,11 +8,11 @@ const SECRET = 'SECRET-sk_live_abc123 postgres://user:pw@host/db';
 const THROWING_EMAIL = 'boom@example.com';
 
 const mocks = vi.hoisted(() => ({
-  verifyIdToken: vi.fn(),
-  verifySessionCookie: vi.fn(),
-  revokeRefreshTokens: vi.fn(),
-  createSessionCookie: vi.fn(),
+  verifyBackendIdToken: vi.fn(),
+  verifyVerifiedSessionCookie: vi.fn(),
+  readSessionStatus: vi.fn(),
   createBackendSession: vi.fn(),
+  refreshBackendSession: vi.fn(),
   revokeBackendSession: vi.fn(),
   fetchProfile: vi.fn(),
   fetchSettings: vi.fn(),
@@ -28,26 +28,21 @@ vi.mock('next/headers', () => ({
   headers: async () => new Headers({ 'user-agent': 'vitest' }),
   cookies: () => mocks.cookiesFn(),
 }));
-vi.mock('@/lib/firebase/admin', () => ({
-  getAdminAuth: () => ({
-    verifyIdToken: mocks.verifyIdToken,
-    verifySessionCookie: mocks.verifySessionCookie,
-    revokeRefreshTokens: mocks.revokeRefreshTokens,
-    createSessionCookie: mocks.createSessionCookie,
-  }),
-}));
 vi.mock('@/lib/firebase/client', () => ({ auth: {} }));
 vi.mock('firebase/auth', () => ({ applyActionCode: mocks.applyActionCode }));
 vi.mock('@/lib/api/account', () => ({
   createBackendSession: mocks.createBackendSession,
   revokeBackendSession: mocks.revokeBackendSession,
+  refreshBackendSession: mocks.refreshBackendSession,
+  verifyBackendIdToken: mocks.verifyBackendIdToken,
   fetchProfile: mocks.fetchProfile,
   fetchSettings: mocks.fetchSettings,
   toSettings: (settings: unknown) => settings,
 }));
 vi.mock('@/lib/auth/verified-session', () => ({
   isEmailNotVerifiedError: () => false,
-  verifyVerifiedSessionCookie: (...args: unknown[]) => mocks.verifySessionCookie(...args),
+  verifyVerifiedSessionCookie: (...args: unknown[]) => mocks.verifyVerifiedSessionCookie(...args),
+  readSessionStatus: (...args: unknown[]) => mocks.readSessionStatus(...args),
 }));
 // The real schemas never throw, so a schema that does stands in for an unexpected internal failure.
 vi.mock('@/lib/utils/validation', async () => {
@@ -117,30 +112,39 @@ describe('KAN-129: auth actions return generic errors', () => {
     expect(mocks.logError).toHaveBeenCalled();
   });
 
-  it('verifyTokenAction hides a Firebase token verification failure', async () => {
-    mocks.verifyIdToken.mockRejectedValue(new Error(SECRET));
+  it('verifyTokenAction hides a token verification failure from the backend', async () => {
+    mocks.verifyBackendIdToken.mockResolvedValue({ success: false, error: SECRET, status: 401 });
 
     expectNoLeak(await verifyTokenAction('tok'), 'Token verification failed');
   });
 
   it('verifyTokenAction hides a backend failure after the token verified', async () => {
-    mocks.verifyIdToken.mockResolvedValue({ uid: 'u', email: 'a@b.co', email_verified: true });
+    mocks.verifyBackendIdToken.mockResolvedValue({
+      success: true,
+      data: { uid: 'u', email: 'a@b.co', email_verified: true },
+    });
     mocks.createBackendSession.mockResolvedValue({ success: false, error: SECRET, status: 500 });
 
     expectNoLeak(await verifyTokenAction('tok'), 'Token verification failed');
   });
 
   it('verifyTokenAction hides an unexpected exception from the backend wrapper', async () => {
-    mocks.verifyIdToken.mockResolvedValue({ uid: 'u', email: 'a@b.co', email_verified: true });
+    mocks.verifyBackendIdToken.mockResolvedValue({
+      success: true,
+      data: { uid: 'u', email: 'a@b.co', email_verified: true },
+    });
     mocks.createBackendSession.mockRejectedValue(new Error(SECRET));
 
     expectNoLeak(await verifyTokenAction('tok'), 'Token verification failed');
   });
 
-  it('refreshSessionAction hides a Firebase session cookie failure', async () => {
-    mocks.verifyIdToken.mockResolvedValue({ uid: 'u', email: 'a@b.co', email_verified: true });
-    mocks.verifySessionCookie.mockResolvedValue({ uid: 'u' });
-    mocks.createSessionCookie.mockRejectedValue(new Error(SECRET));
+  it('refreshSessionAction hides an unexpected exception from the refresh call', async () => {
+    mocks.verifyBackendIdToken.mockResolvedValue({
+      success: true,
+      data: { uid: 'u', email: 'a@b.co', email_verified: true },
+    });
+    mocks.readSessionStatus.mockResolvedValue({ uid: 'u' });
+    mocks.refreshBackendSession.mockRejectedValue(new Error(SECRET));
 
     expectNoLeak(await refreshSessionAction('tok'), 'Token verification failed');
   });
@@ -156,7 +160,7 @@ describe('KAN-129: auth actions return generic errors', () => {
   });
 
   it('getCurrentSessionAction hides a backend profile failure', async () => {
-    mocks.verifySessionCookie.mockResolvedValue({ uid: 'u' });
+    mocks.verifyVerifiedSessionCookie.mockResolvedValue({ uid: 'u' });
     mocks.fetchProfile.mockResolvedValue({ success: false, error: SECRET, status: 500 });
     mocks.fetchSettings.mockResolvedValue({ success: true, data: {} });
 
@@ -166,7 +170,7 @@ describe('KAN-129: auth actions return generic errors', () => {
   });
 
   it('getCurrentSessionAction clears the session when the backend rejects it', async () => {
-    mocks.verifySessionCookie.mockResolvedValue({ uid: 'u' });
+    mocks.verifyVerifiedSessionCookie.mockResolvedValue({ uid: 'u' });
     mocks.fetchProfile.mockResolvedValue({
       success: false,
       error: 'Invalid authentication',
@@ -178,25 +182,39 @@ describe('KAN-129: auth actions return generic errors', () => {
     expect(mocks.cookieDelete).toHaveBeenCalledWith('session');
   });
 
-  it('logoutAction revokes through Firebase when the backend call fails with a server error', async () => {
+  it('logoutAction retries the backend revocation once when it fails with a server error', async () => {
     mocks.revokeBackendSession.mockResolvedValue({ success: false, error: 'x', status: 503 });
-    mocks.verifySessionCookie.mockResolvedValue({ uid: 'u1' });
+
+    const result = await logoutAction();
+
+    expect(mocks.revokeBackendSession).toHaveBeenCalledTimes(2);
+    expect(mocks.logError).toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(mocks.cookieDelete).toHaveBeenCalledWith('session');
+  });
+
+  it('logoutAction succeeds on the retry without logging an error', async () => {
+    mocks.revokeBackendSession
+      .mockResolvedValueOnce({ success: false, error: 'x', status: 503 })
+      .mockResolvedValueOnce({ success: true, data: {} });
 
     await logoutAction();
 
-    expect(mocks.revokeRefreshTokens).toHaveBeenCalledWith('u1');
+    expect(mocks.revokeBackendSession).toHaveBeenCalledTimes(2);
+    expect(mocks.logError).not.toHaveBeenCalled();
   });
 
-  it('logoutAction does not fall back when the backend already rejected the session', async () => {
+  it('logoutAction does not retry when the backend already rejected the session (401)', async () => {
     mocks.revokeBackendSession.mockResolvedValue({ success: false, error: 'x', status: 401 });
 
     await logoutAction();
 
-    expect(mocks.revokeRefreshTokens).not.toHaveBeenCalled();
+    expect(mocks.revokeBackendSession).toHaveBeenCalledTimes(1);
+    expect(mocks.cookieDelete).toHaveBeenCalledWith('session');
   });
 
   it('getCurrentSessionAction hides a verification or database failure', async () => {
-    mocks.verifySessionCookie.mockRejectedValue(new Error(SECRET));
+    mocks.verifyVerifiedSessionCookie.mockRejectedValue(new Error(SECRET));
 
     expectNoLeak(await getCurrentSessionAction(), 'Session retrieval failed');
   });

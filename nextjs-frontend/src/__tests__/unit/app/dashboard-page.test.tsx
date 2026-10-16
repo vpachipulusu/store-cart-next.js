@@ -6,11 +6,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { NO_BILLING_ORGANIZATION_MESSAGE } from '@/lib/api/billing';
-import { navigationMock, redirectTarget, rejection } from './route-test-helpers';
+import {
+  REVOKED_SESSION,
+  SESSION_CHECK_DOWN,
+  navigationMock,
+  redirectTarget,
+  rejection,
+} from './route-test-helpers';
 
 const mocks = vi.hoisted(() => ({
   cookieGet: vi.fn(),
-  verifySessionCookie: vi.fn(),
+  fetchSessionStatus: vi.fn(),
   fetchProfile: vi.fn(),
   fetchLoginHistory: vi.fn(),
   fetchBillingSummary: vi.fn(),
@@ -19,9 +25,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('next/navigation', () => navigationMock);
 vi.mock('next/headers', () => ({ cookies: async () => ({ get: mocks.cookieGet }) }));
-vi.mock('@/lib/firebase/admin', () => ({
-  getAdminAuth: () => ({ verifySessionCookie: mocks.verifySessionCookie }),
-}));
 vi.mock('@/lib/api/billing', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api/billing')>('@/lib/api/billing');
   return { ...actual, fetchBillingSummary: mocks.fetchBillingSummary };
@@ -35,6 +38,7 @@ vi.mock('@/lib/api/account', async () => {
   return {
     toProfile: actual.toProfile,
     toLoginHistoryEntry: actual.toLoginHistoryEntry,
+    fetchSessionStatus: mocks.fetchSessionStatus,
     fetchProfile: mocks.fetchProfile,
     fetchLoginHistory: mocks.fetchLoginHistory,
   };
@@ -77,7 +81,10 @@ describe('DashboardPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.cookieGet.mockReturnValue({ value: 'cookie-value' });
-    mocks.verifySessionCookie.mockResolvedValue({ uid: 'uid-1', email_verified: true });
+    mocks.fetchSessionStatus.mockResolvedValue({
+      success: true,
+      data: { uid: 'uid-1', email_verified: true },
+    });
     mocks.fetchProfile.mockResolvedValue({ success: true, data: PROFILE });
     mocks.fetchLoginHistory.mockResolvedValue({ success: true, data: HISTORY });
     mocks.fetchBillingSummary.mockResolvedValue({
@@ -286,7 +293,10 @@ describe('DashboardPage', () => {
   );
 
   it('sends an unverified user to /verify-email', async () => {
-    mocks.verifySessionCookie.mockResolvedValue({ uid: 'uid-1', email_verified: false });
+    mocks.fetchSessionStatus.mockResolvedValue({
+      success: true,
+      data: { uid: 'uid-1', email_verified: false },
+    });
 
     expect(redirectTarget(await rejection(page()))).toBe('/verify-email');
   });
@@ -300,12 +310,21 @@ describe('DashboardPage', () => {
     expect(redirectTarget(await rejection(page()))).toBe('/api/auth/clear-session');
   });
 
-  it('clears the session when the Firebase session cookie is revoked', async () => {
-    mocks.verifySessionCookie.mockRejectedValue(
-      Object.assign(new Error('revoked'), { code: 'auth/session-cookie-revoked' })
-    );
+  it('clears the session when the backend reports the session revoked (401 Invalid authentication)', async () => {
+    mocks.fetchSessionStatus.mockResolvedValue(REVOKED_SESSION);
 
     expect(redirectTarget(await rejection(page()))).toBe('/api/auth/clear-session');
+    expect(mocks.fetchProfile).not.toHaveBeenCalled();
+  });
+
+  it('keeps the session and rethrows when the session check is down', async () => {
+    mocks.fetchSessionStatus.mockResolvedValue(SESSION_CHECK_DOWN);
+
+    const error = await rejection(page());
+
+    expect((error as Error).message).toBe('Session status check failed');
+    expect(navigationMock.redirect).not.toHaveBeenCalled();
+    expect(mocks.loggerError).toHaveBeenCalledTimes(1);
   });
 
   it.each([

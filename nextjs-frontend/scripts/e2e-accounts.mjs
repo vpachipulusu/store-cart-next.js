@@ -1,14 +1,13 @@
 /**
  * e2e account helpers (KAN-113), shared by scripts/setup-e2e-accounts.mjs and the Playwright throwaway-user fixture.
- * Every account is created in the Firebase TEST project through the Admin SDK, using the e2e env only
+ * Every account is created in the Firebase TEST project through the Identity Toolkit admin REST API, using the e2e env only
  * (scripts/e2e-env.cjs). The backend creates the matching users row on the first login. Only accounts whose
  * email matches E2E_EMAIL can be touched, so a real user can never be reset or deleted. Nothing here prints a
  * credential.
  */
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { cert, deleteApp, getApps, initializeApp } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
+import { createFirebaseRestAdmin } from './firebase-rest-admin.mjs';
 
 /**
  * user/admin: the shared role accounts. temp: throwaway accounts for state-changing tests, deleted afterwards.
@@ -16,30 +15,22 @@ import { getAuth } from 'firebase-admin/auth';
 export const E2E_EMAIL = /^e2e-(user|admin|temp)-[0-9a-f]{12}@example\.com$/;
 /** Marks the accounts for cleanup (KAN-131). */
 const E2E_CLAIMS = { e2e: true };
-const E2E_ADMIN_APP_NAME = 'e2e-accounts';
 
 export const randomSuffix = () => randomBytes(6).toString('hex');
 export const randomPassword = () => randomBytes(24).toString('base64url');
 
-/** Firebase Admin client for the e2e env. Call `close()` when done. */
+/**
+ * Firebase Auth admin client for the e2e env (Identity Toolkit REST, no firebase-admin dependency, KAN-208).
+ * Call `close()` when done.
+ */
 export function openE2eAccountClients(env) {
-  const app =
-    getApps().find((existing) => existing.name === E2E_ADMIN_APP_NAME) ??
-    initializeApp(
-      {
-        credential: cert({
-          projectId: env.FIREBASE_ADMIN_PROJECT_ID,
-          clientEmail: env.FIREBASE_ADMIN_CLIENT_EMAIL,
-          privateKey: env.FIREBASE_ADMIN_PRIVATE_KEY.replace(/\\n/g, '\n'),
-        }),
-      },
-      E2E_ADMIN_APP_NAME
-    );
   return {
-    auth: getAuth(app),
-    close: async () => {
-      await deleteApp(app);
-    },
+    auth: createFirebaseRestAdmin({
+      projectId: env.FIREBASE_ADMIN_PROJECT_ID,
+      clientEmail: env.FIREBASE_ADMIN_CLIENT_EMAIL,
+      privateKey: env.FIREBASE_ADMIN_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    }),
+    close: async () => {},
   };
 }
 
