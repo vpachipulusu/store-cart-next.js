@@ -104,7 +104,7 @@ KAN-154, 155, 156, 158, 196 and 198 are Done (fixed, or not reproducible on curr
 
 ## Seeding an organisation on Pro (KAN-197)
 
-`loginAsThrowawayAccountOnPro` (`helpers/e2e-utils.ts`) gives a throwaway account an organisation on the Pro plan without Stripe: the saved admin session calls the admin grant API (`PUT /v1/admin/subscriptions/{id}/grant`). It needs the admin grant described above and `BACKEND_INTERNAL_KEY` in the test shell. A grant has no Stripe subscription, so use it for plan-display tests only (pricing "Current Plan"), not for auto-renewal or saved cards.
+`loginAsThrowawayAccountOnPro` (`helpers/e2e-utils.ts`) gives a throwaway account an organisation on the Pro plan without Stripe: the saved admin session calls the admin grant API (`PUT /v1/admin/subscriptions/{id}/grant`). It needs the saved admin session (`auth.setup.ts`), an admin account with the `subscriptions.grant` permission (the `super_admin` insert above gives it) and `BACKEND_INTERNAL_KEY` in the test shell; without the key the tests fail rather than skip. A grant has no Stripe subscription, so use it for plan-display tests only (pricing "Current Plan"), not for auto-renewal or saved cards.
 
 ## Ports
 

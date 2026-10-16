@@ -232,7 +232,7 @@ export async function loginAsThrowawayAccountOnPro(
   });
   if (!response.ok) {
     throw new Error(
-      `Granting Pro to the e2e organisation failed with HTTP ${response.status} (is the admin grant in place? see docs/developer/local-e2e.md)`
+      `Granting Pro to the e2e organisation failed with HTTP ${response.status} (a 401 or 403 means the saved admin session is stale or revoked, or the admin account lacks the subscriptions.grant permission; see docs/developer/local-e2e.md)`
     );
   }
 }

@@ -329,13 +329,7 @@ test.describe('Billing Settings - Payment Methods', () => {
     await navigateToBilling(page);
 
     const paymentCard = page.locator('[class*="card"]').filter({ hasText: /payment methods/i });
-    const hasPaymentMethods = await paymentCard
-      .getByText(/ending in/i)
-      .first()
-      .isVisible()
-      .catch(() => false);
-
-    expect(hasPaymentMethods).toBe(true);
+    await expect(paymentCard.getByText(/ending in/i).first()).toBeVisible();
 
     await expect(paymentCard.getByRole('button', { name: /remove/i }).first()).toBeEnabled();
 
