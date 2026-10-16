@@ -93,7 +93,7 @@ export function StoreSwitcher({ stores, selectedStoreId, variant = 'header' }: S
     });
 
   const handleChange = (storeId: string) => {
-    if (storeId === selected.id) return;
+    if (storeId === selected.id || isPending) return;
     startTransition(async () => {
       try {
         const result = await selectStoreAction(storeId);
@@ -113,12 +113,13 @@ export function StoreSwitcher({ stores, selectedStoreId, variant = 'header' }: S
       <DropdownMenuTrigger
         aria-label="Switch store"
         data-testid="store-switcher"
-        disabled={isPending}
+        aria-busy={isPending}
         className={cn(
           SLOT_CLASS,
           VARIANT_CLASS[variant],
           HOVER_CLASS[variant],
-          'transition-colors disabled:opacity-55'
+          'transition-colors',
+          isPending && 'opacity-70'
         )}
       >
         <StoreText store={selected} variant={variant} />
@@ -136,7 +137,7 @@ export function StoreSwitcher({ stores, selectedStoreId, variant = 'header' }: S
             <DropdownMenuRadioItem
               key={store.id}
               value={store.id}
-              className="min-h-11 flex-col items-start justify-center"
+              className="min-h-11 flex-col items-start justify-center [&>span:first-child]:top-1/2 [&>span:first-child]:-translate-y-1/2"
             >
               <span className="text-sm font-medium">{store.name}</span>
               <span className="text-xs text-muted-foreground">{store.organizationName}</span>
