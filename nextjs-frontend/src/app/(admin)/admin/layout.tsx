@@ -94,7 +94,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             />
           </div>
         </header>
-        <div className="h-px bg-gradient-to-r from-transparent via-theme-accent/20 to-transparent" />
+        <div
+          aria-hidden="true"
+          className="h-px bg-gradient-to-r from-transparent via-theme-accent/20 to-transparent"
+        />
 
         <main
           id="main-content"

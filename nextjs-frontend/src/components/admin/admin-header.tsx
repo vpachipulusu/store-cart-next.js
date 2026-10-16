@@ -62,7 +62,7 @@ export function AdminHeader({ user, adminRole }: AdminHeaderProps) {
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
             <Link href="/dashboard" className="cursor-pointer">
-              <LayoutDashboard className="mr-2 h-4 w-4" aria-hidden="true" />
+              <LayoutDashboard className="me-2 h-4 w-4" aria-hidden="true" />
               <span>Back to Dashboard</span>
             </Link>
           </DropdownMenuItem>
@@ -71,7 +71,7 @@ export function AdminHeader({ user, adminRole }: AdminHeaderProps) {
             onClick={handleLogout}
             className="cursor-pointer text-destructive focus:text-destructive"
           >
-            <LogOut className="mr-2 h-4 w-4" aria-hidden="true" />
+            <LogOut className="me-2 h-4 w-4" aria-hidden="true" />
             <span>Logout</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
