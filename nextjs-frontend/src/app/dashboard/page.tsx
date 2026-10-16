@@ -125,7 +125,7 @@ export default async function DashboardPage({
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   // Await searchParams as per Next.js 15 requirements
-  await searchParams;
+  const { upgrade } = await searchParams;
 
   const user = await getUserData();
 
@@ -135,9 +135,12 @@ export default async function DashboardPage({
 
   // KAN-210: a verified user with no store goes to onboarding. Only here, not in the layout (no pathname,
   // would loop and lock them out of profile/security/billing) or the proxy. A store in any status
-  // (PROVISIONING, FAILED) counts, and an unreadable store list never redirects.
+  // (PROVISIONING, FAILED) counts, and an unreadable store list never redirects. Not straight after a checkout
+  // (?upgrade=success, KAN-157): the page must render so SubscriptionSuccessHandler can confirm the upgrade;
+  // the handler then returns to /dashboard, which redirects as usual. The parameter only skips this nudge, it
+  // grants nothing (the handler verifies the checkout session on the server).
   const storeSelection = await getCurrentStoreSelection();
-  if (storeSelection.available && storeSelection.stores.length === 0) {
+  if (upgrade !== 'success' && storeSelection.available && storeSelection.stores.length === 0) {
     redirect('/dashboard/onboarding');
   }
 
