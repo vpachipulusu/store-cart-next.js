@@ -17,14 +17,7 @@ export type SubscriptionRow = (SubscriptionsResult extends infer R
   ? Extract<R, { success: true }>
   : never)['data']['subscriptions'][number];
 
-export const SUBSCRIPTION_COLUMNS = [
-  'Organisation',
-  'Slug',
-  'Plan',
-  'Status',
-  'Renewal Date',
-  'Actions',
-];
+const SUBSCRIPTION_COLUMNS = ['Organisation', 'Slug', 'Plan', 'Status', 'Renewal Date', 'Actions'];
 
 export function SubscriptionsTable({ subscriptions }: { subscriptions: SubscriptionRow[] }) {
   return (

@@ -87,7 +87,7 @@ function kpiCells(stats: Stats, currencySymbol: string): KpiCell[] {
           id: 'mrr',
           label: 'MRR',
           state: 'ready',
-          value: `${currencySymbol}${stats.mrr.toLocaleString()}`,
+          value: `${currencySymbol}${stats.mrr.toLocaleString('en-GB')}`,
         },
   ];
 }
@@ -128,7 +128,7 @@ export default async function AdminSubscriptionsPage() {
             <CardContent>
               {stats.recentSubscriptions.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <h3 className="mb-2 text-lg font-semibold">No Active Subscriptions</h3>
+                  <p className="mb-2 text-lg font-semibold">No Active Subscriptions</p>
                   <p className="max-w-md text-sm text-muted-foreground">
                     There are no active paid subscriptions yet. When users upgrade to Pro or
                     Enterprise plans, they will appear here automatically.

@@ -172,6 +172,20 @@ describe('admin audit logs page', () => {
     expect(markup).toContain('aria-label="Audit log entries"');
   });
 
+  it('labels timestamps as UTC and leaves an unparsable one empty', async () => {
+    mocks.fetchAdminAuditLogs.mockResolvedValue(
+      auditPage([
+        { ...ENTRY, id: 'a', created_at: '2026-01-05T14:03:00Z' },
+        { ...ENTRY, id: 'b', created_at: 'garbage' },
+      ])
+    );
+
+    const markup = html(await AdminAuditLogsPage());
+
+    expect(markup).toContain('5 Jan 2026, 14:03 UTC');
+    expect(markup).not.toContain('Invalid Date');
+  });
+
   it('gives screen readers text for missing user and IP values', async () => {
     mocks.fetchAdminAuditLogs.mockResolvedValue(
       auditPage([{ ...ENTRY, user_id: null, ip_address: null } satisfies AuditLogEntry])
@@ -333,7 +347,7 @@ describe('admin subscriptions page', () => {
     for (const label of ['Total active', 'Pro plans', 'Enterprise plans', 'MRR']) {
       expect(markup).toContain(`aria-label="${label}"`);
     }
-    expect(markup).toContain('>5<');
+    expect(markup).toMatch(/aria-label="Total active"[^]*?>5<\/p>/);
     expect(markup).toContain('$10/month each');
     expect(markup).toContain('$100/month each');
   });
@@ -344,7 +358,8 @@ describe('admin subscriptions page', () => {
     const markup = html(await AdminSubscriptionsPage());
 
     expect(markup).toContain('Price unavailable');
-    expect(markup).toContain('aria-label="MRR"');
+    expect(markup).toMatch(/aria-label="MRR"[^]*?Price unavailable/);
+    expect(markup).not.toMatch(/aria-label="MRR"[^]*?\$\d/);
   });
 
   it('shows plan and status as pills in a stacked table', async () => {
