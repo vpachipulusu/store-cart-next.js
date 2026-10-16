@@ -1,3 +1,4 @@
+import re
 from typing import Literal
 from urllib.parse import urlparse
 
@@ -9,6 +10,8 @@ from app.core.totp import TotpCodec, TotpUnavailable
 
 LOCAL_ENVIRONMENTS = frozenset({"local", "test"})
 VERCEL_NON_PRODUCTION = frozenset({"preview", "development"})
+R2_ACCOUNT_ID_PATTERN = re.compile(r"[0-9a-fA-F]{32}")
+R2_BUCKET_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]")
 
 
 class Settings(BaseSettings):
@@ -78,6 +81,15 @@ class Settings(BaseSettings):
     # portal may return to. Unset means every return URL is rejected.
     BILLING_RETURN_URL_ORIGINS: str = ""
 
+    # Cloudflare R2 image uploads (KAN-66). All five are set together or none; unset
+    # means the upload route answers 503.
+    R2_ACCOUNT_ID: str | None = None
+    R2_ACCESS_KEY_ID: str | None = None
+    R2_SECRET_ACCESS_KEY: SecretStr | None = None
+    R2_BUCKET_NAME: str | None = None
+    # Public origin the bucket is served from (custom domain or r2.dev), https only.
+    R2_PUBLIC_BASE_URL: str | None = None
+
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
@@ -125,6 +137,41 @@ class Settings(BaseSettings):
             host == "neon.tech" or host.endswith(".neon.tech")
         ):
             raise ValueError("NEON_API_BASE_URL must be an https URL on neon.tech")
+        return self
+
+    @model_validator(mode="after")
+    def validate_r2_config(self) -> "Settings":
+        values = (
+            self.R2_ACCOUNT_ID,
+            self.R2_ACCESS_KEY_ID,
+            self.R2_SECRET_ACCESS_KEY,
+            self.R2_BUCKET_NAME,
+            self.R2_PUBLIC_BASE_URL,
+        )
+        if all(value is None for value in values):
+            return self
+        if any(not value for value in values):
+            raise ValueError(
+                "R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, "
+                "R2_BUCKET_NAME and R2_PUBLIC_BASE_URL must be set together"
+            )
+        # The account id becomes the signing host (https://{id}.r2.cloudflarestorage.com).
+        if not R2_ACCOUNT_ID_PATTERN.fullmatch(self.R2_ACCOUNT_ID or ""):
+            raise ValueError("R2_ACCOUNT_ID must be 32 hexadecimal characters")
+        if not R2_BUCKET_PATTERN.fullmatch(self.R2_BUCKET_NAME or ""):
+            raise ValueError("R2_BUCKET_NAME is not a valid bucket name")
+        parsed = urlparse(self.R2_PUBLIC_BASE_URL or "")
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.query
+            or parsed.fragment
+            or parsed.username
+            or parsed.password
+        ):
+            raise ValueError(
+                "R2_PUBLIC_BASE_URL must be an https URL without query or fragment"
+            )
         return self
 
     @property
