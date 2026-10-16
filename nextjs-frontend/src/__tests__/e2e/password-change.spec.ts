@@ -58,9 +58,25 @@ async function changePasswordViaDashboard(
   await expect(dialog).toBeHidden({ timeout: PASSWORD_CHANGE_TIMEOUT_MS });
 }
 
-async function expectSecurityPageOpens(page: Page): Promise<void> {
-  await page.goto('/dashboard/security');
-  await waitForPageReady(page);
+const SIGN_IN_ATTEMPTS = 3;
+
+/**
+ * Opens the security page for an account that has just signed in. A session cookie minted a moment ago can be
+ * refused once when this machine's clock is slightly behind Google's ("Token used too early"); the layout then
+ * clears it and sends the browser to /login. That is a state, not a time, so signing in again and retrying is the
+ * deterministic answer, never a sleep. Do not use this where being sent to /login is the behaviour under test.
+ */
+async function expectSecurityPageOpens(
+  page: Page,
+  account: { email: string; password: string }
+): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    await page.goto('/dashboard/security');
+    await waitForPageReady(page);
+    if (/\/dashboard\/security$/.test(page.url()) || attempt >= SIGN_IN_ATTEMPTS) break;
+    await expect(page).toHaveURL(/\/login(?:\?|$)/);
+    await loginViaUI(page, account.email, account.password);
+  }
   await expect(page).toHaveURL(/\/dashboard\/security$/);
   await expect(page.getByRole('button', { name: 'Change Password', exact: true })).toBeVisible();
 }
@@ -111,7 +127,10 @@ test.describe('Password change (live Firebase)', () => {
       await expect(freshPage).toHaveURL(/\/login(?:\?|$)/);
 
       await loginViaUI(freshPage, throwawayAccount.email, changedPassword);
-      await expectSecurityPageOpens(freshPage);
+      await expectSecurityPageOpens(freshPage, {
+        email: throwawayAccount.email,
+        password: changedPassword,
+      });
       await freshPage.goto('/dashboard/profile');
       await waitForPageReady(freshPage);
       await expect(freshPage).toHaveURL(/\/dashboard\/profile$/);
@@ -122,6 +141,7 @@ test.describe('Password change (live Firebase)', () => {
 
   test('a wrong current password is rejected and nothing changes', async ({
     page,
+    browser,
     throwawayAccount,
   }) => {
     await loginAsThrowawayAccount(page, throwawayAccount);
@@ -135,10 +155,13 @@ test.describe('Password change (live Firebase)', () => {
     await expect(dialog).toBeVisible();
     await expect(page.getByText('Password changed successfully')).toHaveCount(0);
 
-    // The original password still works, so the account was not changed.
-    await page.context().clearCookies();
-    await loginViaUI(page, throwawayAccount.email, throwawayAccount.password);
-    await expectSecurityPageOpens(page);
+    // The original password still works in a clean browser, so the account was not changed.
+    const fresh = await openSecondTab(browser, throwawayAccount);
+    try {
+      await expectSecurityPageOpens(fresh.page, throwawayAccount);
+    } finally {
+      await fresh.close();
+    }
   });
 });
 
@@ -154,7 +177,7 @@ test.describe('Multi-tab session after a password change (live Firebase)', () =>
     await loginAsThrowawayAccount(page, throwawayAccount);
     await changePasswordViaDashboard(page, throwawayAccount.password, newPassword());
     await expect(page).toHaveURL(/\/dashboard\/security$/);
-    await expectSecurityPageOpens(page);
+    await expectSecurityPageOpens(page, throwawayAccount);
     await page.reload();
     await waitForPageReady(page);
     await expect(page).toHaveURL(/\/dashboard\/security$/);
@@ -175,7 +198,7 @@ test.describe('Multi-tab session after a password change (live Firebase)', () =>
     try {
       await loginAsThrowawayAccount(page, throwawayAccount);
       // The second session works before the change.
-      await expectSecurityPageOpens(other.page);
+      await expectSecurityPageOpens(other.page, throwawayAccount);
 
       await changePasswordViaDashboard(page, throwawayAccount.password, changedPassword);
 
@@ -185,7 +208,10 @@ test.describe('Multi-tab session after a password change (live Firebase)', () =>
 
       // Signing in again there with the new password restores access.
       await loginViaUI(other.page, throwawayAccount.email, changedPassword);
-      await expectSecurityPageOpens(other.page);
+      await expectSecurityPageOpens(other.page, {
+        email: throwawayAccount.email,
+        password: changedPassword,
+      });
     } finally {
       await other.close();
     }
