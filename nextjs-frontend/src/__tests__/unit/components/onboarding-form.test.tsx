@@ -86,6 +86,9 @@ describe('OnboardingForm', () => {
     expect(await screen.findByText(/already taken/i)).toBeInTheDocument();
     const address = screen.getByLabelText(/store address/i);
     expect(address).toHaveAttribute('aria-invalid', 'true');
+    const describedBy = address.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy as string)).toHaveTextContent(/already taken/i);
     await waitFor(() => expect(address).toHaveFocus());
     expect(mocks.push).not.toHaveBeenCalled();
     expect(submitButton()).toHaveAttribute('aria-disabled', 'false');

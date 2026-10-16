@@ -219,4 +219,28 @@ describe('ProvisioningStatus', () => {
     await advance(POLL_MAX_MS * 3);
     expect(mocks.getStoreStatusAction).not.toHaveBeenCalled();
   });
+  describe('status pill in the live region', () => {
+    const pill = () => screen.getByTestId('provisioning-pill');
+
+    it('shows a warn pill while setting up', () => {
+      renderStatus('PROVISIONING');
+      expect(statusRegion()).toContainElement(pill());
+      expect(pill()).toHaveTextContent('Setting up');
+      expect(pill().className).toContain('bg-warn');
+    });
+
+    it('shows a good pill when ready', () => {
+      renderStatus('ACTIVE');
+      expect(statusRegion()).toContainElement(pill());
+      expect(pill()).toHaveTextContent('Ready');
+      expect(pill().className).toContain('bg-good');
+    });
+
+    it('shows a crit pill when the store is unavailable', () => {
+      renderStatus('SUSPENDED');
+      expect(statusRegion()).toContainElement(pill());
+      expect(pill()).toHaveTextContent('Needs attention');
+      expect(pill().className).toContain('bg-crit');
+    });
+  });
 });
