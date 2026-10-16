@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { logger } from '@/lib/logger';
 import { callBackend } from './server';
 import { readCurrency } from './generated';
 
@@ -25,10 +26,14 @@ async function loadCurrency(): Promise<string> {
     (client) => readCurrency({ client, signal: AbortSignal.timeout(CURRENCY_REQUEST_TIMEOUT_MS) }),
     { withSession: false }
   );
-  const code: unknown = result.success ? result.data?.currency : undefined;
-  if (typeof code !== 'string' || code.trim() === '') {
+  if (!result.success) {
+    // callBackend folds a timeout or network abort into a generic message; keep the cause in the log.
+    logger.warn('Currency read failed', { error: result.error, status: result.status });
     throw new Error(CURRENCY_LOOKUP_FAILED_MESSAGE);
   }
+  const raw: unknown = result.data?.currency;
+  const code = typeof raw === 'string' ? raw.trim() : '';
+  if (code === '') throw new Error(CURRENCY_LOOKUP_FAILED_MESSAGE);
   cached = { code, expiresAt: Date.now() + CURRENCY_CACHE_TTL_MS };
   return code;
 }

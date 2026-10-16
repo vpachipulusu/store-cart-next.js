@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // `server-only` is mocked globally in vitest.setup.ts, so the wrapper imports fine here.
+vi.mock('@/lib/logger', () => ({ logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock('next/headers', () => ({
   cookies: vi.fn(async () => ({ get: vi.fn() })),
   headers: vi.fn(async () => ({ get: vi.fn() })),
@@ -68,6 +69,28 @@ describe('fetchPlatformCurrency', () => {
   it.each([{ currency: 5 }, { currency: '' }, {}])('rejects a malformed body %j', async (data) => {
     fetchMock.mockResolvedValue(json({ success: true, data }));
     await expect(fetchPlatformCurrency()).rejects.toThrow(CURRENCY_LOOKUP_FAILED_MESSAGE);
+  });
+
+  it('trims the code before caching it', async () => {
+    fetchMock.mockResolvedValue(json({ success: true, data: { currency: ' EUR ' } }));
+    await expect(fetchPlatformCurrency()).resolves.toBe('EUR');
+  });
+
+  it('rejects a whitespace-only code', async () => {
+    fetchMock.mockResolvedValue(json({ success: true, data: { currency: '   ' } }));
+    await expect(fetchPlatformCurrency()).rejects.toThrow(CURRENCY_LOOKUP_FAILED_MESSAGE);
+  });
+
+  it('logs the cause when the read fails', async () => {
+    const { logger } = await import('@/lib/logger');
+    fetchMock.mockRejectedValue(new DOMException('timed out', 'TimeoutError'));
+
+    await expect(fetchPlatformCurrency()).rejects.toThrow(CURRENCY_LOOKUP_FAILED_MESSAGE);
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Currency read failed',
+      expect.objectContaining({ error: expect.any(String) })
+    );
   });
 
   it('throws on a backend error status', async () => {

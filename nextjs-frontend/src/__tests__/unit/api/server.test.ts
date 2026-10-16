@@ -91,6 +91,27 @@ describe('callBackend', () => {
     });
   });
 
+  describe('Given the withSession option', () => {
+    it.each([{}, { withSession: true }])('sends the session header for %j', async (options) => {
+      fetchMock.mockResolvedValue(jsonResponse({ status: 'ok' }));
+
+      await callBackend((client) => healthCheck({ client }), options);
+
+      expect(fetchMock.mock.calls[0][0].headers.get(SESSION_HEADER)).toBe(
+        'firebase-session-cookie'
+      );
+    });
+
+    it('omits the session header and never reads cookies with withSession: false', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ status: 'ok' }));
+
+      await callBackend((client) => healthCheck({ client }), { withSession: false });
+
+      expect(cookieGet).not.toHaveBeenCalled();
+      expect(fetchMock.mock.calls[0][0].headers.has(SESSION_HEADER)).toBe(false);
+    });
+  });
+
   describe('Given no session cookie', () => {
     it('sends no session header', async () => {
       cookieGet.mockReturnValue(undefined);
