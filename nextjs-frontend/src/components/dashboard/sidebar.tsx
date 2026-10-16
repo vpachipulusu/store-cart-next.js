@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -8,8 +9,9 @@ import { NAV_ITEMS, activeNavHref } from './nav-items';
 /**
  * Desktop navigation (KAN-217): a 240px inverse panel from 900px up. Below that the TabBar takes over.
  * Text uses background/foreground tokens so it stays light on --feature in both colour modes.
+ * `children` is the store switcher slot (KAN-218), rendered between the brand and the main nav.
  */
-export function Sidebar() {
+export function Sidebar({ children }: { children?: ReactNode }) {
   const current = activeNavHref(usePathname());
 
   return (
@@ -23,6 +25,7 @@ export function Sidebar() {
       >
         StoreCart
       </Link>
+      {children}
       <nav aria-label="Main">
         <ul className="flex flex-col gap-1">
           {NAV_ITEMS.map(({ href, label, icon: Icon }) => {

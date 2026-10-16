@@ -88,7 +88,15 @@ export default async function DashboardLayout({ children }: { children: React.Re
       >
         Skip to main content
       </a>
-      <Sidebar />
+      <Sidebar>
+        {selectedStore && storeSelection.available && (
+          <StoreSwitcher
+            variant="sidebar"
+            stores={storeSelection.stores}
+            selectedStoreId={selectedStore.id}
+          />
+        )}
+      </Sidebar>
       <div className="flex min-h-screen flex-col min-[900px]:ps-60">
         {/* Header */}
         <header className="sticky top-0 z-30 w-full border-b border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -101,8 +109,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
             </Link>
 
             <div className="ms-auto flex items-center gap-4">
+              {/* Below 900px the sidebar is hidden, so the header carries the switcher. */}
               {selectedStore && storeSelection.available && (
-                <StoreSwitcher stores={storeSelection.stores} selectedStoreId={selectedStore.id} />
+                <div className="min-[900px]:hidden">
+                  <StoreSwitcher
+                    stores={storeSelection.stores}
+                    selectedStoreId={selectedStore.id}
+                  />
+                </div>
               )}
               <DashboardHeader
                 user={{
