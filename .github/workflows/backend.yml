@@ -16,8 +16,9 @@ jobs:
     defaults:
       run:
         working-directory: fastapi_backend
-    # Throwaway database for the webhook end-to-end test only (KAN-44); the unit
-    # tests use fake database sessions and never connect (KAN-30).
+    # Throwaway database for the real-route end-to-end tests (KAN-44); the unit
+    # tests use fake database sessions and never connect (KAN-30). Each xdist
+    # worker creates its own database on this server (KAN-207).
     services:
       postgres:
         image: postgres:17
@@ -65,7 +66,7 @@ jobs:
       # fail_under in pyproject.toml ([tool.coverage.report]) is the coverage
       # ratchet: this step fails if coverage drops below it.
       - name: pytest with coverage
-        run: uv run pytest --cov --cov-report=term-missing:skip-covered --cov-report=xml
+        run: uv run pytest -n auto --dist loadfile --cov --cov-report=term-missing:skip-covered --cov-report=xml
 
       - name: Coverage summary
         if: always()
