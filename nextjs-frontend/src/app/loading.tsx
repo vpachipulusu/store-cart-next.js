@@ -5,6 +5,7 @@ export default function Loading() {
   return (
     <div className="container py-12">
       <div role="status" aria-busy="true" aria-label="Loading" className="space-y-8">
+        <span className="sr-only">Loading</span>
         <div className="space-y-3">
           <Skeleton className="h-9 w-64 max-w-full" />
           <Skeleton className="h-5 w-96 max-w-full" />

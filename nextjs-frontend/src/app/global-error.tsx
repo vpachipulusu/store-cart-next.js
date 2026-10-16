@@ -33,10 +33,7 @@ export default function GlobalError({
     <html lang="en">
       <body className="min-h-screen bg-background font-sans text-foreground antialiased">
         <main className="flex min-h-screen items-center justify-center px-4 py-10">
-          <section
-            role="alert"
-            className="w-full max-w-md rounded-lg border-2 border-crit-foreground bg-crit p-8 text-center text-crit-foreground"
-          >
+          <section className="w-full max-w-md rounded-lg border-2 border-crit-foreground bg-crit p-8 text-center text-crit-foreground">
             <h1 ref={headingRef} tabIndex={-1} className="text-2xl font-semibold outline-none">
               Something went wrong
             </h1>

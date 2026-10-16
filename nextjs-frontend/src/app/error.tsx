@@ -30,10 +30,7 @@ export default function Error({
 
   return (
     <div className="container flex min-h-[60vh] items-center justify-center py-10">
-      <section
-        role="alert"
-        className="w-full max-w-md rounded-lg border-2 border-crit-foreground bg-crit p-8 text-center text-crit-foreground"
-      >
+      <section className="w-full max-w-md rounded-lg border-2 border-crit-foreground bg-crit p-8 text-center text-crit-foreground">
         <AlertTriangle className="mx-auto mb-4 h-8 w-8" aria-hidden="true" />
         <h1 ref={headingRef} tabIndex={-1} className="font-display text-2xl outline-none">
           Something went wrong

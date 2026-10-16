@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 const captureException = vi.fn();
@@ -45,10 +46,11 @@ describe('error', () => {
     expect(screen.getByRole('link', { name: /home/i })).toHaveAttribute('href', '/');
   });
 
-  it('announces itself as an alert and uses the crit tokens', () => {
+  it('uses the crit tokens and shows the digest, without role=alert (focus announces it)', () => {
     const { container } = render(<ErrorPage error={err} reset={vi.fn()} />);
 
-    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByText(/Error ID: abc123/)).toBeInTheDocument();
     expect(container.innerHTML).toMatch(/crit/);
     expect(container.innerHTML).not.toMatch(/#[0-9a-f]{3,6}|destructive\/50/i);
   });
@@ -73,12 +75,26 @@ describe('error', () => {
 });
 
 describe('global-error', () => {
-  it('renders its own html shell with Retry and a link home', () => {
-    const reset = vi.fn();
-    const { container } = render(<GlobalError error={err} reset={reset} />);
+  // The component owns <html> and <body>, so the shell is checked from static markup.
+  it('renders its own html shell with lang, body and the digest', () => {
+    const html = renderToStaticMarkup(<GlobalError error={err} reset={vi.fn()} />);
 
+    expect(html).toMatch(/^<html lang="en">/);
+    expect(html).toMatch(/<body[ >]/);
+    expect(html).toContain('Error ID: abc123');
+    expect(html).not.toMatch(/role="alert"|style="/);
+  });
+
+  it('reports once, focuses the heading, and offers Retry and a plain home link', () => {
+    // React warns that <html> cannot sit inside a <div>; expected for this boundary.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const reset = vi.fn();
+    render(<GlobalError error={err} reset={reset} />);
+    consoleError.mockRestore();
+
+    expect(captureException).toHaveBeenCalledTimes(1);
     expect(captureException).toHaveBeenCalledWith(err);
-    expect(container.innerHTML).not.toMatch(/style="/);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
     fireEvent.click(screen.getByRole('button', { name: /try again|retry/i }));
     expect(reset).toHaveBeenCalledTimes(1);
     // a plain anchor: the app router may be what failed
@@ -94,6 +110,8 @@ describe('loading', () => {
     expect(region).toHaveAttribute('aria-busy', 'true');
     expect(screen.queryByRole('main')).toBeNull();
     expect(region).toHaveAccessibleName(/loading/i);
+    expect(region).toHaveTextContent('Loading');
+    expect(screen.getByText('Loading')).toHaveClass('sr-only');
     expect(container.querySelectorAll('[aria-hidden="true"].bg-secondary').length).toBeGreaterThan(
       1
     );
