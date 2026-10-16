@@ -96,7 +96,12 @@ class FirebaseIdentityProvider:
             try:
                 return cast(
                     Mapping[str, Any],
-                    auth.verify_id_token(token, app=firebase_app(), check_revoked=True),
+                    auth.verify_id_token(
+                        token,
+                        app=firebase_app(),
+                        check_revoked=True,
+                        clock_skew_seconds=settings.FIREBASE_CLOCK_SKEW_SECONDS,
+                    ),
                 )
             except INVALID_CREDENTIAL_ERRORS:
                 raise AuthenticationFailed() from None
@@ -111,7 +116,10 @@ class FirebaseIdentityProvider:
                 return cast(
                     Mapping[str, Any],
                     auth.verify_session_cookie(
-                        token, app=firebase_app(), check_revoked=True
+                        token,
+                        app=firebase_app(),
+                        check_revoked=True,
+                        clock_skew_seconds=settings.FIREBASE_CLOCK_SKEW_SECONDS,
                     ),
                 )
             except INVALID_CREDENTIAL_ERRORS:

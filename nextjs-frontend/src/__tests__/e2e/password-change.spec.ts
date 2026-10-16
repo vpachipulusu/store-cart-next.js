@@ -209,11 +209,7 @@ test.describe('Multi-tab session after a password change (live Firebase)', () =>
     await routeWithDistinctClientIp(page);
   });
 
-  // Intermittent on a machine whose clock is a moment behind Google's: the backend rejects the cookie minted
-  // right after the change with "Token used too early" (firebase_admin verifies with no clock skew allowance),
-  // the dashboard layout clears the session and the changing browser lands on /login. Quarantined until the
-  // backend verifies with `clock_skew_seconds`; that backend follow-up story is pending owner approval. Remove the `.fixme` in that PR.
-  test.fixme('the browser that changes the password keeps its session (KAN-209 finding)', async ({
+  test('the browser that changes the password keeps its session (KAN-209 finding)', async ({
     page,
     throwawayAccount,
   }) => {

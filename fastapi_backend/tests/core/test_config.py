@@ -137,3 +137,26 @@ def test_outside_vercel_the_default_environment_is_strict(
 
     with pytest.raises(ValidationError):
         Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_clock_skew_defaults_to_ten_seconds(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("FIREBASE_CLOCK_SKEW_SECONDS", raising=False)
+    assert Settings(_env_file=None).FIREBASE_CLOCK_SKEW_SECONDS == 10  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize("value", ["0", "60"])
+def test_clock_skew_accepts_both_range_limits(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("FIREBASE_CLOCK_SKEW_SECONDS", value)
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.FIREBASE_CLOCK_SKEW_SECONDS == int(value)
+
+
+@pytest.mark.parametrize("value", ["-1", "61", "ten"])
+def test_clock_skew_outside_range_stops_startup(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("FIREBASE_CLOCK_SKEW_SECONDS", value)
+    with pytest.raises(ValidationError, match="FIREBASE_CLOCK_SKEW_SECONDS"):
+        Settings(_env_file=None)  # type: ignore[call-arg]

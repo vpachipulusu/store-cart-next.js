@@ -31,9 +31,10 @@ async def test_verification_checks_revocation_off_the_event_loop(
 ):
     event_thread = threading.get_ident()
 
-    def verify(token, *, app, check_revoked):
+    def verify(token, *, app, check_revoked, clock_skew_seconds):
         assert threading.get_ident() != event_thread
         assert token == "credential" and app is sdk_app and check_revoked is True
+        assert clock_skew_seconds == settings.FIREBASE_CLOCK_SKEW_SECONDS
         return {"uid": "verified"}
 
     monkeypatch.setattr(module.auth, sdk_method, verify)
@@ -240,3 +241,20 @@ async def test_password_update_outages_are_sanitized(monkeypatch, sdk_app):
         await FirebaseIdentityProvider().update_password("user", "new-password-1")
 
     assert "secret" not in str(caught.value)
+
+
+@pytest.mark.parametrize("skew", [0, 25, 60])
+@pytest.mark.parametrize("sdk_method", ["verify_id_token", "verify_session_cookie"])
+async def test_verification_passes_the_configured_clock_skew(
+    monkeypatch, sdk_app, sdk_method, skew
+):
+    monkeypatch.setattr(settings, "FIREBASE_CLOCK_SKEW_SECONDS", skew)
+    seen = {}
+
+    def verify(token, **kwargs):
+        seen.update(kwargs)
+        return {}
+
+    monkeypatch.setattr(module.auth, sdk_method, verify)
+    await getattr(FirebaseIdentityProvider(), sdk_method)("credential")
+    assert seen["clock_skew_seconds"] == skew and seen["check_revoked"] is True

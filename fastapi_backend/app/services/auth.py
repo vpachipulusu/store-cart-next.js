@@ -6,11 +6,22 @@ from typing import Any, Protocol
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.firebase import AuthenticationFailed, IdentityProvider, VerifiedIdentity
 
 SESSION_EXPIRES_SECONDS = 5 * 24 * 60 * 60
 # How recent a re-authentication (ID token auth_time) must be for sensitive actions.
 REAUTH_MAX_AGE_SECONDS = 300
+
+
+def is_recent_auth(auth_time: float, now: float | None = None) -> bool:
+    """Whether ``auth_time`` is at most 300 s old, allowing the configured clock skew.
+
+    A token minted moments ago can carry an ``auth_time`` slightly ahead of this
+    server's clock; the same skew the Admin SDK tolerates is accepted here.
+    """
+    age = (time.time() if now is None else now) - auth_time
+    return -settings.FIREBASE_CLOCK_SKEW_SECONDS <= age <= REAUTH_MAX_AGE_SECONDS
 
 
 class AccountConflict(Exception):
@@ -65,8 +76,7 @@ class AuthService:
 
     async def prepare_login(self, token: str) -> VerifiedIdentity:
         identity = identity_from_claims(await self.identity.verify_id_token(token))
-        age = time.time() - identity.auth_time
-        if not 0 <= age <= REAUTH_MAX_AGE_SECONDS:
+        if not is_recent_auth(identity.auth_time):
             raise AuthenticationFailed()
         return identity
 

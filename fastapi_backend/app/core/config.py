@@ -1,8 +1,8 @@
 import re
-from typing import Literal
+from typing import Annotated, Literal
 from urllib.parse import urlparse
 
-from pydantic import SecretStr, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.store_crypto import StoreSecretCodec, StoreSecretUnavailable
@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     FIREBASE_ADMIN_PROJECT_ID: str | None = None
     FIREBASE_ADMIN_CLIENT_EMAIL: str | None = None
     FIREBASE_ADMIN_PRIVATE_KEY: SecretStr | None = None
+    # Tolerated clock drift (seconds) when verifying Firebase tokens and judging
+    # re-authentication freshness (KAN-211). Out of range stops startup.
+    FIREBASE_CLOCK_SKEW_SECONDS: Annotated[int, Field(ge=0, le=60)] = 10
     TOTP_ENCRYPTION_KEY: SecretStr | None = None
 
     # Store connection string encryption (KAN-53): base64url 32 byte AES-256-GCM key.
