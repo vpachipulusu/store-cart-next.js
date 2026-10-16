@@ -1,6 +1,6 @@
 # Backend: Stripe Billing webhook (KAN-44)
 
-`POST /v1/webhooks/stripe` in `fastapi_backend` keeps an organisation's subscription in sync with Stripe Billing
+`POST /webhooks/stripe` in `fastapi_backend` keeps an organisation's subscription in sync with Stripe Billing
 ([ADR-010](../adr/0010-accounts-and-payments-model.md)). It is the only Stripe webhook: the legacy Next.js route
 (`/api/webhooks/stripe`) was removed in KAN-50.
 

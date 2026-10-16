@@ -125,12 +125,6 @@ export const RATE_LIMIT_CONFIGS = {
     windowMs: 60 * 1000, // 1 minute
     message: 'API rate limit exceeded. Please slow down.',
   },
-  // Webhook limits
-  webhook: {
-    maxRequests: 200,
-    windowMs: 60 * 1000, // 1 minute
-    message: 'Webhook rate limit exceeded.',
-  },
   // General limits
   general: {
     maxRequests: 200,

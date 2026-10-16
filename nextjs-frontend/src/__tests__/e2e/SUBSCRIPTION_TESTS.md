@@ -264,7 +264,7 @@ If the test user is already upgraded:
 3. Use Stripe CLI for local testing:
 
 ```bash
-stripe listen --forward-to localhost:8000/v1/webhooks/stripe   # the FastAPI backend (your backend port)
+stripe listen --forward-to localhost:8000/webhooks/stripe   # the FastAPI backend (your backend port)
 ```
 
 ### Timeout Errors
@@ -305,7 +305,7 @@ These tests are configured to run in CI:
 ## Related Files
 
 - `/src/app/actions/subscription-actions.ts` - Server actions for subscriptions
-- `/fastapi_backend/` - Stripe webhook (`POST /v1/webhooks/stripe`)
+- `/fastapi_backend/` - Stripe webhook (`POST /webhooks/stripe`)
 - `/src/components/dashboard/subscription-success-handler.tsx` - Success polling component
 - `/src/app/dashboard/page.tsx` - Dashboard with subscription display
 
