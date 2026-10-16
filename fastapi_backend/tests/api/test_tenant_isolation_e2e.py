@@ -759,7 +759,9 @@ async def test_tampered_or_missing_connection_strings_open_no_session(
             "SELECT connection_string_encrypted FROM stores WHERE id = :i", i=tampered
         )
     )
-    flipped = envelope[:-2] + ("A" if envelope[-2] != "A" else "B") + envelope[-1]
+    # Flip a character well inside the base64 payload: the last one can be padding
+    # bits that decode to the same bytes, which would leave the envelope valid.
+    flipped = envelope[:-10] + ("A" if envelope[-10] != "A" else "B") + envelope[-9:]
     async with world.platform.begin() as connection:
         await connection.execute(
             text("UPDATE stores SET connection_string_encrypted = :v WHERE id = :i"),
