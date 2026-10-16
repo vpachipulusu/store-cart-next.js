@@ -180,3 +180,63 @@ async def test_disabling_a_user_sanitizes_sdk_outages(monkeypatch, sdk_app):
 
     with pytest.raises(IdentityProviderUnavailable):
         await FirebaseIdentityProvider().set_user_disabled("user", True)
+
+
+async def test_updating_a_password_is_off_loop_and_passes_the_password(
+    monkeypatch, sdk_app
+):
+    event_thread = threading.get_ident()
+    seen = []
+
+    def update(uid, *, password, app):
+        assert threading.get_ident() != event_thread and app is sdk_app
+        seen.append((uid, password))
+
+    monkeypatch.setattr(module.auth, "update_user", update)
+    await FirebaseIdentityProvider().update_password("user", "new-password-1")
+
+    assert seen == [("user", "new-password-1")]
+
+
+async def test_updating_the_password_of_an_unknown_user_is_a_sanitized_not_found(
+    monkeypatch, sdk_app
+):
+    monkeypatch.setattr(
+        module.auth,
+        "update_user",
+        Mock(side_effect=module.auth.UserNotFoundError("private")),
+    )
+
+    with pytest.raises(module.IdentityUserNotFound):
+        await FirebaseIdentityProvider().update_password("user", "new-password-1")
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ValueError("weak password secret"),
+        module.exceptions.InvalidArgumentError("secret"),
+    ],
+)
+async def test_a_rejected_password_is_its_own_sanitized_error(
+    monkeypatch, sdk_app, error
+):
+    monkeypatch.setattr(module.auth, "update_user", Mock(side_effect=error))
+
+    with pytest.raises(module.IdentityPasswordRejected) as caught:
+        await FirebaseIdentityProvider().update_password("user", "new-password-1")
+
+    assert "secret" not in str(caught.value)
+
+
+async def test_password_update_outages_are_sanitized(monkeypatch, sdk_app):
+    monkeypatch.setattr(
+        module.auth,
+        "update_user",
+        Mock(side_effect=module.exceptions.UnavailableError("secret")),
+    )
+
+    with pytest.raises(IdentityProviderUnavailable) as caught:
+        await FirebaseIdentityProvider().update_password("user", "new-password-1")
+
+    assert "secret" not in str(caught.value)

@@ -569,6 +569,232 @@
         }
       }
     },
+    "/v1/auth/session/status": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Read Session Status",
+        "description": "Who the session cookie belongs to, with revocation checked.\n\nUnlike ``GET /session`` an unverified email is allowed (``email_verified`` says\nwhich), and the per-user limit is the API one, so a server can call it on every\nrequest. Callers that need a verified email check the flag themselves.",
+        "operationId": "read_session_status",
+        "parameters": [
+          {
+            "name": "X-Internal-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Key"
+            }
+          },
+          {
+            "name": "X-Session-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/id-token/verify": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Verify Id Token",
+        "description": "Verify a Firebase ID token (signature, expiry, revocation) and echo its identity.\n\nIdentity only, never proof of a recent sign-in: there is no freshness check and\nnothing is written (sign-in and refresh keep their own checks), and an unverified\nemail is returned with ``email_verified`` false for the caller to act on.",
+        "operationId": "verify_id_token",
+        "parameters": [
+          {
+            "name": "X-Internal-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/me": {
       "get": {
         "tags": [
@@ -1444,6 +1670,142 @@
               }
             },
             "description": "Service Unavailable"
+          }
+        }
+      }
+    },
+    "/v1/me/password": {
+      "put": {
+        "tags": [
+          "me"
+        ],
+        "summary": "Change Password",
+        "description": "Set a new password. The current password is proven by the fresh ``id_token``.\n\nFirebase revokes the user's refresh tokens, which includes the caller's own session:\nsign in again with the new password and call ``POST /v1/auth/session`` after a 200\n(the re-auth ID token predates the revoke; unverified against live Firebase).",
+        "operationId": "change_password",
+        "parameters": [
+          {
+            "name": "X-Internal-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Key"
+            }
+          },
+          {
+            "name": "X-Session-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasswordChangedResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Password rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "503": {
+            "description": "Rate limiter unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -8402,6 +8764,86 @@
           }
         }
       }
+    },
+    "/v1/settings/plan-prices": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Read the subscription plan prices",
+        "description": "Stripe unit amounts for the paid plans, in minor units.\n\nA price that is not configured or cannot be read is ``null``; the caller falls back\nto its default. Sends ``Cache-Control: private, max-age=300``.",
+        "operationId": "read_plan_prices",
+        "parameters": [
+          {
+            "name": "X-Internal-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanPricesResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -9878,6 +10320,45 @@
         ],
         "title": "OrganizationsPageResponse"
       },
+      "PasswordChangedResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true,
+            "title": "Success",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "PasswordChangedResponse"
+      },
+      "PasswordRequest": {
+        "properties": {
+          "id_token": {
+            "type": "string",
+            "maxLength": 16384,
+            "minLength": 1,
+            "format": "password",
+            "title": "Id Token",
+            "writeOnly": true
+          },
+          "new_password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 8,
+            "format": "password",
+            "title": "New Password",
+            "writeOnly": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id_token",
+          "new_password"
+        ],
+        "title": "PasswordRequest"
+      },
       "PaymentData": {
         "properties": {
           "charge_id": {
@@ -10090,6 +10571,40 @@
           "enterprise"
         ],
         "title": "PlanKey"
+      },
+      "PlanPricesData": {
+        "properties": {
+          "pro": {
+            "$ref": "#/components/schemas/TierPricesData"
+          },
+          "enterprise": {
+            "$ref": "#/components/schemas/TierPricesData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pro",
+          "enterprise"
+        ],
+        "title": "PlanPricesData"
+      },
+      "PlanPricesResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true,
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/PlanPricesData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "PlanPricesResponse"
       },
       "PortalRequest": {
         "properties": {
@@ -11174,6 +11689,39 @@
           "data"
         ],
         "title": "SubscriptionsPageResponse"
+      },
+      "TierPricesData": {
+        "properties": {
+          "monthly": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly"
+          },
+          "yearly": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Yearly"
+          }
+        },
+        "type": "object",
+        "required": [
+          "monthly",
+          "yearly"
+        ],
+        "title": "TierPricesData",
+        "description": "Minor units (cents) of the Stripe price; null when unconfigured or unreadable.\n\nCarries no currency: pair it with ``GET /v1/settings/currency``."
       },
       "TotpChangedResponse": {
         "properties": {
