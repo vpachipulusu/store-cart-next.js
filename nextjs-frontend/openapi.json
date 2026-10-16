@@ -663,14 +663,14 @@
             "description": "Forbidden"
           },
           "503": {
-            "description": "Rate limiter unavailable",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Service Unavailable"
           },
           "429": {
             "description": "Rate limit exceeded",
@@ -691,7 +691,7 @@
           "auth"
         ],
         "summary": "Verify Id Token",
-        "description": "Verify a Firebase ID token (signature, expiry, revocation) and echo its identity.\n\nNo freshness check and nothing is written: sign-in and refresh keep their own checks.",
+        "description": "Verify a Firebase ID token (signature, expiry, revocation) and echo its identity.\n\nIdentity only, never proof of a recent sign-in: there is no freshness check and\nnothing is written (sign-in and refresh keep their own checks), and an unverified\nemail is returned with ``email_verified`` false for the caller to act on.",
         "operationId": "verify_id_token",
         "parameters": [
           {
@@ -773,14 +773,14 @@
             "description": "Forbidden"
           },
           "503": {
-            "description": "Rate limiter unavailable",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Service Unavailable"
           },
           "429": {
             "description": "Rate limit exceeded",
@@ -1680,7 +1680,7 @@
           "me"
         ],
         "summary": "Change Password",
-        "description": "Set a new password. The current password is proven by the fresh ``id_token``.",
+        "description": "Set a new password. The current password is proven by the fresh ``id_token``.\n\nFirebase revokes the user's refresh tokens, which includes the caller's own session:\nmint a new one with ``POST /v1/auth/session`` after a 200.",
         "operationId": "change_password",
         "parameters": [
           {
@@ -1738,7 +1738,7 @@
             }
           },
           "422": {
-            "description": "Invalid request",
+            "description": "Password rejected",
             "content": {
               "application/json": {
                 "schema": {
@@ -11721,7 +11721,7 @@
           "yearly"
         ],
         "title": "TierPricesData",
-        "description": "Minor units (cents) of the Stripe price; null when unconfigured or unreadable."
+        "description": "Minor units (cents) of the Stripe price; null when unconfigured or unreadable.\n\nCarries no currency: pair it with ``GET /v1/settings/currency``."
       },
       "TotpChangedResponse": {
         "properties": {

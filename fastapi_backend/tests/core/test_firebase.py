@@ -213,10 +213,28 @@ async def test_updating_the_password_of_an_unknown_user_is_a_sanitized_not_found
 
 @pytest.mark.parametrize(
     "error",
-    [module.exceptions.UnavailableError("secret"), ValueError("weak password secret")],
+    [
+        ValueError("weak password secret"),
+        module.exceptions.InvalidArgumentError("secret"),
+    ],
 )
-async def test_password_update_failures_are_sanitized(monkeypatch, sdk_app, error):
+async def test_a_rejected_password_is_its_own_sanitized_error(
+    monkeypatch, sdk_app, error
+):
     monkeypatch.setattr(module.auth, "update_user", Mock(side_effect=error))
+
+    with pytest.raises(module.IdentityPasswordRejected) as caught:
+        await FirebaseIdentityProvider().update_password("user", "new-password-1")
+
+    assert "secret" not in str(caught.value)
+
+
+async def test_password_update_outages_are_sanitized(monkeypatch, sdk_app):
+    monkeypatch.setattr(
+        module.auth,
+        "update_user",
+        Mock(side_effect=module.exceptions.UnavailableError("secret")),
+    )
 
     with pytest.raises(IdentityProviderUnavailable) as caught:
         await FirebaseIdentityProvider().update_password("user", "new-password-1")

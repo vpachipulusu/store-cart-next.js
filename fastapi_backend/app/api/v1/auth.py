@@ -12,6 +12,7 @@ from app.api.auth import (
 )
 from app.api.rate_limit import (
     RATE_LIMIT_FAIL_CLOSED_RESPONSES,
+    RATE_LIMIT_RESPONSES,
     RateLimiterDep,
     RateLimitSubject,
     client_ip,
@@ -190,10 +191,20 @@ async def delete_session(
     return RevokedResponse()
 
 
+def _identity_response(identity: VerifiedIdentity) -> IdentityResponse:
+    return IdentityResponse(
+        data=IdentityData(
+            uid=identity.uid,
+            email=identity.email,
+            email_verified=identity.email_verified,
+        )
+    )
+
+
 @router.get(
     "/session/status",
     response_model=IdentityResponse,
-    responses=RATE_LIMIT_FAIL_CLOSED_RESPONSES,
+    responses=RATE_LIMIT_RESPONSES,
     dependencies=[Depends(limit_by_subject(API_POLICY, session_subject))],
 )
 async def read_session_status(
@@ -206,19 +217,13 @@ async def read_session_status(
     request. Callers that need a verified email check the flag themselves.
     """
     response.headers["Cache-Control"] = "no-store"
-    return IdentityResponse(
-        data=IdentityData(
-            uid=identity.uid,
-            email=identity.email,
-            email_verified=identity.email_verified,
-        )
-    )
+    return _identity_response(identity)
 
 
 @router.post(
     "/id-token/verify",
     response_model=IdentityResponse,
-    responses=RATE_LIMIT_FAIL_CLOSED_RESPONSES,
+    responses=RATE_LIMIT_RESPONSES,
     dependencies=[Depends(limit_by_client_ip(API_POLICY))],
 )
 async def verify_id_token(
@@ -226,17 +231,13 @@ async def verify_id_token(
 ) -> IdentityResponse:
     """Verify a Firebase ID token (signature, expiry, revocation) and echo its identity.
 
-    No freshness check and nothing is written: sign-in and refresh keep their own checks.
+    Identity only, never proof of a recent sign-in: there is no freshness check and
+    nothing is written (sign-in and refresh keep their own checks), and an unverified
+    email is returned with ``email_verified`` false for the caller to act on.
     """
     response.headers["Cache-Control"] = "no-store"
     try:
         identity = await service.verify_id_token(body.id_token.get_secret_value())
     except (AuthenticationFailed, IdentityProviderUnavailable) as exc:
         raise auth_error(exc) from None
-    return IdentityResponse(
-        data=IdentityData(
-            uid=identity.uid,
-            email=identity.email,
-            email_verified=identity.email_verified,
-        )
-    )
+    return _identity_response(identity)

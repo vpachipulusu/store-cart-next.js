@@ -11,6 +11,7 @@ from app.api.deps import get_rate_limiter
 from app.api.me import get_me_service, get_preferences_service
 from app.core.firebase import (
     AuthenticationFailed,
+    IdentityPasswordRejected,
     IdentityProviderUnavailable,
     VerifiedIdentity,
 )
@@ -383,6 +384,7 @@ async def test_password_change_validates_input(context, body):
     "failure,status",
     [
         (UserNotFound(), 404),
+        (IdentityPasswordRejected(), 422),
         (AuthenticationFailed(), 401),
         (IdentityProviderUnavailable(), 503),
         (RuntimeError("private secret"), 500),

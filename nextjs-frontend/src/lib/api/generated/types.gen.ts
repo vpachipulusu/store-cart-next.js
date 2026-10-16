@@ -1688,6 +1688,8 @@ export type SubscriptionsPageResponse = {
  * TierPricesData
  *
  * Minor units (cents) of the Stripe price; null when unconfigured or unreadable.
+ *
+ * Carries no currency: pair it with ``GET /v1/settings/currency``.
  */
 export type TierPricesData = {
     /**
@@ -2152,7 +2154,7 @@ export type ReadSessionStatusErrors = {
      */
     500: ErrorResponse;
     /**
-     * Rate limiter unavailable
+     * Service Unavailable
      */
     503: ErrorResponse;
 };
@@ -2203,7 +2205,7 @@ export type VerifyIdTokenErrors = {
      */
     500: ErrorResponse;
     /**
-     * Rate limiter unavailable
+     * Service Unavailable
      */
     503: ErrorResponse;
 };
@@ -2652,7 +2654,7 @@ export type ChangePasswordErrors = {
      */
     404: ErrorResponse;
     /**
-     * Invalid request
+     * Password rejected
      */
     422: ErrorResponse;
     /**

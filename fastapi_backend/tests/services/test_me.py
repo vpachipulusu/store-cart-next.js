@@ -6,6 +6,7 @@ import pytest
 
 from app.core.firebase import (
     AuthenticationFailed,
+    IdentityPasswordRejected,
     IdentityProviderUnavailable,
     IdentityUserNotFound,
     VerifiedIdentity,
@@ -61,6 +62,7 @@ class Identity:
             "email": "ada@example.com",
             "email_verified": True,
             "auth_time": int(time.time()),
+            "firebase": {"sign_in_provider": "password"},
         }
         self.failure = None
 
@@ -252,4 +254,30 @@ async def test_password_change_propagates_provider_outages(context):
     service, _, _, identity, _ = context
     identity.failure = IdentityProviderUnavailable()
     with pytest.raises(IdentityProviderUnavailable):
+        await service.change_password(current(), "token", "new-password-1")
+
+
+@pytest.mark.parametrize(
+    "firebase", [{"sign_in_provider": "google.com"}, {}, None, "password"]
+)
+async def test_password_change_requires_a_password_provider_reauthentication(
+    context, firebase
+):
+    service, _, _, identity, events = context
+    identity.claims["firebase"] = firebase
+    with pytest.raises(AuthenticationFailed):
+        await service.change_password(current(), "token", "new-password-1")
+    assert events == [("verify", "token")]
+
+
+async def test_account_deletion_does_not_require_the_password_provider(context):
+    service, _, _, identity, _ = context
+    identity.claims["firebase"] = {"sign_in_provider": "google.com"}
+    await service.delete_account(current(), "token")
+
+
+async def test_password_change_propagates_a_rejected_password(context):
+    service, _, _, identity, _ = context
+    identity.failure = IdentityPasswordRejected()
+    with pytest.raises(IdentityPasswordRejected):
         await service.change_password(current(), "token", "new-password-1")

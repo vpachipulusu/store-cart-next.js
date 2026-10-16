@@ -24,7 +24,11 @@ from app.api.me import (
 from app.api.rate_limit import RATE_LIMIT_FAIL_CLOSED_RESPONSES, limit_by_subject
 from app.api.v1.auth import current_subject
 from app.core.errors import ErrorResponse
-from app.core.firebase import AuthenticationFailed, IdentityProviderUnavailable
+from app.core.firebase import (
+    AuthenticationFailed,
+    IdentityPasswordRejected,
+    IdentityProviderUnavailable,
+)
 from app.core.rate_limit import API_POLICY, AUTH_POLICY
 from app.services.me import OwnershipConflict, UserNotFound
 
@@ -302,7 +306,10 @@ async def delete_account(
 @router.put(
     "/password",
     response_model=PasswordChangedResponse,
-    responses=RATE_LIMIT_FAIL_CLOSED_RESPONSES,
+    responses={
+        **RATE_LIMIT_FAIL_CLOSED_RESPONSES,
+        422: {"model": ErrorResponse, "description": "Password rejected"},
+    },
     dependencies=[Depends(limit_by_subject(AUTH_POLICY, current_subject))],
 )
 async def change_password(
@@ -311,7 +318,11 @@ async def change_password(
     identity: CurrentIdentityDep,
     service: MeServiceDep,
 ) -> PasswordChangedResponse:
-    """Set a new password. The current password is proven by the fresh ``id_token``."""
+    """Set a new password. The current password is proven by the fresh ``id_token``.
+
+    Firebase revokes the user's refresh tokens, which includes the caller's own session:
+    mint a new one with ``POST /v1/auth/session`` after a 200.
+    """
     response.headers["Cache-Control"] = "no-store"
     try:
         await service.change_password(
@@ -321,6 +332,8 @@ async def change_password(
         )
     except (AuthenticationFailed, IdentityProviderUnavailable) as exc:
         raise auth_error(exc) from None
+    except IdentityPasswordRejected:
+        raise HTTPException(422, "Password does not meet requirements") from None
     except UserNotFound:
         raise HTTPException(404, "User not found") from None
     return PasswordChangedResponse()

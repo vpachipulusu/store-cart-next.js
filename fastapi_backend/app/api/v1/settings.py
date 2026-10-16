@@ -98,7 +98,10 @@ async def read_currency(
 
 
 class TierPricesData(BaseModel):
-    """Minor units (cents) of the Stripe price; null when unconfigured or unreadable."""
+    """Minor units (cents) of the Stripe price; null when unconfigured or unreadable.
+
+    Carries no currency: pair it with ``GET /v1/settings/currency``.
+    """
 
     monthly: int | None
     yearly: int | None

@@ -10,7 +10,12 @@ from app.core.firebase import (
     VerifiedIdentity,
 )
 from app.repositories.me import ProfileData
-from app.services.auth import identity_from_claims
+from app.services.auth import REAUTH_MAX_AGE_SECONDS, identity_from_claims
+
+
+def _sign_in_provider(claims: Mapping[str, Any]) -> object:
+    firebase = claims.get("firebase")
+    return firebase.get("sign_in_provider") if isinstance(firebase, dict) else None
 
 
 class UserNotFound(Exception):
@@ -73,21 +78,34 @@ class MeService:
             return await self.repository.update_profile(profile.id, changes)
 
     async def _require_reauthentication(
-        self, identity: VerifiedIdentity, token: str
+        self, identity: VerifiedIdentity, token: str, *, password_provider: bool = False
     ) -> None:
-        """The ID token the browser just minted by re-authenticating this same user."""
-        fresh = identity_from_claims(await self.identity.verify_id_token(token))
+        """The ID token the browser just minted by re-authenticating this same user.
+
+        ``password_provider`` also requires that the re-authentication used the password
+        provider, so a recent Google sign-in cannot add a password credential.
+        """
+        claims = await self.identity.verify_id_token(token)
+        fresh = identity_from_claims(claims)
         if (
             fresh.uid != identity.uid
             or not fresh.email_verified
-            or not 0 <= time.time() - fresh.auth_time <= 300
+            or not 0 <= time.time() - fresh.auth_time <= REAUTH_MAX_AGE_SECONDS
         ):
+            raise AuthenticationFailed()
+        if password_provider and _sign_in_provider(claims) != "password":
             raise AuthenticationFailed()
 
     async def change_password(
         self, identity: VerifiedIdentity, token: str, new_password: str
     ) -> None:
-        await self._require_reauthentication(identity, token)
+        """Set a new password after re-authentication with the current one.
+
+        Firebase revokes the user's refresh tokens on a password change, so other session
+        cookies stop passing the revocation check (assumed from Firebase's documented
+        behaviour, not exercised against live Firebase).
+        """
+        await self._require_reauthentication(identity, token, password_provider=True)
         async with self.session.begin():
             if await self.repository.get_profile(identity.uid) is None:
                 raise UserNotFound()

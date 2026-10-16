@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.firebase import AuthenticationFailed, IdentityProvider, VerifiedIdentity
 
 SESSION_EXPIRES_SECONDS = 5 * 24 * 60 * 60
+# How recent a re-authentication (ID token auth_time) must be for sensitive actions.
+REAUTH_MAX_AGE_SECONDS = 300
 
 
 class AccountConflict(Exception):
@@ -64,7 +66,7 @@ class AuthService:
     async def prepare_login(self, token: str) -> VerifiedIdentity:
         identity = identity_from_claims(await self.identity.verify_id_token(token))
         age = time.time() - identity.auth_time
-        if not 0 <= age <= 300:
+        if not 0 <= age <= REAUTH_MAX_AGE_SECONDS:
             raise AuthenticationFailed()
         return identity
 

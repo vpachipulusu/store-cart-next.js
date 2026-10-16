@@ -85,7 +85,9 @@ export const readSessionStatus = <ThrowOnError extends boolean = false>(options?
  *
  * Verify a Firebase ID token (signature, expiry, revocation) and echo its identity.
  *
- * No freshness check and nothing is written: sign-in and refresh keep their own checks.
+ * Identity only, never proof of a recent sign-in: there is no freshness check and
+ * nothing is written (sign-in and refresh keep their own checks), and an unverified
+ * email is returned with ``email_verified`` false for the caller to act on.
  */
 export const verifyIdToken = <ThrowOnError extends boolean = false>(options: Options<VerifyIdTokenData, ThrowOnError>) => (options.client ?? client).post<VerifyIdTokenResponses, VerifyIdTokenErrors, ThrowOnError>({
     url: '/v1/auth/id-token/verify',
@@ -163,6 +165,9 @@ export const readHistory = <ThrowOnError extends boolean = false>(options?: Opti
  * Change Password
  *
  * Set a new password. The current password is proven by the fresh ``id_token``.
+ *
+ * Firebase revokes the user's refresh tokens, which includes the caller's own session:
+ * mint a new one with ``POST /v1/auth/session`` after a 200.
  */
 export const changePassword = <ThrowOnError extends boolean = false>(options: Options<ChangePasswordData, ThrowOnError>) => (options.client ?? client).put<ChangePasswordResponses, ChangePasswordErrors, ThrowOnError>({
     url: '/v1/me/password',
