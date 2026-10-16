@@ -10,6 +10,7 @@ import { Panel } from '@/components/dashboard/overview/panel';
 import {
   FormActions,
   FormPageSkeleton,
+  LoadFailedPanel,
   PageHeader,
   PanelHint,
 } from '@/components/dashboard/settings/form-page';
@@ -47,6 +48,8 @@ export default function SettingsPage() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   const form = useForm<SettingsFormValues>({
     resolver: zodResolver(settingsSchema),
@@ -67,6 +70,7 @@ export default function SettingsPage() {
         if (cancelled) return;
 
         if (!result.success || !result.data) {
+          setLoadFailed(true);
           toast({
             title: 'Error',
             description: result.error || 'Failed to load settings',
@@ -75,6 +79,7 @@ export default function SettingsPage() {
           return;
         }
 
+        setLoadFailed(false);
         const settings = result.data.settings;
         form.reset({
           theme: settings.theme as 'light' | 'dark' | 'system',
@@ -85,6 +90,7 @@ export default function SettingsPage() {
       } catch (error) {
         if (cancelled) return;
         console.error('Load settings error:', error);
+        setLoadFailed(true);
         toast({
           title: 'Error',
           description: 'An unexpected error occurred',
@@ -99,7 +105,12 @@ export default function SettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [form, toast]);
+  }, [form, toast, attempt]);
+
+  function retryLoad() {
+    setIsLoading(true);
+    setAttempt((count) => count + 1);
+  }
 
   async function onSubmit(data: SettingsFormValues) {
     try {
@@ -116,6 +127,7 @@ export default function SettingsPage() {
         return;
       }
 
+      form.reset(data);
       toast({
         title: 'Success',
         description: 'Settings updated successfully',
@@ -136,6 +148,15 @@ export default function SettingsPage() {
 
   if (isLoading) {
     return <FormPageSkeleton label="Loading settings" panels={3} />;
+  }
+
+  if (loadFailed) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Settings" description="Manage your account preferences and settings" />
+        <LoadFailedPanel message="We could not load your settings." onRetry={retryLoad} />
+      </div>
+    );
   }
 
   return (
@@ -200,7 +221,11 @@ export default function SettingsPage() {
                     </FormDescription>
                   </div>
                   <FormControl>
-                    <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      className="relative before:absolute before:-inset-2.5 before:content-['']"
+                    />
                   </FormControl>
                 </FormItem>
               )}

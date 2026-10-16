@@ -50,10 +50,42 @@ describe('ProfilePage structure', () => {
 
     render(<ProfilePage />);
 
-    expect(screen.getByRole('status', { name: /loading profile/i })).toHaveAttribute(
-      'aria-busy',
-      'true'
-    );
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent(/loading profile/i);
+    expect(status.parentElement).toHaveAttribute('aria-busy', 'true');
+  });
+
+  it('offers a retry instead of the form when loading fails', async () => {
+    mocks.getUserProfileAction.mockResolvedValueOnce({ success: false, error: 'down' });
+    mocks.getUserProfileAction.mockResolvedValueOnce({
+      success: true,
+      data: { user: PROFILE_USER },
+    });
+    const user = userEvent.setup();
+
+    render(<ProfilePage />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not load your profile/i);
+    expect(screen.queryByRole('button', { name: /save changes/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /try again/i }));
+
+    expect(await screen.findByLabelText('Email')).toHaveValue(PROFILE_USER.email);
+  });
+
+  it('keeps saved values when Cancel is pressed after a save', async () => {
+    mocks.getUserProfileAction.mockResolvedValue({ success: true, data: { user: PROFILE_USER } });
+    mocks.updateUserProfileAction.mockResolvedValue({ success: true });
+    const user = userEvent.setup();
+
+    render(<ProfilePage />);
+    const location = await screen.findByLabelText('Location');
+    await user.type(location, 'Leeds');
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(mocks.updateUserProfileAction).toHaveBeenCalled());
+    await user.click(await screen.findByRole('button', { name: /cancel/i }));
+
+    expect(screen.getByLabelText('Location')).toHaveValue('Leeds');
   });
 
   it('links the read-only email hint to the email input', async () => {

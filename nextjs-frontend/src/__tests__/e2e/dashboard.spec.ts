@@ -171,7 +171,7 @@ test.describe('Customer Dashboard', () => {
 
       test('should show a success toast after saving', async ({ page }) => {
         await page.getByRole('button', { name: /save changes/i }).click();
-        await expect(page.getByText(/profile updated successfully/i)).toBeVisible({
+        await expect(page.getByText(/profile updated successfully/i).first()).toBeVisible({
           timeout: 10_000,
         });
       });
@@ -263,7 +263,7 @@ test.describe('Customer Dashboard', () => {
 
       test('should show a success toast after saving', async ({ page }) => {
         await page.getByRole('button', { name: /save settings/i }).click();
-        await expect(page.getByText(/settings updated successfully/i)).toBeVisible({
+        await expect(page.getByText(/settings updated successfully/i).first()).toBeVisible({
           timeout: 10_000,
         });
       });

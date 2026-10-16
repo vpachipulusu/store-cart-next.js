@@ -48,10 +48,23 @@ describe('SettingsPage structure', () => {
 
     render(<SettingsPage />);
 
-    expect(screen.getByRole('status', { name: /loading settings/i })).toHaveAttribute(
-      'aria-busy',
-      'true'
-    );
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent(/loading settings/i);
+    expect(status.parentElement).toHaveAttribute('aria-busy', 'true');
+  });
+
+  it('offers a retry instead of the form when loading fails', async () => {
+    mocks.getUserSettingsAction.mockResolvedValueOnce({ success: false, error: 'down' });
+    const user = userEvent.setup();
+
+    render(<SettingsPage />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not load your settings/i);
+    expect(screen.queryByRole('button', { name: /save settings/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /try again/i }));
+
+    expect(await screen.findByRole('combobox', { name: 'Language' })).toHaveTextContent('Français');
   });
 
   it('gives every control an accessible name and a linked hint', async () => {

@@ -13,7 +13,10 @@ interface FormPageSkeletonProps {
 /** Loading state for a form page: same panel rhythm as the loaded page, announced once to assistive tech. */
 export function FormPageSkeleton({ label, panels }: FormPageSkeletonProps) {
   return (
-    <div role="status" aria-label={label} aria-busy="true" className="space-y-6">
+    <div aria-busy="true" className="space-y-6">
+      <p role="status" className="sr-only">
+        {label}
+      </p>
       <div className="space-y-2">
         <Skeleton className="h-9 w-40" />
         <Skeleton className="h-5 w-64 max-w-full" />
@@ -21,6 +24,23 @@ export function FormPageSkeleton({ label, panels }: FormPageSkeletonProps) {
       {Array.from({ length: panels }, (_, index) => (
         <Skeleton key={index} className="h-48 w-full rounded-xl" />
       ))}
+    </div>
+  );
+}
+
+interface LoadFailedPanelProps {
+  message: string;
+  onRetry: () => void;
+}
+
+/** Shown instead of the form when loading failed, so defaults can never be saved over real data. */
+export function LoadFailedPanel({ message, onRetry }: LoadFailedPanelProps) {
+  return (
+    <div role="alert" className="space-y-3 rounded-xl border border-border bg-card p-4">
+      <p className="text-sm">{message}</p>
+      <Button type="button" variant="outline" onClick={onRetry}>
+        Try again
+      </Button>
     </div>
   );
 }

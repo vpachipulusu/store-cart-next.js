@@ -11,6 +11,7 @@ import { AvatarField } from '@/components/dashboard/profile/avatar-field';
 import {
   FormActions,
   FormPageSkeleton,
+  LoadFailedPanel,
   PageHeader,
   PanelHint,
 } from '@/components/dashboard/settings/form-page';
@@ -50,6 +51,8 @@ export default function ProfilePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [userData, setUserData] = useState<ProfileUser | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string>('');
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
@@ -71,6 +74,7 @@ export default function ProfilePage() {
         if (cancelled) return;
 
         if (!result.success || !result.data) {
+          setLoadFailed(true);
           toast({
             title: 'Error',
             description: result.error || 'Failed to load profile',
@@ -79,6 +83,7 @@ export default function ProfilePage() {
           return;
         }
 
+        setLoadFailed(false);
         const user = result.data.user;
         setUserData(user);
         setAvatarUrl(user.avatarUrl || '');
@@ -93,6 +98,7 @@ export default function ProfilePage() {
       } catch (error) {
         if (cancelled) return;
         console.error('Load profile error:', error);
+        setLoadFailed(true);
         toast({
           title: 'Error',
           description: 'An unexpected error occurred',
@@ -107,7 +113,12 @@ export default function ProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, [form, toast]);
+  }, [form, toast, attempt]);
+
+  function retryLoad() {
+    setIsLoading(true);
+    setAttempt((count) => count + 1);
+  }
 
   async function onSubmit(data: ProfileFormValues) {
     try {
@@ -124,6 +135,7 @@ export default function ProfilePage() {
         return;
       }
 
+      form.reset(data);
       toast({
         title: 'Success',
         description: 'Profile updated successfully',
@@ -153,6 +165,15 @@ export default function ProfilePage() {
 
   if (isLoading) {
     return <FormPageSkeleton label="Loading profile" panels={2} />;
+  }
+
+  if (loadFailed) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Profile" description="Manage your public profile information" />
+        <LoadFailedPanel message="We could not load your profile." onRetry={retryLoad} />
+      </div>
+    );
   }
 
   return (
