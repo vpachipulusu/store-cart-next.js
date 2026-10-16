@@ -16,8 +16,9 @@ jobs:
     defaults:
       run:
         working-directory: fastapi_backend
-    # Throwaway database for the webhook end-to-end test only (KAN-44); the unit
-    # tests use fake database sessions and never connect (KAN-30).
+    # Throwaway database for the real-route end-to-end tests (KAN-44); the unit
+    # tests use fake database sessions and never connect (KAN-30). Each xdist
+    # worker creates its own database on this server (KAN-207).
     services:
       postgres:
         image: postgres:17

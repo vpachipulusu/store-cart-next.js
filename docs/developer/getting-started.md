@@ -29,7 +29,7 @@ The URLs then have this shape:
 - Backend `DATABASE_URL`: `postgresql+asyncpg://<user>:<password>@localhost:5432/<db>`
 - Frontend `DATABASE_URL` (Prisma): `postgresql://<user>:<password>@localhost:5432/<db>`
 
-The backend tests need no database (they use fake sessions), so there is no backend `TEST_DATABASE_URL` any more.
+Most backend tests need no database (they use fake sessions). The real-route e2e tests run only when `TEST_DATABASE_URL` points at a local throwaway `*_test` database; see [testing.md](testing.md#backend-tests-pytest).
 
 ## Clone
 
