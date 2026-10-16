@@ -17,6 +17,8 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '@/lib/firebase/client';
 import { reauthenticate, reauthMethodFor, type ReauthMethod } from '@/lib/firebase/reauth';
 
+const ERROR_ID = 'reauth-error';
+
 const PROVIDER_LABEL: Record<Exclude<ReauthMethod, 'password'>, string> = {
   google: 'Google',
   github: 'GitHub',
@@ -29,8 +31,11 @@ type ReauthDialogProps = {
   description: string;
   confirmLabel: string;
   destructive?: boolean;
-  /** Extra inputs rendered above the password field (a typed confirmation, an authenticator code). */
-  children?: ReactNode;
+  /**
+   * Extra inputs rendered above the password field (a typed confirmation, an authenticator code). A function
+   * receives the dialog's error and its element id, so the input can link to it with aria-describedby.
+   */
+  children?: ReactNode | ((context: { error: string | null; errorId: string }) => ReactNode);
   /** Disables the confirm button until the extra inputs are valid. */
   canConfirm?: boolean;
   /**
@@ -106,7 +111,7 @@ export function ReauthDialog({
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          {children}
+          {typeof children === 'function' ? children({ error, errorId: ERROR_ID }) : children}
           {method === 'password' || method === null ? (
             <div>
               <Label htmlFor="reauth-password">Confirm your password</Label>
@@ -114,6 +119,8 @@ export function ReauthDialog({
                 id="reauth-password"
                 type="password"
                 autoComplete="current-password"
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? ERROR_ID : undefined}
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
               />
@@ -124,7 +131,7 @@ export function ReauthDialog({
             </p>
           )}
           {error && (
-            <p role="alert" className="text-sm text-destructive">
+            <p id={ERROR_ID} role="alert" className="text-sm text-destructive">
               {error}
             </p>
           )}
