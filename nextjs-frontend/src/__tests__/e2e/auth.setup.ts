@@ -2,7 +2,13 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import e2eEnv from '../../../scripts/e2e-env.cjs';
 import { test as setup } from './helpers/fixtures';
-import { STORAGE_STATE, TEST_ADMIN, TEST_USER, loginViaUI } from './helpers/e2e-utils';
+import {
+  STORAGE_STATE,
+  TEST_ADMIN,
+  TEST_USER,
+  ensureAccountHasStore,
+  loginViaUI,
+} from './helpers/e2e-utils';
 
 /**
  * Global setup for Playwright tests (KAN-113). Runs before every browser project.
@@ -47,6 +53,11 @@ for (const { role, account, envName, configured } of ROLES) {
 
     // Fails with a clear message if Firebase Email/Password sign-in is disabled.
     await loginViaUI(page, account.email, account.password);
+
+    // The shared user needs a store: without one /dashboard redirects to onboarding (KAN-210).
+    if (role === 'user' && process.env.BACKEND_INTERNAL_KEY) {
+      await ensureAccountHasStore(page, 'e2e-shared-user');
+    }
 
     const statePath = STORAGE_STATE[role];
     mkdirSync(path.dirname(statePath), { recursive: true });
