@@ -168,9 +168,7 @@ function isKnownSecretEnv(name: string): boolean {
 function scanLine(path: string, text: string, line: number, isEnvFile: boolean): Finding[] {
   const envFindings = envNamesOnLine(text, isEnvFile)
     .filter((name) => !(E2E_TOOLING_PATHS.has(path) && E2E_TOOLING_ALLOWED_ENV.test(name)))
-    .map(
-    (match): Finding => ({ path, line, rule: 'server-secret-env', match })
-  );
+    .map((match): Finding => ({ path, line, rule: 'server-secret-env', match }));
   const dynamicFindings = [...text.matchAll(DYNAMIC_ENV_READ)].map(
     (m): Finding => ({ path, line, rule: 'dynamic-env-access', match: m[0] })
   );

@@ -337,11 +337,7 @@ export async function changePasswordAction(
       if (result.status === 429) {
         return { success: false, error: 'Too many attempts. Try again later.' };
       }
-      return fail(
-        'Change password error:',
-        { status: result.status },
-        'Failed to change password'
-      );
+      return fail('Change password error:', { status: result.status }, 'Failed to change password');
     }
     return { success: true, data: { message: 'Password changed successfully' } };
   } catch (error: unknown) {

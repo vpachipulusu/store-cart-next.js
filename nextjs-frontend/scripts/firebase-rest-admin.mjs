@@ -56,7 +56,10 @@ export function createFirebaseRestAdmin(
       }),
     });
     if (!response.ok) {
-      throw firebaseError('auth/invalid-credential', `Service account token request failed (${response.status})`);
+      throw firebaseError(
+        'auth/invalid-credential',
+        `Service account token request failed (${response.status})`
+      );
     }
     const body = await response.json();
     token = { value: body.access_token, expiresAt: Date.now() + body.expires_in * 1000 };
@@ -78,7 +81,10 @@ export function createFirebaseRestAdmin(
       if (message.startsWith('USER_NOT_FOUND')) {
         throw firebaseError('auth/user-not-found', 'There is no user record for that identifier.');
       }
-      throw firebaseError('auth/internal-error', `Identity Toolkit ${path} failed (${response.status} ${message})`);
+      throw firebaseError(
+        'auth/internal-error',
+        `Identity Toolkit ${path} failed (${response.status} ${message})`
+      );
     }
     return response.json();
   }
@@ -86,7 +92,8 @@ export function createFirebaseRestAdmin(
   async function lookup(query) {
     const { users } = await call('accounts:lookup', query);
     const user = users?.[0];
-    if (!user) throw firebaseError('auth/user-not-found', 'There is no user record for that identifier.');
+    if (!user)
+      throw firebaseError('auth/user-not-found', 'There is no user record for that identifier.');
     return toUserRecord(user);
   }
 

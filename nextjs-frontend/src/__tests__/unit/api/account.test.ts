@@ -139,7 +139,9 @@ describe('account wrappers', () => {
   });
 
   it('an outage answered by the backend is not an invalid-session error (KAN-208)', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ success: false, error: 'Service unavailable' }, 503));
+    fetchMock.mockResolvedValue(
+      jsonResponse({ success: false, error: 'Service unavailable' }, 503)
+    );
 
     const failure = await readSessionStatus().catch((error: Error) => error);
 

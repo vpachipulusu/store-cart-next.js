@@ -27,8 +27,18 @@ setup('verify e2e environment', async ({ page }) => {
 });
 
 const ROLES = [
-  { role: 'user', account: TEST_USER, envName: 'TEST_USER_EMAIL', configured: Boolean(process.env.TEST_USER_EMAIL) },
-  { role: 'admin', account: TEST_ADMIN, envName: 'TEST_ADMIN_EMAIL', configured: Boolean(process.env.TEST_ADMIN_EMAIL) },
+  {
+    role: 'user',
+    account: TEST_USER,
+    envName: 'TEST_USER_EMAIL',
+    configured: Boolean(process.env.TEST_USER_EMAIL),
+  },
+  {
+    role: 'admin',
+    account: TEST_ADMIN,
+    envName: 'TEST_ADMIN_EMAIL',
+    configured: Boolean(process.env.TEST_ADMIN_EMAIL),
+  },
 ] as const;
 
 for (const { role, account, envName, configured } of ROLES) {

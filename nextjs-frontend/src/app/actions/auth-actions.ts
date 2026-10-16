@@ -214,7 +214,10 @@ async function establishSession(
     // generic failure only: no Firebase error detail reaches the client.
     const verified = await verifyBackendIdToken(idToken);
     if (!verified.success) {
-      logger.error('ID token verification failed:', { status: verified.status, error: verified.error });
+      logger.error('ID token verification failed:', {
+        status: verified.status,
+        error: verified.error,
+      });
       return { success: false, error: GENERIC_SIGN_IN_ERROR };
     }
     const { uid, email, email_verified } = verified.data;
