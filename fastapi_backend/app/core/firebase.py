@@ -26,6 +26,10 @@ class IdentityUserNotFound(Exception):
     pass
 
 
+class IdentityPasswordRejected(Exception):
+    """Firebase refused a new password (for example, it violates the password policy)."""
+
+
 @dataclass(frozen=True)
 class VerifiedIdentity:
     uid: str
@@ -151,6 +155,22 @@ class FirebaseIdentityProvider:
             except auth.UserNotFoundError:
                 raise IdentityUserNotFound() from None
             except (exceptions.FirebaseError, ValueError):
+                raise IdentityProviderUnavailable() from None
+
+        await asyncio.to_thread(update)
+
+    async def update_password(self, uid: str, password: str) -> None:
+        def update() -> None:
+            try:
+                auth.update_user(uid, password=password, app=firebase_app())
+            except auth.UserNotFoundError:
+                raise IdentityUserNotFound() from None
+            except ValueError:
+                # The SDK rejects an invalid password locally; keep its text out.
+                raise IdentityPasswordRejected() from None
+            except exceptions.InvalidArgumentError:
+                raise IdentityPasswordRejected() from None
+            except exceptions.FirebaseError:
                 raise IdentityProviderUnavailable() from None
 
         await asyncio.to_thread(update)

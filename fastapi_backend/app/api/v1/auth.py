@@ -12,12 +12,14 @@ from app.api.auth import (
 )
 from app.api.rate_limit import (
     RATE_LIMIT_FAIL_CLOSED_RESPONSES,
+    RATE_LIMIT_RESPONSES,
     RateLimiterDep,
     RateLimitSubject,
     client_ip,
     email_digest,
     enforce_rate_limit,
     limit_auth_attempts,
+    limit_by_client_ip,
     limit_by_subject,
 )
 from app.core.errors import ErrorResponse
@@ -26,7 +28,7 @@ from app.core.firebase import (
     IdentityProviderUnavailable,
     VerifiedIdentity,
 )
-from app.core.rate_limit import AUTH_POLICY
+from app.core.rate_limit import API_POLICY, AUTH_POLICY
 from app.services.auth import SESSION_EXPIRES_SECONDS, AccountConflict
 
 router = APIRouter(
@@ -187,3 +189,55 @@ async def delete_session(
     except (AuthenticationFailed, IdentityProviderUnavailable) as exc:
         raise auth_error(exc) from None
     return RevokedResponse()
+
+
+def _identity_response(identity: VerifiedIdentity) -> IdentityResponse:
+    return IdentityResponse(
+        data=IdentityData(
+            uid=identity.uid,
+            email=identity.email,
+            email_verified=identity.email_verified,
+        )
+    )
+
+
+@router.get(
+    "/session/status",
+    response_model=IdentityResponse,
+    responses=RATE_LIMIT_RESPONSES,
+    dependencies=[Depends(limit_by_subject(API_POLICY, session_subject))],
+)
+async def read_session_status(
+    response: Response, identity: SessionIdentityDep
+) -> IdentityResponse:
+    """Who the session cookie belongs to, with revocation checked.
+
+    Unlike ``GET /session`` an unverified email is allowed (``email_verified`` says
+    which), and the per-user limit is the API one, so a server can call it on every
+    request. Callers that need a verified email check the flag themselves.
+    """
+    response.headers["Cache-Control"] = "no-store"
+    return _identity_response(identity)
+
+
+@router.post(
+    "/id-token/verify",
+    response_model=IdentityResponse,
+    responses=RATE_LIMIT_RESPONSES,
+    dependencies=[Depends(limit_by_client_ip(API_POLICY))],
+)
+async def verify_id_token(
+    body: SessionRequest, response: Response, service: AuthServiceDep
+) -> IdentityResponse:
+    """Verify a Firebase ID token (signature, expiry, revocation) and echo its identity.
+
+    Identity only, never proof of a recent sign-in: there is no freshness check and
+    nothing is written (sign-in and refresh keep their own checks), and an unverified
+    email is returned with ``email_verified`` false for the caller to act on.
+    """
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        identity = await service.verify_id_token(body.id_token.get_secret_value())
+    except (AuthenticationFailed, IdentityProviderUnavailable) as exc:
+        raise auth_error(exc) from None
+    return _identity_response(identity)
