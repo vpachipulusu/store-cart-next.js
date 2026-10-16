@@ -220,3 +220,55 @@ async def test_an_expired_grant_can_still_be_cleared(client, engine):
 
     assert result.status_code == 200
     assert (await org_columns(engine, org_id))[4] is None
+
+
+async def test_resumed_revoke_never_clears_a_newer_grant(client, engine, monkeypatch):
+    await seed_user(engine, "mgr", "admin", MANAGER)
+    org_id = await _granted_org(client, engine)
+    headers = keyed("mgr", "key-retry-0004")
+    original = AdminSubscriptionsRepository.clear_grant
+
+    async def broken(self, organization_id):
+        raise RuntimeError("database hiccup")
+
+    monkeypatch.setattr(AdminSubscriptionsRepository, "clear_grant", broken)
+    failed = await client.delete(grant_url(org_id), headers=headers)
+    monkeypatch.setattr(AdminSubscriptionsRepository, "clear_grant", original)
+    await client.put(
+        grant_url(org_id),
+        json={"plan": "enterprise", "expires_at": in_days(5)},
+        headers=as_user("mgr"),
+    )
+
+    retry = await client.delete(grant_url(org_id), headers=headers)
+
+    assert failed.status_code == 503
+    assert retry.status_code == 200 and retry.json()["data"]["already_applied"] is True
+    assert (await org_columns(engine, org_id))[4] == "enterprise"
+    entries = await audit_rows(engine, ACTION)
+    assert len(entries) == 1 and entries[0][5]["details"]["state"] == "superseded"
+    assert entries[0][5]["before"]["granted_plan"] == "pro"
+
+
+async def test_completed_revoke_row_records_the_cleared_state(client, engine):
+    await seed_user(engine, "mgr", "admin", MANAGER)
+    org_id = await _granted_org(client, engine)
+
+    await client.delete(grant_url(org_id), headers=keyed("mgr"))
+
+    details = (await audit_rows(engine, ACTION))[0][5]["details"]
+    assert details["after"] == {"granted_plan": None, "granted_until": None}
+    assert details["granted_plan"] == "pro" and details["completed_at"]
+
+
+async def test_second_revoke_with_a_new_key_after_the_first_is_409(client, engine):
+    await seed_user(engine, "mgr", "admin", MANAGER)
+    org_id = await _granted_org(client, engine)
+    await client.delete(grant_url(org_id), headers=keyed("mgr", "key-first-0001"))
+
+    second = await client.delete(
+        grant_url(org_id), headers=keyed("mgr", "key-second-0002")
+    )
+
+    assert second.status_code == 409
+    assert len(await audit_rows(engine, ACTION)) == 1

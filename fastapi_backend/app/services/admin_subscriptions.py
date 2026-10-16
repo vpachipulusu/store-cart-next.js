@@ -168,6 +168,18 @@ class RevokeResult:
     already_applied: bool
 
 
+_GRANT_SNAPSHOT_KEYS = ("granted_plan", "granted_until")
+
+
+def _grant_snapshot(record: SubscriptionRecord) -> dict[str, str | None]:
+    """The grant as plain strings, so it survives the audit row's JSON and compares equal."""
+    until = record.granted_until
+    return {
+        "granted_plan": record.granted_plan,
+        "granted_until": until.astimezone(UTC).isoformat() if until else None,
+    }
+
+
 def request_ref(request_key: str) -> str:
     """Stable reference to a client key for the audit trail (the key itself is not stored)."""
     return hashlib.sha256(request_key.encode()).hexdigest()
@@ -518,10 +530,12 @@ class AdminSubscriptionsService:
     ) -> RevokeResult:
         """Clear a granted plan; the organisation falls back to its Stripe-derived plan.
 
-        Same two steps as a refund, minus Stripe: a pending audit row is committed
-        before the grant is cleared, then the row moves to completed in the same
-        transaction as the change. A retry with the same key resumes a pending row or
-        replays a completed one; a replay never clears a newer grant.
+        Same two steps as a refund, minus Stripe: a pending audit row naming the grant
+        it targets is committed first, then the grant is cleared and the row moved to
+        completed in one transaction. A retry with the same key resumes a pending row
+        or replays a completed one. It only ever clears the grant the row names: if
+        the grant changed meanwhile, the row is closed as superseded and nothing is
+        cleared.
         """
         ref = request_ref(request_key)
         record = await self._require(organization_id)
@@ -529,32 +543,39 @@ class AdminSubscriptionsService:
         if prior is not None and prior.details.get("state") == "completed":
             await self.session.rollback()
             return RevokeResult(already_applied=True)
-        if prior is None and record.granted_plan is None:
-            raise SubscriptionConflict
         if prior is None:
-            await self._record_revoke_intent(actor, record, ref)
+            await self._record_revoke_intent(actor, record.id, ref)
         return await self._complete_revoke(organization_id, ref)
 
     async def _record_revoke_intent(
-        self, actor: AdminContext, record: SubscriptionRecord, ref: str
+        self, actor: AdminContext, organization_id: str, ref: str
     ) -> None:
         try:
-            await self.store.lock_request(f"{REVOKE_GRANT_ACTION}:{record.id}:{ref}")
-            twin = await self.store.find_request(REVOKE_GRANT_ACTION, record.id, ref)
+            await self.store.lock_request(
+                f"{REVOKE_GRANT_ACTION}:{organization_id}:{ref}"
+            )
+            twin = await self.store.find_request(
+                REVOKE_GRANT_ACTION, organization_id, ref
+            )
             if twin is None:  # else a concurrent request with this key staged it
+                # Locked read: the snapshot is what the grant is when the intent is staged.
+                record = await self._require(organization_id, lock=True)
+                if record.granted_plan is None:
+                    raise SubscriptionConflict
+                snapshot = _grant_snapshot(record)
                 await self.auditor.record(
                     actor,
                     action=REVOKE_GRANT_ACTION,
                     resource="subscriptions",
-                    resource_id=record.id,
-                    organization_id=record.id,
-                    before={
-                        "granted_plan": record.granted_plan,
-                        "granted_until": record.granted_until,
-                    },
-                    details={"request_ref": ref, "state": "pending"},
+                    resource_id=organization_id,
+                    organization_id=organization_id,
+                    before=snapshot,
+                    details={"request_ref": ref, "state": "pending", **snapshot},
                 )
             await self.session.commit()
+        except SubscriptionConflict:
+            await self.session.rollback()
+            raise
         except Exception:  # noqa: BLE001 - any recording failure means "retry"; logged by _abandon
             await self._abandon("revoke intent")
             raise CommitFailed from None
@@ -572,10 +593,24 @@ class AdminSubscriptionsService:
             if row.details.get("state") == "completed":  # a concurrent twin won
                 await self.session.rollback()
                 return RevokeResult(already_applied=True)
-            await self._require(organization_id, lock=True)
+            record = await self._require(organization_id, lock=True)
+            targeted = {key: row.details.get(key) for key in _GRANT_SNAPSHOT_KEYS}
+            if _grant_snapshot(record) != targeted:
+                # Another request changed or cleared the grant since the intent: leave it.
+                await self._set_state(row, "superseded")
+                await self.session.commit()
+                return RevokeResult(already_applied=True)
             await self.store.clear_grant(organization_id)
-            await self._set_state(row, "completed")
+            await self._set_state(
+                row,
+                "completed",
+                after={"granted_plan": None, "granted_until": None},
+                completed_at=self.clock().isoformat(),
+            )
             await self.session.commit()
+        except SubscriptionNotFound:
+            await self.session.rollback()
+            raise
         except Exception:  # noqa: BLE001 - any recording failure means "retry"; logged by _abandon
             await self._abandon("revoke result")
             raise CommitFailed from None
