@@ -35,8 +35,8 @@ export function DashboardHeader({ user }: DashboardHeaderProps) {
       {/* User Menu */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" className="relative h-10 w-10 rounded-full hover:bg-accent">
-            <Avatar className="h-10 w-10 ring-2 ring-transparent transition-all hover:ring-theme-accent/50">
+          <Button variant="ghost" className="relative h-11 w-11 rounded-full hover:bg-accent">
+            <Avatar className="h-11 w-11 ring-2 ring-transparent transition-all hover:ring-theme-accent/50">
               <AvatarImage src={user.dbAvatarUrl || undefined} alt={user.email || 'User'} />
               <AvatarFallback>{user.email?.charAt(0).toUpperCase() || 'U'}</AvatarFallback>
             </Avatar>

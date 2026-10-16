@@ -123,6 +123,10 @@ test.describe('Customer Dashboard', () => {
 
   test.describe('Dashboard Layout & Navigation', () => {
     test.skip(!process.env.TEST_USER_EMAIL, 'Skipped: TEST_USER_EMAIL not configured');
+    test.skip(
+      ({ isMobile }) => isMobile,
+      'Sidebar is desktop only; phones are covered by dashboard-shell.spec.ts'
+    );
     test.use({ storageState: STORAGE_STATE.user });
 
     test.beforeEach(async ({ page }) => {
@@ -130,15 +134,15 @@ test.describe('Customer Dashboard', () => {
       await waitForPageReady(page);
     });
 
-    test('should display top navigation bar', async ({ page }) => {
-      await expect(page.getByRole('link', { name: /dashboard/i }).first()).toBeVisible();
+    test('should display the workspace sidebar', async ({ page }) => {
+      await expect(page.getByRole('complementary', { name: 'Workspace' })).toBeVisible();
     });
 
     test('should display navigation links', async ({ page }) => {
-      const nav = page.locator('nav');
+      const nav = page.getByRole('navigation', { name: 'Main' });
       await expect(nav).toBeVisible();
 
-      await expect(page.getByRole('link', { name: /^home$/i })).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Overview', exact: true })).toBeVisible();
       await expect(page.getByRole('link', { name: 'Profile', exact: true })).toBeVisible();
       await expect(page.getByRole('link', { name: /settings/i }).first()).toBeVisible();
       await expect(page.getByRole('link', { name: /security/i }).first()).toBeVisible();
@@ -157,8 +161,8 @@ test.describe('Customer Dashboard', () => {
       await clickNavLink(page, page.getByRole('link', { name: /security/i }).first());
       await expect(page).toHaveURL(/\/dashboard\/security/);
 
-      // Navigate back to Home
-      await clickNavLink(page, page.getByRole('link', { name: /^home$/i }));
+      // Navigate back to Overview
+      await clickNavLink(page, page.getByRole('link', { name: 'Overview', exact: true }));
       await expect(page).toHaveURL(/\/dashboard$/);
     });
   });

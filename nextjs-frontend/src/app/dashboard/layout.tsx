@@ -5,9 +5,10 @@ import { fetchProfile } from '@/lib/api/account';
 import { isSessionRejected } from '@/lib/api/session-rejected';
 import { isSessionVerificationError, logRouteError } from '@/lib/auth/session-errors';
 import Link from 'next/link';
-import { LayoutDashboard } from 'lucide-react';
 import { SessionProvider } from '@/components/providers/session-provider';
 import { DashboardHeader } from '@/components/dashboard/dashboard-header';
+import { Sidebar } from '@/components/dashboard/sidebar';
+import { TabBar } from '@/components/dashboard/tab-bar';
 import { StoreSwitcher } from '@/components/dashboard/store-switcher';
 import { HideOnOnboarding } from '@/components/dashboard/hide-on-onboarding';
 import { getCurrentStoreSelection } from '@/lib/stores/current';
@@ -80,83 +81,78 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const selectedStore = storeSelection.available ? storeSelection.selected : null;
 
   return (
-    <div className="flex min-h-screen flex-col">
-      {/* Header */}
-      <header className="sticky top-0 z-50 w-full border-b border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container flex h-[72px] items-center justify-between">
-          <div className="flex items-center gap-6">
-            <Link href="/dashboard" className="flex items-center space-x-2">
-              <span className="text-xl font-semibold">Dashboard</span>
+    <div className="min-h-screen">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:start-4 focus:top-4 focus:z-[60] focus:flex focus:min-h-11 focus:items-center focus:rounded-md focus:border focus:border-foreground focus:bg-background focus:px-4 focus:font-medium focus:text-foreground"
+      >
+        Skip to main content
+      </a>
+      <Sidebar />
+      <div className="flex min-h-screen flex-col min-[900px]:ps-60">
+        {/* Header */}
+        <header className="sticky top-0 z-30 w-full border-b border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+          <div className="container flex h-[72px] items-center justify-between">
+            <Link
+              href="/dashboard"
+              className="flex min-h-11 items-center text-xl font-semibold min-[900px]:hidden"
+            >
+              Dashboard
             </Link>
 
-            <nav className="hidden items-center space-x-6 text-sm font-medium md:flex">
-              <Link href="/dashboard" className="nav-link-accent text-sm font-medium">
-                Home
-              </Link>
-              <Link href="/dashboard/profile" className="nav-link-accent text-sm font-medium">
-                Profile
-              </Link>
-              <Link href="/dashboard/settings" className="nav-link-accent text-sm font-medium">
-                Settings
-              </Link>
-              <Link href="/dashboard/security" className="nav-link-accent text-sm font-medium">
-                Security
-              </Link>
-              <Link
-                href="/dashboard/settings/billing"
-                className="nav-link-accent text-sm font-medium"
-              >
-                Billing
-              </Link>
-            </nav>
+            <div className="ms-auto flex items-center gap-4">
+              {selectedStore && storeSelection.available && (
+                <StoreSwitcher stores={storeSelection.stores} selectedStoreId={selectedStore.id} />
+              )}
+              <DashboardHeader
+                user={{
+                  email: user.email,
+                  dbDisplayName: user.dbDisplayName,
+                  dbAvatarUrl: user.dbAvatarUrl,
+                }}
+              />
+            </div>
           </div>
+        </header>
+        <div className="h-px bg-gradient-to-r from-transparent via-theme-accent/15 to-transparent" />
 
-          <div className="flex items-center gap-4">
-            {selectedStore && storeSelection.available && (
-              <StoreSwitcher stores={storeSelection.stores} selectedStoreId={selectedStore.id} />
-            )}
-            <DashboardHeader
-              user={{
-                email: user.email,
-                dbDisplayName: user.dbDisplayName,
-                dbAvatarUrl: user.dbAvatarUrl,
-              }}
-            />
-          </div>
-        </div>
-      </header>
-      <div className="h-px bg-gradient-to-r from-transparent via-theme-accent/15 to-transparent" />
-
-      {/* Main Content */}
-      <SessionProvider>
-        {/* data-store-id is a display and test hook for the selection preference, not an authorization boundary.
+        {/* Main Content */}
+        <SessionProvider>
+          {/* data-store-id is a display and test hook for the selection preference, not an authorization boundary.
             Anything that scopes data by store must call getCurrentStoreSelection() on the server and the
             backend must authorize the store id itself (docs/developer/dashboard-store-scope.md). */}
-        <main className="flex-1" data-store-id={selectedStore?.id}>
-          {!storeSelection.available && (
-            <div role="status" className="container pt-6 text-sm text-muted-foreground">
-              Your stores could not be loaded. Reload the page to try again.
-            </div>
-          )}
-          {storeSelection.available && !selectedStore && (
-            <HideOnOnboarding>
-              <div role="status" data-testid="no-stores" className="container pt-6 text-sm">
-                <p className="font-medium">You do not have a store yet.</p>
-                <p className="text-muted-foreground">
-                  <Link
-                    href="/dashboard/onboarding"
-                    className="inline-flex min-h-11 items-center font-medium text-foreground underline underline-offset-4"
-                  >
-                    Set up your store
-                  </Link>{' '}
-                  to start selling.
-                </p>
+          <main
+            id="main-content"
+            tabIndex={-1}
+            className="flex-1 pb-[calc(3.5rem+env(safe-area-inset-bottom))] focus:outline-none min-[900px]:pb-0"
+            data-store-id={selectedStore?.id}
+          >
+            {!storeSelection.available && (
+              <div role="status" className="container pt-6 text-sm text-muted-foreground">
+                Your stores could not be loaded. Reload the page to try again.
               </div>
-            </HideOnOnboarding>
-          )}
-          <div className="container py-8 lg:py-10">{children}</div>
-        </main>
-      </SessionProvider>
+            )}
+            {storeSelection.available && !selectedStore && (
+              <HideOnOnboarding>
+                <div role="status" data-testid="no-stores" className="container pt-6 text-sm">
+                  <p className="font-medium">You do not have a store yet.</p>
+                  <p className="text-muted-foreground">
+                    <Link
+                      href="/dashboard/onboarding"
+                      className="inline-flex min-h-11 items-center font-medium text-foreground underline underline-offset-4"
+                    >
+                      Set up your store
+                    </Link>{' '}
+                    to start selling.
+                  </p>
+                </div>
+              </HideOnOnboarding>
+            )}
+            <div className="container py-8 lg:py-10">{children}</div>
+          </main>
+        </SessionProvider>
+      </div>
+      <TabBar />
     </div>
   );
 }
