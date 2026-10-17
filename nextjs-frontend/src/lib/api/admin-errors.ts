@@ -14,6 +14,9 @@ export const ADMIN_REQUEST_FAILED_MESSAGE = 'Something went wrong. Please try ag
 export const ADMIN_UNAVAILABLE_MESSAGE =
   'The admin service is unavailable. Please try again later.';
 
+export const ADMIN_SYNC_RATE_LIMITED_MESSAGE =
+  'Too many checks in a row. Wait a minute and try again.';
+
 type FailedResult = Extract<ApiResult<unknown>, { success: false }>;
 
 /** `notFoundMessage` lets a page about one kind of thing say what was not found. */
