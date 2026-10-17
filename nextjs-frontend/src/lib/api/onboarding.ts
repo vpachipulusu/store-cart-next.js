@@ -194,13 +194,16 @@ export type RetryProvisioningResult =
   | { success: true; attempt: number; maxAttempts: number }
   | { success: false; reason: RetryFailureReason };
 
-/** The backend's text for a 409 at the attempt cap (shared with the admin re-run); any other 409 is "not FAILED". */
-const RETRY_LIMIT_PATTERN = /retry limit/i;
+/**
+ * The backend's exact 409 text at the attempt cap (`RETRY_LIMIT_MESSAGE` in app/services/admin_stores.py,
+ * shared with the admin re-run); any other 409 is "not FAILED". Change both together.
+ */
+export const RETRY_LIMIT_MESSAGE = 'Provisioning retry limit reached';
 
 function retryReasonFor(failure: Failure): RetryFailureReason {
   switch (failure.status) {
     case 409:
-      return RETRY_LIMIT_PATTERN.test(failure.error) ? 'limit' : 'not_failed';
+      return failure.error === RETRY_LIMIT_MESSAGE ? 'limit' : 'not_failed';
     case 401:
       return 'unauthorized';
     case 403:

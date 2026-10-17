@@ -71,6 +71,9 @@ MIGRATE_FAILED_ACTION = "admin.stores.migrate_failed"
 # Re-runs allowed per store. Not confirmed by the owner (KAN-200): raise or lower here.
 MAX_REPROVISION_ATTEMPTS = 3
 TIMEOUT_REASON = "timeout (outcome unknown; re-run to repair)"
+# The 409 body when the cap is reached. The frontend matches this exact text
+# (nextjs-frontend/src/lib/api/onboarding.ts) to tell it from "not FAILED"; change both together.
+RETRY_LIMIT_MESSAGE = "Provisioning retry limit reached"
 
 logger = logging.getLogger("storecart.admin_stores")
 # Store ids being migrated by this process.
@@ -105,6 +108,10 @@ class CommitFailed(Exception):
     """The change or its audit row could not be committed (503, retry)."""
 
 
+class _MovedOn(Exception):
+    """The store left PROVISIONING before the enqueue compensation ran (internal)."""
+
+
 class StoresStore(Protocol):
     async def list_organizations(
         self, search: str | None, limit: int, offset: int
@@ -117,6 +124,7 @@ class StoresStore(Protocol):
     ) -> StoreRecord | None: ...
     async def set_status(self, store_id: str, status: StoreStatus) -> None: ...
     async def claim_failed(self, store_id: str) -> bool: ...
+    async def release_provisioning(self, store_id: str) -> StoreStatus | None: ...
     async def count_reprovisions(self, store_id: str) -> ReprovisionCounts: ...
 
 
@@ -256,7 +264,7 @@ class AdminStoresService:
             "store provisioning re-run",
             extra={
                 "store_id": store_id,
-                "admin_user_id": actor.user_id,
+                "actor_user_id": actor.user_id,
                 "attempt": attempt,
                 "kind": kind.label,
             },
@@ -275,7 +283,11 @@ class AdminStoresService:
         kind: ReprovisionKind,
     ) -> bool:
         """Enqueue the first step. On any failure the store is FAILED again and a
-        ``reprovision_failed`` row frees the attempt's slot in the cap."""
+        ``reprovision_failed`` row frees the attempt's slot in the cap.
+
+        The compensation is a conditional UPDATE (``WHERE status = PROVISIONING``): a
+        store the job already moved on is left alone and no failure row is written.
+        """
         try:
             if await self._start_provisioning(record.id, attempt):
                 return True
@@ -283,17 +295,31 @@ class AdminStoresService:
             logger.error(
                 "store provisioning start crashed: %s",
                 safe_reason(exc),
-                extra={"store_id": record.id, "admin_user_id": actor.user_id},
+                extra={"store_id": record.id, "actor_user_id": actor.user_id},
             )
-        await self._record(
-            actor,
-            record,
-            kind.failed_action,
-            before={"status": StoreStatus.PROVISIONING.value},
-            after={"status": StoreStatus.FAILED.value},
-            new_status=StoreStatus.FAILED,
-            extra={"attempt": attempt},
-        )
+        try:
+            await self._record(
+                actor,
+                record,
+                kind.failed_action,
+                before={"status": StoreStatus.PROVISIONING.value},
+                after={"status": StoreStatus.FAILED.value},
+                release_provisioning=True,
+                extra={"attempt": attempt},
+            )
+        except _MovedOn:
+            logger.warning(
+                "store left PROVISIONING before the enqueue compensation; left as is",
+                extra={"store_id": record.id, "actor_user_id": actor.user_id},
+            )
+        except CommitFailed:
+            # The store stays PROVISIONING with no job: this line is how it is found.
+            logger.error(
+                "enqueue compensation was not committed; store may be stranded in "
+                "PROVISIONING",
+                extra={"store_id": record.id, "actor_user_id": actor.user_id},
+            )
+            raise
         return False
 
     async def migrate(self, actor: AdminContext, store_id: str) -> MigrateResult:
@@ -381,6 +407,7 @@ class AdminStoresService:
         reason: str | None = None,
         new_status: StoreStatus | None = None,
         claim_failed: bool = False,
+        release_provisioning: bool = False,
         extra: dict[str, object] | None = None,
     ) -> None:
         """Audit an outcome and commit it, with the status change if any, in one transaction.
@@ -392,6 +419,11 @@ class AdminStoresService:
         try:
             if claim_failed and not await self.repository.claim_failed(record.id):
                 raise StoreConflict
+            if release_provisioning and (
+                await self.repository.release_provisioning(record.id)
+                is not StoreStatus.FAILED
+            ):
+                raise _MovedOn
             if new_status is not None:
                 await self.repository.set_status(record.id, new_status)
             await self.auditor.record(
@@ -408,6 +440,8 @@ class AdminStoresService:
             await self.session.commit()
         except StoreConflict:
             await self._abort(StoreConflict(), record.id)
+        except _MovedOn:
+            await self._abort(_MovedOn(), record.id)
         except Exception as exc:  # noqa: BLE001
             logger.error(
                 "store outcome was not recorded: %s",
@@ -415,7 +449,7 @@ class AdminStoresService:
                 extra={
                     "store_id": record.id,
                     "action": action,
-                    "admin_user_id": actor.user_id,
+                    "actor_user_id": actor.user_id,
                 },
             )
             await self._safe_rollback({"store_id": record.id})

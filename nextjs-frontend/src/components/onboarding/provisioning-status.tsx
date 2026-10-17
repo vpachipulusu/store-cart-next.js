@@ -62,6 +62,8 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
   const [retryProblem, setRetryProblem] = useState<string | null>(null);
   /** The backend refused because the store was already retried the maximum number of times. */
   const [retryLimitReached, setRetryLimitReached] = useState(false);
+  /** The caller is not an owner or admin, so the button is pointless for them. */
+  const [retryForbidden, setRetryForbidden] = useState(false);
   /** Whether the store was FAILED when the user pressed the button; only then is "still" accurate. */
   const checkedFromFailedRef = useRef(false);
   const dashboardLinkRef = useRef<HTMLAnchorElement>(null);
@@ -142,6 +144,8 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
     setRetryCount((count) => count + 1);
   };
 
+  const focusStatusRegion = () => statusRegionRef.current?.focus();
+
   /** Re-runs the job (KAN-242). Success shows the normal setting-up progress and polls until it settles. */
   const handleSetupRetry = async () => {
     if (retryingRef.current) return;
@@ -156,10 +160,16 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
         setProblem(null);
         setStillFailed(false);
         setRetryCount((count) => count + 1);
+        focusStatusRegion(); // the button unmounts: the setting-up text is announced from here
       } else if (result.code === 'unauthorized') {
         setRetryProblem(SESSION_EXPIRED_MESSAGE);
       } else if (result.reason === 'limit') {
         setRetryLimitReached(true);
+        focusStatusRegion();
+      } else if (result.reason === 'forbidden') {
+        setRetryProblem(RETRY_MESSAGES.forbidden);
+        setRetryForbidden(true);
+        focusStatusRegion();
       } else if (result.reason === 'not_failed' || result.reason === 'not_found') {
         // The store changed under us: show what it is now instead of guessing.
         checkedFromFailedRef.current = false;
@@ -173,7 +183,6 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
     } finally {
       retryingRef.current = false;
       setRetrying(false);
-      statusRegionRef.current?.focus();
     }
   };
 
@@ -270,14 +279,14 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
       )}
       {needsAttention && (
         <div className="flex flex-wrap items-center gap-3">
-          {provisioningFailed && !retryLimitReached && (
+          {provisioningFailed && !retryLimitReached && !retryForbidden && (
             <Button
               type="button"
               onClick={() => void handleSetupRetry()}
               aria-disabled={retrying}
               className="min-h-11 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
             >
-              Retry setup
+              {retrying ? 'Retrying...' : 'Retry setup'}
             </Button>
           )}
           <Button

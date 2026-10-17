@@ -6241,11 +6241,11 @@ export type RetryStoreProvisioningErrors = {
      */
     500: ErrorResponse;
     /**
-     * The job could not be enqueued; the store is FAILED again and the attempt does not count against the cap.
+     * The job could not be enqueued. The store goes back to FAILED and the attempt does not count against the cap, unless the job already moved it on, in which case it is left as it is.
      */
     502: ErrorResponse;
     /**
-     * The change or its audit row could not be recorded and was rolled back. Retry after `Retry-After` seconds (5). Also returned when the rate limiter is unavailable.
+     * The change or its audit row could not be recorded and was rolled back. Retry after `Retry-After` seconds (5). If it was the step that returns a failed enqueue to FAILED, the store may stay PROVISIONING and is logged for follow-up. Also returned when the rate limiter is unavailable.
      */
     503: ErrorResponse;
 };

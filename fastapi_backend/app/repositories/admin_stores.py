@@ -202,12 +202,34 @@ class AdminStoresRepository(BaseRepository):
         )
         return result.first() is not None
 
+    async def release_provisioning(self, store_id: str) -> StoreStatus | None:
+        """PROVISIONING to FAILED in one conditional UPDATE (the enqueue compensation).
+
+        Returns the status the store has afterwards: FAILED when this update did it or
+        when it was already FAILED (``start_provisioning`` marks it itself), anything
+        else when the job already moved it on, and that outcome is not overwritten.
+        None when the store no longer exists.
+        """
+        result = await self._session.execute(
+            update(Store)
+            .where(Store.id == store_id, Store.status == StoreStatus.PROVISIONING)
+            .values(status=StoreStatus.FAILED)
+            .returning(Store.id)
+        )
+        if result.first() is not None:
+            return StoreStatus.FAILED
+        current = await self._session.execute(
+            select(Store.status).where(Store.id == store_id)
+        )
+        return current.scalar_one_or_none()
+
     async def count_reprovisions(self, store_id: str) -> ReprovisionCounts:
         """Audited re-runs of the store (admin or merchant) and how many failed to enqueue.
 
         ``started`` only grows, so ``started + 1`` is a monotonic attempt number; the
         retry cap uses ``started - failed``. This relies on audit rows being retained:
-        any future audit purge must keep ``admin.stores.reprovision*`` and ``stores.retry_provisioning*`` rows.
+        any future audit purge must keep ``admin.stores.reprovision*`` and
+        ``stores.retry_provisioning*`` rows.
         """
         started = func.count(AuditLog.id).filter(AuditLog.action.in_(_STARTED_ACTIONS))
         failed = func.count(AuditLog.id).filter(AuditLog.action.in_(_FAILED_ACTIONS))

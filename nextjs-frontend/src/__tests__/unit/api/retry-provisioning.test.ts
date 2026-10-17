@@ -56,6 +56,8 @@ describe('requestProvisioningRetry', () => {
   it.each([
     [409, 'Provisioning retry limit reached', 'limit'],
     [409, 'Operation not allowed in the current state', 'not_failed'],
+    [409, 'Provisioning retry limit exceeded', 'not_failed'],
+    [409, 'The retry limit was reached', 'not_failed'],
     [401, 'Invalid authentication', 'unauthorized'],
     [403, 'Forbidden', 'forbidden'],
     [404, 'Store not found', 'not_found'],

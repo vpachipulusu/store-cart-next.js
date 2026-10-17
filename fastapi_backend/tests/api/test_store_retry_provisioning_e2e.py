@@ -31,14 +31,18 @@ from app.core.firebase import VerifiedIdentity
 from app.core.ids import new_id
 from app.core.rate_limit import RETRY_PROVISIONING_POLICY
 from app.main import create_app
-from app.services.admin_stores import MAX_REPROVISION_ATTEMPTS
+from app.services.admin_stores import (
+    MAX_REPROVISION_ATTEMPTS,
+)
+from app.services.admin_stores import (
+    RETRY_LIMIT_MESSAGE as RETRY_LIMIT_ERROR,
+)
 from tests.fakes import FakeRateLimiter
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 KEY = "test-only-internal-service-key-not-for-deployment"
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
-RETRY_LIMIT_ERROR = "Provisioning retry limit reached"
 
 pytestmark = pytest.mark.skipif(
     not TEST_DATABASE_URL, reason="TEST_DATABASE_URL is not set"
@@ -428,3 +432,30 @@ async def test_a_denied_caller_cannot_spend_the_store_bucket(client, engine):
 
     assert spent_by_outsider == set()  # the 404 came before any retry bucket was hit
     assert owner.status_code == 409  # not 429
+
+
+async def test_a_failed_enqueue_does_not_overwrite_a_store_the_job_moved_on(
+    client, engine
+):
+    store_id = await seed_world(engine)
+    original = client.published.enqueue
+
+    async def job_finishes_then_enqueue_reports_failure(
+        sid: str, step: Any, *, attempt: int = 0
+    ) -> None:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text("UPDATE stores SET status = 'ACTIVE' WHERE id = :i"), {"i": sid}
+            )
+        client.published.fail = True
+        await original(sid, step, attempt=attempt)
+
+    client.published.enqueue = job_finishes_then_enqueue_reports_failure
+
+    result = await client.post(retry_path(store_id), headers=as_user("owner"))
+    stored = await rows(engine, "SELECT status FROM stores WHERE id = :i", i=store_id)
+    audit = await rows(engine, "SELECT action FROM audit_logs")
+
+    assert result.status_code == 502
+    assert stored[0][0] == "ACTIVE"
+    assert [a[0] for a in audit] == ["stores.retry_provisioning"]

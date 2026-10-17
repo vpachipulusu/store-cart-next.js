@@ -35,7 +35,11 @@ from app.core.errors import ErrorResponse
 from app.core.permissions import AdminContext
 from app.core.rate_limit import API_POLICY, RETRY_PROVISIONING_POLICY
 from app.repositories.merchant import MerchantAccess
-from app.services.admin_stores import MAX_REPROVISION_ATTEMPTS, MERCHANT_RETRY
+from app.services.admin_stores import (
+    MAX_REPROVISION_ATTEMPTS,
+    MERCHANT_RETRY,
+    RETRY_LIMIT_MESSAGE,
+)
 
 router = APIRouter(
     prefix="/v1/stores/{store_id}",
@@ -57,18 +61,21 @@ _RETRY_RESPONSES: dict[int | str, dict[str, Any]] = {
         "model": ErrorResponse,
         "description": "The store is not FAILED, or it was already retried the maximum "
         f"number of times ({MAX_REPROVISION_ATTEMPTS}, shared with admin re-runs): "
-        "`Provisioning retry limit reached`.",
+        f"`{RETRY_LIMIT_MESSAGE}`.",
     },
     502: {
         "model": ErrorResponse,
-        "description": "The job could not be enqueued; the store is FAILED again and "
-        "the attempt does not count against the cap.",
+        "description": "The job could not be enqueued. The store goes back to FAILED "
+        "and the attempt does not count against the cap, unless the job already "
+        "moved it on, in which case it is left as it is.",
     },
     503: {
         "model": ErrorResponse,
         "description": "The change or its audit row could not be recorded and was "
-        f"rolled back. Retry after `Retry-After` seconds ({COMMIT_RETRY_AFTER}). Also "
-        "returned when the rate limiter is unavailable.",
+        f"rolled back. Retry after `Retry-After` seconds ({COMMIT_RETRY_AFTER}). If "
+        "it was the step that returns a failed enqueue to FAILED, the store may stay "
+        "PROVISIONING and is logged for follow-up. Also returned when the rate "
+        "limiter is unavailable.",
     },
 }
 

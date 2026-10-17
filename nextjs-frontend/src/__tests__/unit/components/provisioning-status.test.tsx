@@ -530,7 +530,6 @@ describe('Retry setup on a FAILED store (KAN-242)', () => {
 
   it.each([
     ['rate_limited', /too many attempts/i],
-    ['forbidden', /owner or admin/i],
     ['unavailable', /could not retry/i],
   ])('shows a fixed message for %s and keeps the button', async (reason, message) => {
     mocks.retryProvisioningAction.mockResolvedValue({ success: false, reason });
@@ -571,5 +570,81 @@ describe('Retry setup on a FAILED store (KAN-242)', () => {
 
     expect(statusRegion()).toHaveTextContent(/could not retry/i);
     expect(retryButton()).toBeInTheDocument();
+  });
+});
+
+describe('Retry setup: forbidden, pending label and focus (KAN-242 review)', () => {
+  const retryButton = () => screen.queryByRole('button', { name: /retry/i });
+  const clickRetry = async () => {
+    await act(async () => {
+      screen.getByRole('button', { name: /retry setup/i }).click();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    mocks.getStoreStatusAction.mockResolvedValue(ok('PROVISIONING'));
+  });
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it('hides Retry for a caller who may not retry, and says who can', async () => {
+    mocks.retryProvisioningAction.mockResolvedValue({ success: false, reason: 'forbidden' });
+    renderStatus('FAILED');
+
+    await clickRetry();
+
+    expect(retryButton()).toBeNull();
+    expect(statusRegion()).toHaveTextContent(/owner or admin/i);
+    expect(screen.getByRole('button', { name: /check again/i })).toBeInTheDocument();
+    expect(screen.getByTestId('store-status')).toHaveTextContent(/contact support/i);
+  });
+
+  it('labels the button Retrying... while the request is pending', async () => {
+    let resolve: (value: unknown) => void = () => {};
+    mocks.retryProvisioningAction.mockImplementation(() => new Promise((done) => (resolve = done)));
+    renderStatus('FAILED');
+
+    await act(async () => {
+      screen.getByRole('button', { name: /retry setup/i }).click();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByRole('button', { name: /retrying/i })).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
+
+    await act(async () => resolve({ success: false, reason: 'unavailable' }));
+    expect(screen.getByRole('button', { name: /retry setup/i })).toBeInTheDocument();
+  });
+
+  it.each([
+    ['success', { success: true, data: { attempt: 1 } }],
+    ['limit', { success: false, reason: 'limit' }],
+    ['forbidden', { success: false, reason: 'forbidden' }],
+  ])('moves focus to the status region when the button goes away (%s)', async (_name, result) => {
+    mocks.retryProvisioningAction.mockResolvedValue(result);
+    renderStatus('FAILED');
+    screen.getByRole('button', { name: /retry setup/i }).focus();
+
+    await clickRetry();
+
+    expect(statusRegion()).toHaveFocus();
+  });
+
+  it('leaves focus on the button when it stays (a retryable failure)', async () => {
+    mocks.retryProvisioningAction.mockResolvedValue({ success: false, reason: 'unavailable' });
+    renderStatus('FAILED');
+    const button = screen.getByRole('button', { name: /retry setup/i });
+    button.focus();
+
+    await clickRetry();
+
+    expect(screen.getByRole('button', { name: /retry setup/i })).toHaveFocus();
+    expect(statusRegion()).not.toHaveFocus();
   });
 });

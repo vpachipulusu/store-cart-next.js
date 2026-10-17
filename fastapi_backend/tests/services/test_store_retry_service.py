@@ -7,6 +7,7 @@ from app.models.platform.store import StoreStatus
 from app.services.admin_stores import (
     MERCHANT_RETRY,
     AdminStoresService,
+    CommitFailed,
     ProvisioningNotStarted,
     StoreConflict,
 )
@@ -78,3 +79,63 @@ async def test_losing_the_conditional_update_is_a_conflict_that_queues_nothing()
 
     assert (started, auditor.rows, session.commits) == ([], [], 0)
     assert session.rollbacks >= 1
+
+
+async def test_compensation_leaves_a_store_the_job_already_moved_on():
+    repository = FakeStoresRepository(store("s1", status=StoreStatus.FAILED))
+    session, auditor = FakeSession(), FakeAuditor()
+
+    async def start(store_id: str, attempt: int) -> bool:
+        # The job got going (and finished) before the enqueue reported a failure.
+        await repository.set_status(store_id, StoreStatus.ACTIVE)
+        return False
+
+    async def migrate(store_id: str) -> int:
+        return 0
+
+    service = AdminStoresService(
+        repository, session, auditor, migrate, start_provisioning=start
+    )
+
+    with pytest.raises(ProvisioningNotStarted):
+        await service.reprovision(MERCHANT, "s1", MERCHANT_RETRY)
+
+    assert repository.stores["s1"].status is StoreStatus.ACTIVE
+    assert [r["action"] for r in auditor.rows] == ["stores.retry_provisioning"]
+    assert session.commits == 1  # only the claim; nothing was written to compensate
+
+
+async def test_a_failed_compensation_commit_is_logged_at_error_with_the_store_id(
+    caplog,
+):
+    class CommitFailsSecondTime(FakeSession):
+        async def commit(self) -> None:
+            await super().commit()
+            if self.commits > 1:
+                raise RuntimeError("connection lost")
+
+    repository = FakeStoresRepository(store("s1", status=StoreStatus.FAILED))
+    session, auditor = CommitFailsSecondTime(), FakeAuditor()
+
+    async def start(store_id: str, attempt: int) -> bool:
+        return False
+
+    async def migrate(store_id: str) -> int:
+        return 0
+
+    service = AdminStoresService(
+        repository, session, auditor, migrate, start_provisioning=start
+    )
+
+    with (
+        caplog.at_level("ERROR", logger="storecart.admin_stores"),
+        pytest.raises(CommitFailed),
+    ):
+        await service.reprovision(MERCHANT, "s1", MERCHANT_RETRY)
+
+    stranded = [
+        r
+        for r in caplog.records
+        if r.levelname == "ERROR" and getattr(r, "store_id", None) == "s1"
+    ]
+    assert any("compensation" in r.getMessage() for r in stranded)
