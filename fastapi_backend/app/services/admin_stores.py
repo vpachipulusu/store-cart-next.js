@@ -20,6 +20,15 @@
   mid-migration (client disconnect) writes no audit row; re-running is safe.
 * Only the deadline expiring is reported as a timeout (``asyncio.timeout``); any other
   unexpected error is audited as ``migrate_failed`` with ``safe_reason`` and becomes a 502.
+* Re-running provisioning (KAN-200) takes the store row lock, requires ``FAILED``, counts the
+  earlier ``admin.stores.reprovision`` audit rows of the store (the cap; there is no
+  attempts column, so no migration) and, in one transaction, sets ``PROVISIONING`` and
+  audits. Only after that commit is the job enqueued, so a delivery never sees ``FAILED``.
+  The orphan database of the failed run is reused, not dropped: every step is idempotent
+  (the provisioner returns the existing database, the stored connection string is never
+  overwritten, migrations are idempotent). If the enqueue fails the store is ``FAILED``
+  again (``start_provisioning``) and an ``admin.stores.reprovision_failed`` row (which also sets ``FAILED``) frees
+  the attempt's slot in the cap but not its number. Enqueue and compensation are shielded from request cancellation.
 * Failures carry a class name and SQLSTATE only (``safe_reason``), never a driver
   message or a connection string.
 """
@@ -35,7 +44,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.permissions import AdminContext
 from app.models.platform.store import StoreStatus
 from app.repositories.admin_stores import (
+    REPROVISION_ACTION,
+    REPROVISION_FAILED_ACTION,
     OrganizationPage,
+    ReprovisionCounts,
     StoreFilters,
     StorePage,
     StoreRecord,
@@ -54,6 +66,8 @@ SUSPEND_ACTION = "admin.stores.suspend"
 UNSUSPEND_ACTION = "admin.stores.unsuspend"
 MIGRATE_ACTION = "admin.stores.migrate"
 MIGRATE_FAILED_ACTION = "admin.stores.migrate_failed"
+# Re-runs allowed per store. Not confirmed by the owner (KAN-200): raise or lower here.
+MAX_REPROVISION_ATTEMPTS = 3
 TIMEOUT_REASON = "timeout (outcome unknown; re-run to repair)"
 
 logger = logging.getLogger("storecart.admin_stores")
@@ -77,6 +91,14 @@ class MigrationTimeout(Exception):
     """The migration did not finish in time (503); the outcome is unknown, re-run."""
 
 
+class RetryLimitReached(Exception):
+    """The store was already re-provisioned the maximum number of times (409)."""
+
+
+class ProvisioningNotStarted(Exception):
+    """The job could not be enqueued; the store is FAILED again (502)."""
+
+
 class CommitFailed(Exception):
     """The change or its audit row could not be committed (503, retry)."""
 
@@ -92,6 +114,7 @@ class StoresStore(Protocol):
         self, store_id: str, *, lock: bool = False
     ) -> StoreRecord | None: ...
     async def set_status(self, store_id: str, status: StoreStatus) -> None: ...
+    async def count_reprovisions(self, store_id: str) -> ReprovisionCounts: ...
 
 
 class AuditRecorder(Protocol):
@@ -117,9 +140,22 @@ class StatusResult:
 
 
 @dataclass(frozen=True)
+class ReprovisionResult:
+    status: StoreStatus
+    attempt: int
+
+
+@dataclass(frozen=True)
 class MigrateResult:
     previous_version: int
     schema_version: int
+
+
+def _details(
+    reason: str | None, extra: dict[str, object] | None
+) -> dict[str, object] | None:
+    details = {**(extra or {}), **({"reason": reason} if reason else {})}
+    return details or None
 
 
 class AdminStoresService:
@@ -130,9 +166,12 @@ class AdminStoresService:
         auditor: AuditRecorder,
         migrate: Callable[[str], Awaitable[int]],
         timeout: float = MIGRATE_TIMEOUT_SECONDS,
+        *,
+        start_provisioning: Callable[[str, int], Awaitable[bool]],
     ) -> None:
         self.repository, self.session, self.auditor = repository, session, auditor
         self._migrate, self.timeout = migrate, timeout
+        self._start_provisioning = start_provisioning
 
     async def list_organizations(
         self, search: str | None, limit: int, offset: int
@@ -161,6 +200,68 @@ class AdminStoresService:
             StoreStatus.ACTIVE,
             UNSUSPEND_ACTION,
         )
+
+    async def reprovision(
+        self, actor: AdminContext, store_id: str
+    ) -> ReprovisionResult:
+        record = await self.repository.get_store(store_id, lock=True)
+        if record is None:
+            await self._abort(AdminStoreNotFound(), store_id)
+        if record.status is not StoreStatus.FAILED:
+            await self._abort(StoreConflict(), store_id)
+        counts = await self.repository.count_reprovisions(store_id)
+        if counts.started - counts.failed >= MAX_REPROVISION_ATTEMPTS:
+            await self._abort(RetryLimitReached(), store_id)
+        # Monotonic: a failed enqueue frees its slot in the cap, never its number, so
+        # no two runs of a store share an attempt (and so a QStash dedup id).
+        attempt = counts.started + 1
+        await self._record(
+            actor,
+            record,
+            REPROVISION_ACTION,
+            before={"status": StoreStatus.FAILED.value},
+            after={"status": StoreStatus.PROVISIONING.value},
+            new_status=StoreStatus.PROVISIONING,
+            extra={"attempt": attempt, "max_attempts": MAX_REPROVISION_ATTEMPTS},
+        )
+        logger.info(
+            "admin store provisioning re-run",
+            extra={
+                "store_id": store_id,
+                "admin_user_id": actor.user_id,
+                "attempt": attempt,
+            },
+        )
+        # Shielded: a client disconnect after the commit must not strand the store in
+        # PROVISIONING without a job, nor skip the compensation below.
+        if not await asyncio.shield(self._launch(actor, record, attempt)):
+            raise ProvisioningNotStarted
+        return ReprovisionResult(StoreStatus.PROVISIONING, attempt)
+
+    async def _launch(
+        self, actor: AdminContext, record: StoreRecord, attempt: int
+    ) -> bool:
+        """Enqueue the first step. On any failure the store is FAILED again and a
+        ``reprovision_failed`` row frees the attempt's slot in the cap."""
+        try:
+            if await self._start_provisioning(record.id, attempt):
+                return True
+        except Exception as exc:  # noqa: BLE001 - treated like a refused enqueue
+            logger.error(
+                "admin store provisioning start crashed: %s",
+                safe_reason(exc),
+                extra={"store_id": record.id, "admin_user_id": actor.user_id},
+            )
+        await self._record(
+            actor,
+            record,
+            REPROVISION_FAILED_ACTION,
+            before={"status": StoreStatus.PROVISIONING.value},
+            after={"status": StoreStatus.FAILED.value},
+            new_status=StoreStatus.FAILED,
+            extra={"attempt": attempt},
+        )
+        return False
 
     async def migrate(self, actor: AdminContext, store_id: str) -> MigrateResult:
         record = await self.repository.get_store(store_id)
@@ -246,6 +347,7 @@ class AdminStoresService:
         after: object = None,
         reason: str | None = None,
         new_status: StoreStatus | None = None,
+        extra: dict[str, object] | None = None,
     ) -> None:
         """Audit an outcome and commit it, with the status change if any, in one transaction.
 
@@ -264,7 +366,7 @@ class AdminStoresService:
                 store_id=record.id,
                 before=before,
                 after=after,
-                details={"reason": reason} if reason else None,
+                details=_details(reason, extra),
             )
             await self.session.commit()
         except Exception as exc:  # noqa: BLE001

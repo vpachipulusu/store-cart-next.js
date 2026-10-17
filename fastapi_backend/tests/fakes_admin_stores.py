@@ -9,6 +9,7 @@ from app.models.platform.store import StoreStatus
 from app.repositories.admin_stores import (
     OrganizationPage,
     OrganizationRecord,
+    ReprovisionCounts,
     StoreFilters,
     StorePage,
     StoreRecord,
@@ -42,6 +43,14 @@ class FakeStoresRepository:
         self.stores = {s.id: s for s in stores}
         self.locked: list[str] = []
         self.list_calls: list[tuple[Any, ...]] = []
+        self.reprovisions: dict[str, int] = {}
+        self.reprovision_failures: dict[str, int] = {}
+
+    async def count_reprovisions(self, store_id: str) -> ReprovisionCounts:
+        return ReprovisionCounts(
+            self.reprovisions.get(store_id, 0),
+            self.reprovision_failures.get(store_id, 0),
+        )
 
     async def list_organizations(
         self, search: str | None, limit: int, offset: int
@@ -100,3 +109,7 @@ class FakeSession:
 
     async def rollback(self) -> None:
         self.rollbacks += 1
+
+
+async def no_start(store_id: str, attempt: int) -> bool:
+    raise AssertionError("provisioning must not start")

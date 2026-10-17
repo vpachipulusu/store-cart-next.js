@@ -63,9 +63,9 @@ runs the real steps against Postgres when `TEST_DATABASE_URL` is set (see `testi
 - **Stuck `PROVISIONING`.** There is no sweeper. If the process dies between the store commit and the first publish, or QStash
   is down, a store can stay `PROVISIONING`. Find them with
   `SELECT id FROM stores WHERE status = 'PROVISIONING' AND created_at < now() - interval '15 minutes'`.
-- **`FAILED` is terminal in this story.** No retry or re-enqueue route exists; a `FAILED` store cannot be updated. A manual re-publish of a step within QStash's deduplication window (about 10 minutes) is
-  collapsed into the earlier message (the dedup id is `provision-<store_id>-<step>`).
-- **Orphans.** A `FAILED` store may leave its database and encrypted connection string behind; nothing deletes them.
+- **`FAILED` retry.** A platform admin re-runs it through `POST /v1/admin/stores/{id}/reprovision` (KAN-200, see `backend-admin-stores.md`). A manual re-publish of a step within QStash's deduplication window (about 10 minutes) is
+  collapsed into the earlier message (the dedup id is `provision-<store_id>-<step>-a<attempt>`; admin re-runs get a new attempt, KAN-200).
+- **Orphans.** A `FAILED` store may leave its database and encrypted connection string behind; nothing deletes them. The admin re-run reuses them.
 - **No audit row** is written for the `PROVISIONING` to `FAILED` / `ACTIVE` transitions (logs only).
 - **Hosts.** `QSTASH_URL` must be `qstash.upstash.io` or `qstash-<region>.upstash.io`; a local QStash emulator is not accepted.
   `PROVISIONING_BASE_URL` must be the exact public origin (and path prefix, if any) the service is mounted at, or the signature

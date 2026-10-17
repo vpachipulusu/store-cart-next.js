@@ -31,11 +31,13 @@ class Enqueuer:
     def __init__(self, fail: bool = False) -> None:
         self.fail = fail
         self.calls: list[tuple[str, Step]] = []
+        self.attempts: list[int] = []
 
-    async def enqueue(self, store_id: str, step: Step) -> None:
+    async def enqueue(self, store_id: str, step: Step, *, attempt: int) -> None:
         if self.fail:
             raise EnqueueFailed
         self.calls.append((store_id, step))
+        self.attempts.append(attempt)
 
 
 class Runner(StepRunner):
@@ -129,6 +131,15 @@ async def test_a_successful_step_enqueues_the_next_one():
     ]
 
 
+async def test_the_attempt_is_carried_to_every_following_step():
+    runner = Runner()
+
+    await runner.run(Step.CREATE_DATABASE, STORE_ID, 3)
+    await runner.run(Step.RUN_MIGRATIONS, STORE_ID, 3)
+
+    assert runner.enqueuer.attempts == [3, 3]  # type: ignore[attr-defined]
+
+
 async def test_a_failed_publish_of_the_next_step_is_retried():
     runner = Runner(enqueuer=Enqueuer(fail=True))
 
@@ -141,17 +152,17 @@ def body(payload: Any) -> bytes:
 
 
 async def test_handle_step_runs_the_requested_step():
-    ran: list[tuple[Step, str]] = []
+    ran: list[tuple[Step, str, int]] = []
 
     class Recording(Runner):
-        async def run(self, step: Step, store_id: str) -> None:
-            ran.append((step, store_id))
+        async def run(self, step: Step, store_id: str, attempt: int = 0) -> None:
+            ran.append((step, store_id, attempt))
 
     await Recording().handle_step(
-        body({"store_id": STORE_ID, "step": "run_migrations"})
+        body({"store_id": STORE_ID, "step": "run_migrations", "attempt": 2})
     )
 
-    assert ran == [(Step.RUN_MIGRATIONS, STORE_ID)]
+    assert ran == [(Step.RUN_MIGRATIONS, STORE_ID, 2)]
 
 
 @pytest.mark.parametrize("raw", [b"nope", b"[]", body({"store_id": STORE_ID})])

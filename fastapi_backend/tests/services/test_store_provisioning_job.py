@@ -43,7 +43,9 @@ async def test_publishes_the_step_with_retries_and_a_failure_callback():
         seen.append(request)
         return httpx.Response(201, json={"messageId": "m"})
 
-    await enqueuer_with(handler, retries=3).enqueue(STORE_ID, Step.RUN_MIGRATIONS)
+    await enqueuer_with(handler, retries=3).enqueue(
+        STORE_ID, Step.RUN_MIGRATIONS, attempt=0
+    )
 
     request = seen[0]
     assert request.method == "POST"
@@ -57,12 +59,29 @@ async def test_publishes_the_step_with_retries_and_a_failure_callback():
     )
     assert (
         request.headers["upstash-deduplication-id"]
-        == f"provision-{STORE_ID}-run_migrations"
+        == f"provision-{STORE_ID}-run_migrations-a0"
     )
     assert json.loads(request.content) == {
         "store_id": STORE_ID,
         "step": "run_migrations",
+        "attempt": 0,
     }
+
+
+async def test_admin_rerun_gets_its_own_deduplication_id():
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json={"messageId": "m"})
+
+    enqueuer = enqueuer_with(handler)
+    await enqueuer.enqueue(STORE_ID, Step.CREATE_DATABASE, attempt=2)
+
+    assert (
+        seen[0].headers["upstash-deduplication-id"]
+        == f"provision-{STORE_ID}-create_database-a2"
+    )
 
 
 @pytest.mark.parametrize("status", [401, 429, 500])
@@ -71,7 +90,7 @@ async def test_raises_enqueue_failed_when_qstash_rejects(status, caplog):
 
     with pytest.raises(EnqueueFailed):
         await enqueuer_with(lambda r: httpx.Response(status)).enqueue(
-            STORE_ID, Step.CREATE_DATABASE
+            STORE_ID, Step.CREATE_DATABASE, attempt=0
         )
 
     assert TOKEN not in caplog.text
@@ -84,7 +103,7 @@ async def test_raises_enqueue_failed_on_a_network_error_without_leaking(caplog):
     caplog.set_level(logging.DEBUG)
 
     with pytest.raises(EnqueueFailed) as raised:
-        await enqueuer_with(handler).enqueue(STORE_ID, Step.CREATE_DATABASE)
+        await enqueuer_with(handler).enqueue(STORE_ID, Step.CREATE_DATABASE, attempt=0)
 
     assert raised.value.__cause__ is None
     assert TOKEN not in caplog.text
@@ -96,7 +115,7 @@ class RecordingEnqueuer:
         self.fail = fail
         self.calls: list[tuple[str, Step]] = []
 
-    async def enqueue(self, store_id: str, step: Step) -> None:
+    async def enqueue(self, store_id: str, step: Step, *, attempt: int) -> None:
         self.calls.append((store_id, step))
         if self.fail:
             raise EnqueueFailed
@@ -152,7 +171,7 @@ def test_enqueuer_is_a_noop_in_local_and_test_without_qstash():
 
 async def test_unconfigured_enqueuer_refuses_to_enqueue():
     with pytest.raises(EnqueueFailed):
-        await UnconfiguredEnqueuer().enqueue(STORE_ID, Step.CREATE_DATABASE)
+        await UnconfiguredEnqueuer().enqueue(STORE_ID, Step.CREATE_DATABASE, attempt=0)
 
 
 def test_signing_keys_list_current_then_next_and_skip_unset():
@@ -212,9 +231,16 @@ def test_secrets_are_not_shown_in_the_settings_repr():
     [
         (
             {"store_id": STORE_ID, "step": "create_database"},
-            (Step.CREATE_DATABASE, STORE_ID),
+            (Step.CREATE_DATABASE, STORE_ID, 0),
         ),
-        ({"store_id": STORE_ID, "step": "mark_ready"}, (Step.MARK_READY, STORE_ID)),
+        (
+            {"store_id": STORE_ID, "step": "mark_ready", "attempt": 3},
+            (Step.MARK_READY, STORE_ID, 3),
+        ),
+        ({"store_id": STORE_ID, "step": "mark_ready", "attempt": -1}, None),
+        ({"store_id": STORE_ID, "step": "mark_ready", "attempt": True}, None),
+        ({"store_id": STORE_ID, "step": "mark_ready", "attempt": "1"}, None),
+        ({"store_id": STORE_ID, "step": "mark_ready", "attempt": 10**6}, None),
         ({"store_id": STORE_ID, "step": "bogus"}, None),
         ({"store_id": "UPPER", "step": "mark_ready"}, None),
         ({"store_id": STORE_ID}, None),
@@ -229,7 +255,7 @@ def test_parse_step_payload(raw, expected):
 
 
 class CrashingEnqueuer:
-    async def enqueue(self, store_id: str, step: Step) -> None:
+    async def enqueue(self, store_id: str, step: Step, *, attempt: int) -> None:
         raise UnicodeError("unexpected")
 
 

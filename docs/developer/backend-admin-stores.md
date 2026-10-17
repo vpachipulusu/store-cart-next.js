@@ -18,6 +18,7 @@ responses do not (they hold no store data). Rate limited by subject
 | `POST /stores/{store_id}/suspend`    | `stores.suspend` | ACTIVE to SUSPENDED                                                      |
 | `POST /stores/{store_id}/unsuspend`  | `stores.suspend` | SUSPENDED to ACTIVE                                                      |
 | `POST /stores/{store_id}/migrate`    | `stores.migrate` | Run `migrate_store` (KAN-57); returns the previous and new `schema_version` |
+| `POST /stores/{store_id}/reprovision` | `stores.reprovision` | Re-run provisioning of a `FAILED` store (KAN-200) |
 
 - **Lists** return `status` and `schema_version` per store, and the store count per organisation. They never return
   `database_ref` or the connection string. Newest first, id as tie-break. Unknown `status` or malformed ids are a 422.
@@ -59,3 +60,29 @@ responses do not (they hold no store data). Rate limited by subject
   per-database advisory lock instead of answering 409 (bounded by the 60 second deadline). A migration is logged when
   it starts and when it finishes (`store_id`, `admin_user_id`), because a request that dies mid-migration writes no
   audit row. `ILIKE '%term%'` search and deep `offset` values are not indexed; both are fine at current sizes.
+
+## Re-running provisioning (KAN-200)
+
+- **Flow.** Under the store row lock the store must be `FAILED` (else 409). In one transaction the status becomes
+  `PROVISIONING` and an `admin.stores.reprovision` audit row (`before`/`after` status, `details.attempt`,
+  `details.max_attempts`) is written. Only after the commit is `create_database` enqueued with `start_provisioning`, so
+  a delivery never sees `FAILED`. Concurrent requests: one wins, the rest get 409.
+- **Cap.** `MAX_REPROVISION_ATTEMPTS` (3, `app/services/admin_stores.py`; **not confirmed by the owner**). There is no
+  `provisioning_attempts` column, so the attempts are the store's earlier `admin.stores.reprovision` audit rows
+  (`AdminStoresRepository.count_reprovisions`, indexed by `store_id`). Past the cap: 409 "Provisioning retry limit
+  reached". Audit rows are never deleted, so the cap is per store for good; raising the constant lifts it.
+- **Orphan database: reused, not dropped.** The failed run's database and encrypted connection string stay on the store.
+  Every step is idempotent (the provisioner returns an existing database, an existing connection string is never
+  overwritten, migrations are idempotent), so the retry simply continues. Nothing destructive runs on an admin click.
+- **Enqueue failure.** 502 "Provisioning could not be started". The store is `FAILED` again (`start_provisioning`) and an
+  `admin.stores.reprovision_failed` audit row cancels the attempt in the count, so an outage does not use up the cap. If
+  marking `FAILED` also crashes the store can stay `PROVISIONING` (logged); the enqueue is shielded from request
+  cancellation to keep that rare.
+- **Attempt numbers and dedup.** Every run has an attempt number (0 for the first run, then `started + 1` from the audit
+  rows, which only grows: a failed enqueue frees its cap slot, never its number). It travels in every step's signed body
+  (`{"store_id", "step", "attempt"}`, `attempt` optional for messages published before KAN-200) and in every dedup id
+  (`provision-<id>-<step>-a<n>`), so an earlier publish of any step can never collapse a re-run's.
+- **Stale callbacks.** `mark_failed` has no run token: a late failure callback or duplicate delivery of the previous run
+  can flip the new run back to `FAILED`. Known limitation; re-run again.
+- **Retention.** The cap counts audit rows, so any audit purge must keep `admin.stores.reprovision*` rows or the cap resets.
+- **Permission.** `stores.reprovision` is new; `super_admin` has it through the wildcard, every other admin needs it granted explicitly (nothing seeds it).

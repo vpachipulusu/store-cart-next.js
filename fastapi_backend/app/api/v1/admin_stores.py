@@ -2,7 +2,8 @@
 
 Every route is ``require_admin(<permission>)``: authentication first (401), then the
 admin record and permission (403, one generic body). Reads need ``stores.read``,
-suspend and unsuspend ``stores.suspend`` and migrate ``stores.migrate``. Responses never
+suspend and unsuspend ``stores.suspend``, migrate ``stores.migrate`` and re-running
+provisioning of a FAILED store ``stores.reprovision``. Responses never
 include the store database reference or connection string. Every change is audited by
 ``AdminStoresService``; a migration failure is a generic 502 with no driver text.
 Success responses carry ``Cache-Control: no-store``; error responses do not.
@@ -20,6 +21,7 @@ from app.api.auth import require_internal_key
 from app.api.deps import SessionDep, get_session_provider
 from app.api.rate_limit import RATE_LIMIT_FAIL_CLOSED_RESPONSES, limit_by_subject
 from app.api.v1.auth import current_subject
+from app.core.config import settings
 from app.core.database import SessionProvider
 from app.core.errors import ErrorResponse
 from app.core.permissions import AdminContext
@@ -33,15 +35,20 @@ from app.repositories.admin_stores import (
 )
 from app.services.admin_stores import (
     MAX_PAGE_SIZE,
+    MAX_REPROVISION_ATTEMPTS,
     AdminStoreNotFound,
     AdminStoresService,
     CommitFailed,
     MigrationFailed,
     MigrationTimeout,
+    ProvisioningNotStarted,
+    ReprovisionResult,
+    RetryLimitReached,
     StatusResult,
     StoreConflict,
 )
 from app.services.store_migrations import migrate_store
+from app.services.store_provisioning_job import get_step_enqueuer, start_provisioning
 
 router = APIRouter(
     prefix="/v1/admin",
@@ -73,6 +80,7 @@ Identifier = Annotated[
 ReadAdmin = Annotated[AdminContext, Depends(require_admin("stores.read"))]
 SuspendAdmin = Annotated[AdminContext, Depends(require_admin("stores.suspend"))]
 MigrateAdmin = Annotated[AdminContext, Depends(require_admin("stores.migrate"))]
+ReprovisionAdmin = Annotated[AdminContext, Depends(require_admin("stores.reprovision"))]
 
 _NOT_FOUND: dict[int | str, dict[str, Any]] = {
     404: {"model": ErrorResponse, "description": "No such store."}
@@ -89,6 +97,25 @@ _MIGRATE_CONFLICT: dict[int | str, dict[str, Any]] = {
         "description": "The store is PROVISIONING or ARCHIVED, or this process is "
         "already migrating it.",
     }
+}
+_REPROVISION_RESPONSES: dict[int | str, dict[str, Any]] = {
+    **_NOT_FOUND,
+    409: {
+        "model": ErrorResponse,
+        "description": "The store is not FAILED, or it was already re-run the "
+        "maximum number of times (`MAX_REPROVISION_ATTEMPTS`).",
+    },
+    502: {
+        "model": ErrorResponse,
+        "description": "The job could not be enqueued; the store is FAILED again and "
+        "the attempt does not count against the cap.",
+    },
+    503: {
+        "model": ErrorResponse,
+        "description": "The change or its audit row could not be recorded and was "
+        f"rolled back. Retry after `Retry-After` seconds ({COMMIT_RETRY_AFTER}). Also "
+        "returned when the rate limiter is unavailable.",
+    },
 }
 _STATUS_RESPONSES: dict[int | str, dict[str, Any]] = {
     **_NOT_FOUND,
@@ -185,6 +212,18 @@ class StoreMigrationResponse(BaseModel):
     data: StoreMigrationData
 
 
+class StoreReprovisionData(BaseModel):
+    store_id: str
+    status: StoreStatus
+    attempt: int = Field(description="Which re-run this was, starting at 1.")
+    max_attempts: int
+
+
+class StoreReprovisionResponse(BaseModel):
+    success: Literal[True] = True
+    data: StoreReprovisionData
+
+
 def get_admin_stores_service(
     session: SessionDep,
     auditor: AuditorDep,
@@ -193,7 +232,18 @@ def get_admin_stores_service(
     async def migrate(store_id: str) -> int:
         return await migrate_store(store_id, provider)
 
-    return AdminStoresService(AdminStoresRepository(session), session, auditor, migrate)
+    async def start(store_id: str, attempt: int) -> bool:
+        # Built per call: only re-runs need the enqueuer.
+        enqueuer = get_step_enqueuer(settings)
+        return await start_provisioning(provider, enqueuer, store_id, attempt=attempt)
+
+    return AdminStoresService(
+        AdminStoresRepository(session),
+        session,
+        auditor,
+        migrate,
+        start_provisioning=start,
+    )
 
 
 ServiceDep = Annotated[AdminStoresService, Depends(get_admin_stores_service)]
@@ -202,6 +252,8 @@ ServiceDep = Annotated[AdminStoresService, Depends(get_admin_stores_service)]
 _ERRORS: dict[type[Exception], tuple[int, str, dict[str, str] | None]] = {
     AdminStoreNotFound: (404, "Store not found", None),
     StoreConflict: (409, "Operation not allowed in the current state", None),
+    RetryLimitReached: (409, "Provisioning retry limit reached", None),
+    ProvisioningNotStarted: (502, "Provisioning could not be started", None),
     MigrationFailed: (502, "Store migration failed", None),
     CommitFailed: (
         503,
@@ -392,5 +444,32 @@ async def admin_migrate_store(
             store_id=store_id,
             previous_schema_version=result.previous_version,
             schema_version=result.schema_version,
+        )
+    )
+
+
+@router.post(
+    "/stores/{store_id}/reprovision",
+    summary="Re-run provisioning of a FAILED store",
+    response_model=StoreReprovisionResponse,
+    responses=_REPROVISION_RESPONSES,
+)
+async def admin_reprovision_store(
+    store_id: Identifier,
+    response: Response,
+    admin: ReprovisionAdmin,
+    service: ServiceDep,
+) -> StoreReprovisionResponse:
+    _no_store(response)
+    try:
+        result: ReprovisionResult = await service.reprovision(admin, store_id)
+    except HANDLED as exc:
+        raise _http_error(exc) from None
+    return StoreReprovisionResponse(
+        data=StoreReprovisionData(
+            store_id=store_id,
+            status=result.status,
+            attempt=result.attempt,
+            max_attempts=MAX_REPROVISION_ATTEMPTS,
         )
     )

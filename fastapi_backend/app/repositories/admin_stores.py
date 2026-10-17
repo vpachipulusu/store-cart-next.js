@@ -10,9 +10,13 @@ from typing import Any
 
 from sqlalchemy import ColumnElement, Select, func, select, update
 
+from app.models.platform.audit_log import AuditLog
 from app.models.platform.organization import Organization
 from app.models.platform.store import Store, StoreStatus
 from app.repositories.base import BaseRepository
+
+REPROVISION_ACTION = "admin.stores.reprovision"
+REPROVISION_FAILED_ACTION = "admin.stores.reprovision_failed"
 
 
 @dataclass(frozen=True)
@@ -48,6 +52,12 @@ class StoreRecord:
     schema_version: int
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ReprovisionCounts:
+    started: int
+    failed: int
 
 
 @dataclass(frozen=True)
@@ -173,3 +183,26 @@ class AdminStoresRepository(BaseRepository):
         await self._session.execute(
             update(Store).where(Store.id == store_id).values(status=status)
         )
+
+    async def count_reprovisions(self, store_id: str) -> ReprovisionCounts:
+        """Audited admin re-runs of the store and how many of them failed to enqueue.
+
+        ``started`` only grows, so ``started + 1`` is a monotonic attempt number; the
+        retry cap uses ``started - failed``. This relies on audit rows being retained:
+        any future audit purge must keep ``admin.stores.reprovision*`` rows.
+        """
+        started = func.count(AuditLog.id).filter(AuditLog.action == REPROVISION_ACTION)
+        failed = func.count(AuditLog.id).filter(
+            AuditLog.action == REPROVISION_FAILED_ACTION
+        )
+        row = (
+            await self._session.execute(
+                select(started, failed).where(
+                    AuditLog.store_id == store_id,
+                    AuditLog.action.in_(
+                        (REPROVISION_ACTION, REPROVISION_FAILED_ACTION)
+                    ),
+                )
+            )
+        ).one()
+        return ReprovisionCounts(started=row[0], failed=row[1])
