@@ -28,7 +28,7 @@ async function advance(ms: number) {
 }
 
 function renderStatus(
-  initialStatus: 'PROVISIONING' | 'ACTIVE' | 'SUSPENDED' | 'UNKNOWN' = 'PROVISIONING'
+  initialStatus: 'PROVISIONING' | 'ACTIVE' | 'FAILED' | 'SUSPENDED' | 'UNKNOWN' = 'PROVISIONING'
 ) {
   return render(
     <ProvisioningStatus storeId={STORE_ID} storeName="Acme Shop" initialStatus={initialStatus} />
@@ -210,6 +210,98 @@ describe('ProvisioningStatus', () => {
     expect(statusRegion()).toHaveTextContent(/taking longer/i);
     expect(mocks.getStoreStatusAction).toHaveBeenCalledTimes(POLL_MAX_ATTEMPTS);
     expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+  });
+
+  describe('FAILED provisioning (KAN-191)', () => {
+    it('explains that setup did not finish, with no claim that a re-run was started', async () => {
+      renderStatus('FAILED');
+      expect(statusRegion()).toHaveTextContent(/could not finish setting up/i);
+      expect(statusRegion()).toHaveTextContent(/Acme Shop/);
+      expect(statusRegion()).toHaveTextContent(/contact support/i);
+      expect(statusRegion()).not.toHaveTextContent(/not available/i);
+      expect(screen.getByTestId('provisioning-pill')).toHaveTextContent('Needs attention');
+      expect(screen.queryByRole('link', { name: /open dashboard/i })).toBeNull();
+      expect(statusRegion()).toHaveTextContent(STORE_ID);
+      expect(statusRegion()).not.toHaveTextContent(/nothing you entered/i);
+      await advance(POLL_MAX_MS * 3);
+      expect(mocks.getStoreStatusAction).not.toHaveBeenCalled();
+    });
+
+    it('labels the button as a status check, not a re-run, and keeps it out of the live region', () => {
+      renderStatus('FAILED');
+      const button = screen.getByRole('button', { name: /check again/i });
+      expect(screen.queryByRole('button', { name: /try again/i })).toBeNull();
+      expect(statusRegion()).not.toContainElement(button);
+    });
+
+    it('shows the failed copy when polling discovers FAILED, and stops polling', async () => {
+      mocks.getStoreStatusAction.mockResolvedValue(ok('FAILED'));
+      renderStatus('PROVISIONING');
+      await advance(POLL_INITIAL_MS);
+      expect(statusRegion()).toHaveTextContent(/could not finish setting up/i);
+      await advance(POLL_MAX_MS * 3);
+      expect(mocks.getStoreStatusAction).toHaveBeenCalledTimes(1);
+    });
+
+    it('re-reads the status on "Check again" and shows the ready screen if the store became ACTIVE', async () => {
+      mocks.getStoreStatusAction.mockResolvedValue(ok('ACTIVE'));
+      renderStatus('FAILED');
+      await act(async () => {
+        screen.getByRole('button', { name: /check again/i }).click();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(mocks.getStoreStatusAction).toHaveBeenCalledWith(STORE_ID);
+      expect(statusRegion()).toHaveTextContent(/your store is ready/i);
+      expect(screen.getByRole('link', { name: /open dashboard/i })).toBeInTheDocument();
+    });
+
+    it('keeps showing the failed copy when the check still reports FAILED', async () => {
+      mocks.getStoreStatusAction.mockResolvedValue(ok('FAILED'));
+      renderStatus('FAILED');
+      await act(async () => {
+        screen.getByRole('button', { name: /check again/i }).click();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(statusRegion()).toHaveTextContent(/could not finish setting up/i);
+      expect(screen.getByRole('button', { name: /check again/i })).toBeInTheDocument();
+    });
+
+    it('tells the user in the live region when a check finds the store still FAILED', async () => {
+      mocks.getStoreStatusAction.mockResolvedValue(ok('FAILED'));
+      renderStatus('FAILED');
+      expect(statusRegion()).not.toHaveTextContent(/still not finished/i);
+      await act(async () => {
+        screen.getByRole('button', { name: /check again/i }).click();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(statusRegion()).toHaveTextContent(/still not finished/i);
+    });
+
+    it('keeps the failed explanation and adds the problem when the check itself keeps failing', async () => {
+      mocks.getStoreStatusAction.mockResolvedValue(failed);
+      renderStatus('FAILED');
+      await act(async () => {
+        screen.getByRole('button', { name: /check again/i }).click();
+        await vi.advanceTimersByTimeAsync(POLL_MAX_MS * POLL_MAX_FAILURES * 2);
+      });
+      expect(statusRegion()).toHaveTextContent(/could not finish setting up/i);
+      expect(statusRegion()).toHaveTextContent(/could not check/i);
+      expect(screen.getByRole('button', { name: /check again/i })).toBeInTheDocument();
+    });
+
+    it('resumes polling when a check finds the store PROVISIONING again, then shows ready', async () => {
+      mocks.getStoreStatusAction
+        .mockResolvedValueOnce(ok('PROVISIONING'))
+        .mockResolvedValue(ok('ACTIVE'));
+      renderStatus('FAILED');
+      await act(async () => {
+        screen.getByRole('button', { name: /check again/i }).click();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(statusRegion()).toHaveTextContent(/we are setting up your store/i);
+      await advance(POLL_MAX_MS);
+      expect(statusRegion()).toHaveTextContent(/your store is ready/i);
+    });
   });
 
   it('clears the pending timer on unmount', async () => {
