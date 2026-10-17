@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 from sqlalchemy.exc import DataError, IntegrityError
 
+from app.core.plans import PLANS, Plan, PlanKey
 from app.repositories.store_catalogue import VariantRow
 from app.services.store_product_rules import (
     clean_money,
@@ -186,8 +187,12 @@ class RecordingSession:
         self.events.append("rollback")
 
 
+async def _unlimited() -> Plan:
+    return PLANS[PlanKey.ENTERPRISE]
+
+
 def service(session: RecordingSession) -> StoreProductsService:
-    return StoreProductsService(object(), session, STORE)  # type: ignore[arg-type]
+    return StoreProductsService(object(), session, STORE, _unlimited)  # type: ignore[arg-type]
 
 
 async def test_an_untranslatable_database_error_rolls_back_and_propagates() -> None:

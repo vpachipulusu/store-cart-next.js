@@ -12,6 +12,9 @@ Rules kept here because the database cannot express them (``docs/developer/backe
   product share a combination (the product row is locked while checking);
 * a product always keeps at least one variant;
 * ``compare_at`` equal to the price means "no sale" and is stored as null; below it is invalid;
+* a create fails with ``ProductLimitReached`` when the store already holds the plan's
+  maximum number of products (KAN-84); the count runs under an advisory lock in the same
+  transaction as the insert, so two concurrent creates cannot both take the last slot;
 * an image ``storage_key`` must live under this store's own prefix ``stores/{store_id}/``.
 """
 
@@ -21,7 +24,9 @@ from sqlalchemy.exc import DataError, DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ids import new_id
+from app.core.plans import Plan
 from app.repositories.store_catalogue import StoreCatalogueRepository
+from app.services.plan_limits import product_limit_message
 from app.services.store_product_rules import (
     CONFLICTS,
     CleanVariant,
@@ -47,18 +52,22 @@ from app.services.store_product_rules import (
 from app.services.store_product_types import (
     DEFAULT_PAGE_SIZE,
     MAX_ALT_TEXT_LENGTH,
+    MAX_CATEGORY_LIST,
     MAX_DESCRIPTION_LENGTH,
     MAX_ID_LENGTH,
     MAX_IMAGES,
     MAX_OFFSET,
     MAX_PAGE_SIZE,
+    MAX_SEARCH_LENGTH,
     MAX_TITLE_LENGTH,
     MAX_VARIANTS,
     CatalogueConflict,
+    CategoryList,
     ImageNotFound,
     InvalidProduct,
     NewProduct,
     NewVariant,
+    ProductLimitReached,
     ProductNotFound,
     ProductPage,
     ProductPatch,
@@ -68,6 +77,18 @@ from app.services.store_product_types import (
     VariantPatch,
 )
 
+PlanLookup = Callable[[], Awaitable[Plan]]
+
+
+def _clean_search(query: str | None) -> str | None:
+    """Trimmed search text; blank means no search."""
+    if query is None:
+        return None
+    cleaned = query.strip()
+    if len(cleaned) > MAX_SEARCH_LENGTH or "\x00" in cleaned:
+        raise InvalidProduct(f"Search text is at most {MAX_SEARCH_LENGTH} characters")
+    return cleaned or None
+
 
 class StoreProductsService:
     def __init__(
@@ -75,7 +96,10 @@ class StoreProductsService:
         repository: StoreCatalogueRepository,
         session: AsyncSession,
         store_id: str,
+        plan: PlanLookup,
     ) -> None:
+        # Resolves the organisation's plan on create (required: no silent unlimited).
+        self._plan = plan
         self._repository = repository
         self._session = session
         self._store_id = store_id
@@ -110,6 +134,7 @@ class StoreProductsService:
         *,
         status: str | None = None,
         category_id: str | None = None,
+        query: str | None = None,
         limit: int = DEFAULT_PAGE_SIZE,
         offset: int = 0,
     ) -> ProductPage:
@@ -121,13 +146,25 @@ class StoreProductsService:
             not 1 <= len(category_id) <= MAX_ID_LENGTH or "\x00" in category_id
         ):
             raise InvalidProduct("Unknown category")
+        search = _clean_search(query)
         total = await self._repository.count_products(
-            status=status, category_id=category_id
+            status=status, category_id=category_id, query=search
         )
         items = await self._repository.list_products(
-            status=status, category_id=category_id, limit=limit, offset=offset
+            status=status,
+            category_id=category_id,
+            query=search,
+            limit=limit,
+            offset=offset,
         )
         return ProductPage(tuple(items), total, limit, offset)
+
+    async def list_categories(self) -> CategoryList:
+        """Roots first, then by parent and position; at most ``MAX_CATEGORY_LIST``."""
+        rows = await self._repository.list_categories(MAX_CATEGORY_LIST + 1)
+        return CategoryList(
+            tuple(rows[:MAX_CATEGORY_LIST]), len(rows) > MAX_CATEGORY_LIST
+        )
 
     # --- products -----------------------------------------------------------------
 
@@ -147,8 +184,15 @@ class StoreProductsService:
             raise InvalidProduct("A product without options has exactly one variant")
         category_ids = await self._checked_categories(data.category_ids)
         product_id = new_id()
+        plan = await self._plan()
 
         async def write() -> None:
+            if plan.max_products is not None:
+                # Counting relies on READ COMMITTED (the default): the count must see
+                # rows the previous lock holder committed.
+                await self._repository.lock_catalogue()
+                if await self._repository.count_all_products() >= plan.max_products:
+                    raise ProductLimitReached(product_limit_message(plan))
             await self._repository.insert_product(
                 product_id=product_id,
                 title=title,

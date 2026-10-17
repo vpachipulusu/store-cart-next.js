@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Final
 
-from app.repositories.store_catalogue import ProductSummaryRow
+from app.repositories.store_catalogue import CategoryRow, ProductSummaryRow
 
 STATUSES: Final = frozenset({"draft", "active"})
 MAX_TITLE_LENGTH = 255
@@ -28,6 +28,9 @@ DEFAULT_PAGE_SIZE = 25
 MAX_PAGE_SIZE = 100
 MAX_OFFSET = 1_000_000
 MAX_ID_LENGTH = 100
+MAX_SEARCH_LENGTH = 100
+# The category list is one bounded page: the merchant picker needs the whole tree.
+MAX_CATEGORY_LIST = 1000
 
 
 class CatalogueError(Exception):
@@ -40,6 +43,10 @@ class InvalidProduct(CatalogueError):
 
 class CatalogueConflict(CatalogueError):
     """The change clashes with existing data, for example a taken SKU (409)."""
+
+
+class ProductLimitReached(CatalogueError):
+    """The plan allows no more products in this store; the message says to upgrade (409)."""
 
 
 class ProductNotFound(CatalogueError):
@@ -163,6 +170,12 @@ class ProductRecord:
     variants: tuple[VariantRecord, ...]
     category_ids: tuple[str, ...]
     images: tuple[ImageRecord, ...]
+
+
+@dataclass(frozen=True)
+class CategoryList:
+    items: tuple[CategoryRow, ...]
+    truncated: bool
 
 
 @dataclass(frozen=True)

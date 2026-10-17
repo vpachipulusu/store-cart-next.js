@@ -79,12 +79,38 @@ class ProductSummaryRow:
     max_price_minor: int | None
 
 
+@dataclass(frozen=True)
+class CategoryRow:
+    id: str
+    name: str
+    slug: str
+    parent_id: str | None
+    position: int
+
+
+# Advisory lock key serialising product creates; unique to this use within a store database.
+PRODUCT_CREATE_LOCK_KEY = 0x5C0A0001
+
 _LIST_FILTER = (
     "(CAST(:status AS varchar) IS NULL OR p.status = CAST(:status AS varchar)) "
     "AND (CAST(:category_id AS varchar) IS NULL OR EXISTS ("
     "SELECT 1 FROM product_categories pc "
-    "WHERE pc.product_id = p.id AND pc.category_id = CAST(:category_id AS varchar)))"
+    "WHERE pc.product_id = p.id AND pc.category_id = CAST(:category_id AS varchar))) "
+    "AND (CAST(:pattern AS varchar) IS NULL "
+    "OR p.title ILIKE CAST(:pattern AS varchar) ESCAPE '\\' "
+    "OR EXISTS (SELECT 1 FROM variants sv WHERE sv.product_id = p.id "
+    "AND sv.sku ILIKE CAST(:pattern AS varchar) ESCAPE '\\'))"
 )
+
+
+def search_pattern(query: str | None) -> str | None:
+    """A contains-pattern for ILIKE with ``%``, ``_`` and the escape character neutralised."""
+    if query is None:
+        return None
+    escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
 _PRODUCT_UPDATABLE = frozenset({"title", "slug", "description", "status"})
 _VARIANT_UPDATABLE = frozenset(
     {"sku", "price_minor", "compare_at_price_minor", "weight_grams", "stock"}
@@ -106,6 +132,28 @@ class StoreCatalogueRepository(BaseRepository):
             )
         ).first()
         return row is not None
+
+    async def lock_catalogue(self) -> None:
+        """Serialise product creates in this store until the transaction ends.
+
+        A new product has no row to lock yet, so concurrent creates would each count the
+        same total. The advisory lock is per database, and every store has its own.
+        """
+        # A stuck holder must not queue creates forever: 55P03 becomes "store is busy, retry".
+        # SET LOCAL lasts until the transaction ends, so the timeout also covers the later
+        # insert and commit; a timeout there surfaces as the 409 "The store is busy, retry".
+        await self._session.execute(text("SET LOCAL lock_timeout = '5s'"))
+        await self._session.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"), {"key": PRODUCT_CREATE_LOCK_KEY}
+        )
+
+    async def count_all_products(self) -> int:
+        """Every product, drafts included: the number the plan limit applies to."""
+        return int(
+            (
+                await self._session.execute(text("SELECT count(*) FROM products"))
+            ).scalar_one()
+        )
 
     async def insert_product(
         self,
@@ -168,13 +216,17 @@ class StoreCatalogueRepository(BaseRepository):
         return ProductRow(**row) if row is not None else None
 
     async def count_products(
-        self, *, status: str | None, category_id: str | None
+        self, *, status: str | None, category_id: str | None, query: str | None = None
     ) -> int:
         return int(
             (
                 await self._session.execute(
                     text("SELECT count(*) FROM products p WHERE " + _LIST_FILTER),
-                    {"status": status, "category_id": category_id},
+                    {
+                        "status": status,
+                        "category_id": category_id,
+                        "pattern": search_pattern(query),
+                    },
                 )
             ).scalar_one()
         )
@@ -186,6 +238,7 @@ class StoreCatalogueRepository(BaseRepository):
         category_id: str | None,
         limit: int,
         offset: int,
+        query: str | None = None,
     ) -> list[ProductSummaryRow]:
         rows = (
             (
@@ -207,6 +260,7 @@ class StoreCatalogueRepository(BaseRepository):
                     {
                         "status": status,
                         "category_id": category_id,
+                        "pattern": search_pattern(query),
                         "limit": limit,
                         "offset": offset,
                     },
@@ -445,6 +499,22 @@ class StoreCatalogueRepository(BaseRepository):
             {"ids": list(category_ids)},
         )
         return {row[0] for row in rows}
+
+    async def list_categories(self, limit: int) -> list[CategoryRow]:
+        rows = (
+            (
+                await self._session.execute(
+                    text(
+                        "SELECT id, name, slug, parent_id, position FROM categories "
+                        "ORDER BY parent_id NULLS FIRST, position, id LIMIT :limit"
+                    ),
+                    {"limit": limit},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [CategoryRow(**row) for row in rows]
 
     async def replace_categories(
         self, product_id: str, category_ids: Sequence[str]

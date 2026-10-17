@@ -2,6 +2,7 @@ import threading
 from unittest.mock import Mock
 
 import pytest
+from pydantic import SecretStr
 
 from app.core import firebase as module
 from app.core.config import settings
@@ -259,3 +260,88 @@ async def test_verification_passes_the_configured_clock_skew(
     await getattr(FirebaseIdentityProvider(), sdk_method)("credential")
     assert seen["clock_skew_seconds"] == skew
     assert seen["check_revoked"] is True
+
+
+@pytest.mark.parametrize(
+    "method,args",
+    [
+        ("verify_id_token", ("token",)),
+        ("verify_session_cookie", ("token",)),
+        ("create_session_cookie", ("token", 432000)),
+        ("revoke_refresh_tokens", ("token",)),
+        ("delete_user", ("token",)),
+    ],
+)
+async def test_sdk_outages_are_logged_with_operation_and_code_but_no_details(
+    monkeypatch, sdk_app, caplog, method, args
+):
+    monkeypatch.setattr(
+        module.auth,
+        method,
+        Mock(side_effect=module.exceptions.PermissionDeniedError("private-token")),
+    )
+    with (
+        caplog.at_level("ERROR", logger="storecart.firebase"),
+        pytest.raises(IdentityProviderUnavailable),
+    ):
+        await getattr(FirebaseIdentityProvider(), method)(*args)
+    text = " ".join(record.getMessage() for record in caplog.records)
+    assert method in text
+    assert "PermissionDeniedError" in text and "PERMISSION_DENIED" in text
+    assert "private-token" not in text
+
+
+@pytest.mark.parametrize("method", ["set_user_disabled", "update_password"])
+async def test_user_update_outages_are_logged_without_details(
+    monkeypatch, sdk_app, caplog, method
+):
+    monkeypatch.setattr(
+        module.auth,
+        "update_user",
+        Mock(side_effect=module.exceptions.UnavailableError("private-token")),
+    )
+    args = ("uid", True) if method == "set_user_disabled" else ("uid", "pw")
+    with (
+        caplog.at_level("ERROR", logger="storecart.firebase"),
+        pytest.raises(IdentityProviderUnavailable),
+    ):
+        await getattr(FirebaseIdentityProvider(), method)(*args)
+    text = " ".join(record.getMessage() for record in caplog.records)
+    assert method in text and "UNAVAILABLE" in text and "private-token" not in text
+
+
+async def test_a_local_value_error_is_logged_with_its_class_and_no_code(
+    monkeypatch, sdk_app, caplog
+):
+    monkeypatch.setattr(
+        module.auth, "verify_id_token", Mock(side_effect=ValueError("private-key"))
+    )
+    with (
+        caplog.at_level("ERROR", logger="storecart.firebase"),
+        pytest.raises(IdentityProviderUnavailable),
+    ):
+        await FirebaseIdentityProvider().verify_id_token("token")
+    text = " ".join(record.getMessage() for record in caplog.records)
+    assert "ValueError" in text and "code=None" in text and "private-key" not in text
+
+
+def test_missing_credentials_log_the_variable_names_only(monkeypatch, caplog):
+    module.firebase_app.cache_clear()
+    monkeypatch.setattr(settings, "FIREBASE_ADMIN_PROJECT_ID", None)
+    monkeypatch.setattr(settings, "FIREBASE_ADMIN_CLIENT_EMAIL", "sa@example.test")
+    monkeypatch.setattr(
+        settings, "FIREBASE_ADMIN_PRIVATE_KEY", SecretStr("placeholder")
+    )
+    try:
+        with (
+            caplog.at_level("ERROR", logger="storecart.firebase"),
+            pytest.raises(IdentityProviderUnavailable),
+        ):
+            module.firebase_app()
+    finally:
+        module.firebase_app.cache_clear()
+    text = " ".join(record.getMessage() for record in caplog.records)
+    assert "FIREBASE_ADMIN_PROJECT_ID" in text
+    assert "FIREBASE_ADMIN_CLIENT_EMAIL" not in text
+    assert "FIREBASE_ADMIN_PRIVATE_KEY" not in text
+    assert "placeholder" not in text and "sa@example.test" not in text
