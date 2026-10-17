@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ProductEditor } from '@/components/dashboard/products/product-editor';
 import { ProductsLoadError } from '@/components/dashboard/products/products-load-error';
-import { fetchProduct, productErrorMessage } from '@/lib/api/products';
+import { fetchProduct, loadCategoryList, productErrorMessage } from '@/lib/api/products';
 import { isEntityId } from '@/lib/products/schema';
 import { getCurrentStoreSelection } from '@/lib/stores/current';
 
@@ -19,7 +19,10 @@ export default async function EditProductPage({
   const selection = await getCurrentStoreSelection();
   if (!selection.available || !selection.selected) return null;
 
-  const result = await fetchProduct(selection.selected.id, productId);
+  const [result, categories] = await Promise.all([
+    fetchProduct(selection.selected.id, productId),
+    loadCategoryList(selection.selected.id),
+  ]);
   if (!result.success && result.status === 404) notFound();
 
   return (
@@ -31,7 +34,7 @@ export default async function EditProductPage({
         Back to products
       </Link>
       {result.success ? (
-        <ProductEditor key={result.data.id} initial={result.data} />
+        <ProductEditor key={result.data.id} initial={result.data} categories={categories} />
       ) : (
         <ProductsLoadError
           message={productErrorMessage(result)}

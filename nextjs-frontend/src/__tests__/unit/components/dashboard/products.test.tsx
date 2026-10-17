@@ -114,22 +114,10 @@ describe('ProductTable', () => {
     expect(screen.getByText('$10.00 – $12.00')).toBeInTheDocument();
   });
 
-  it('narrows only the loaded rows and says store-wide search is unavailable', async () => {
-    const user = userEvent.setup();
+  it('renders no page-only filter: search runs on the server', () => {
     render(<ProductTable rows={rows} />);
-    expect(screen.getByText(/store-wide search is not available yet/i)).toBeInTheDocument();
-
-    await user.type(screen.getByLabelText('Filter this page by title'), 'mug');
-
-    expect(screen.queryByRole('link', { name: 'Blue Tee' })).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Red Mug' })).toBeInTheDocument();
-  });
-
-  it('says so when nothing on the page matches', async () => {
-    const user = userEvent.setup();
-    render(<ProductTable rows={rows} />);
-    await user.type(screen.getByLabelText('Filter this page by title'), 'zzz');
-    expect(screen.getByRole('status')).toHaveTextContent('No products on this page match');
+    expect(screen.queryByLabelText('Filter this page by title')).not.toBeInTheDocument();
+    expect(screen.getAllByTestId('product-row')).toHaveLength(2);
   });
 });
 
@@ -137,7 +125,7 @@ describe('CategoriesField', () => {
   it('adds a valid id, rejects duplicates and bad ids, and removes an id', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    render(<CategoriesField value={['cat1']} onChange={onChange} />);
+    render(<CategoriesField value={['cat1']} onChange={onChange} categories={null} />);
 
     await user.type(screen.getByLabelText('Category id'), 'cat2');
     await user.click(screen.getByRole('button', { name: 'Add category' }));
@@ -157,7 +145,7 @@ describe('CategoriesField', () => {
   });
 
   it('explains that categories can only be handled by id', () => {
-    render(<CategoriesField value={[]} onChange={vi.fn()} />);
+    render(<CategoriesField value={[]} onChange={vi.fn()} categories={null} />);
     expect(screen.getByText(/categories show by id/i)).toBeInTheDocument();
   });
 });
@@ -165,7 +153,7 @@ describe('CategoriesField', () => {
 describe('ProductCreateForm', () => {
   it('shows field errors and does not call the server for an empty form', async () => {
     const user = userEvent.setup();
-    render(<ProductCreateForm currency="USD" />);
+    render(<ProductCreateForm currency="USD" categories={null} />);
 
     await user.click(screen.getByRole('button', { name: 'Create product' }));
 
@@ -177,7 +165,7 @@ describe('ProductCreateForm', () => {
   it('creates a product with money in minor units and opens its editor', async () => {
     const user = userEvent.setup();
     mocks.createProductAction.mockResolvedValue({ success: true, data: makeProduct() });
-    render(<ProductCreateForm currency="USD" />);
+    render(<ProductCreateForm currency="USD" categories={null} />);
 
     await user.type(screen.getByLabelText('Title'), 'Blue Tee');
     await user.type(screen.getByLabelText('SKU'), 'TEE-1');
@@ -201,7 +189,7 @@ describe('ProductCreateForm', () => {
 
   it('builds one variant row per option combination', async () => {
     const user = userEvent.setup();
-    render(<ProductCreateForm currency="USD" />);
+    render(<ProductCreateForm currency="USD" categories={null} />);
     expect(screen.getAllByTestId('variant-row')).toHaveLength(1);
 
     await user.click(screen.getByRole('button', { name: 'Add option' }));
@@ -217,7 +205,7 @@ describe('ProductCreateForm', () => {
       success: false,
       error: 'SKU already exists in this store',
     });
-    render(<ProductCreateForm currency="USD" />);
+    render(<ProductCreateForm currency="USD" categories={null} />);
 
     await user.type(screen.getByLabelText('Title'), 'Blue Tee');
     await user.type(screen.getByLabelText('SKU'), 'TEE-1');
@@ -231,7 +219,7 @@ describe('ProductCreateForm', () => {
 
   it('rejects decimals for a zero-decimal currency', async () => {
     const user = userEvent.setup();
-    render(<ProductCreateForm currency="JPY" />);
+    render(<ProductCreateForm currency="JPY" categories={null} />);
     await user.type(screen.getByLabelText('Title'), 'Tee');
     await user.type(screen.getByLabelText('SKU'), 'T');
     await user.type(screen.getByLabelText('Price (JPY)'), '10.5');
@@ -245,7 +233,7 @@ describe('ProductEditor', () => {
     const user = userEvent.setup();
     const saved = makeProduct({ title: 'Green Tee', updated_at: '2026-02-01T00:00:00Z' });
     mocks.updateProductAction.mockResolvedValue({ success: true, data: saved });
-    render(<ProductEditor initial={makeProduct()} />);
+    render(<ProductEditor initial={makeProduct()} categories={null} />);
 
     const title = screen.getByLabelText('Title');
     await user.clear(title);
@@ -262,7 +250,7 @@ describe('ProductEditor', () => {
   it('shows a server error from saving details', async () => {
     const user = userEvent.setup();
     mocks.updateProductAction.mockResolvedValue({ success: false, error: 'Unknown category' });
-    render(<ProductEditor initial={makeProduct()} />);
+    render(<ProductEditor initial={makeProduct()} categories={null} />);
     await user.click(screen.getByRole('button', { name: 'Save details' }));
     expect(await screen.findByText('Unknown category')).toBeInTheDocument();
   });
@@ -270,7 +258,7 @@ describe('ProductEditor', () => {
   it('shows prices in major units and saves an edited variant in minor units', async () => {
     const user = userEvent.setup();
     mocks.updateVariantAction.mockResolvedValue({ success: true, data: makeProduct() });
-    render(<ProductEditor initial={makeProduct()} />);
+    render(<ProductEditor initial={makeProduct()} categories={null} />);
 
     const price = screen.getByLabelText('Price (USD)');
     expect(price).toHaveValue('12.50');
@@ -287,7 +275,7 @@ describe('ProductEditor', () => {
 
   it('blocks an invalid variant edit before the server', async () => {
     const user = userEvent.setup();
-    render(<ProductEditor initial={makeProduct()} />);
+    render(<ProductEditor initial={makeProduct()} categories={null} />);
     const price = screen.getByLabelText('Price (USD)');
     await user.clear(price);
     await user.type(price, 'abc');
@@ -302,7 +290,7 @@ describe('ProductEditor', () => {
       success: false,
       error: 'A product needs at least one variant',
     });
-    render(<ProductEditor initial={makeProduct()} />);
+    render(<ProductEditor initial={makeProduct()} categories={null} />);
 
     await user.click(screen.getByRole('button', { name: 'Delete variant' }));
     expect(mocks.deleteVariantAction).not.toHaveBeenCalled();
@@ -324,7 +312,7 @@ describe('ProductEditor', () => {
       ],
     });
     mocks.addVariantAction.mockResolvedValue({ success: true, data: withOptions });
-    render(<ProductEditor initial={withOptions} />);
+    render(<ProductEditor initial={withOptions} categories={null} />);
 
     const form = screen.getByRole('form', { name: 'Add variant' });
     await user.selectOptions(within(form).getByLabelText('Size'), 'M');
@@ -339,14 +327,14 @@ describe('ProductEditor', () => {
   });
 
   it('explains why a product without options cannot get more variants', () => {
-    render(<ProductEditor initial={makeProduct()} />);
+    render(<ProductEditor initial={makeProduct()} categories={null} />);
     expect(screen.getByTestId('no-add-variant')).toBeInTheDocument();
     expect(screen.queryByRole('form', { name: 'Add variant' })).not.toBeInTheDocument();
   });
 
   it('asks for a choice for every option before adding a variant', async () => {
     const user = userEvent.setup();
-    render(<ProductEditor initial={makeProduct({ options: [sizeOption] })} />);
+    render(<ProductEditor initial={makeProduct({ options: [sizeOption] })} categories={null} />);
     const form = screen.getByRole('form', { name: 'Add variant' });
     await user.click(within(form).getByRole('button', { name: 'Add variant' }));
     expect(within(form).getByText('Choose a value for Size.')).toBeInTheDocument();
@@ -359,7 +347,7 @@ describe('ProductEditor', () => {
       success: true,
       data: makeProduct({ images: [] }),
     });
-    render(<ProductEditor initial={makeProduct()} />);
+    render(<ProductEditor initial={makeProduct()} categories={null} />);
 
     expect(screen.getByText('stores/s1/img.png')).toBeInTheDocument();
     expect(screen.getByText(/uploading new images .* is not available yet/i)).toBeInTheDocument();
@@ -375,7 +363,7 @@ describe('ProductEditor', () => {
   it('deletes the product after confirmation and returns to the list', async () => {
     const user = userEvent.setup();
     mocks.deleteProductAction.mockResolvedValue({ success: true, data: { deleted: true } });
-    render(<ProductEditor initial={makeProduct()} />);
+    render(<ProductEditor initial={makeProduct()} categories={null} />);
 
     await user.click(screen.getByRole('button', { name: 'Delete product' }));
     expect(mocks.deleteProductAction).not.toHaveBeenCalled();
@@ -388,7 +376,7 @@ describe('ProductEditor', () => {
   it('keeps the product and shows the error when deletion fails', async () => {
     const user = userEvent.setup();
     mocks.deleteProductAction.mockResolvedValue({ success: false, error: 'Product not found' });
-    render(<ProductEditor initial={makeProduct()} />);
+    render(<ProductEditor initial={makeProduct()} categories={null} />);
     await user.click(screen.getByRole('button', { name: 'Delete product' }));
     await user.click(screen.getByRole('button', { name: 'Confirm delete product' }));
     expect(await screen.findByText('Product not found')).toBeInTheDocument();
@@ -407,7 +395,7 @@ describe('ProductEditor save feedback', () => {
         variants: [{ ...base.variants[0], price_minor: 2000 }],
       }),
     });
-    render(<ProductEditor initial={base} />);
+    render(<ProductEditor initial={base} categories={null} />);
 
     const price = screen.getByLabelText('Price (USD)');
     await user.clear(price);
@@ -424,7 +412,7 @@ describe('ProductEditor save feedback', () => {
       success: true,
       data: makeProduct({ updated_at: '2026-03-01T00:00:00Z' }),
     });
-    render(<ProductEditor initial={makeProduct()} />);
+    render(<ProductEditor initial={makeProduct()} categories={null} />);
 
     const title = screen.getByLabelText('Title');
     await user.clear(title);
@@ -441,7 +429,7 @@ describe('ProductEditor save feedback', () => {
       success: true,
       data: makeProduct({ status: 'active', updated_at: '2026-03-01T00:00:00Z' }),
     });
-    render(<ProductEditor initial={makeProduct()} />);
+    render(<ProductEditor initial={makeProduct()} categories={null} />);
     await user.selectOptions(screen.getByLabelText('Status'), 'active');
     await user.click(screen.getByRole('button', { name: 'Save details' }));
     expect(await screen.findByText('Product saved.')).toBeInTheDocument();
@@ -449,7 +437,7 @@ describe('ProductEditor save feedback', () => {
 
   it('does not submit the product form when Enter is pressed in the category box', async () => {
     const user = userEvent.setup();
-    render(<ProductEditor initial={makeProduct()} />);
+    render(<ProductEditor initial={makeProduct()} categories={null} />);
     await user.type(screen.getByLabelText('Category id'), 'cat2{Enter}');
     expect(mocks.updateProductAction).not.toHaveBeenCalled();
     expect(screen.getByText('cat2')).toBeInTheDocument();
@@ -459,7 +447,7 @@ describe('ProductEditor save feedback', () => {
 describe('ProductCreateForm options', () => {
   it('refuses a half-filled option row instead of silently dropping it', async () => {
     const user = userEvent.setup();
-    render(<ProductCreateForm currency="USD" />);
+    render(<ProductCreateForm currency="USD" categories={null} />);
     await user.type(screen.getByLabelText('Title'), 'Tee');
     await user.type(screen.getByLabelText('SKU'), 'T');
     await user.type(screen.getByLabelText('Price (USD)'), '5');
@@ -472,7 +460,7 @@ describe('ProductCreateForm options', () => {
 
   it('keeps typed row data when another option value is added', async () => {
     const user = userEvent.setup();
-    render(<ProductCreateForm currency="USD" />);
+    render(<ProductCreateForm currency="USD" categories={null} />);
     await user.click(screen.getByRole('button', { name: 'Add option' }));
     await user.type(screen.getByLabelText('Option 1 name'), 'Size');
     await user.type(screen.getByLabelText('Option 1 values'), 'S');
@@ -481,6 +469,63 @@ describe('ProductCreateForm options', () => {
     expect(screen.getAllByTestId('variant-row')).toHaveLength(2);
     expect(within(screen.getAllByTestId('variant-row')[0]).getByLabelText('SKU')).toHaveValue(
       'E-S'
+    );
+  });
+});
+
+describe('CategoriesField with the store category list', () => {
+  const list = {
+    truncated: false,
+    rows: [
+      { id: 'c2', name: 'Shirts', slug: 'shirts', parent_id: 'c1', position: 0 },
+      { id: 'c1', name: 'Clothing', slug: 'clothing', parent_id: null, position: 0 },
+      { id: 'c3', name: 'Mugs', slug: 'mugs', parent_id: null, position: 1 },
+    ],
+  };
+
+  it('shows names as a tree and toggles a category by checkbox', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<CategoriesField value={['c1']} onChange={onChange} categories={list} />);
+
+    const labels = screen.getAllByRole('checkbox').map((box) => box.parentElement?.textContent);
+    expect(labels).toEqual(['Clothing', 'Shirts', 'Mugs']);
+    expect(screen.getByLabelText('Clothing')).toBeChecked();
+
+    await user.click(screen.getByLabelText('Mugs'));
+    expect(onChange).toHaveBeenCalledWith(['c1', 'c3']);
+    await user.click(screen.getByLabelText('Clothing'));
+    expect(onChange).toHaveBeenLastCalledWith([]);
+  });
+
+  it('keeps an unknown linked id visible and removable', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<CategoriesField value={['gone']} onChange={onChange} categories={list} />);
+    await user.click(screen.getByLabelText('Unknown category (gone)'));
+    expect(onChange).toHaveBeenCalledWith([]);
+  });
+
+  it('says so for a store without categories and for a truncated list', () => {
+    const { rerender } = render(
+      <CategoriesField value={[]} onChange={vi.fn()} categories={{ rows: [], truncated: false }} />
+    );
+    expect(screen.getByText('This store has no categories yet.')).toBeInTheDocument();
+    rerender(
+      <CategoriesField value={[]} onChange={vi.fn()} categories={{ ...list, truncated: true }} />
+    );
+    expect(screen.getByText(/more categories than can be shown/i)).toBeInTheDocument();
+  });
+
+  it('saves the chosen category names through the editor', async () => {
+    const user = userEvent.setup();
+    mocks.updateProductAction.mockResolvedValue({ success: true, data: makeProduct() });
+    render(<ProductEditor initial={makeProduct({ category_ids: [] })} categories={list} />);
+    await user.click(screen.getByLabelText('Shirts'));
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(mocks.updateProductAction).toHaveBeenCalledWith(
+      'p1',
+      expect.objectContaining({ categoryIds: ['c2'] })
     );
   });
 });

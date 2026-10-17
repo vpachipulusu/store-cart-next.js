@@ -6,6 +6,7 @@ import { deleteProductAction } from '@/app/actions/product-actions';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import type { ProductData } from '@/lib/api/products';
+import type { CategoryList } from './categories-field';
 import { ConfirmButton } from './confirm-button';
 import { ImagesPanel } from './images-panel';
 import { ProductDetailsForm } from './product-details-form';
@@ -13,7 +14,13 @@ import { ProductStatusPill } from './product-status-pill';
 import { VariantsPanel } from './variants-panel';
 
 /** The product editor: details, variants, images and deletion. Each panel hands back the updated product. */
-export function ProductEditor({ initial }: { initial: ProductData }) {
+export function ProductEditor({
+  initial,
+  categories,
+}: {
+  initial: ProductData;
+  categories: CategoryList | null;
+}) {
   const router = useRouter();
   const [product, setProduct] = useState(initial);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -48,7 +55,7 @@ export function ProductEditor({ initial }: { initial: ProductData }) {
           <CardDescription>Title, address, description, status and categories</CardDescription>
         </CardHeader>
         <CardContent>
-          <ProductDetailsForm product={product} onUpdated={setProduct} />
+          <ProductDetailsForm product={product} onUpdated={setProduct} categories={categories} />
         </CardContent>
       </Card>
 

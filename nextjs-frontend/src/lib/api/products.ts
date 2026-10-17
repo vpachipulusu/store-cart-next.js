@@ -2,16 +2,19 @@ import 'server-only';
 
 import { callBackend, type ApiResult } from './server';
 import type { Client } from './generated/client';
+import type { CategoryList } from '@/lib/products/categories';
 import {
   addVariant,
   createProduct,
   deleteImage,
   deleteProduct,
   deleteVariant,
+  listCategories,
   listProducts,
   readProduct,
   updateProduct,
   updateVariant,
+  type CategoryListResponse,
   type CreateProductRequest,
   type ProductData,
   type ProductListResponse,
@@ -30,6 +33,8 @@ import {
  */
 
 export const PRODUCTS_PAGE_SIZE = 25;
+/** The API rejects `q` over 100 characters (422). */
+export const SEARCH_MAX_LENGTH = 100;
 
 export const PRODUCT_UNAVAILABLE_MESSAGE = 'Products could not be reached. Please try again.';
 export const PRODUCT_FORBIDDEN_MESSAGE = 'You do not have permission to do that in this store.';
@@ -69,9 +74,11 @@ export function productErrorMessage(result: { error: string; status?: number }):
   return PRODUCT_REQUEST_FAILED_MESSAGE;
 }
 
-export type { ProductData, ProductListResponse };
+export type { CategoryListResponse, ProductData, ProductListResponse };
 
 export type ProductListQuery = {
+  /** Title or SKU text; trimmed by the caller, at most SEARCH_MAX_LENGTH characters. */
+  search?: string;
   status?: 'draft' | 'active';
   categoryId?: string;
   limit?: number;
@@ -87,6 +94,7 @@ export async function fetchProducts(
       client,
       path: { store_id: storeId },
       query: {
+        q: query.search,
         status: query.status,
         category_id: query.categoryId,
         limit: query.limit ?? PRODUCTS_PAGE_SIZE,
@@ -188,4 +196,24 @@ export async function deleteProductImage(
       path: { store_id: storeId, product_id: productId, image_id: imageId },
     })
   );
+}
+
+/** The store's categories, flat. `truncated` means more than 1000 exist and the list is incomplete. */
+export async function fetchCategories(storeId: string): Promise<ApiResult<CategoryListResponse>> {
+  const result = await callBackend((client) =>
+    listCategories({ client, path: { store_id: storeId } })
+  );
+  if (!result.success) return result;
+  // Like the product list, the body has no `success` flag; refuse anything but the documented shape.
+  const body = result.data as unknown as Partial<CategoryListResponse> | null;
+  if (!body || typeof body !== 'object' || !Array.isArray(body.data)) {
+    return { success: false, error: PRODUCT_REQUEST_FAILED_MESSAGE, status: 502 };
+  }
+  return { success: true, data: { data: body.data, truncated: body.truncated === true } };
+}
+
+/** The categories for the screens, or null when they cannot be loaded (the screens then fall back to ids). */
+export async function loadCategoryList(storeId: string): Promise<CategoryList | null> {
+  const result = await fetchCategories(storeId);
+  return result.success ? { rows: result.data.data, truncated: result.data.truncated } : null;
 }

@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { ProductCreateForm } from '@/components/dashboard/products/product-create-form';
 import { ProductsLoadError } from '@/components/dashboard/products/products-load-error';
-import { fetchProducts, productErrorMessage } from '@/lib/api/products';
+import { fetchProducts, loadCategoryList, productErrorMessage } from '@/lib/api/products';
 import { getCurrentStoreSelection } from '@/lib/stores/current';
 
 export const metadata = { title: 'New product' };
@@ -11,7 +11,10 @@ export default async function NewProductPage() {
   if (!selection.available || !selection.selected) return null;
 
   // The list response is the only place the API reports the store currency before a product exists.
-  const result = await fetchProducts(selection.selected.id, { limit: 1 });
+  const [result, categories] = await Promise.all([
+    fetchProducts(selection.selected.id, { limit: 1 }),
+    loadCategoryList(selection.selected.id),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -25,7 +28,7 @@ export default async function NewProductPage() {
         <h1 className="text-3xl font-bold tracking-tight">New product</h1>
       </div>
       {result.success ? (
-        <ProductCreateForm currency={result.data.currency} />
+        <ProductCreateForm currency={result.data.currency} categories={categories} />
       ) : (
         <ProductsLoadError
           message={productErrorMessage(result)}

@@ -159,10 +159,21 @@ test.describe('Merchant product management', () => {
     await expect(page.getByTestId('product-row').filter({ hasText: 'Sized Tee' })).toContainText(
       '–'
     );
-    await expect(page.getByText(/store-wide search is not available yet/i)).toBeVisible();
-    await page.getByLabel('Filter this page by title').fill('mug');
+    // Server-side search by title, then by SKU (case-insensitive), then a search with no match.
+    await page.getByLabel('Search by title or SKU').fill('mug');
+    await page.getByRole('button', { name: 'Apply' }).click();
     await expect(page.getByTestId('product-row')).toHaveCount(1);
-    await page.getByLabel('Filter this page by title').fill('');
+    await expect(page.getByRole('link', { name: 'Red Mug' })).toBeVisible();
+    await page.getByLabel('Search by title or SKU').fill('E2E-TEE');
+    await page.getByRole('button', { name: 'Apply' }).click();
+    await expect(page.getByTestId('product-row')).toHaveCount(1);
+    await expect(page.getByRole('link', { name: 'Blue Tee' })).toBeVisible();
+    await page.getByLabel('Search by title or SKU').fill('no-such-product');
+    await page.getByRole('button', { name: 'Apply' }).click();
+    await expect(page.getByTestId('no-products')).toContainText('No products match these filters.');
+    await page.getByRole('link', { name: 'Clear filters' }).click();
+    await expect(page.getByTestId('product-row')).toHaveCount(3);
+    await page.getByLabel('Category').selectOption({ label: 'All categories' });
     await page.getByLabel('Status').selectOption('active');
     await page.getByRole('button', { name: 'Apply' }).click();
     await expect(page.getByTestId('no-products')).toContainText('No products match these filters.');
@@ -202,11 +213,13 @@ test.describe('Merchant product management', () => {
       page.getByRole('alert').filter({ hasText: /at least one variant/i })
     ).toBeVisible();
 
-    // Images and categories: documented gaps, no upload control, categories by id only.
+    // Images: documented gap (no upload control). Categories: the store has none, and the list says so.
     await expect(page.getByTestId('no-images')).toBeVisible();
     await expect(page.getByText(/uploading new images .* is not available yet/i)).toBeVisible();
     await expect(page.locator('input[type="file"]')).toHaveCount(0);
-    await expect(page.getByTestId('categories-field')).toContainText('categories show by id');
+    await expect(page.getByTestId('categories-field')).toContainText(
+      'This store has no categories yet.'
+    );
 
     // Delete returns to the list, which no longer has the product.
     await page.getByRole('button', { name: 'Delete product' }).click();

@@ -14,8 +14,10 @@ import {
   deleteProductImage,
   deleteProductVariant,
   deleteStoreProduct,
+  fetchCategories,
   fetchProduct,
   fetchProducts,
+  loadCategoryList,
   productErrorMessage,
   updateProductVariant,
   updateStoreProduct,
@@ -175,5 +177,73 @@ describe('productErrorMessage', () => {
 
   it('treats a missing status as unreachable', () => {
     expect(productErrorMessage({ error: 'x' })).toBe(PRODUCT_UNAVAILABLE_MESSAGE);
+  });
+});
+
+describe('products API wrapper: search and categories', () => {
+  const fetchMock = vi.fn<(request: Request) => Promise<Response>>();
+
+  beforeEach(() => {
+    vi.stubEnv('BACKEND_API_URL', 'http://backend.test');
+    vi.stubEnv('BACKEND_INTERNAL_KEY', 'server-key');
+    cookieGet.mockReturnValue({ name: 'session', value: 'firebase-session-cookie' });
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    fetchMock.mockReset();
+    cookieGet.mockReset();
+  });
+
+  const emptyList = { data: [], currency: 'GBP', total: 0, limit: 25, offset: 0 };
+  const categories = {
+    data: [{ id: 'c1', name: 'Mugs', slug: 'mugs', parent_id: null, position: 0 }],
+    truncated: false,
+  };
+
+  it('sends the search text as q, with the other filters', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(emptyList));
+    await fetchProducts(STORE, { search: 'blue tee', status: 'draft' });
+    const url = new URL(fetchMock.mock.calls[0][0].url);
+    expect(url.searchParams.get('q')).toBe('blue tee');
+    expect(url.searchParams.get('status')).toBe('draft');
+  });
+
+  it('leaves q out when there is no search', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(emptyList));
+    await fetchProducts(STORE);
+    expect(new URL(fetchMock.mock.calls[0][0].url).searchParams.has('q')).toBe(false);
+  });
+
+  it('refuses a list body that is not an object with a currency', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ success: true, data: [] }));
+    const result = await fetchProducts(STORE);
+    expect(result).toMatchObject({ success: false, status: 502 });
+  });
+
+  it('reads the category list of the store', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(categories));
+    const result = await fetchCategories(STORE);
+    expect(result).toEqual({ success: true, data: categories });
+    expect(new URL(fetchMock.mock.calls[0][0].url).pathname).toBe(`/v1/stores/${STORE}/categories`);
+  });
+
+  it('treats a missing truncated flag as false and refuses a body without a data array', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ data: [] }));
+    expect(await fetchCategories(STORE)).toEqual({
+      success: true,
+      data: { data: [], truncated: false },
+    });
+    fetchMock.mockResolvedValueOnce(jsonResponse({ nope: true }));
+    expect(await fetchCategories(STORE)).toMatchObject({ success: false, status: 502 });
+  });
+
+  it('loadCategoryList returns rows and the flag, or null on any failure', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ ...categories, truncated: true }));
+    expect(await loadCategoryList(STORE)).toEqual({ rows: categories.data, truncated: true });
+    fetchMock.mockResolvedValueOnce(jsonResponse({ success: false, error: 'x' }, 500));
+    expect(await loadCategoryList(STORE)).toBeNull();
   });
 });

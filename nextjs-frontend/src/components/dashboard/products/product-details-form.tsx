@@ -6,6 +6,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { productDetailsSchema, fieldErrors } from '@/lib/products/schema';
 import type { ProductData } from '@/lib/api/products';
+import type { CategoryList } from './categories-field';
 import { DetailsFields, type DetailsDraft } from './details-fields';
 
 function toDraft(product: ProductData): DetailsDraft {
@@ -22,9 +23,11 @@ function toDraft(product: ProductData): DetailsDraft {
 export function ProductDetailsForm({
   product,
   onUpdated,
+  categories,
 }: {
   product: ProductData;
   onUpdated: (product: ProductData) => void;
+  categories: CategoryList | null;
 }) {
   const [draft, setDraft] = useState<DetailsDraft>(() => toDraft(product));
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -75,6 +78,7 @@ export function ProductDetailsForm({
         onChange={setDraft}
         errors={errors}
         disabled={pending}
+        categories={categories}
         slugHint="Lowercase letters, digits and hyphens. Changing it changes the product address. Clearing it keeps the current one."
       />
       <div className="flex items-center gap-3">

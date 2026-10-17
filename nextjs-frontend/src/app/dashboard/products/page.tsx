@@ -2,16 +2,20 @@ import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { getRange } from '@/components/ui/pagination';
 import { ProductTable, type ProductRow } from '@/components/dashboard/products/product-table';
 import { ProductsLoadError } from '@/components/dashboard/products/products-load-error';
 import {
   fetchProducts,
+  loadCategoryList,
   PRODUCTS_PAGE_SIZE,
   productErrorMessage,
+  SEARCH_MAX_LENGTH,
   type ProductListResponse,
 } from '@/lib/api/products';
 import { logger } from '@/lib/logger';
+import { toCategoryOptions, type CategoryList } from '@/lib/products/categories';
 import { formatPriceRange } from '@/lib/products/money';
 import { isEntityId, PRODUCT_STATUSES, type ProductStatus } from '@/lib/products/schema';
 import { getCurrentStoreSelection } from '@/lib/stores/current';
@@ -19,7 +23,7 @@ import { getCurrentStoreSelection } from '@/lib/stores/current';
 export const metadata = { title: 'Products' };
 
 type Param = string | string[] | undefined;
-type SearchParams = Promise<{ status?: Param; category?: Param; page?: Param }>;
+type SearchParams = Promise<{ q?: Param; status?: Param; category?: Param; page?: Param }>;
 
 const MAX_PAGE = 10_000;
 
@@ -32,10 +36,11 @@ function parsePage(value: string | undefined): number {
   return Number.isFinite(page) && page > 0 ? Math.min(page, MAX_PAGE) : 1;
 }
 
-type Filters = { status?: ProductStatus; category?: string };
+type Filters = { q?: string; status?: ProductStatus; category?: string };
 
 function pageHref(filters: Filters, page: number): string {
   const params = new URLSearchParams();
+  if (filters.q) params.set('q', filters.q);
   if (filters.status) params.set('status', filters.status);
   if (filters.category) params.set('category', filters.category);
   if (page > 1) params.set('page', String(page));
@@ -75,23 +80,28 @@ export default async function ProductsPage({ searchParams }: { searchParams: Sea
   const categoryParam = first(params.category);
   const category = isEntityId(categoryParam) ? categoryParam : undefined;
   const page = parsePage(first(params.page));
-  const filters: Filters = { status, category };
+  const q = first(params.q)?.trim().slice(0, SEARCH_MAX_LENGTH) || undefined;
+  const filters: Filters = { q, status, category };
 
   // The layout already explains a missing store or a failed store list, so there is nothing to list here.
   const selection = await getCurrentStoreSelection();
   if (!selection.available || !selection.selected) return null;
 
-  const result = await fetchProducts(selection.selected.id, {
-    status,
-    categoryId: category,
-    limit: PRODUCTS_PAGE_SIZE,
-    offset: (page - 1) * PRODUCTS_PAGE_SIZE,
-  });
+  const [result, categories] = await Promise.all([
+    fetchProducts(selection.selected.id, {
+      search: q,
+      status,
+      categoryId: category,
+      limit: PRODUCTS_PAGE_SIZE,
+      offset: (page - 1) * PRODUCTS_PAGE_SIZE,
+    }),
+    loadCategoryList(selection.selected.id),
+  ]);
   if (!result.success) {
     logger.error('Products page: list failed', { status: result.status });
   }
 
-  const hasFilters = Boolean(status || category);
+  const hasFilters = Boolean(q || status || category);
 
   return (
     <div className="space-y-6">
@@ -118,6 +128,18 @@ export default async function ProductsPage({ searchParams }: { searchParams: Sea
             role="search"
             className="flex flex-wrap items-end gap-3"
           >
+            <div className="min-w-56 flex-1">
+              <label htmlFor="product-search" className="mb-1 block text-sm font-medium">
+                Search by title or SKU
+              </label>
+              <Input
+                id="product-search"
+                type="search"
+                name="q"
+                defaultValue={q}
+                maxLength={SEARCH_MAX_LENGTH}
+              />
+            </div>
             <div>
               <label htmlFor="product-status-filter" className="mb-1 block text-sm font-medium">
                 Status
@@ -133,7 +155,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Sea
                 <option value="draft">Draft</option>
               </select>
             </div>
-            {category && <input type="hidden" name="category" value={category} />}
+            <CategoryFilter categories={categories} selected={category} />
             <Button type="submit" variant="outline">
               Apply
             </Button>
@@ -143,11 +165,6 @@ export default async function ProductsPage({ searchParams }: { searchParams: Sea
               </Button>
             )}
           </form>
-          {category && (
-            <p className="text-sm text-muted-foreground" data-testid="category-filter">
-              Showing one category (<code>{category}</code>).
-            </p>
-          )}
 
           {!result.success ? (
             <ProductsLoadError
@@ -219,5 +236,42 @@ function ProductList({
         </div>
       </nav>
     </>
+  );
+}
+
+/** A category select by name when the list loaded; otherwise the chosen id is kept as a hidden field. */
+function CategoryFilter({
+  categories,
+  selected,
+}: {
+  categories: CategoryList | null;
+  selected: string | undefined;
+}) {
+  if (!categories) {
+    return selected ? <input type="hidden" name="category" value={selected} /> : null;
+  }
+  const options = toCategoryOptions(categories.rows, categories.truncated);
+  const known = options.some((option) => option.id === selected);
+  return (
+    <div>
+      <label htmlFor="product-category-filter" className="mb-1 block text-sm font-medium">
+        Category
+      </label>
+      <select
+        id="product-category-filter"
+        name="category"
+        defaultValue={selected ?? ''}
+        className="h-11 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      >
+        <option value="">All categories</option>
+        {options.map((option) => (
+          <option key={option.id} value={option.id}>
+            {'— '.repeat(option.depth)}
+            {option.label}
+          </option>
+        ))}
+        {selected && !known && <option value={selected}>Unknown category ({selected})</option>}
+      </select>
+    </div>
   );
 }

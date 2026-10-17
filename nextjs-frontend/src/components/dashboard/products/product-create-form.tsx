@@ -22,6 +22,7 @@ import {
   type OptionInput,
   type VariantInput,
 } from '@/lib/products/schema';
+import type { CategoryList } from './categories-field';
 import { DetailsFields, type DetailsDraft } from './details-fields';
 import { Field } from './field';
 import { VariantFields } from './variant-fields';
@@ -58,7 +59,13 @@ function comboLabel(combo: Record<string, string>): string {
 }
 
 /** Create a product with its options and one variant per option combination (options cannot be edited later). */
-export function ProductCreateForm({ currency }: { currency: string }) {
+export function ProductCreateForm({
+  currency,
+  categories,
+}: {
+  currency: string;
+  categories: CategoryList | null;
+}) {
   const router = useRouter();
   const exponent = currencyExponent(currency);
   const [details, setDetails] = useState<DetailsDraft>(INITIAL_DETAILS);
@@ -154,6 +161,7 @@ export function ProductCreateForm({ currency }: { currency: string }) {
           onChange={setDetails}
           errors={errors}
           disabled={pending}
+          categories={categories}
           slugHint="Optional. Lowercase letters, digits and hyphens. Made from the title when left empty."
         />
       </section>

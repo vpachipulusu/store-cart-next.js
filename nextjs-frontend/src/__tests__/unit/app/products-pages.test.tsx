@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   getCurrentStoreSelection: vi.fn(),
   fetchProducts: vi.fn(),
   fetchProduct: vi.fn(),
+  loadCategoryList: vi.fn(),
   notFound: vi.fn(() => {
     throw new Error('NEXT_NOT_FOUND');
   }),
@@ -26,7 +27,12 @@ vi.mock('@/lib/stores/current', () => ({
 vi.mock('@/lib/logger', () => ({ logger: { error: mocks.logError } }));
 vi.mock('@/lib/api/products', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api/products')>('@/lib/api/products');
-  return { ...actual, fetchProducts: mocks.fetchProducts, fetchProduct: mocks.fetchProduct };
+  return {
+    ...actual,
+    fetchProducts: mocks.fetchProducts,
+    fetchProduct: mocks.fetchProduct,
+    loadCategoryList: mocks.loadCategoryList,
+  };
 });
 vi.mock('@/components/dashboard/products/product-editor', () => ({
   ProductEditor: ({ initial }: { initial: { title: string } }) => (
@@ -61,6 +67,14 @@ const SUMMARY = {
 const list = (data: unknown[], total = data.length) =>
   ok({ data, currency: 'GBP', total, limit: 25, offset: 0 });
 
+const CATEGORIES = {
+  truncated: false,
+  rows: [
+    { id: 'c1', name: 'Clothing', slug: 'clothing', parent_id: null, position: 0 },
+    { id: 'c2', name: 'Shirts', slug: 'shirts', parent_id: 'c1', position: 0 },
+  ],
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getCurrentStoreSelection.mockResolvedValue({
@@ -69,12 +83,14 @@ beforeEach(() => {
     selected: { id: 'store1', name: 'Acme Shop' },
   });
   mocks.fetchProducts.mockResolvedValue(list([SUMMARY]));
+  mocks.loadCategoryList.mockResolvedValue(CATEGORIES);
 });
 
 describe('products list page', () => {
   it('lists the selected store products with prices in the store currency', async () => {
     const markup = await listPage();
     expect(mocks.fetchProducts).toHaveBeenCalledWith('store1', {
+      search: undefined,
       status: undefined,
       categoryId: undefined,
       limit: 25,
@@ -89,6 +105,7 @@ describe('products list page', () => {
   it('forwards only valid filters and computes the offset from the page', async () => {
     await listPage({ status: 'draft', category: 'cat_1', page: '3' });
     expect(mocks.fetchProducts).toHaveBeenCalledWith('store1', {
+      search: undefined,
       status: 'draft',
       categoryId: 'cat_1',
       limit: 25,
@@ -205,5 +222,56 @@ describe('edit product page', () => {
     const markup = await edit('p1');
     expect(markup).toContain('href="/dashboard/products/p1"');
     expect(markup).toContain('could not be reached');
+  });
+});
+
+describe('products list search and category filter', () => {
+  it('forwards the trimmed search text and keeps it in the paging links', async () => {
+    mocks.fetchProducts.mockResolvedValue(list([SUMMARY], 60));
+    const markup = await listPage({ q: '  blue tee  ', page: '2' });
+    expect(mocks.fetchProducts.mock.calls[0][1]).toMatchObject({ search: 'blue tee', offset: 25 });
+    expect(markup).toContain('value="blue tee"');
+    expect(markup).toContain('href="/dashboard/products?q=blue+tee&amp;page=3"');
+  });
+
+  it('cuts search text to the API maximum and ignores a blank one', async () => {
+    await listPage({ q: 'x'.repeat(150) });
+    expect(mocks.fetchProducts.mock.calls[0][1].search).toHaveLength(100);
+    await listPage({ q: '   ' });
+    expect(mocks.fetchProducts.mock.calls[1][1].search).toBeUndefined();
+  });
+
+  it('uses the first value of a repeated q parameter', async () => {
+    await listPage({ q: ['mug', 'tee'] });
+    expect(mocks.fetchProducts.mock.calls[0][1].search).toBe('mug');
+  });
+
+  it('offers categories by name as a tree and marks the chosen one', async () => {
+    const markup = await listPage({ category: 'c2' });
+    expect(markup).toContain('All categories');
+    expect(markup).toContain('Clothing');
+    expect(markup).toContain('— Shirts');
+    expect(mocks.fetchProducts.mock.calls[0][1].categoryId).toBe('c2');
+  });
+
+  it('keeps a chosen category the list does not hold, and says no match for a search', async () => {
+    mocks.fetchProducts.mockResolvedValue(list([], 0));
+    const markup = await listPage({ q: 'zzz', category: 'gone' });
+    expect(markup).toContain('Unknown category (gone)');
+    expect(markup).toContain('No products match these filters.');
+  });
+
+  it('falls back to a hidden category field when the categories cannot be loaded', async () => {
+    mocks.loadCategoryList.mockResolvedValue(null);
+    const markup = await listPage({ category: 'c2' });
+    expect(markup).toContain('type="hidden" name="category" value="c2"');
+    expect(markup).not.toContain('All categories');
+  });
+
+  it('passes the category list to the new and edit pages', async () => {
+    mocks.fetchProducts.mockResolvedValue(list([], 0));
+    expect(mocks.loadCategoryList).not.toHaveBeenCalled();
+    await NewProductPage();
+    expect(mocks.loadCategoryList).toHaveBeenCalledWith('store1');
   });
 });

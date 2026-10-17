@@ -3,7 +3,7 @@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { SLUG_MAX_LENGTH, TITLE_MAX_LENGTH, type ProductStatus } from '@/lib/products/schema';
-import { CategoriesField } from './categories-field';
+import { CategoriesField, type CategoryList } from './categories-field';
 import { Field } from './field';
 
 export type DetailsDraft = {
@@ -22,6 +22,7 @@ export function DetailsFields({
   errors,
   disabled,
   slugHint,
+  categories,
 }: {
   idPrefix: string;
   draft: DetailsDraft;
@@ -29,6 +30,7 @@ export function DetailsFields({
   errors: Record<string, string>;
   disabled?: boolean;
   slugHint: string;
+  categories: CategoryList | null;
 }) {
   return (
     <div className="space-y-4">
@@ -96,6 +98,7 @@ export function DetailsFields({
         value={draft.categoryIds}
         onChange={(categoryIds) => onChange({ ...draft, categoryIds })}
         error={errors.categoryIds}
+        categories={categories}
       />
     </div>
   );
