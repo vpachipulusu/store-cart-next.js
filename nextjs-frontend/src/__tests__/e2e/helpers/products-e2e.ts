@@ -56,7 +56,9 @@ export async function seedActiveStore(page: Page, suffix: string): Promise<void>
 
   execFileSync('uv', ['run', 'python', ACTIVATE_SCRIPT, storeId], {
     cwd: BACKEND_DIR,
-    env: provisioningEnv(BACKEND_DIR) as NodeJS.ProcessEnv,
+    // The helper needs the same backend settings the developer exported for uvicorn (database, store encryption
+    // and so on). Frontend code must not name those, so the whole environment is inherited, not picked key by key.
+    env: { ...process.env, PYTHONPATH: BACKEND_DIR },
     stdio: 'pipe',
     timeout: 120_000,
   });
@@ -99,34 +101,4 @@ export async function createSizedProduct(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Create product' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Sized Tee' })).toBeVisible();
   await expect(page.getByTestId('variant-row')).toHaveCount(2);
-}
-
-/** Variables the provisioning script needs (the backend's own settings, the platform tools); nothing else is passed. */
-const PROVISIONING_ENV_KEYS = [
-  'PATH',
-  'Path',
-  'SYSTEMROOT',
-  'SystemRoot',
-  'TEMP',
-  'TMP',
-  'HOME',
-  'USERPROFILE',
-  'APPDATA',
-  'LOCALAPPDATA',
-  'UV_CACHE_DIR',
-  'UV_PYTHON',
-  'ENVIRONMENT',
-  'DATABASE_URL',
-  'STORE_DB_PROVIDER',
-  'STORE_DB_ENCRYPTION_KEY',
-  'STORE_DB_ENCRYPTION_KEY_PREVIOUS',
-];
-
-function provisioningEnv(backendDir: string): Record<string, string> {
-  const env: Record<string, string> = { PYTHONPATH: backendDir };
-  for (const key of PROVISIONING_ENV_KEYS) {
-    const value = process.env[key];
-    if (value !== undefined) env[key] = value;
-  }
-  return env;
 }
