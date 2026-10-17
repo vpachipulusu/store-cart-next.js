@@ -60,6 +60,7 @@ vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: mocks.logError },
 }));
 
+import { SIGN_IN_SERVICE_UNAVAILABLE_ERROR } from '@/lib/auth/auth-error-messages';
 import {
   getCurrentSessionAction,
   loginAction,
@@ -123,9 +124,43 @@ describe('KAN-129: auth actions return generic errors', () => {
       success: true,
       data: { uid: 'u', email: 'a@b.co', email_verified: true },
     });
-    mocks.createBackendSession.mockResolvedValue({ success: false, error: SECRET, status: 500 });
+    mocks.createBackendSession.mockResolvedValue({ success: false, error: SECRET, status: 409 });
 
     expectNoLeak(await verifyTokenAction('tok'), 'Token verification failed');
+  });
+
+  // KAN-240: a crashed or unreachable backend must not read as a bad token.
+  it.each([
+    ['a 500 from the token check', { success: false, error: SECRET, status: 500 }],
+    ['a 503 from the token check', { success: false, error: SECRET, status: 503 }],
+    ['an unreachable backend', { success: false, error: 'Backend unavailable' }],
+  ])('verifyTokenAction reports the service as unavailable on %s', async (_label, failure) => {
+    mocks.verifyBackendIdToken.mockResolvedValue(failure);
+
+    expectNoLeak(await verifyTokenAction('tok'), SIGN_IN_SERVICE_UNAVAILABLE_ERROR);
+    expect(mocks.logError).toHaveBeenCalled();
+  });
+
+  it('verifyTokenAction reports the service as unavailable when session creation hits a 5xx', async () => {
+    mocks.verifyBackendIdToken.mockResolvedValue({
+      success: true,
+      data: { uid: 'u', email: 'a@b.co', email_verified: true },
+    });
+    mocks.createBackendSession.mockResolvedValue({ success: false, error: SECRET, status: 502 });
+
+    expectNoLeak(await verifyTokenAction('tok'), SIGN_IN_SERVICE_UNAVAILABLE_ERROR);
+  });
+
+  it('refreshSessionAction keeps the session and reports unavailable on a 5xx refresh', async () => {
+    mocks.verifyBackendIdToken.mockResolvedValue({
+      success: true,
+      data: { uid: 'u', email: 'a@b.co', email_verified: true },
+    });
+    mocks.readSessionStatus.mockResolvedValue({ uid: 'u' });
+    mocks.refreshBackendSession.mockResolvedValue({ success: false, error: SECRET, status: 503 });
+
+    expectNoLeak(await refreshSessionAction('tok'), SIGN_IN_SERVICE_UNAVAILABLE_ERROR);
+    expect(mocks.cookieDelete).not.toHaveBeenCalledWith('session');
   });
 
   it('verifyTokenAction hides an unexpected exception from the backend wrapper', async () => {

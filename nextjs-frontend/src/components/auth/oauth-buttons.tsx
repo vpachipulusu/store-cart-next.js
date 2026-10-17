@@ -6,6 +6,8 @@ import { signInWithGoogle, signInWithGitHub } from '@/lib/firebase/auth-helpers'
 import { verifyTokenAction } from '@/app/actions/auth-actions';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
+import { SIGN_IN_SERVICE_UNAVAILABLE_ERROR } from '@/lib/auth/auth-error-messages';
+import { classifyAuthError } from './auth-form-errors';
 
 export function OAuthButtons() {
   const router = useRouter();
@@ -37,9 +39,15 @@ export function OAuthButtons() {
         const result = await verifyTokenAction(idToken);
 
         if (!result.success) {
+          // An outage is not a refused sign-in (KAN-240): say so instead of "Authentication Failed".
+          const outage =
+            result.error === SIGN_IN_SERVICE_UNAVAILABLE_ERROR
+              ? classifyAuthError(result.error, 'sign-in')
+              : null;
           toast({
-            title: 'Authentication Failed',
-            description: result.error || 'Failed to create session. Please try again.',
+            title: outage?.title ?? 'Authentication Failed',
+            description:
+              outage?.message ?? (result.error || 'Failed to create session. Please try again.'),
             variant: 'destructive',
           });
           return;
@@ -89,9 +97,15 @@ export function OAuthButtons() {
         const result = await verifyTokenAction(idToken);
 
         if (!result.success) {
+          // An outage is not a refused sign-in (KAN-240): say so instead of "Authentication Failed".
+          const outage =
+            result.error === SIGN_IN_SERVICE_UNAVAILABLE_ERROR
+              ? classifyAuthError(result.error, 'sign-in')
+              : null;
           toast({
-            title: 'Authentication Failed',
-            description: result.error || 'Failed to create session. Please try again.',
+            title: outage?.title ?? 'Authentication Failed',
+            description:
+              outage?.message ?? (result.error || 'Failed to create session. Please try again.'),
             variant: 'destructive',
           });
           return;

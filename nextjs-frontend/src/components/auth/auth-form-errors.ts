@@ -1,3 +1,4 @@
+import { SIGN_IN_SERVICE_UNAVAILABLE_ERROR } from '@/lib/auth/auth-error-messages';
 import { getFirebaseErrorMessage } from '@/lib/utils/firebase-errors';
 
 /**
@@ -15,6 +16,7 @@ export type AuthErrorKind =
   | 'rate-limit'
   | 'suspended'
   | 'weak-password'
+  | 'service-unavailable'
   | 'unknown';
 
 export interface AuthFormError {
@@ -78,9 +80,21 @@ export function classifyAuthError(
   message: string | null | undefined,
   flow: AuthFlow
 ): AuthFormError {
-  const kind = (message && KIND_BY_MESSAGE.get(message)) || 'unknown';
+  const kind =
+    message === SIGN_IN_SERVICE_UNAVAILABLE_ERROR
+      ? 'service-unavailable'
+      : (message && KIND_BY_MESSAGE.get(message)) || 'unknown';
 
   switch (kind) {
+    case 'service-unavailable':
+      return {
+        kind,
+        title: 'Sign-in is unavailable right now',
+        message:
+          flow === 'sign-up'
+            ? 'This is a problem on our side. If your account was created, sign in again in a few minutes.'
+            : 'This is a problem on our side, not with your details. Try again in a few minutes.',
+      };
     case 'credentials':
     case 'account-missing':
       return { kind, title: TITLE_BY_FLOW[flow], message: CREDENTIALS_MESSAGE[flow] };
