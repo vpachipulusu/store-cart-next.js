@@ -7,9 +7,6 @@
 #   scripts/compose-smoke.sh degraded   stop the backend, assert frontend /api/health is a generic 503
 #   scripts/compose-smoke.sh down       remove containers and volumes
 #   scripts/compose-smoke.sh all        up, healthy, degraded, then down (the default)
-#
-# SMOKE_PREBUILT=1 starts the images already in the local Docker store (storecart-backend,
-# storecart-frontend) without building; CI builds them first with a GitHub Actions layer cache (KAN-239).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -39,9 +36,7 @@ wait_for_status() {
 }
 
 up() {
-  local build_flag=--build
-  [ "${SMOKE_PREBUILT:-0}" = 1 ] && build_flag=--no-build
-  docker compose up "$build_flag" --detach --wait --wait-timeout 600 \
+  docker compose up --build --detach --wait --wait-timeout 600 \
     || { docker compose ps || true; docker compose logs --tail 80 || true; fail "docker compose up did not become healthy"; }
 }
 

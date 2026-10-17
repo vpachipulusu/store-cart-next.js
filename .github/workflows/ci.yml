@@ -151,29 +151,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # KAN-239: build both images with a GitHub Actions layer cache, then start them without
-      # rebuilding. The tags are the names docker-compose.yml gives the images (project "storecart").
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
-      - name: Build backend image (layer cache)
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: ./fastapi_backend
-          load: true
-          tags: storecart-backend:latest
-          cache-from: type=gha,scope=compose-backend
-          cache-to: type=gha,scope=compose-backend,mode=max
-      - name: Build frontend image (layer cache)
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: ./nextjs-frontend
-          load: true
-          tags: storecart-frontend:latest
-          cache-from: type=gha,scope=compose-frontend
-          cache-to: type=gha,scope=compose-frontend,mode=max
-
       - name: Compose up, then assert /api/health and /health
-        env:
-          SMOKE_PREBUILT: '1'
         run: scripts/compose-smoke.sh all
 
   gate:
