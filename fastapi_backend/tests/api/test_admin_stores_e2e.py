@@ -545,7 +545,7 @@ async def test_count_reprovisions_counts_only_matching_rows_of_the_store(engine)
             await repository.count_reprovisions(name) for name in ("sA", "sB", "none")
         ]
 
-    assert counts == [2, 1, 0]  # sA: 3 started minus 1 failed enqueue
+    assert [(c.started, c.failed) for c in counts] == [(3, 1), (1, 0), (0, 0)]
 
 
 async def test_failed_enqueue_is_502_marks_failed_and_does_not_use_up_an_attempt(
@@ -583,7 +583,7 @@ async def test_failed_enqueue_is_502_marks_failed_and_does_not_use_up_an_attempt
         "error": "Provisioning could not be started",
     }
     assert status[0][0] == "FAILED"
-    assert len(actions) == 10
+    assert len(actions) == 10  # five attempts, five compensations
     # Another store is unaffected and still gets attempt 1.
     monkeypatch.setattr(
         "app.api.v1.admin_stores.get_step_enqueuer",

@@ -5291,7 +5291,7 @@
             }
           },
           "502": {
-            "description": "The job could not be enqueued; the store is FAILED again and the attempt stays counted.",
+            "description": "The job could not be enqueued; the store is FAILED again and the attempt does not count against the cap.",
             "content": {
               "application/json": {
                 "schema": {

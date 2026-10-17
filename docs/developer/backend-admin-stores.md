@@ -78,11 +78,10 @@ responses do not (they hold no store data). Rate limited by subject
   `admin.stores.reprovision_failed` audit row cancels the attempt in the count, so an outage does not use up the cap. If
   marking `FAILED` also crashes the store can stay `PROVISIONING` (logged); the enqueue is shielded from request
   cancellation to keep that rare.
-- **Dedup window.** The first step of a re-run is published with its own dedup id (`provision-<id>-create_database-a<n>`),
-  so QStash never drops it. The later steps keep `provision-<id>-<step>`: QStash collapses a publish of the same id within
-  about 10 minutes, so if a previous run published `run_migrations` or `mark_ready` that recently, a quick re-run can lose
-  that step and the store stays `PROVISIONING` (see the stuck `PROVISIONING` query in `backend-store-provisioning-job.md`).
-  Wait about 10 minutes after a failure before re-running.
+- **Attempt numbers and dedup.** Every run has an attempt number (0 for the first run, then `started + 1` from the audit
+  rows, which only grows: a failed enqueue frees its cap slot, never its number). It travels in every step's signed body
+  (`{"store_id", "step", "attempt"}`, `attempt` optional for messages published before KAN-200) and in every dedup id
+  (`provision-<id>-<step>-a<n>`), so an earlier publish of any step can never collapse a re-run's.
 - **Stale callbacks.** `mark_failed` has no run token: a late failure callback or duplicate delivery of the previous run
   can flip the new run back to `FAILED`. Known limitation; re-run again.
 - **Retention.** The cap counts audit rows, so any audit purge must keep `admin.stores.reprovision*` rows or the cap resets.

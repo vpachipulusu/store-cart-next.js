@@ -55,6 +55,12 @@ class StoreRecord:
 
 
 @dataclass(frozen=True)
+class ReprovisionCounts:
+    started: int
+    failed: int
+
+
+@dataclass(frozen=True)
 class StorePage:
     items: list[StoreRecord]
     total_count: int
@@ -178,11 +184,12 @@ class AdminStoresRepository(BaseRepository):
             update(Store).where(Store.id == store_id).values(status=status)
         )
 
-    async def count_reprovisions(self, store_id: str) -> int:
-        """Admin re-runs that reached QStash: audited re-runs minus failed enqueues.
+    async def count_reprovisions(self, store_id: str) -> ReprovisionCounts:
+        """Audited admin re-runs of the store and how many of them failed to enqueue.
 
-        This is the retry cap's counter. It relies on audit rows being retained: any
-        future audit purge must keep ``admin.stores.reprovision*`` rows or the cap resets.
+        ``started`` only grows, so ``started + 1`` is a monotonic attempt number; the
+        retry cap uses ``started - failed``. This relies on audit rows being retained:
+        any future audit purge must keep ``admin.stores.reprovision*`` rows.
         """
         started = func.count(AuditLog.id).filter(AuditLog.action == REPROVISION_ACTION)
         failed = func.count(AuditLog.id).filter(
@@ -198,4 +205,4 @@ class AdminStoresRepository(BaseRepository):
                 )
             )
         ).one()
-        return max(row[0] - row[1], 0)
+        return ReprovisionCounts(started=row[0], failed=row[1])

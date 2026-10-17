@@ -108,7 +108,7 @@ _REPROVISION_RESPONSES: dict[int | str, dict[str, Any]] = {
     502: {
         "model": ErrorResponse,
         "description": "The job could not be enqueued; the store is FAILED again and "
-        "the attempt stays counted.",
+        "the attempt does not count against the cap.",
     },
     503: {
         "model": ErrorResponse,

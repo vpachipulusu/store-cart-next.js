@@ -27,8 +27,8 @@
   The orphan database of the failed run is reused, not dropped: every step is idempotent
   (the provisioner returns the existing database, the stored connection string is never
   overwritten, migrations are idempotent). If the enqueue fails the store is ``FAILED``
-  again (``start_provisioning``) and an ``admin.stores.reprovision_failed`` row cancels the
-  attempt in the count. The enqueue is shielded from request cancellation.
+  again (``start_provisioning``) and an ``admin.stores.reprovision_failed`` row (which also sets ``FAILED``) frees
+  the attempt's slot in the cap but not its number. Enqueue and compensation are shielded from request cancellation.
 * Failures carry a class name and SQLSTATE only (``safe_reason``), never a driver
   message or a connection string.
 """
@@ -47,6 +47,7 @@ from app.repositories.admin_stores import (
     REPROVISION_ACTION,
     REPROVISION_FAILED_ACTION,
     OrganizationPage,
+    ReprovisionCounts,
     StoreFilters,
     StorePage,
     StoreRecord,
@@ -113,7 +114,7 @@ class StoresStore(Protocol):
         self, store_id: str, *, lock: bool = False
     ) -> StoreRecord | None: ...
     async def set_status(self, store_id: str, status: StoreStatus) -> None: ...
-    async def count_reprovisions(self, store_id: str) -> int: ...
+    async def count_reprovisions(self, store_id: str) -> ReprovisionCounts: ...
 
 
 class AuditRecorder(Protocol):
@@ -208,9 +209,12 @@ class AdminStoresService:
             await self._abort(AdminStoreNotFound(), store_id)
         if record.status is not StoreStatus.FAILED:
             await self._abort(StoreConflict(), store_id)
-        attempt = await self.repository.count_reprovisions(store_id) + 1
-        if attempt > MAX_REPROVISION_ATTEMPTS:
+        counts = await self.repository.count_reprovisions(store_id)
+        if counts.started - counts.failed >= MAX_REPROVISION_ATTEMPTS:
             await self._abort(RetryLimitReached(), store_id)
+        # Monotonic: a failed enqueue frees its slot in the cap, never its number, so
+        # no two runs of a store share an attempt (and so a QStash dedup id).
+        attempt = counts.started + 1
         await self._record(
             actor,
             record,
@@ -229,18 +233,35 @@ class AdminStoresService:
             },
         )
         # Shielded: a client disconnect after the commit must not strand the store in
-        # PROVISIONING without a job (or without the FAILED mark when the enqueue fails).
-        started = await asyncio.shield(self._start_provisioning(store_id, attempt))
-        if not started:
-            # The attempt never reached QStash, so it must not count against the cap.
-            await self._record(
-                actor,
-                record,
-                REPROVISION_FAILED_ACTION,
-                extra={"attempt": attempt},
-            )
+        # PROVISIONING without a job, nor skip the compensation below.
+        if not await asyncio.shield(self._launch(actor, record, attempt)):
             raise ProvisioningNotStarted
         return ReprovisionResult(StoreStatus.PROVISIONING, attempt)
+
+    async def _launch(
+        self, actor: AdminContext, record: StoreRecord, attempt: int
+    ) -> bool:
+        """Enqueue the first step. On any failure the store is FAILED again and a
+        ``reprovision_failed`` row frees the attempt's slot in the cap."""
+        try:
+            if await self._start_provisioning(record.id, attempt):
+                return True
+        except Exception as exc:  # noqa: BLE001 - treated like a refused enqueue
+            logger.error(
+                "admin store provisioning start crashed: %s",
+                safe_reason(exc),
+                extra={"store_id": record.id, "admin_user_id": actor.user_id},
+            )
+        await self._record(
+            actor,
+            record,
+            REPROVISION_FAILED_ACTION,
+            before={"status": StoreStatus.PROVISIONING.value},
+            after={"status": StoreStatus.FAILED.value},
+            new_status=StoreStatus.FAILED,
+            extra={"attempt": attempt},
+        )
+        return False
 
     async def migrate(self, actor: AdminContext, store_id: str) -> MigrateResult:
         record = await self.repository.get_store(store_id)

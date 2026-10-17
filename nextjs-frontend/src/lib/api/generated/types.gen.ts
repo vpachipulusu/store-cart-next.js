@@ -4402,7 +4402,7 @@ export type AdminReprovisionStoreErrors = {
      */
     500: ErrorResponse;
     /**
-     * The job could not be enqueued; the store is FAILED again and the attempt stays counted.
+     * The job could not be enqueued; the store is FAILED again and the attempt does not count against the cap.
      */
     502: ErrorResponse;
     /**

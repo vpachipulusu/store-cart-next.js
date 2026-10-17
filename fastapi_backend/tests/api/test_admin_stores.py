@@ -54,10 +54,11 @@ class Harness:
         self.migrated: list[str] = []
         self.failure: Exception | None = None
         self.app = create_app()
+        grants = self.grants = dict(GRANTS)
 
         class Admins:
             async def get_grant(self, uid: str) -> AdminGrant | None:
-                found = GRANTS.get(uid.removeprefix("uid-"))
+                found = grants.get(uid.removeprefix("uid-"))
                 return AdminGrant(uid, found[0], found[1]) if found else None
 
         async def identity(

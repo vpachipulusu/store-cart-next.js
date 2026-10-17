@@ -1,5 +1,7 @@
 """Admin re-run of store provisioning (KAN-200): FAILED -> PROVISIONING and re-enqueue."""
 
+import asyncio
+
 import pytest
 
 from app.core.permissions import ADMIN_PERMISSIONS, AdminContext
@@ -28,11 +30,14 @@ ADMIN = AdminContext("adm", "super_admin", ADMIN_PERMISSIONS)
 class Starter:
     def __init__(self, repository: FakeStoresRepository, ok: bool = True) -> None:
         self.repository, self.ok = repository, ok
+        self.error: Exception | None = None
         self.calls: list[tuple[str, StoreStatus, int]] = []
 
     async def __call__(self, store_id: str, attempt: int) -> bool:
         # The status must already be committed as PROVISIONING when the job is enqueued.
         self.calls.append((store_id, self.repository.stores[store_id].status, attempt))
+        if self.error:
+            raise self.error
         return self.ok
 
 
@@ -168,7 +173,7 @@ async def test_status_write_failure_is_a_commit_failure_without_enqueue():
 
 
 async def test_enqueue_failure_after_commit_raises_and_keeps_the_audit_row():
-    service, _, session, auditor, starter = build(
+    service, repository, session, auditor, starter = build(
         store("a", status=StoreStatus.FAILED), ok=False
     )
 
@@ -180,7 +185,75 @@ async def test_enqueue_failure_after_commit_raises_and_keeps_the_audit_row():
         REPROVISION_ACTION,
         REPROVISION_FAILED_ACTION,
     ]
+    failed_row = auditor.rows[1]
+    assert failed_row["before"] == {"status": "PROVISIONING"}
+    assert failed_row["after"] == {"status": "FAILED"}
+    assert repository.stores["a"].status is StoreStatus.FAILED
     assert len(starter.calls) == 1
+
+
+async def test_a_starter_that_raises_is_treated_as_not_started():
+    service, repository, session, auditor, starter = build(
+        store("a", status=StoreStatus.FAILED)
+    )
+    starter.error = RuntimeError("boom")
+
+    with pytest.raises(ProvisioningNotStarted):
+        await service.reprovision(ADMIN, "a")
+
+    assert repository.stores["a"].status is StoreStatus.FAILED
+    assert auditor.rows[-1]["action"] == REPROVISION_FAILED_ACTION
+    assert session.commits == 2
+
+
+async def test_compensation_commit_failure_is_a_commit_failure():
+    service, _repository, _session, auditor, _starter = build(
+        store("a", status=StoreStatus.FAILED), ok=False
+    )
+    real = auditor.record
+
+    async def flaky(admin, **fields):
+        if fields["action"] == REPROVISION_FAILED_ACTION:
+            raise RuntimeError("audit store down")
+        await real(admin, **fields)
+
+    auditor.record = flaky
+
+    with pytest.raises(CommitFailed):
+        await service.reprovision(ADMIN, "a")
+
+
+async def test_compensation_survives_cancellation_of_the_request():
+    service, repository, _session, auditor, starter = build(
+        store("a", status=StoreStatus.FAILED), ok=False
+    )
+    gate = asyncio.Event()
+    original = starter.__call__
+
+    async def slow(store_id: str, attempt: int) -> bool:
+        await gate.wait()
+        return await original(store_id, attempt)
+
+    service._start_provisioning = slow
+    request = asyncio.create_task(service.reprovision(ADMIN, "a"))
+    await asyncio.sleep(0.01)
+    request.cancel()
+    gate.set()
+    await asyncio.sleep(0.05)
+
+    assert request.cancelled()
+    assert auditor.rows[-1]["action"] == REPROVISION_FAILED_ACTION
+    assert repository.stores["a"].status is StoreStatus.FAILED
+
+
+async def test_attempt_numbers_never_repeat_after_a_failed_enqueue():
+    service, repository, *_ = build(store("a", status=StoreStatus.FAILED))
+    repository.reprovisions["a"] = 1
+    repository.reprovision_failures["a"] = 1
+
+    result = await service.reprovision(ADMIN, "a")
+
+    assert result.attempt == 2  # the number grows, the cap slot was freed
 
 
 async def test_audit_failure_rolls_back_and_never_enqueues():

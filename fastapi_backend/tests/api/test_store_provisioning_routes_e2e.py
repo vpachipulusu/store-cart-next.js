@@ -63,7 +63,7 @@ class SeenEnqueuer:
         self.error = error
         self.seen: list[tuple[str, Step, str | None]] = []
 
-    async def enqueue(self, store_id: str, step: Step) -> None:
+    async def enqueue(self, store_id: str, step: Step, *, attempt: int) -> None:
         async with self.engine.connect() as other:
             status = (
                 await other.execute(
@@ -251,7 +251,7 @@ async def test_an_unexpected_step_error_answers_500_and_leaves_the_store(
             raise RuntimeError("postgresql://owner:hunter2@ep-secret/db exploded")
 
     class Quiet:
-        async def enqueue(self, store_id: str, step: Step) -> None:
+        async def enqueue(self, store_id: str, step: Step, *, attempt: int) -> None:
             raise AssertionError("must not advance")
 
     runner = StepRunner(

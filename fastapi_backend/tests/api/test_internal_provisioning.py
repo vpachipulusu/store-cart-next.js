@@ -41,7 +41,7 @@ class RecordingRunner(StepRunner):
         object.__setattr__(self, "failed", [])
         object.__setattr__(self, "error", None)
 
-    async def run(self, step: Step, store_id: str) -> None:
+    async def run(self, step: Step, store_id: str, attempt: int = 0) -> None:
         self.calls.append((step, store_id))  # type: ignore[attr-defined]
         if self.error:  # type: ignore[attr-defined]
             raise self.error  # type: ignore[attr-defined]

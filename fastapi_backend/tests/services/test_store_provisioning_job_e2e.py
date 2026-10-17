@@ -52,7 +52,7 @@ class RecordingEnqueuer:
         self.fail = fail
         self.calls: list[tuple[str, Step]] = []
 
-    async def enqueue(self, store_id: str, step: Step) -> None:
+    async def enqueue(self, store_id: str, step: Step, *, attempt: int) -> None:
         if self.fail:
             raise EnqueueFailed
         self.calls.append((store_id, step))

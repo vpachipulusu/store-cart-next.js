@@ -89,21 +89,24 @@ class InvalidPayload(Exception):
     """A signed delivery whose body is not a valid step or failure callback."""
 
 
+MAX_ATTEMPT = 1000
+
+
 def _dedup_id(store_id: str, step: Step, attempt: int) -> str:
-    """Admin re-runs (``attempt`` > 0) get their own id so QStash does not drop them."""
-    base = f"provision-{store_id}-{step.value}"
-    return f"{base}-a{attempt}" if attempt else base
+    """One id per run (``attempt`` 0 is the first run, then each admin re-run) and step,
+    so an earlier publish of the same step can never collapse a re-run's."""
+    return f"provision-{store_id}-{step.value}-a{attempt}"
 
 
 class StepEnqueuer(Protocol):
-    async def enqueue(self, store_id: str, step: Step, *, attempt: int = 0) -> None:
+    async def enqueue(self, store_id: str, step: Step, *, attempt: int) -> None:
         """Publish one step; raise EnqueueFailed when QStash did not accept it."""
 
 
 class NoopEnqueuer:
     """Local and test default when QStash is not configured: nothing is published."""
 
-    async def enqueue(self, store_id: str, step: Step, *, attempt: int = 0) -> None:
+    async def enqueue(self, store_id: str, step: Step, *, attempt: int) -> None:
         logger.warning(
             "qstash not configured: provisioning step not enqueued",
             extra={"store_id": store_id, "step": step.value},
@@ -113,7 +116,7 @@ class NoopEnqueuer:
 class UnconfiguredEnqueuer:
     """Outside local/test without QSTASH_TOKEN and PROVISIONING_BASE_URL."""
 
-    async def enqueue(self, store_id: str, step: Step, *, attempt: int = 0) -> None:
+    async def enqueue(self, store_id: str, step: Step, *, attempt: int) -> None:
         logger.error(
             "QSTASH_TOKEN and PROVISIONING_BASE_URL are not set",
             extra={"store_id": store_id},
@@ -151,7 +154,7 @@ class QStashEnqueuer:
                 )
         return response.status_code
 
-    async def enqueue(self, store_id: str, step: Step, *, attempt: int = 0) -> None:
+    async def enqueue(self, store_id: str, step: Step, *, attempt: int) -> None:
         destination = f"{self._callback}{STEP_PATH}"
         headers = {
             "Authorization": f"Bearer {self._token}",
@@ -161,7 +164,9 @@ class QStashEnqueuer:
             # A duplicate publish of the same step collapses into one delivery.
             "Upstash-Deduplication-Id": _dedup_id(store_id, step, attempt),
         }
-        body = json.dumps({"store_id": store_id, "step": step.value})
+        body = json.dumps(
+            {"store_id": store_id, "step": step.value, "attempt": attempt}
+        )
         url = f"{self._base}/v2/publish/{quote(destination, safe=':/')}"
         try:
             status = await self._post(url, headers, body)
@@ -221,13 +226,11 @@ async def start_provisioning(
 ) -> bool:
     """Enqueue the first step. On failure the store is marked FAILED; returns success.
 
-    ``attempt`` is 0 for the first run and the admin re-run number afterwards (KAN-200).
+    ``attempt`` is 0 for the first run and the admin re-run number afterwards (KAN-200);
+    it travels in every step's payload and dedup id.
     """
     try:
-        if attempt:
-            await enqueuer.enqueue(store_id, Step.CREATE_DATABASE, attempt=attempt)
-        else:
-            await enqueuer.enqueue(store_id, Step.CREATE_DATABASE)
+        await enqueuer.enqueue(store_id, Step.CREATE_DATABASE, attempt=attempt)
     except Exception as exc:  # noqa: BLE001 - the store is committed: never leave it stuck
         if not isinstance(exc, EnqueueFailed):
             logger.error(
@@ -271,7 +274,7 @@ class StepRunner:
     enqueuer: StepEnqueuer
     migrate: Callable[[str, SessionProvider], Awaitable[int]] = migrate_store
 
-    async def run(self, step: Step, store_id: str) -> None:
+    async def run(self, step: Step, store_id: str, attempt: int = 0) -> None:
         """Run ``step`` then publish the next. Raises StepFailed to ask for a retry."""
         try:
             if not await self._is_provisioning(store_id):
@@ -297,7 +300,7 @@ class StepRunner:
                 RuntimeError(f"provisioning step {step.value}: {safe_reason(exc)}")
             )
             raise StepFailed from None
-        await self._advance(step, store_id)
+        await self._advance(step, store_id, attempt)
 
     async def handle_step(self, raw_body: bytes) -> None:
         """Run the step a QStash delivery asks for. InvalidPayload or StepFailed on error."""
@@ -369,12 +372,12 @@ class StepRunner:
             store.status = StoreStatus.ACTIVE
             await session.commit()
 
-    async def _advance(self, step: Step, store_id: str) -> None:
+    async def _advance(self, step: Step, store_id: str, attempt: int) -> None:
         following = NEXT_STEP[step]
         if following is None:
             return
         try:
-            await self.enqueuer.enqueue(store_id, following)
+            await self.enqueuer.enqueue(store_id, following, attempt=attempt)
         except EnqueueFailed:
             # This step is idempotent: retrying it re-publishes the next one.
             raise StepFailed from None
@@ -387,15 +390,24 @@ def _loads(raw: bytes | str) -> Any:
         raise InvalidPayload from None
 
 
-def parse_step_payload(raw: Any) -> tuple[Step, str] | None:
-    """(step, store_id) from a delivered body, or None when it is not valid."""
-    if not isinstance(raw, dict) or set(raw) != {"store_id", "step"}:
+def parse_step_payload(raw: Any) -> tuple[Step, str, int] | None:
+    """(step, store_id, attempt) from a delivered body, or None when it is not valid.
+
+    ``attempt`` is optional (a message published before KAN-200 has none: 0).
+    """
+    if not isinstance(raw, dict) or not {"store_id", "step"} <= set(raw) <= {
+        "store_id",
+        "step",
+        "attempt",
+    }:
         return None
-    store_id, name = raw["store_id"], raw["step"]
+    store_id, name, attempt = raw["store_id"], raw["step"], raw.get("attempt", 0)
     if not isinstance(store_id, str) or not isinstance(name, str):
+        return None
+    if type(attempt) is not int or not 0 <= attempt <= MAX_ATTEMPT:
         return None
     try:
         database_name_for(store_id)
-        return Step(name), store_id
+        return Step(name), store_id, attempt
     except (InvalidStoreId, ValueError):
         return None

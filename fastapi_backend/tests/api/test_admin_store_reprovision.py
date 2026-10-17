@@ -8,15 +8,14 @@ from app.services.admin_stores import (
     MAX_REPROVISION_ATTEMPTS,
     AdminStoresService,
 )
-from tests.api.test_admin_stores import GRANTS, Harness
+from tests.api.test_admin_stores import Harness
 from tests.fakes_admin_stores import store
-
-GRANTS["reprovisioner"] = ("admin", ["stores.reprovision"])
 
 
 class ReprovisionHarness(Harness):
     def __init__(self) -> None:
         super().__init__()
+        self.grants["reprovisioner"] = ("admin", ["stores.reprovision"])
         self.repository.stores["broken"] = store("broken", status=StoreStatus.FAILED)
         self.started: list[str] = []
         self.start_ok = True
