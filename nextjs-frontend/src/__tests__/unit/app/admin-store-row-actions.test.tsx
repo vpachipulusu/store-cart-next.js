@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mocks = vi.hoisted(() => ({
@@ -187,6 +187,7 @@ describe('StoreRowActions', () => {
       expect(await screen.findByRole('dialog')).toHaveTextContent(/re-run provisioning/i);
       await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
       expect(mocks.reprovisionStoreAction).not.toHaveBeenCalled();
     });
 
@@ -229,6 +230,51 @@ describe('StoreRowActions', () => {
 
       finish({ success: true });
       await waitFor(() => expect(screen.getByRole('button', { name: RERUN })).toBeEnabled());
+    });
+
+    it('starts one request when the confirm handler fires twice before React re-renders', async () => {
+      // `disabled` cannot stop a second call that happens before the first render, so the in-flight ref must.
+      let finish: (value: { success: boolean }) => void = () => {};
+      mocks.reprovisionStoreAction.mockReturnValue(
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+      );
+      const user = userEvent.setup();
+      renderActions('FAILED');
+      await user.click(screen.getByRole('button', { name: RERUN }));
+      const confirm = await screen.findByRole('button', { name: 'Re-run provisioning' });
+      const propsKey = Object.keys(confirm).find((key) => key.startsWith('__reactProps'))!;
+      const { onClick } = (confirm as unknown as Record<string, { onClick: () => void }>)[propsKey];
+
+      act(() => {
+        onClick();
+        onClick();
+      });
+
+      expect(mocks.reprovisionStoreAction).toHaveBeenCalledTimes(1);
+      await act(async () => finish({ success: true }));
+    });
+
+    it('moves focus to the row once the action settles', async () => {
+      mocks.reprovisionStoreAction.mockResolvedValue({ success: true });
+      const user = userEvent.setup();
+      render(
+        <table>
+          <tbody>
+            <tr data-testid="row">
+              <td>
+                <StoreRowActions storeId="store-1" storeName="Acme Shop" status="FAILED" />
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      );
+
+      await user.click(screen.getByRole('button', { name: RERUN }));
+      await user.click(await screen.findByRole('button', { name: 'Re-run provisioning' }));
+
+      await waitFor(() => expect(screen.getByTestId('row')).toHaveFocus());
     });
 
     it('toasts the curated error and refreshes when the action refuses', async () => {

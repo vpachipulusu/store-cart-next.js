@@ -36,7 +36,9 @@ function failure(
   logMessage: string,
   options: { migration?: boolean; reprovision?: boolean } = {}
 ): ActionResponse {
-  if (result.status !== 401 && result.status !== 403 && result.status !== 404) {
+  // 401/403/404/409 are expected outcomes (no access, gone, or a state conflict such as a spent re-run cap).
+  const expected = [401, 403, 404, 409];
+  if (result.status === undefined || !expected.includes(result.status)) {
     logger.error(logMessage, { status: result.status });
   }
   return {

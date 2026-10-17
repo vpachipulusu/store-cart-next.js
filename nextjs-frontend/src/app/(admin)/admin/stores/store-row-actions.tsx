@@ -43,6 +43,7 @@ export function StoreRowActions({ storeId, storeName, status }: StoreRowActionsP
   const [confirmReprovision, setConfirmReprovision] = useState(false);
   // Set synchronously, so two clicks in the same tick cannot both start a request before `pending` renders.
   const inFlight = useRef(false);
+  const container = useRef<HTMLDivElement>(null);
 
   const canSuspend = status === 'ACTIVE';
   const canUnsuspend = status === 'SUSPENDED';
@@ -56,6 +57,15 @@ export function StoreRowActions({ storeId, storeName, status }: StoreRowActionsP
   // Refreshing inside the transition keeps the buttons disabled until the new row has arrived.
   function refreshRow() {
     startTransition(() => router.refresh());
+  }
+
+  // The button that opened a dialog is disabled while the request runs and may be gone afterwards (the store
+  // changes status), which would drop focus to the page. The table row outlives the change, so focus moves there.
+  function focusRow() {
+    const target = container.current?.closest<HTMLElement>('tr') ?? container.current;
+    if (!target) return;
+    if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+    target.focus();
   }
 
   function run(action: (id: string) => Promise<ActionResult>) {
@@ -82,12 +92,13 @@ export function StoreRowActions({ storeId, storeName, status }: StoreRowActionsP
         refreshRow();
       } finally {
         inFlight.current = false;
+        focusRow();
       }
     });
   }
 
   return (
-    <div className="flex flex-wrap justify-end gap-2">
+    <div ref={container} className="flex flex-wrap justify-end gap-2 outline-none">
       {canMigrate && (
         <Button
           variant="outline"

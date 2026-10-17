@@ -108,7 +108,7 @@ describe('admin store actions', () => {
       [401, ADMIN_FORBIDDEN_MESSAGE, false],
       [403, ADMIN_FORBIDDEN_MESSAGE, false],
       [404, ADMIN_STORE_NOT_FOUND_MESSAGE, false],
-      [409, ADMIN_STORE_CONFLICT_MESSAGE, true],
+      [409, ADMIN_STORE_CONFLICT_MESSAGE, false],
     ])('maps a %s answer to a curated message', async (status, message, logged) => {
       wrapper.mockResolvedValue(fail(status));
 
@@ -311,6 +311,8 @@ describe('admin store actions', () => {
       await reprovisionStoreAction('store-1');
 
       expect(mocks.revalidatePath).toHaveBeenCalledWith('/admin/stores');
+      // A spent cap or a race is expected, not an error worth logging.
+      expect(mocks.logError).not.toHaveBeenCalled();
     });
 
     it('does not revalidate when the API refuses for another reason', async () => {
