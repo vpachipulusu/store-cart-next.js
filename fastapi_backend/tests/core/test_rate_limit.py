@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
 
@@ -8,13 +9,14 @@ from pydantic import SecretStr
 from upstash_ratelimit.utils import ms_to_s
 
 from app.api import deps
+from app.core import rate_limit as rate_limit_module
 from app.core.rate_limit import (
     API_POLICY,
     AUTH_POLICY,
+    FAIL_CLOSED_REDIS_TIMEOUT_SECONDS,
     REDIS_TIMEOUT_SECONDS,
     DisabledRateLimiter,
     RateLimiterUnavailable,
-    RateLimitPolicy,
     UpstashRateLimiter,
 )
 
@@ -24,15 +26,26 @@ class FakeRedis:
 
 
 class FakeSlidingWindow:
-    def __init__(self, response: Any = None, delay: float = 0) -> None:
+    def __init__(
+        self,
+        response: Any = None,
+        delay: float = 0,
+        on_call: Callable[[], None] | None = None,
+    ) -> None:
         self.response = response
         self.delay = delay
+        self.on_call = on_call
         self.identifiers: list[str] = []
+        self.redis: Any = (
+            None  # the client this window was built on (set by FakeRatelimit)
+        )
 
     async def limit(self, identifier: str) -> Any:
         self.identifiers.append(identifier)
+        if self.on_call is not None:
+            self.on_call()
         await asyncio.sleep(self.delay)
-        if isinstance(self.response, Exception):
+        if isinstance(self.response, BaseException):
             raise self.response
         return self.response
 
@@ -142,204 +155,234 @@ async def test_decision_reset_at_keeps_upstash_seconds_unchanged() -> None:
 # --- KAN-243: a stale or broken Redis client must not lock everyone out ---------------
 
 
-class ClientFactory:
-    """Hands out one scripted FakeSlidingWindow per rebuilt client."""
+class Clock:
+    """An injected clock: tests advance time instead of sleeping."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+class Script:
+    """Replaces ``Ratelimit`` so the real ``_limiter_for`` and cache run against scripted windows."""
 
     def __init__(self, *windows: FakeSlidingWindow) -> None:
-        self._windows = list(windows)
-        self.built = 0
+        self.windows = list(windows)
+        self.clients: list[Any] = []
 
-    def __call__(self) -> FakeRedis:
-        self.built += 1
-        return FakeRedis()
+    def make_client(self) -> Any:
+        client = FakeRedis()
+        self.clients.append(client)
+        return client
 
-    def window(self) -> FakeSlidingWindow:
-        return self._windows.pop(0)
-
-
-def rebuilding_limiter(
-    policy: RateLimitPolicy, *windows: FakeSlidingWindow
-) -> tuple[UpstashRateLimiter, ClientFactory]:
-    factory = ClientFactory(*windows)
-    limiter = UpstashRateLimiter(
-        factory(),  # type: ignore[arg-type]
-        redis_factory=factory,  # type: ignore[arg-type]
-    )
-
-    def next_limiter(self: UpstashRateLimiter, _policy: RateLimitPolicy) -> Any:
-        window = self._limiters.get(_policy)
-        if window is None:
-            window = factory.window()
-            self._limiters[_policy] = window  # type: ignore[assignment]
+    def __call__(self, redis: Any, _algorithm: Any, prefix: str | None = None) -> Any:
+        window = self.windows.pop(0)
+        window.redis = redis
         return window
-
-    limiter._limiter_for = next_limiter.__get__(limiter)  # type: ignore[method-assign]
-    return limiter, factory
 
 
 OK = SimpleNamespace(allowed=True, limit=5, remaining=4, reset=1)
 
 
-async def test_auth_hit_rebuilds_the_client_and_retries_after_a_connect_error() -> None:
-    limiter, factory = rebuilding_limiter(
-        AUTH_POLICY,
-        FakeSlidingWindow(httpx.ConnectError("[Errno 16] Device or resource busy")),
-        FakeSlidingWindow(OK),
+@pytest.fixture
+def script(monkeypatch: pytest.MonkeyPatch) -> Callable[..., Script]:
+    def install(*windows: FakeSlidingWindow) -> Script:
+        scripted = Script(*windows)
+        monkeypatch.setattr(rate_limit_module, "Ratelimit", scripted)
+        return scripted
+
+    return install
+
+
+def make_limiter(scripted: Script, **kwargs: Any) -> UpstashRateLimiter:
+    kwargs.setdefault("rebuild_cooldown_seconds", 0.0)
+    kwargs.setdefault("close_grace_seconds", 0)
+    return UpstashRateLimiter(
+        scripted.make_client(),
+        redis_factory=scripted.make_client,
+        **kwargs,
     )
+
+
+async def test_auth_hit_replaces_the_client_and_retries_after_a_connect_error(
+    script: Callable[..., Script],
+) -> None:
+    first = FakeSlidingWindow(httpx.ConnectError("[Errno 16] Device or resource busy"))
+    second = FakeSlidingWindow(OK)
+    scripted = script(first, second)
+    limiter = make_limiter(scripted)
 
     decision = await limiter.hit("auth:ip:1", AUTH_POLICY)
 
     assert decision.allowed is True
-    assert factory.built == 2  # the initial client and one rebuild
+    assert first.identifiers == ["auth:ip:1"] and second.identifiers == ["auth:ip:1"]
+    assert len(scripted.clients) == 2
+    assert first.redis is scripted.clients[0] and second.redis is scripted.clients[1]
 
 
-async def test_auth_hit_is_unavailable_when_the_retry_also_fails() -> None:
+async def test_auth_hit_is_unavailable_when_the_retry_also_fails(
+    script: Callable[..., Script],
+) -> None:
     first = FakeSlidingWindow(httpx.ConnectError("down"))
     second = FakeSlidingWindow(httpx.ConnectError("still down"))
-    limiter, factory = rebuilding_limiter(AUTH_POLICY, first, second)
+    limiter = make_limiter(script(first, second))
 
     with pytest.raises(RateLimiterUnavailable):
         await limiter.hit("auth:ip:1", AUTH_POLICY)
 
     assert (len(first.identifiers), len(second.identifiers)) == (1, 1)  # one retry only
-    assert (
-        factory.built == 3
-    )  # initial, rebuilt for the retry, rebuilt for the next request
 
 
-async def test_a_fail_open_policy_is_not_retried() -> None:
+async def test_rebuilds_respect_a_cooldown(script: Callable[..., Script]) -> None:
+    clock = Clock()
+    broken = [FakeSlidingWindow(httpx.ConnectError("down")) for _ in range(2)]
+    scripted = script(*broken, FakeSlidingWindow(OK))
+    limiter = make_limiter(scripted, rebuild_cooldown_seconds=1.0, clock=clock)
+
+    with pytest.raises(RateLimiterUnavailable):
+        await limiter.hit("auth:ip:1", AUTH_POLICY)
+    # Failure 1 replaced the client; failure 2 (still inside the cooldown) did not.
+    assert len(scripted.clients) == 2
+
+    clock.advance(2.0)
+    assert (await limiter.hit("auth:ip:1", AUTH_POLICY)).allowed is True
+    assert len(scripted.clients) == 3  # replaced again once the cooldown passed
+
+
+async def test_a_fail_open_policy_is_never_retried(
+    script: Callable[..., Script],
+) -> None:
     only = FakeSlidingWindow(httpx.ConnectError("down"))
-    limiter, factory = rebuilding_limiter(API_POLICY, only)
+    scripted = script(only)
+    limiter = make_limiter(scripted)
 
     with pytest.raises(RateLimiterUnavailable):
         await limiter.hit("api:user:u1", API_POLICY)
 
-    assert only.identifiers == ["api:user:u1"]  # called once, never retried
-    assert factory.built == 2  # a transport failure still discards the broken client
+    assert only.identifiers == ["api:user:u1"]
+    assert len(scripted.clients) == 2  # a transport failure still replaces the client
 
 
-async def test_a_timeout_is_neither_retried_nor_discards_the_warm_client() -> None:
-    slow = FakeSlidingWindow(SimpleNamespace(), delay=1)
-    limiter, factory = rebuilding_limiter(AUTH_POLICY, slow)
-    limiter._fail_closed_timeout = 0.01
+async def test_a_timeout_is_neither_retried_nor_discards_the_warm_client(
+    script: Callable[..., Script],
+) -> None:
+    slow = FakeSlidingWindow(TimeoutError())
+    scripted = script(slow)
+    limiter = make_limiter(scripted)
+
+    with pytest.raises(RateLimiterUnavailable):
+        await limiter.hit("auth:ip:1", AUTH_POLICY)
+
+    assert slow.identifiers == ["auth:ip:1"] and len(scripted.clients) == 1
+
+
+async def test_a_transport_error_that_is_not_a_connect_error_is_not_retried(
+    script: Callable[..., Script],
+) -> None:
+    first = FakeSlidingWindow(httpx.ReadError("reset"))
+    scripted = script(first, FakeSlidingWindow(OK))
+    limiter = make_limiter(scripted)
 
     with pytest.raises(RateLimiterUnavailable):
         await limiter.hit("auth:ip:1", AUTH_POLICY)
 
-    assert slow.identifiers == ["auth:ip:1"] and factory.built == 1
+    assert first.identifiers == ["auth:ip:1"] and len(scripted.clients) == 2
 
 
-async def test_a_retry_that_would_outlive_the_shared_deadline_is_skipped() -> None:
-    first = FakeSlidingWindow(httpx.ConnectError("down"), delay=0.4)
-    limiter, _ = rebuilding_limiter(AUTH_POLICY, first, FakeSlidingWindow(OK))
-    limiter._fail_closed_timeout = 0.5  # 0.1 s left after the first attempt
+async def test_a_connect_timeout_is_retried_like_a_connect_error(
+    script: Callable[..., Script],
+) -> None:
+    limiter = make_limiter(
+        script(FakeSlidingWindow(httpx.ConnectTimeout("slow")), FakeSlidingWindow(OK))
+    )
+
+    assert (await limiter.hit("auth:ip:1", AUTH_POLICY)).allowed is True
+
+
+async def test_a_retry_that_would_outlive_the_shared_deadline_is_skipped(
+    script: Callable[..., Script],
+) -> None:
+    clock = Clock()
+    first = FakeSlidingWindow(
+        httpx.ConnectError("down"), on_call=lambda: clock.advance(0.9)
+    )
+    limiter = make_limiter(script(first, FakeSlidingWindow(OK)), clock=clock)
 
     with pytest.raises(RateLimiterUnavailable):
-        await limiter.hit("auth:ip:1", AUTH_POLICY)
+        await limiter.hit("auth:ip:1", AUTH_POLICY)  # 0.1 s of the 1 s budget left
 
     assert first.identifiers == ["auth:ip:1"]
 
 
-async def test_concurrent_failures_on_one_client_cause_a_single_rebuild() -> None:
-    limiter, factory = rebuilding_limiter(
-        AUTH_POLICY,
-        FakeSlidingWindow(httpx.ConnectError("down"), delay=0.02),
-        FakeSlidingWindow(OK),
+async def test_concurrent_failures_on_one_client_cause_a_single_replacement(
+    script: Callable[..., Script],
+) -> None:
+    scripted = script(
+        FakeSlidingWindow(httpx.ConnectError("down")), FakeSlidingWindow(OK)
     )
+    limiter = make_limiter(scripted)
 
     decisions = await asyncio.gather(
         *(limiter.hit(f"auth:ip:{n}", AUTH_POLICY) for n in range(20))
     )
 
     assert all(decision.allowed for decision in decisions)
-    assert factory.built == 2  # the initial client plus exactly one replacement
+    assert len(scripted.clients) == 2  # the initial client plus exactly one replacement
 
 
-async def test_a_replaced_client_is_closed_after_the_grace_period() -> None:
+async def test_a_replaced_client_is_closed_after_the_grace_period(
+    script: Callable[..., Script],
+) -> None:
     closed: list[bool] = []
 
     class ClosableRedis(FakeRedis):
         async def close(self) -> None:
             closed.append(True)
 
-    factory = ClientFactory(
+    scripted = script(
         FakeSlidingWindow(httpx.ConnectError("down")), FakeSlidingWindow(OK)
     )
     limiter = UpstashRateLimiter(
         ClosableRedis(),  # type: ignore[arg-type]
-        redis_factory=factory,  # type: ignore[arg-type]
+        redis_factory=scripted.make_client,
+        rebuild_cooldown_seconds=0,
         close_grace_seconds=0,
     )
 
-    def window_for(policy: RateLimitPolicy) -> Any:
-        return limiter._limiters.setdefault(policy, factory.window())  # type: ignore[arg-type]
-
-    limiter._limiter_for = window_for  # type: ignore[method-assign,assignment]
-
     await limiter.hit("auth:ip:1", AUTH_POLICY)
-    await asyncio.sleep(0.01)
+    await asyncio.gather(*limiter._closing)
 
     assert closed == [True]
 
 
-async def test_a_failed_call_logs_policy_and_error_class_only(
-    caplog: pytest.LogCaptureFixture,
+async def test_the_same_event_loop_does_not_replace_the_client(
+    script: Callable[..., Script],
 ) -> None:
-    limiter, _ = rebuilding_limiter(
-        AUTH_POLICY,
-        FakeSlidingWindow(httpx.ConnectError("secret-token-text")),
-        FakeSlidingWindow(OK),
-    )
-
-    with caplog.at_level("WARNING", logger="storecart.rate_limit"):
-        await limiter.hit("auth:email:digest", AUTH_POLICY)
-
-    text = " ".join(record.getMessage() for record in caplog.records)
-    assert "auth" in text and "ConnectError" in text
-    assert "secret-token-text" not in text and "digest" not in text
-
-
-async def test_a_client_from_another_event_loop_is_rebuilt() -> None:
-    limiter, factory = rebuilding_limiter(
-        AUTH_POLICY, FakeSlidingWindow(OK), FakeSlidingWindow(OK)
-    )
-    limiter._loop = object()  # type: ignore[assignment]  # as if built on an earlier loop
-
-    await limiter.hit("auth:ip:1", AUTH_POLICY)
-
-    assert factory.built == 2
-
-
-async def test_the_same_event_loop_does_not_rebuild_the_client() -> None:
-    limiter, factory = rebuilding_limiter(AUTH_POLICY, FakeSlidingWindow(OK))
+    scripted = script(FakeSlidingWindow(OK))
+    limiter = make_limiter(scripted)
 
     await limiter.hit("auth:ip:1", AUTH_POLICY)
     await limiter.hit("auth:ip:2", AUTH_POLICY)
 
-    assert factory.built == 1
+    assert len(scripted.clients) == 1
 
 
-async def test_a_transport_error_that_is_not_a_connect_error_is_not_retried() -> None:
-    first = FakeSlidingWindow(httpx.ReadError("reset"))
-    limiter, factory = rebuilding_limiter(AUTH_POLICY, first, FakeSlidingWindow(OK))
+def test_a_new_event_loop_gets_a_fresh_client(script: Callable[..., Script]) -> None:
+    scripted = script(FakeSlidingWindow(OK), FakeSlidingWindow(OK))
+    limiter = make_limiter(scripted)
 
-    with pytest.raises(RateLimiterUnavailable):
-        await limiter.hit("auth:ip:1", AUTH_POLICY)
+    asyncio.run(limiter.hit("auth:ip:1", AUTH_POLICY))
+    asyncio.run(limiter.hit("auth:ip:1", AUTH_POLICY))  # a second, different loop
 
-    assert first.identifiers == ["auth:ip:1"] and factory.built == 2
-
-
-async def test_a_connect_timeout_is_retried_like_a_connect_error() -> None:
-    limiter, _ = rebuilding_limiter(
-        AUTH_POLICY,
-        FakeSlidingWindow(httpx.ConnectTimeout("slow")),
-        FakeSlidingWindow(OK),
-    )
-
-    assert (await limiter.hit("auth:ip:1", AUTH_POLICY)).allowed is True
+    assert len(scripted.clients) == 2
 
 
-async def test_a_limiter_without_a_factory_is_never_retried_or_rebuilt() -> None:
+async def test_a_limiter_without_a_factory_is_never_retried_or_replaced() -> None:
     fake = FakeSlidingWindow(httpx.ConnectError("down"))
     limiter = UpstashRateLimiter(FakeRedis())  # type: ignore[arg-type]
     limiter._limiters[AUTH_POLICY] = fake  # type: ignore[assignment]
@@ -350,17 +393,24 @@ async def test_a_limiter_without_a_factory_is_never_retried_or_rebuilt() -> None
     assert fake.identifiers == ["auth:ip:1"]
 
 
-async def test_each_policy_gets_its_own_latency_budget() -> None:
-    # 0.3 s is over the 0.2 s fail-open cap and under the 1 s fail-closed one.
-    slow = SimpleNamespace(allowed=True, limit=5, remaining=4, reset=1)
+async def test_each_policy_gets_its_own_latency_budget(
+    monkeypatch: pytest.MonkeyPatch, script: Callable[..., Script]
+) -> None:
+    seen: list[float] = []
+    real_wait_for = asyncio.wait_for
 
-    closed, _ = rebuilding_limiter(AUTH_POLICY, FakeSlidingWindow(slow, delay=0.3))
-    assert (await closed.hit("auth:ip:1", AUTH_POLICY)).allowed is True
+    async def spy(awaitable: Any, timeout: float) -> Any:
+        seen.append(timeout)
+        return await real_wait_for(awaitable, timeout)
 
-    open_, _ = rebuilding_limiter(API_POLICY, FakeSlidingWindow(slow, delay=0.3))
-    open_._timeout = REDIS_TIMEOUT_SECONDS
-    with pytest.raises(RateLimiterUnavailable):
-        await open_.hit("api:user:u1", API_POLICY)
+    scripted = script(FakeSlidingWindow(OK), FakeSlidingWindow(OK))
+    limiter = make_limiter(scripted, clock=Clock())
+    monkeypatch.setattr(rate_limit_module.asyncio, "wait_for", spy)
+
+    await limiter.hit("auth:ip:1", AUTH_POLICY)
+    await limiter.hit("api:user:u1", API_POLICY)
+
+    assert seen == [FAIL_CLOSED_REDIS_TIMEOUT_SECONDS, REDIS_TIMEOUT_SECONDS]
 
 
 def test_from_credentials_wires_a_factory_that_builds_fresh_clients() -> None:
@@ -368,3 +418,52 @@ def test_from_credentials_wires_a_factory_that_builds_fresh_clients() -> None:
 
     assert limiter._redis_factory is not None
     assert limiter._redis_factory() is not limiter._redis
+
+
+def test_replacing_the_client_builds_new_limiters_bound_to_the_new_client() -> None:
+    limiter = UpstashRateLimiter.from_credentials("https://x.upstash.io", "token")
+    first = limiter._limiter_for(API_POLICY)
+    assert limiter._limiter_for(API_POLICY) is first
+
+    old = limiter._replace_client()
+    second = limiter._limiter_for(API_POLICY)
+
+    assert second is not first
+    assert second._redis is limiter._redis and second._redis is not old
+
+
+async def test_a_failing_factory_still_ends_as_unavailable(
+    script: Callable[..., Script],
+) -> None:
+    scripted = script(FakeSlidingWindow(httpx.ConnectError("down")))
+    initial = scripted.make_client()
+
+    def broken_factory() -> Any:
+        raise RuntimeError("cannot build a client")
+
+    limiter = UpstashRateLimiter(
+        initial, redis_factory=broken_factory, rebuild_cooldown_seconds=0
+    )
+
+    with pytest.raises(RateLimiterUnavailable):
+        await limiter.hit("auth:ip:1", AUTH_POLICY)
+
+    assert limiter._redis is initial  # the old client is kept
+
+
+async def test_a_failed_call_logs_policy_and_error_class_only(
+    caplog: pytest.LogCaptureFixture, script: Callable[..., Script]
+) -> None:
+    limiter = make_limiter(
+        script(
+            FakeSlidingWindow(httpx.ConnectError("secret-token-text")),
+            FakeSlidingWindow(OK),
+        )
+    )
+
+    with caplog.at_level("WARNING", logger="storecart.rate_limit"):
+        await limiter.hit("auth:email:digest", AUTH_POLICY)
+
+    text = " ".join(record.getMessage() for record in caplog.records)
+    assert "policy=auth" in text and "error=ConnectError" in text
+    assert "secret-token-text" not in text and "digest" not in text

@@ -24,12 +24,17 @@ FAIL_CLOSED_REDIS_TIMEOUT_SECONDS = 1.0
 
 # A replaced client is closed after this grace period so in-flight calls on it can finish.
 CLOSE_GRACE_SECONDS = 5.0
+# A failing client is replaced at most this often, so an Upstash outage cannot cause client churn.
+MIN_REBUILD_INTERVAL_SECONDS = 1.0
+# Closing a replaced client (possibly bound to a dead loop) must never hang.
+CLOSE_TIMEOUT_SECONDS = 1.0
 # A retry needs at least this much of the shared deadline left, or it would be cut off anyway.
 MIN_RETRY_REMAINING_SECONDS = 0.2
 
 logger = logging.getLogger("storecart.rate_limit")
 
-# The request never reached Redis, so retrying cannot count a hit twice.
+# The request never reached Redis, so retrying cannot count a hit twice. ConnectTimeout is rarely
+# reachable: the Upstash client sets no httpx timeout, so the wait_for budget fires first.
 _RETRYABLE_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout)
 
 # Every key is stored as rl:{scope}:{user|org|store|ip|email}:{id}.
@@ -117,11 +122,16 @@ class UpstashRateLimiter:
         redis_factory: Callable[[], Redis] | None = None,
         fail_closed_timeout_seconds: float = FAIL_CLOSED_REDIS_TIMEOUT_SECONDS,
         close_grace_seconds: float = CLOSE_GRACE_SECONDS,
+        rebuild_cooldown_seconds: float = MIN_REBUILD_INTERVAL_SECONDS,
+        clock: Callable[[], float] | None = None,
     ) -> None:
         self._redis = redis
         self._timeout = timeout_seconds
         self._fail_closed_timeout = fail_closed_timeout_seconds
         self._close_grace = close_grace_seconds
+        self._rebuild_cooldown = rebuild_cooldown_seconds
+        self._clock = clock
+        self._last_rebuild: float | None = None
         self._redis_factory = redis_factory
         self._loop: asyncio.AbstractEventLoop | None = None
         self._limiters: dict[RateLimitPolicy, Ratelimit] = {}
@@ -151,17 +161,37 @@ class UpstashRateLimiter:
         """Swap in a fresh client; returns the old one, or None when no factory is set."""
         if self._redis_factory is None:
             return None
+        try:
+            fresh = self._redis_factory()
+        except Exception as exc:  # noqa: BLE001 - keep the old client; the caller fails per its mode
+            logger.warning(
+                "rate limiter client rebuild failed: error=%s", type(exc).__name__
+            )
+            return None
         old = self._redis
-        self._redis = self._redis_factory()
+        self._redis = fresh
         self._limiters = {}
         return old
 
     def _rebuild_if_current(self, failed: Redis) -> None:
         # A late failure from an already replaced client must not discard the healthy new one.
-        if self._redis is failed:
-            old = self._replace_client()
-            if old is not None:
-                self._close_later(old)
+        if self._redis is not failed:
+            return
+        now = self._now()
+        if (
+            self._last_rebuild is not None
+            and now - self._last_rebuild < self._rebuild_cooldown
+        ):
+            return
+        old = self._replace_client()
+        if old is not None:
+            self._last_rebuild = now
+            self._close_later(old)
+
+    def _now(self) -> float:
+        if self._clock is not None:
+            return self._clock()
+        return asyncio.get_running_loop().time()
 
     def _close_later(self, old: Redis) -> None:
         close = getattr(old, "close", None)
@@ -172,7 +202,7 @@ class UpstashRateLimiter:
             # Calls still awaiting on the old client get time to finish first.
             await asyncio.sleep(self._close_grace)
             with contextlib.suppress(Exception):
-                await close()
+                await asyncio.wait_for(close(), CLOSE_TIMEOUT_SECONDS)
 
         task = asyncio.get_running_loop().create_task(close_after_grace())
         self._closing.add(task)
@@ -180,8 +210,11 @@ class UpstashRateLimiter:
 
     def _use_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         if self._loop is not None and self._loop is not loop:
-            # The old client belongs to a loop that may be gone: drop it, do not close it.
-            self._replace_client()
+            # The old client belongs to another loop (possibly gone): replace it and try a
+            # bounded, error-suppressed close, so a per-request loop never keeps a stale pool.
+            old = self._replace_client()
+            if old is not None:
+                self._close_later(old)
         self._loop = loop
 
     async def _limit(
@@ -201,14 +234,14 @@ class UpstashRateLimiter:
         loop = asyncio.get_running_loop()
         self._use_loop(loop)
         budget = self._fail_closed_timeout if policy.fail_closed else self._timeout
-        deadline = loop.time() + budget
+        deadline = self._now() + budget
         attempts = 2 if policy.fail_closed and self._redis_factory else 1
         attempt = 0
         while True:
             attempt += 1
             client = self._redis
             try:
-                return await self._limit(identifier, policy, deadline - loop.time())
+                return await self._limit(identifier, policy, deadline - self._now())
             except Exception as exc:
                 # Class and policy only: the message and identifier can carry secrets or PII.
                 logger.warning(
@@ -223,7 +256,7 @@ class UpstashRateLimiter:
                 can_retry = (
                     attempt < attempts
                     and isinstance(exc, _RETRYABLE_ERRORS)
-                    and deadline - loop.time() >= MIN_RETRY_REMAINING_SECONDS
+                    and deadline - self._now() >= MIN_RETRY_REMAINING_SECONDS
                 )
                 if not can_retry:
                     raise RateLimiterUnavailable("rate limit check failed") from exc
