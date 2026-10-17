@@ -89,15 +89,21 @@ class InvalidPayload(Exception):
     """A signed delivery whose body is not a valid step or failure callback."""
 
 
+def _dedup_id(store_id: str, step: Step, attempt: int) -> str:
+    """Admin re-runs (``attempt`` > 0) get their own id so QStash does not drop them."""
+    base = f"provision-{store_id}-{step.value}"
+    return f"{base}-a{attempt}" if attempt else base
+
+
 class StepEnqueuer(Protocol):
-    async def enqueue(self, store_id: str, step: Step) -> None:
+    async def enqueue(self, store_id: str, step: Step, *, attempt: int = 0) -> None:
         """Publish one step; raise EnqueueFailed when QStash did not accept it."""
 
 
 class NoopEnqueuer:
     """Local and test default when QStash is not configured: nothing is published."""
 
-    async def enqueue(self, store_id: str, step: Step) -> None:
+    async def enqueue(self, store_id: str, step: Step, *, attempt: int = 0) -> None:
         logger.warning(
             "qstash not configured: provisioning step not enqueued",
             extra={"store_id": store_id, "step": step.value},
@@ -107,7 +113,7 @@ class NoopEnqueuer:
 class UnconfiguredEnqueuer:
     """Outside local/test without QSTASH_TOKEN and PROVISIONING_BASE_URL."""
 
-    async def enqueue(self, store_id: str, step: Step) -> None:
+    async def enqueue(self, store_id: str, step: Step, *, attempt: int = 0) -> None:
         logger.error(
             "QSTASH_TOKEN and PROVISIONING_BASE_URL are not set",
             extra={"store_id": store_id},
@@ -145,7 +151,7 @@ class QStashEnqueuer:
                 )
         return response.status_code
 
-    async def enqueue(self, store_id: str, step: Step) -> None:
+    async def enqueue(self, store_id: str, step: Step, *, attempt: int = 0) -> None:
         destination = f"{self._callback}{STEP_PATH}"
         headers = {
             "Authorization": f"Bearer {self._token}",
@@ -153,7 +159,7 @@ class QStashEnqueuer:
             "Upstash-Retries": str(self._retries),
             "Upstash-Failure-Callback": f"{self._callback}{FAILED_PATH}",
             # A duplicate publish of the same step collapses into one delivery.
-            "Upstash-Deduplication-Id": f"provision-{store_id}-{step.value}",
+            "Upstash-Deduplication-Id": _dedup_id(store_id, step, attempt),
         }
         body = json.dumps({"store_id": store_id, "step": step.value})
         url = f"{self._base}/v2/publish/{quote(destination, safe=':/')}"
@@ -207,11 +213,21 @@ async def mark_failed(provider: SessionProvider, store_id: str) -> bool:
 
 
 async def start_provisioning(
-    provider: SessionProvider, enqueuer: StepEnqueuer, store_id: str
+    provider: SessionProvider,
+    enqueuer: StepEnqueuer,
+    store_id: str,
+    *,
+    attempt: int = 0,
 ) -> bool:
-    """Enqueue the first step. On failure the store is marked FAILED; returns success."""
+    """Enqueue the first step. On failure the store is marked FAILED; returns success.
+
+    ``attempt`` is 0 for the first run and the admin re-run number afterwards (KAN-200).
+    """
     try:
-        await enqueuer.enqueue(store_id, Step.CREATE_DATABASE)
+        if attempt:
+            await enqueuer.enqueue(store_id, Step.CREATE_DATABASE, attempt=attempt)
+        else:
+            await enqueuer.enqueue(store_id, Step.CREATE_DATABASE)
     except Exception as exc:  # noqa: BLE001 - the store is committed: never leave it stuck
         if not isinstance(exc, EnqueueFailed):
             logger.error(

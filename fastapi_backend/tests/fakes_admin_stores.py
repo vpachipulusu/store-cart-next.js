@@ -42,6 +42,10 @@ class FakeStoresRepository:
         self.stores = {s.id: s for s in stores}
         self.locked: list[str] = []
         self.list_calls: list[tuple[Any, ...]] = []
+        self.reprovisions: dict[str, int] = {}
+
+    async def count_reprovisions(self, store_id: str) -> int:
+        return self.reprovisions.get(store_id, 0)
 
     async def list_organizations(
         self, search: str | None, limit: int, offset: int
@@ -100,3 +104,7 @@ class FakeSession:
 
     async def rollback(self) -> None:
         self.rollbacks += 1
+
+
+async def no_start(store_id: str, attempt: int) -> bool:
+    raise AssertionError("provisioning must not start")

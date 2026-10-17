@@ -33,6 +33,7 @@ ADMIN_PERMISSIONS: frozenset[str] = frozenset(
         "settings.write",
         "stores.migrate",
         "stores.read",
+        "stores.reprovision",
         "stores.suspend",
         "subscriptions.grant",
         "subscriptions.read",

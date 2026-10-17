@@ -20,6 +20,7 @@ from tests.fakes_admin_stores import (
     FakeAuditor,
     FakeSession,
     FakeStoresRepository,
+    no_start,
     store,
 )
 
@@ -50,7 +51,9 @@ def build(*stores, timeout: float = 5.0):
         FakeAuditor(),
         Migrator(),
     )
-    service = AdminStoresService(repository, session, auditor, migrator, timeout)
+    service = AdminStoresService(
+        repository, session, auditor, migrator, timeout, start_provisioning=no_start
+    )
     return service, repository, session, auditor, migrator
 
 

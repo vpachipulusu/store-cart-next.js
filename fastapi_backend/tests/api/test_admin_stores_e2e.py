@@ -420,3 +420,198 @@ async def test_search_treats_percent_and_underscore_literally_and_ignores_case(
     orgs = await found("/v1/admin/organizations", "ORG-ORGA")  # slug, any case
     assert [o["id"] for o in orgs["organizations"]] == ["orgA"]
     assert (await found("/v1/admin/organizations", "%"))["total_count"] == 0
+
+
+async def test_reprovision_failed_store_is_audited_counted_and_capped(
+    client, engine, monkeypatch
+):
+    from app.services.admin_stores import MAX_REPROVISION_ATTEMPTS
+
+    published: list[tuple[str, str]] = []
+
+    class Recorder:
+        async def enqueue(self, store_id: str, step: Any, *, attempt: int = 0) -> None:
+            published.append((store_id, step.value))
+
+    monkeypatch.setattr(
+        "app.api.v1.admin_stores.get_step_enqueuer", lambda _settings: Recorder()
+    )
+    await seed_admin(engine, "ops", ["stores.reprovision"])
+    store_id = await seed_store(engine, "orgA", "alpha", status="FAILED", version=0)
+    path = f"/v1/admin/stores/{store_id}/reprovision"
+    attempts = []
+
+    for _ in range(MAX_REPROVISION_ATTEMPTS):
+        result = await client.post(path, headers=as_user("ops"))
+        attempts.append(result.json()["data"]["attempt"])
+        # The job (not under test here) fails the store again.
+        async with engine.begin() as connection:
+            await connection.execute(
+                text("UPDATE stores SET status = 'FAILED' WHERE id = :i"),
+                {"i": store_id},
+            )
+    capped = await client.post(path, headers=as_user("ops"))
+    audit = await rows(
+        engine,
+        "SELECT metadata FROM audit_logs WHERE action = 'admin.stores.reprovision'",
+    )
+    stored = await rows(
+        engine,
+        "SELECT status, database_ref, connection_string_encrypted FROM stores "
+        "WHERE id = :i",
+        i=store_id,
+    )
+
+    assert attempts == list(range(1, MAX_REPROVISION_ATTEMPTS + 1))
+    assert capped.status_code == 409
+    assert capped.json()["error"] == "Provisioning retry limit reached"
+    assert published == [(store_id, "create_database")] * MAX_REPROVISION_ATTEMPTS
+    assert len(audit) == MAX_REPROVISION_ATTEMPTS
+    assert audit[0][0]["before"] == {"status": "FAILED"}
+    assert audit[0][0]["details"]["attempt"] == 1
+    # The orphan database reference and connection string are kept for reuse.
+    assert stored[0] == ("FAILED", "ref", "secret")
+
+
+async def test_concurrent_reprovisions_start_the_job_once(client, engine, monkeypatch):
+    published: list[str] = []
+
+    class Recorder:
+        async def enqueue(self, store_id: str, step: Any, *, attempt: int = 0) -> None:
+            published.append(store_id)
+
+    monkeypatch.setattr(
+        "app.api.v1.admin_stores.get_step_enqueuer", lambda _settings: Recorder()
+    )
+    await seed_admin(engine, "ops", ["stores.reprovision"])
+    store_id = await seed_store(engine, "orgA", "alpha", status="FAILED", version=0)
+
+    results = await asyncio.gather(
+        *(
+            client.post(
+                f"/v1/admin/stores/{store_id}/reprovision", headers=as_user("ops")
+            )
+            for _ in range(4)
+        )
+    )
+
+    assert sorted(r.status_code for r in results) == [200, 409, 409, 409]
+    assert published == [store_id]
+    assert len(await rows(engine, "SELECT 1 FROM audit_logs")) == 1
+
+
+async def test_reprovision_without_permission_is_403_and_changes_nothing(
+    client, engine
+):
+    await seed_admin(engine, "ops", ["stores.migrate"])
+    store_id = await seed_store(engine, "orgA", "alpha", status="FAILED", version=0)
+
+    result = await client.post(
+        f"/v1/admin/stores/{store_id}/reprovision", headers=as_user("ops")
+    )
+    status = await rows(engine, "SELECT status FROM stores WHERE id = :i", i=store_id)
+
+    assert result.status_code == 403
+    assert status[0][0] == "FAILED"
+    assert await rows(engine, "SELECT 1 FROM audit_logs") == []
+
+
+async def test_count_reprovisions_counts_only_matching_rows_of_the_store(engine):
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.repositories.admin_stores import AdminStoresRepository
+
+    async with engine.begin() as connection:
+        for store_id, action in [
+            ("sA", "admin.stores.reprovision"),
+            ("sA", "admin.stores.reprovision"),
+            ("sA", "admin.stores.reprovision"),
+            ("sA", "admin.stores.reprovision_failed"),
+            ("sA", "admin.stores.migrate"),
+            ("sB", "admin.stores.reprovision"),
+            (None, "admin.stores.reprovision"),
+        ]:
+            await connection.execute(
+                text(
+                    "INSERT INTO audit_logs (id, store_id, action, resource) "
+                    "VALUES (:id, :s, :a, 'stores')"
+                ),
+                {"id": new_id(), "s": store_id, "a": action},
+            )
+
+    async with AsyncSession(engine) as session:
+        repository = AdminStoresRepository(session)
+        counts = [
+            await repository.count_reprovisions(name) for name in ("sA", "sB", "none")
+        ]
+
+    assert counts == [2, 1, 0]  # sA: 3 started minus 1 failed enqueue
+
+
+async def test_failed_enqueue_is_502_marks_failed_and_does_not_use_up_an_attempt(
+    client, engine, monkeypatch
+):
+    from app.services.store_provisioning_job import EnqueueFailed
+
+    class Broken:
+        async def enqueue(self, store_id: str, step: Any, *, attempt: int = 0) -> None:
+            raise EnqueueFailed
+
+    monkeypatch.setattr(
+        "app.api.v1.admin_stores.get_step_enqueuer", lambda _settings: Broken()
+    )
+    await seed_admin(engine, "ops", ["stores.reprovision"])
+    first = await seed_store(engine, "orgA", "alpha", status="FAILED", version=0)
+    other = await seed_store(engine, "orgA", "beta", status="FAILED", version=0)
+
+    results = [
+        await client.post(
+            f"/v1/admin/stores/{first}/reprovision", headers=as_user("ops")
+        )
+        for _ in range(5)  # more than the cap: failed enqueues do not count
+    ]
+    status = await rows(engine, "SELECT status FROM stores WHERE id = :i", i=first)
+    actions = await rows(
+        engine,
+        "SELECT action FROM audit_logs WHERE store_id = :i ORDER BY created_at",
+        i=first,
+    )
+
+    assert {r.status_code for r in results} == {502}
+    assert results[0].json() == {
+        "success": False,
+        "error": "Provisioning could not be started",
+    }
+    assert status[0][0] == "FAILED"
+    assert len(actions) == 10
+    # Another store is unaffected and still gets attempt 1.
+    monkeypatch.setattr(
+        "app.api.v1.admin_stores.get_step_enqueuer",
+        lambda _settings: type(
+            "Ok", (), {"enqueue": staticmethod(lambda *a, **k: _done())}
+        )(),
+    )
+    fresh = await client.post(
+        f"/v1/admin/stores/{other}/reprovision", headers=as_user("ops")
+    )
+    assert fresh.json()["data"]["attempt"] == 1
+
+
+async def _done() -> None:
+    return None
+
+
+async def test_reprovision_refuses_stores_that_are_not_failed_or_unknown(
+    client, engine
+):
+    await seed_admin(engine, "ops", ["stores.reprovision"])
+    live = await seed_store(engine, "orgA", "alpha")
+    booting = await seed_store(engine, "orgA", "beta", status="PROVISIONING")
+
+    results = [
+        await client.post(f"/v1/admin/stores/{sid}/reprovision", headers=as_user("ops"))
+        for sid in (live, booting, "missing")
+    ]
+
+    assert [r.status_code for r in results] == [409, 409, 404]
+    assert await rows(engine, "SELECT 1 FROM audit_logs") == []

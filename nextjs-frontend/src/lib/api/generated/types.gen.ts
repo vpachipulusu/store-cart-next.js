@@ -1579,6 +1579,38 @@ export type StoreMigrationResponse = {
 };
 
 /**
+ * StoreReprovisionData
+ */
+export type StoreReprovisionData = {
+    /**
+     * Store Id
+     */
+    store_id: string;
+    status: StoreStatus;
+    /**
+     * Attempt
+     *
+     * Which re-run this was, starting at 1.
+     */
+    attempt: number;
+    /**
+     * Max Attempts
+     */
+    max_attempts: number;
+};
+
+/**
+ * StoreReprovisionResponse
+ */
+export type StoreReprovisionResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: StoreReprovisionData;
+};
+
+/**
  * StoreResponse
  */
 export type StoreResponse = {
@@ -4317,6 +4349,78 @@ export type AdminMigrateStoreResponses = {
 };
 
 export type AdminMigrateStoreResponse = AdminMigrateStoreResponses[keyof AdminMigrateStoreResponses];
+
+export type AdminReprovisionStoreData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/admin/stores/{store_id}/reprovision';
+};
+
+export type AdminReprovisionStoreErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * No such store.
+     */
+    404: ErrorResponse;
+    /**
+     * The store is not FAILED, or it was already re-run the maximum number of times (`MAX_REPROVISION_ATTEMPTS`).
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * The job could not be enqueued; the store is FAILED again and the attempt stays counted.
+     */
+    502: ErrorResponse;
+    /**
+     * The change or its audit row could not be recorded and was rolled back. Retry after `Retry-After` seconds (5). Also returned when the rate limiter is unavailable.
+     */
+    503: ErrorResponse;
+};
+
+export type AdminReprovisionStoreError = AdminReprovisionStoreErrors[keyof AdminReprovisionStoreErrors];
+
+export type AdminReprovisionStoreResponses = {
+    /**
+     * Successful Response
+     */
+    200: StoreReprovisionResponse;
+};
+
+export type AdminReprovisionStoreResponse = AdminReprovisionStoreResponses[keyof AdminReprovisionStoreResponses];
 
 export type AdminListSubscriptionsData = {
     body?: never;

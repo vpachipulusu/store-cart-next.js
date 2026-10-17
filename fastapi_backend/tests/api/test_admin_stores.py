@@ -29,6 +29,7 @@ from tests.fakes_admin_stores import (
     FakeAuditor,
     FakeSession,
     FakeStoresRepository,
+    no_start,
     store,
 )
 
@@ -78,7 +79,13 @@ class Harness:
         self.app.dependency_overrides[get_admin_repository] = lambda: Admins()
         self.app.dependency_overrides[get_session] = lambda: self.session
         self.app.dependency_overrides[get_admin_stores_service] = lambda: (
-            AdminStoresService(self.repository, self.session, self.auditor, migrate)
+            AdminStoresService(
+                self.repository,
+                self.session,
+                self.auditor,
+                migrate,
+                start_provisioning=no_start,
+            )
         )
 
     def client(self, actor: str | None = "boss") -> AsyncClient:
@@ -262,7 +269,12 @@ async def test_migration_timeout_is_503_with_retry_after(harness):
     async with harness.client("migrator") as client:
         harness.app.dependency_overrides[get_admin_stores_service] = lambda: (
             AdminStoresService(
-                harness.repository, harness.session, harness.auditor, _never, 0.01
+                harness.repository,
+                harness.session,
+                harness.auditor,
+                _never,
+                0.01,
+                start_provisioning=no_start,
             )
         )
         result = await client.post("/v1/admin/stores/live/migrate")
@@ -351,7 +363,13 @@ async def test_second_migrate_while_one_is_running_is_409_and_runs_once(harness)
         return 5
 
     harness.app.dependency_overrides[get_admin_stores_service] = lambda: (
-        AdminStoresService(harness.repository, harness.session, harness.auditor, slow)
+        AdminStoresService(
+            harness.repository,
+            harness.session,
+            harness.auditor,
+            slow,
+            start_provisioning=no_start,
+        )
     )
     async with harness.client("migrator") as client:
         first = asyncio.create_task(client.post("/v1/admin/stores/live/migrate"))

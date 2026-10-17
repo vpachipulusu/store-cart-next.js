@@ -65,6 +65,22 @@ async def test_publishes_the_step_with_retries_and_a_failure_callback():
     }
 
 
+async def test_admin_rerun_gets_its_own_deduplication_id():
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json={"messageId": "m"})
+
+    enqueuer = enqueuer_with(handler)
+    await enqueuer.enqueue(STORE_ID, Step.CREATE_DATABASE, attempt=2)
+
+    assert (
+        seen[0].headers["upstash-deduplication-id"]
+        == f"provision-{STORE_ID}-create_database-a2"
+    )
+
+
 @pytest.mark.parametrize("status", [401, 429, 500])
 async def test_raises_enqueue_failed_when_qstash_rejects(status, caplog):
     caplog.set_level(logging.DEBUG)
