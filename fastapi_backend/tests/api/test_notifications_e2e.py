@@ -22,7 +22,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
-from app.api.auth import get_current_identity
+from app.api.auth import get_session_identity
 from app.api.deps import get_session_provider
 from app.core.database import DefaultSessionProvider, build_engine
 from app.core.firebase import VerifiedIdentity
@@ -83,16 +83,22 @@ async def client(engine: AsyncEngine) -> AsyncIterator[AsyncClient]:
     )
     app.dependency_overrides[get_session_provider] = lambda: provider
 
+    # Override the session identity (not get_current_identity) so the real email
+    # verification check stays in play; `X-Test-Unverified` flips the claim.
     async def identity(
         x_test_uid: Annotated[str | None, Header()] = None,
+        x_test_unverified: Annotated[str | None, Header()] = None,
     ) -> VerifiedIdentity:
         if x_test_uid is None:
             raise HTTPException(401, "Invalid authentication")
         return VerifiedIdentity(
-            x_test_uid, f"{x_test_uid}@example.com", True, int(time.time())
+            x_test_uid,
+            f"{x_test_uid}@example.com",
+            x_test_unverified is None,
+            int(time.time()),
         )
 
-    app.dependency_overrides[get_current_identity] = identity
+    app.dependency_overrides[get_session_identity] = identity
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     async with AsyncClient(
         transport=transport, base_url="http://test", headers={"X-Internal-Key": KEY}
@@ -402,14 +408,30 @@ async def test_equal_timestamps_order_by_id_descending_and_paging_bounds(
     client: AsyncClient, engine: AsyncEngine
 ) -> None:
     ada = await seed_user(engine, "ada")
-    ids = [await seed_notification(engine, ada, 5) for _ in range(3)]
+    # Fixed lowercase-alphanumeric ids with one shared prefix sort the same under any
+    # database collation, so the id DESC tie-break cannot flake.
+    for number in range(1, 5):
+        await seed_notification(engine, ada, 5, id=f"aa000{number}", read=number == 4)
 
     data = await get_data(client, "ada")
+    first = await get_data(client, "ada", limit=1, offset=0)
+    second = await get_data(client, "ada", limit=1, offset=1)
+    unread_second = await get_data(client, "ada", unread_only="true", limit=1, offset=1)
     beyond = await get_data(client, "ada", offset=50)
 
-    assert [n["id"] for n in data["notifications"]] == sorted(ids, reverse=True)
-    assert beyond["notifications"] == [] and beyond["total_count"] == 3
-    assert (await get_data(client, "ada", limit=100, offset=10_000))["total_count"] == 3
+    assert [n["id"] for n in data["notifications"]] == [
+        "aa0004",
+        "aa0003",
+        "aa0002",
+        "aa0001",
+    ]
+    assert [n["id"] for n in first["notifications"]] == ["aa0004"]
+    assert [n["id"] for n in second["notifications"]] == ["aa0003"]
+    # aa0004 is read, so the unread list is aa0003, aa0002, aa0001 and offset=1 is aa0002.
+    assert [n["id"] for n in unread_second["notifications"]] == ["aa0002"]
+    assert unread_second["total_count"] == 3
+    assert beyond["notifications"] == [] and beyond["total_count"] == 4
+    assert (await get_data(client, "ada", limit=100, offset=10_000))["total_count"] == 4
     over = await client.get(URL, params={"offset": 10_001}, headers=as_user("ada"))
     assert over.status_code == 422
 
@@ -425,9 +447,37 @@ async def test_mark_all_read_twice_and_for_an_empty_inbox_updates_nothing(
 
     assert first.json()["data"]["updated_count"] == 1
     assert second.status_code == 200 and second.json()["data"]["updated_count"] == 0
-    bob = await seed_user(engine, "bob")
+    await seed_user(engine, "bob")
     empty = await client.post(f"{URL}/read-all", headers=as_user("bob"))
-    assert empty.json()["data"]["updated_count"] == 0 and bob
+    assert empty.status_code == 200 and empty.json()["data"]["updated_count"] == 0
+
+
+async def test_mark_all_read_with_organisation_and_store_together(
+    client: AsyncClient, engine: AsyncEngine
+) -> None:
+    ada = await seed_user(engine, "ada")
+    org_a, store_a = await seed_org_and_store(engine, "a")
+    org_b, _ = await seed_org_and_store(engine, "b")
+    in_store = await seed_notification(
+        engine, ada, 1, organization_id=org_a, store_id=store_a
+    )
+    in_org = await seed_notification(engine, ada, 2, organization_id=org_a)
+
+    mismatched = await client.post(
+        f"{URL}/read-all",
+        params={"organization_id": org_b, "store_id": store_a},
+        headers=as_user("ada"),
+    )
+    matched = await client.post(
+        f"{URL}/read-all",
+        params={"organization_id": org_a, "store_id": store_a},
+        headers=as_user("ada"),
+    )
+
+    assert mismatched.json()["data"]["updated_count"] == 0
+    assert matched.json()["data"]["updated_count"] == 1
+    assert await is_read(engine, in_store) is True
+    assert await is_read(engine, in_org) is False
 
 
 async def test_foreign_and_missing_delete_answer_identically(
@@ -456,16 +506,47 @@ async def test_malformed_notification_ids_are_rejected(
     assert patched.status_code == deleted.status_code == 422
 
 
+ROUTES = [
+    ("GET", URL),
+    ("POST", f"{URL}/read-all"),
+    ("PATCH", f"{URL}/n1/read"),
+    ("DELETE", f"{URL}/n1"),
+]
+
+
+@pytest.mark.parametrize(("method", "path"), ROUTES)
 @pytest.mark.parametrize("key", [None, "wrong-key"])
 async def test_internal_key_is_required(
-    client: AsyncClient, engine: AsyncEngine, key: str | None
+    client: AsyncClient,
+    engine: AsyncEngine,
+    method: str,
+    path: str,
+    key: str | None,
 ) -> None:
     await seed_user(engine, "ada")
-    headers = {**as_user("ada"), "X-Internal-Key": key or ""}
+    client.headers.pop("X-Internal-Key")  # the fixture sends a valid key by default
+    headers = (
+        as_user("ada") if key is None else {**as_user("ada"), "X-Internal-Key": key}
+    )
 
-    response = await client.get(URL, headers=headers)
+    response = await client.request(method, path, headers=headers)
 
-    assert response.status_code in {401, 403}
+    assert response.status_code == 401
+    assert response.json() == {"success": False, "error": "Unauthorized"}
+
+
+@pytest.mark.parametrize(("method", "path"), ROUTES)
+async def test_unverified_email_gets_403_on_every_route(
+    client: AsyncClient, engine: AsyncEngine, method: str, path: str
+) -> None:
+    ada = await seed_user(engine, "ada")
+    note = await seed_notification(engine, ada)
+    headers = {**as_user("ada"), "X-Test-Unverified": "1"}
+
+    response = await client.request(method, path.replace("n1", note), headers=headers)
+
+    assert response.status_code == 403
+    assert await is_read(engine, note) is False
 
 
 async def test_store_scope_requires_an_organisation_and_follows_store_deletes(

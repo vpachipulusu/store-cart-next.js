@@ -5,8 +5,10 @@ cascade with their parent, so a deleted store or organisation takes its notifica
 with it), a CHECK that a store scope always names its organisation, and the indexes
 behind the list order and the scope filters. Existing rows stay personal (both null).
 
-Size assumption: plain (non-CONCURRENT) index builds block writes to `notifications`.
-That is acceptable while the table is small (pre-launch, nothing writes it yet).
+Size assumption: plain (non-CONCURRENT) index builds block writes to `notifications`,
+and the foreign keys and the CHECK take brief locks while they validate the existing
+rows (the new columns are all null). That is acceptable while the table is small
+(pre-launch, nothing writes it yet).
 
 Revision ID: 0009
 Revises: 0008

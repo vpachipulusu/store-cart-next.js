@@ -69,6 +69,8 @@ class NotificationsRepository(BaseRepository):
         limit: int,
         offset: int,
     ) -> NotificationPage:
+        # The counts and the page are two separate READ COMMITTED statements, so a
+        # concurrent write can leave them briefly out of step. Fine for an inbox.
         scoped = _owned_by(user_id, scope)
         listed = [*scoped, Notification.read.is_(False)] if unread_only else scoped
         counts = await self._session.execute(
