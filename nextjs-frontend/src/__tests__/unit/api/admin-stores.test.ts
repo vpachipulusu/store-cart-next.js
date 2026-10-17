@@ -14,6 +14,9 @@ vi.mock('next/headers', () => ({
 import {
   ADMIN_FORBIDDEN_MESSAGE,
   ADMIN_MIGRATION_FAILED_MESSAGE,
+  ADMIN_REPROVISION_LIMIT_MESSAGE,
+  ADMIN_REPROVISION_NOT_FAILED_MESSAGE,
+  ADMIN_REPROVISION_START_FAILED_MESSAGE,
   ADMIN_REQUEST_FAILED_MESSAGE,
   ADMIN_STORE_CONFLICT_MESSAGE,
   ADMIN_STORE_NOT_FOUND_MESSAGE,
@@ -22,6 +25,8 @@ import {
   fetchAdminOrganizations,
   fetchAdminStores,
   migrateAdminStore,
+  reprovisionAdminStore,
+  reprovisionErrorMessage,
   suspendAdminStore,
   unsuspendAdminStore,
 } from '@/lib/api/admin-stores';
@@ -136,6 +141,11 @@ describe('admin stores wrappers', () => {
       '/v1/admin/stores/store-1/unsuspend',
     ],
     ['migrateAdminStore', () => migrateAdminStore('store-1'), '/v1/admin/stores/store-1/migrate'],
+    [
+      'reprovisionAdminStore',
+      () => reprovisionAdminStore('store-1'),
+      '/v1/admin/stores/store-1/reprovision',
+    ],
   ])('%s POSTs %s', async (_name, call, path) => {
     fetchMock.mockResolvedValue(jsonResponse({ success: true, data: {} }));
 
@@ -182,6 +192,37 @@ describe('admin stores wrappers', () => {
     it('never passes backend text through', () => {
       for (const status of [401, 404, 409, 500, 502, undefined]) {
         expect(adminErrorMessage(fail(status), { migration: true })).not.toContain('SECRET');
+      }
+    });
+  });
+
+  describe('reprovisionErrorMessage', () => {
+    const conflict = (error: string) => ({ success: false as const, error, status: 409 });
+
+    it('words a spent re-run cap differently from a store that is not failed', () => {
+      expect(reprovisionErrorMessage(conflict('Provisioning retry limit reached'))).toBe(
+        ADMIN_REPROVISION_LIMIT_MESSAGE
+      );
+      expect(reprovisionErrorMessage(conflict('Operation not allowed in the current state'))).toBe(
+        ADMIN_REPROVISION_NOT_FAILED_MESSAGE
+      );
+      expect(reprovisionErrorMessage(conflict('anything else'))).toBe(
+        ADMIN_REPROVISION_NOT_FAILED_MESSAGE
+      );
+    });
+
+    it('words 502 and 503 as a failed start that is safe to retry', () => {
+      expect(reprovisionErrorMessage(fail(502))).toBe(ADMIN_REPROVISION_START_FAILED_MESSAGE);
+      expect(reprovisionErrorMessage(fail(503))).toBe(ADMIN_REPROVISION_START_FAILED_MESSAGE);
+    });
+
+    it('uses the shared admin wording for other statuses and never passes backend text', () => {
+      expect(reprovisionErrorMessage(fail(403))).toBe(ADMIN_FORBIDDEN_MESSAGE);
+      expect(reprovisionErrorMessage(fail(404))).toBe(ADMIN_STORE_NOT_FOUND_MESSAGE);
+      expect(reprovisionErrorMessage(fail(429))).toBe(ADMIN_REQUEST_FAILED_MESSAGE);
+      expect(reprovisionErrorMessage(fail(undefined))).toBe(ADMIN_UNAVAILABLE_MESSAGE);
+      for (const status of [401, 404, 409, 429, 500, 502, 503, undefined]) {
+        expect(reprovisionErrorMessage(fail(status))).not.toContain('SECRET');
       }
     });
   });

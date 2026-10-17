@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   suspendAdminStore: vi.fn(),
   unsuspendAdminStore: vi.fn(),
   migrateAdminStore: vi.fn(),
+  reprovisionAdminStore: vi.fn(),
   resolveAdminAccess: vi.fn(),
   revalidatePath: vi.fn(),
   logError: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock('@/lib/api/admin-stores', async () => {
     suspendAdminStore: mocks.suspendAdminStore,
     unsuspendAdminStore: mocks.unsuspendAdminStore,
     migrateAdminStore: mocks.migrateAdminStore,
+    reprovisionAdminStore: mocks.reprovisionAdminStore,
   };
 });
 vi.mock('@/lib/api/admin-access', () => ({ resolveAdminAccess: mocks.resolveAdminAccess }));
@@ -34,12 +36,16 @@ vi.mock('@/lib/logger', () => ({
 
 import {
   migrateStoreAction,
+  reprovisionStoreAction,
   suspendStoreAction,
   unsuspendStoreAction,
 } from '@/app/actions/admin-store-actions';
 import {
   ADMIN_FORBIDDEN_MESSAGE,
   ADMIN_MIGRATION_FAILED_MESSAGE,
+  ADMIN_REPROVISION_LIMIT_MESSAGE,
+  ADMIN_REPROVISION_NOT_FAILED_MESSAGE,
+  ADMIN_REPROVISION_START_FAILED_MESSAGE,
   ADMIN_REQUEST_FAILED_MESSAGE,
   ADMIN_STORE_CONFLICT_MESSAGE,
   ADMIN_STORE_NOT_FOUND_MESSAGE,
@@ -102,7 +108,7 @@ describe('admin store actions', () => {
       [401, ADMIN_FORBIDDEN_MESSAGE, false],
       [403, ADMIN_FORBIDDEN_MESSAGE, false],
       [404, ADMIN_STORE_NOT_FOUND_MESSAGE, false],
-      [409, ADMIN_STORE_CONFLICT_MESSAGE, true],
+      [409, ADMIN_STORE_CONFLICT_MESSAGE, false],
     ])('maps a %s answer to a curated message', async (status, message, logged) => {
       wrapper.mockResolvedValue(fail(status));
 
@@ -208,4 +214,120 @@ describe('admin store actions', () => {
       expect(mocks.logError).toHaveBeenCalledWith('Admin migrate store failed', { status });
     }
   );
+
+  describe('reprovisionStoreAction', () => {
+    const reprovision = mocks.reprovisionAdminStore;
+
+    it('rejects a malformed store id before any admin or API call', async () => {
+      for (const id of ['', '../users', 'a/b', 'x'.repeat(200), 'id with space']) {
+        expect(await reprovisionStoreAction(id)).toEqual({
+          success: false,
+          error: ADMIN_STORE_NOT_FOUND_MESSAGE,
+        });
+      }
+      expect(mocks.resolveAdminAccess).not.toHaveBeenCalled();
+      expect(reprovision).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['not-admin', ADMIN_FORBIDDEN_MESSAGE],
+      ['error', ADMIN_REQUEST_FAILED_MESSAGE],
+    ])(
+      'refuses a caller whose admin check is %s without calling the API',
+      async (status, error) => {
+        mocks.resolveAdminAccess.mockResolvedValue({ status, message: SECRET });
+
+        const result = await reprovisionStoreAction('store-1');
+
+        expect(result).toEqual({ success: false, error });
+        expect(reprovision).not.toHaveBeenCalled();
+      }
+    );
+
+    it('refuses a rejected session without calling the API', async () => {
+      mocks.resolveAdminAccess.mockResolvedValue({ status: 'session-rejected' });
+
+      const result = await reprovisionStoreAction('store-1');
+
+      expect(result.success).toBe(false);
+      expect(reprovision).not.toHaveBeenCalled();
+    });
+
+    it('re-runs provisioning, revalidates the stores page and reports the attempt', async () => {
+      reprovision.mockResolvedValue(
+        ok({ store_id: 'store-1', status: 'PROVISIONING', attempt: 2, max_attempts: 3 })
+      );
+
+      const result = await reprovisionStoreAction('store-1');
+
+      expect(reprovision).toHaveBeenCalledWith('store-1');
+      expect(mocks.revalidatePath).toHaveBeenCalledWith('/admin/stores');
+      expect(result).toEqual({
+        success: true,
+        data: {
+          status: 'PROVISIONING',
+          attempt: 2,
+          maxAttempts: 3,
+          message: 'Provisioning re-run started (attempt 2 of 3)',
+        },
+      });
+    });
+
+    it.each([
+      [403, ADMIN_FORBIDDEN_MESSAGE, false],
+      [404, ADMIN_STORE_NOT_FOUND_MESSAGE, false],
+      [502, ADMIN_REPROVISION_START_FAILED_MESSAGE, true],
+      [503, ADMIN_REPROVISION_START_FAILED_MESSAGE, true],
+    ])('maps a %s answer to a curated message', async (status, message, logged) => {
+      reprovision.mockResolvedValue(fail(status));
+
+      const result = await reprovisionStoreAction('store-1');
+
+      expect(result).toEqual({ success: false, error: message });
+      expect(mocks.logError).toHaveBeenCalledTimes(logged ? 1 : 0);
+    });
+
+    it('tells a spent cap apart from a store that is not failed on a 409', async () => {
+      reprovision.mockResolvedValue({
+        success: false,
+        error: 'Provisioning retry limit reached',
+        status: 409,
+      });
+      expect(await reprovisionStoreAction('store-1')).toEqual({
+        success: false,
+        error: ADMIN_REPROVISION_LIMIT_MESSAGE,
+      });
+
+      reprovision.mockResolvedValue({ success: false, error: SECRET, status: 409 });
+      expect(await reprovisionStoreAction('store-1')).toEqual({
+        success: false,
+        error: ADMIN_REPROVISION_NOT_FAILED_MESSAGE,
+      });
+    });
+
+    it('revalidates the stores page on a 409, so a stale row is replaced', async () => {
+      reprovision.mockResolvedValue({ success: false, error: SECRET, status: 409 });
+
+      await reprovisionStoreAction('store-1');
+
+      expect(mocks.revalidatePath).toHaveBeenCalledWith('/admin/stores');
+      // A spent cap or a race is expected, not an error worth logging.
+      expect(mocks.logError).not.toHaveBeenCalled();
+    });
+
+    it('does not revalidate when the API refuses for another reason', async () => {
+      reprovision.mockResolvedValue(fail(502));
+
+      await reprovisionStoreAction('store-1');
+
+      expect(mocks.revalidatePath).not.toHaveBeenCalled();
+    });
+
+    it('never returns backend text', async () => {
+      for (const status of [429, 500, 502, 503, undefined]) {
+        reprovision.mockResolvedValue(fail(status));
+        expect(JSON.stringify(await reprovisionStoreAction('store-1'))).not.toContain('SECRET');
+      }
+    });
+  });
 });

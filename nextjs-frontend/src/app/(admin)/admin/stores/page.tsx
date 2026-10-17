@@ -156,7 +156,9 @@ export default async function AdminStoresPage({ searchParams }: { searchParams: 
       <Card>
         <CardHeader>
           <CardTitle>All Stores ({totalCount})</CardTitle>
-          <CardDescription>Suspend, unsuspend or re-run migrations for a store</CardDescription>
+          <CardDescription>
+            Suspend, unsuspend, re-run migrations or re-run provisioning for a store
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {!result.success ? (

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import {
@@ -15,6 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 import type { StoreStatus } from '@/lib/api/admin-stores';
 import {
   migrateStoreAction,
+  reprovisionStoreAction,
   suspendStoreAction,
   unsuspendStoreAction,
 } from '@/app/actions/admin-store-actions';
@@ -30,31 +31,53 @@ type ActionResult = { success: boolean; data?: unknown; error?: string };
 const GENERIC_ERROR = 'Something went wrong. Please try again.';
 
 /**
- * Suspend, unsuspend and re-run migrations for one store (KAN-63). Suspending asks first because the storefront
- * goes offline; the other two are safe to repeat. Re-running provisioning is KAN-200 and is not offered.
+ * Suspend, unsuspend, re-run migrations and re-run provisioning for one store (KAN-63). Suspending asks first
+ * because the storefront goes offline; re-running provisioning asks first because it starts a new run that counts
+ * against the attempt cap (only FAILED stores are offered it). Migrations and unsuspend are safe to repeat.
  */
 export function StoreRowActions({ storeId, storeName, status }: StoreRowActionsProps) {
   const router = useRouter();
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const [confirmSuspend, setConfirmSuspend] = useState(false);
+  const [confirmReprovision, setConfirmReprovision] = useState(false);
+  // Set synchronously, so two clicks in the same tick cannot both start a request before `pending` renders.
+  const inFlight = useRef(false);
+  const container = useRef<HTMLDivElement>(null);
 
   const canSuspend = status === 'ACTIVE';
   const canUnsuspend = status === 'SUSPENDED';
   const canMigrate = status === 'ACTIVE' || status === 'SUSPENDED';
+  const canReprovision = status === 'FAILED';
 
-  if (!canSuspend && !canUnsuspend && !canMigrate) {
+  if (!canSuspend && !canUnsuspend && !canMigrate && !canReprovision) {
     return <span className="text-sm text-muted-foreground">No actions</span>;
   }
 
+  // Refreshing inside the transition keeps the buttons disabled until the new row has arrived.
+  function refreshRow() {
+    startTransition(() => router.refresh());
+  }
+
+  // The button that opened a dialog is disabled while the request runs and may be gone afterwards (the store
+  // changes status), which would drop focus to the page. The table row outlives the change, so focus moves there.
+  function focusRow() {
+    const target = container.current?.closest<HTMLElement>('tr') ?? container.current;
+    if (!target) return;
+    if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+    target.focus();
+  }
+
   function run(action: (id: string) => Promise<ActionResult>) {
+    if (inFlight.current) return;
+    inFlight.current = true;
     startTransition(async () => {
       try {
         const result = await action(storeId);
         if (result.success) {
           const message = (result.data as { message?: string } | undefined)?.message;
           toast({ title: 'Success', description: message });
-          router.refresh();
+          refreshRow();
         } else {
           toast({
             title: 'Error',
@@ -62,17 +85,20 @@ export function StoreRowActions({ storeId, storeName, status }: StoreRowActionsP
             variant: 'destructive',
           });
           // The row may be stale (another admin changed the store): show what the store is now.
-          router.refresh();
+          refreshRow();
         }
       } catch {
         toast({ title: 'Error', description: GENERIC_ERROR, variant: 'destructive' });
-        router.refresh();
+        refreshRow();
+      } finally {
+        inFlight.current = false;
+        focusRow();
       }
     });
   }
 
   return (
-    <div className="flex flex-wrap justify-end gap-2">
+    <div ref={container} className="flex flex-wrap justify-end gap-2 outline-none">
       {canMigrate && (
         <Button
           variant="outline"
@@ -82,6 +108,17 @@ export function StoreRowActions({ storeId, storeName, status }: StoreRowActionsP
           onClick={() => run(migrateStoreAction)}
         >
           Run migrations
+        </Button>
+      )}
+      {canReprovision && (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={pending}
+          aria-label={`Re-run provisioning for ${storeName}`}
+          onClick={() => setConfirmReprovision(true)}
+        >
+          Re-run provisioning
         </Button>
       )}
       {canUnsuspend && (
@@ -129,6 +166,32 @@ export function StoreRowActions({ storeId, storeName, status }: StoreRowActionsP
               }}
             >
               Suspend store
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={confirmReprovision} onOpenChange={setConfirmReprovision}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Re-run provisioning for {storeName}?</DialogTitle>
+            <DialogDescription>
+              This starts a new provisioning run for the failed store. Each store can be re-run a
+              limited number of times.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmReprovision(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={pending}
+              onClick={() => {
+                setConfirmReprovision(false);
+                run(reprovisionStoreAction);
+              }}
+            >
+              Re-run provisioning
             </Button>
           </DialogFooter>
         </DialogContent>
