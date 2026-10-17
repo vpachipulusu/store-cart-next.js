@@ -129,6 +129,17 @@ KAN-154, 155, 156, 158, 196 and 198 are Done (fixed, or not reproducible on curr
 
 `loginAsThrowawayAccountOnPro` (`helpers/e2e-utils.ts`) gives a throwaway account an organisation on the Pro plan without Stripe: the saved admin session calls the admin grant API (`PUT /v1/admin/subscriptions/{id}/grant`). It needs the saved admin session (`auth.setup.ts`), an admin account with the `subscriptions.grant` permission (the `super_admin` insert above gives it) and `BACKEND_INTERNAL_KEY` in the test shell; without the key the tests fail rather than skip. A grant has no Stripe subscription, so use it for plan-display tests only (pricing "Current Plan"), not for auto-renewal or saved cards.
 
+## Specs that need an ACTIVE store (KAN-73)
+
+Without QStash a store created through the API stays `PROVISIONING`, and the product API rejects writes to it. `product-management.spec.ts` runs the real provisioning steps inline through `src/__tests__/e2e/helpers/activate_store.py` (`uv run python`, so `uv` must be installed). Give the test shell the path of the backend folder and the same environment as your uvicorn (`DATABASE_URL`, `STORE_DB_PROVIDER=local`, `STORE_DB_ENCRYPTION_KEY`):
+
+```bash
+export E2E_BACKEND_DIR=<absolute path of fastapi_backend>
+npm run test:e2e:local -- src/__tests__/e2e/product-management.spec.ts
+```
+
+The spec skips when `BACKEND_INTERNAL_KEY` or `E2E_BACKEND_DIR` is missing.
+
 ## Ports
 
 Each checkout gets a stable port in 3100-3899 derived from its path; the script walks forward if it is busy. The build bakes the port in (`NEXT_PUBLIC_APP_URL`), so a different port forces a rebuild, which is why the default is stable. Set `E2E_PORT=3177` to choose one yourself (the script stops if it is taken).
