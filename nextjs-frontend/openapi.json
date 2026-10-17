@@ -10237,7 +10237,7 @@
           "products"
         ],
         "summary": "List products",
-        "description": "Newest first, filtered by ``status`` and ``category_id``; ``total`` ignores paging.",
+        "description": "Newest first, filtered by ``status``, ``category_id`` and ``q`` (all combine).",
         "operationId": "list_products",
         "parameters": [
           {
@@ -10285,6 +10285,24 @@
               ],
               "title": "Category Id"
             }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Title or SKU contains this text, ignoring case; trimmed, at most 100 characters (the service decides, so every length error has one shape).",
+              "title": "Q"
+            },
+            "description": "Title or SKU contains this text, ignoring case; trimmed, at most 100 characters (the service decides, so every length error has one shape)."
           },
           {
             "name": "limit",
@@ -11905,6 +11923,141 @@
         }
       }
     },
+    "/v1/stores/{store_id}/categories": {
+      "get": {
+        "tags": [
+          "categories"
+        ],
+        "summary": "List categories",
+        "description": "Roots first, then by parent and position, at most 1000.\n\n``truncated`` is true when the store holds more than that.",
+        "operationId": "list_categories",
+        "parameters": [
+          {
+            "name": "store_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Store Id"
+            }
+          },
+          {
+            "name": "X-Internal-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Key"
+            }
+          },
+          {
+            "name": "X-Session-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoryListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        }
+      }
+    },
     "/v1/storefront/{slug}": {
       "get": {
         "tags": [
@@ -12878,6 +13031,70 @@
           "data"
         ],
         "title": "CancelResponse"
+      },
+      "CategoryData": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id",
+            "description": "Null for a root category."
+          },
+          "position": {
+            "type": "integer",
+            "title": "Position",
+            "description": "Order among siblings, ascending."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "parent_id",
+          "position"
+        ],
+        "title": "CategoryData"
+      },
+      "CategoryListResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryData"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated",
+            "description": "True when the store has more than 1000 categories."
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "truncated"
+        ],
+        "title": "CategoryListResponse"
       },
       "ChangePlanRequest": {
         "properties": {

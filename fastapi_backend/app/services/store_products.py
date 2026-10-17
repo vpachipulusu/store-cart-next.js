@@ -52,14 +52,17 @@ from app.services.store_product_rules import (
 from app.services.store_product_types import (
     DEFAULT_PAGE_SIZE,
     MAX_ALT_TEXT_LENGTH,
+    MAX_CATEGORY_LIST,
     MAX_DESCRIPTION_LENGTH,
     MAX_ID_LENGTH,
     MAX_IMAGES,
     MAX_OFFSET,
     MAX_PAGE_SIZE,
+    MAX_SEARCH_LENGTH,
     MAX_TITLE_LENGTH,
     MAX_VARIANTS,
     CatalogueConflict,
+    CategoryList,
     ImageNotFound,
     InvalidProduct,
     NewProduct,
@@ -75,6 +78,16 @@ from app.services.store_product_types import (
 )
 
 PlanLookup = Callable[[], Awaitable[Plan]]
+
+
+def _clean_search(query: str | None) -> str | None:
+    """Trimmed search text; blank means no search."""
+    if query is None:
+        return None
+    cleaned = query.strip()
+    if len(cleaned) > MAX_SEARCH_LENGTH or "\x00" in cleaned:
+        raise InvalidProduct(f"Search text is at most {MAX_SEARCH_LENGTH} characters")
+    return cleaned or None
 
 
 class StoreProductsService:
@@ -121,6 +134,7 @@ class StoreProductsService:
         *,
         status: str | None = None,
         category_id: str | None = None,
+        query: str | None = None,
         limit: int = DEFAULT_PAGE_SIZE,
         offset: int = 0,
     ) -> ProductPage:
@@ -132,13 +146,25 @@ class StoreProductsService:
             not 1 <= len(category_id) <= MAX_ID_LENGTH or "\x00" in category_id
         ):
             raise InvalidProduct("Unknown category")
+        search = _clean_search(query)
         total = await self._repository.count_products(
-            status=status, category_id=category_id
+            status=status, category_id=category_id, query=search
         )
         items = await self._repository.list_products(
-            status=status, category_id=category_id, limit=limit, offset=offset
+            status=status,
+            category_id=category_id,
+            query=search,
+            limit=limit,
+            offset=offset,
         )
         return ProductPage(tuple(items), total, limit, offset)
+
+    async def list_categories(self) -> CategoryList:
+        """Roots first, then by parent and position; at most ``MAX_CATEGORY_LIST``."""
+        rows = await self._repository.list_categories(MAX_CATEGORY_LIST + 1)
+        return CategoryList(
+            tuple(rows[:MAX_CATEGORY_LIST]), len(rows) > MAX_CATEGORY_LIST
+        )
 
     # --- products -----------------------------------------------------------------
 
