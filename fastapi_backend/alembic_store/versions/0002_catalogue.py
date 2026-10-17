@@ -8,9 +8,10 @@ Store-database tables only (the platform tree is untouched). Expand-only: new ta
   hyphenated form; ``status`` is ``draft`` (default) or ``active``.
 * ``variants.sku`` is unique per store, compared case-insensitively.
 * A variant picks exactly one value per option: ``variant_option_values`` is keyed by
-  (variant, option) and its composite foreign key forces the value to belong to that option.
-  That the variant and the option belong to the same product is a service rule (the API
-  story), not enforced here.
+  (variant, option). Composite foreign keys, all through ``product_id``, force the variant,
+  the option and the chosen value to belong to the same product, and the value to belong to
+  that option. That a variant covers every option of its product is a service rule.
+* ``updated_at`` has only a server default; the writing service sets it on update.
 
 Revision ID: 0002
 Revises: 0001
@@ -18,6 +19,7 @@ Create Date: 2026-10-17
 """
 
 from collections.abc import Sequence
+from datetime import datetime
 
 import sqlalchemy as sa
 from alembic import op
@@ -29,7 +31,7 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
-def _timestamps() -> list[sa.Column[sa.DateTime]]:
+def _timestamps() -> list[sa.Column[datetime]]:
     return [
         sa.Column(
             name,
@@ -50,7 +52,9 @@ def upgrade() -> None:
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("status", sa.String(), server_default="draft", nullable=False),
         *_timestamps(),
-        sa.CheckConstraint("btrim(title) <> ''", name="ck_products_title_not_blank"),
+        sa.CheckConstraint(
+            r"title ~ '\S' AND char_length(title) <= 255", name="ck_products_title"
+        ),
         sa.CheckConstraint(
             "slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$' AND char_length(slug) <= 200",
             name="ck_products_slug_format",
@@ -72,9 +76,11 @@ def upgrade() -> None:
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("position", sa.Integer(), server_default="0", nullable=False),
         sa.CheckConstraint(
-            "btrim(name) <> ''", name="ck_product_options_name_not_blank"
+            r"name ~ '\S' AND char_length(name) <= 100", name="ck_product_options_name"
         ),
         sa.CheckConstraint("position >= 0", name="ck_product_options_position"),
+        # Target of the composite foreign key in variant_option_values.
+        sa.UniqueConstraint("id", "product_id", name="uq_product_options_id_product"),
     )
     op.create_index(
         "uq_product_options_product_name",
@@ -95,7 +101,8 @@ def upgrade() -> None:
         sa.Column("value", sa.String(), nullable=False),
         sa.Column("position", sa.Integer(), server_default="0", nullable=False),
         sa.CheckConstraint(
-            "btrim(value) <> ''", name="ck_product_option_values_value_not_blank"
+            r"value ~ '\S' AND char_length(value) <= 100",
+            name="ck_product_option_values_value",
         ),
         sa.CheckConstraint("position >= 0", name="ck_product_option_values_position"),
         # Target of the composite foreign key in variant_option_values.
@@ -127,7 +134,7 @@ def upgrade() -> None:
         sa.Column("position", sa.Integer(), server_default="0", nullable=False),
         *_timestamps(),
         sa.CheckConstraint(
-            "sku = btrim(sku) AND sku <> '' AND char_length(sku) <= 100",
+            r"sku ~ '^\S(.*\S)?$' AND char_length(sku) <= 100",
             name="ck_variants_sku_format",
         ),
         sa.CheckConstraint("price_minor >= 0", name="ck_variants_price_minor"),
@@ -140,6 +147,8 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint("stock >= 0", name="ck_variants_stock"),
         sa.CheckConstraint("position >= 0", name="ck_variants_position"),
+        # Target of the composite foreign key in variant_option_values.
+        sa.UniqueConstraint("id", "product_id", name="uq_variants_id_product"),
     )
     op.create_index("ix_variants_product_id", "variants", ["product_id"])
     op.create_index(
@@ -148,20 +157,23 @@ def upgrade() -> None:
 
     op.create_table(
         "variant_option_values",
-        sa.Column(
-            "variant_id",
-            sa.String(),
-            sa.ForeignKey("variants.id", ondelete="CASCADE"),
-            nullable=False,
-        ),
-        sa.Column(
-            "option_id",
-            sa.String(),
-            sa.ForeignKey("product_options.id", ondelete="CASCADE"),
-            nullable=False,
-        ),
+        sa.Column("variant_id", sa.String(), nullable=False),
+        sa.Column("option_id", sa.String(), nullable=False),
         sa.Column("option_value_id", sa.String(), nullable=False),
+        sa.Column("product_id", sa.String(), nullable=False),
         sa.PrimaryKeyConstraint("variant_id", "option_id"),
+        sa.ForeignKeyConstraint(
+            ["variant_id", "product_id"],
+            ["variants.id", "variants.product_id"],
+            name="fk_variant_option_values_variant_product",
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["option_id", "product_id"],
+            ["product_options.id", "product_options.product_id"],
+            name="fk_variant_option_values_option_product",
+            ondelete="CASCADE",
+        ),
         sa.ForeignKeyConstraint(
             ["option_value_id", "option_id"],
             ["product_option_values.id", "product_option_values.option_id"],
@@ -169,10 +181,16 @@ def upgrade() -> None:
             ondelete="CASCADE",
         ),
     )
+    # The foreign keys cascade from these parents; index their referencing columns.
     op.create_index(
         "ix_variant_option_values_option_value_id",
         "variant_option_values",
         ["option_value_id"],
+    )
+    op.create_index(
+        "ix_variant_option_values_option_product",
+        "variant_option_values",
+        ["option_id", "product_id"],
     )
 
 

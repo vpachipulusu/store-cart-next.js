@@ -11,7 +11,7 @@ import pytest
 from alembic import command
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
-from sqlalchemy.exc import DBAPIError, IntegrityError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from app.core.ids import new_id
@@ -39,8 +39,8 @@ CATALOGUE_TABLES = {
     "variant_option_values",
 }
 LINK = text(
-    "INSERT INTO variant_option_values (variant_id, option_id, option_value_id) "
-    "VALUES (:i, :o, :v)"
+    "INSERT INTO variant_option_values "
+    "(variant_id, option_id, option_value_id, product_id) VALUES (:i, :o, :v, :p)"
 )
 
 
@@ -107,12 +107,15 @@ async def option(
     return option_id, value_ids
 
 
-async def assert_rejected(conn: AsyncConnection, statement: object) -> None:
-    """The statement must violate a constraint; the transaction is rolled back after."""
+async def assert_rejected(
+    conn: AsyncConnection, statement: object, constraint: str
+) -> None:
+    """The statement must violate exactly ``constraint``; the transaction is rolled back."""
     await conn.commit()
-    with pytest.raises((IntegrityError, DBAPIError)):
+    with pytest.raises(IntegrityError) as caught:
         await conn.execute(statement)  # type: ignore[arg-type]
     await conn.rollback()
+    assert f'"{constraint}"' in str(caught.value.orig)
 
 
 async def test_migration_creates_the_catalogue_tables(conn: AsyncConnection):
@@ -145,6 +148,7 @@ async def test_unknown_product_status_is_rejected(conn: AsyncConnection):
             "INSERT INTO products (id, title, slug, status) "
             "VALUES ('x', 'T', 's', 'archived')"
         ),
+        "ck_products_status",
     )
 
 
@@ -152,23 +156,33 @@ async def test_product_slug_is_unique_per_store(conn: AsyncConnection):
     await product(conn, "tee")
 
     await assert_rejected(
-        conn, text("INSERT INTO products (id, title, slug) VALUES ('y', 'T', 'tee')")
+        conn,
+        text("INSERT INTO products (id, title, slug) VALUES ('y', 'T', 'tee')"),
+        "uq_products_slug",
     )
 
 
-@pytest.mark.parametrize("slug", ["Tee", "a b", "-a", "a-", "a--b", "", "a_b"])
+@pytest.mark.parametrize(
+    "slug", ["Tee", "a b", "-a", "a-", "a--b", "", "a_b", "abc\n", "x" * 201]
+)
 async def test_bad_slug_is_rejected(conn: AsyncConnection, slug: str):
     await assert_rejected(
         conn,
         text("INSERT INTO products (id, title, slug) VALUES ('z', 'T', :s)").bindparams(
             s=slug
         ),
+        "ck_products_slug_format",
     )
 
 
-async def test_blank_title_is_rejected(conn: AsyncConnection):
+@pytest.mark.parametrize("title", ["", "  ", "\t\n", "x" * 256])
+async def test_blank_or_oversized_title_is_rejected(conn: AsyncConnection, title: str):
     await assert_rejected(
-        conn, text("INSERT INTO products (id, title, slug) VALUES ('t', '  ', 'ok')")
+        conn,
+        text(
+            "INSERT INTO products (id, title, slug) VALUES ('t', :t, 'ok')"
+        ).bindparams(t=title),
+        "ck_products_title",
     )
 
 
@@ -211,26 +225,29 @@ async def test_variant_stock_defaults_to_zero_and_optionals_to_null(
 
 
 @pytest.mark.parametrize(
-    "extra",
+    ("extra", "constraint"),
     [
-        {"price_minor": -1},
-        {"stock": -1},
-        {"weight_grams": -1},
-        {"compare_at_price_minor": 1999},
-        {"compare_at_price_minor": 100},
-        {"sku": ""},
-        {"sku": " A "},
+        ({"price_minor": -1}, "ck_variants_price_minor"),
+        ({"stock": -1}, "ck_variants_stock"),
+        ({"weight_grams": -1}, "ck_variants_weight_grams"),
+        ({"compare_at_price_minor": 1999}, "ck_variants_compare_at_above_price"),
+        ({"compare_at_price_minor": 100}, "ck_variants_compare_at_above_price"),
+        ({"sku": ""}, "ck_variants_sku_format"),
+        ({"sku": " A "}, "ck_variants_sku_format"),
+        ({"sku": "A\t"}, "ck_variants_sku_format"),
+        ({"sku": "A" * 101}, "ck_variants_sku_format"),
     ],
 )
 async def test_variant_value_constraints(
-    conn: AsyncConnection, extra: dict[str, object]
+    conn: AsyncConnection, extra: dict[str, object], constraint: str
 ):
     pid = await product(conn)
     await conn.commit()
 
-    with pytest.raises((IntegrityError, DBAPIError)):
+    with pytest.raises(IntegrityError) as caught:
         await variant(conn, pid, **extra)
     await conn.rollback()
+    assert f'"{constraint}"' in str(caught.value.orig)
 
 
 async def test_sku_is_unique_case_insensitively_across_the_store(
@@ -256,7 +273,9 @@ async def test_deleting_a_product_removes_its_variants_options_and_values(
 ):
     pid = await product(conn)
     size, (small,) = await option(conn, pid, "Size", "S")
-    await conn.execute(LINK, {"i": await variant(conn, pid), "o": size, "v": small})
+    await conn.execute(
+        LINK, {"i": await variant(conn, pid), "o": size, "v": small, "p": pid}
+    )
 
     await conn.execute(text("DELETE FROM products WHERE id = :p"), {"p": pid})
 
@@ -281,6 +300,7 @@ async def test_option_names_and_values_are_unique_within_their_parent(
         text(
             "INSERT INTO product_options (id, product_id, name) VALUES ('d', :p, 'size')"
         ).bindparams(p=pid),
+        "uq_product_options_product_name",
     )
     await assert_rejected(
         conn,
@@ -288,6 +308,7 @@ async def test_option_names_and_values_are_unique_within_their_parent(
             "INSERT INTO product_option_values (id, option_id, value) "
             "VALUES ('d', :o, 's')"
         ).bindparams(o=size),
+        "uq_product_option_values_option_value",
     )
 
 
@@ -298,13 +319,40 @@ async def test_a_variant_takes_one_value_per_option_from_that_option(
     size, (small, large) = await option(conn, pid, "Size", "S", "L")
     color, (red,) = await option(conn, pid, "Color", "Red")
     first, second = await variant(conn, pid), await variant(conn, pid, "TEE-2")
-    await conn.execute(LINK, {"i": first, "o": size, "v": small})
-    await conn.execute(LINK, {"i": first, "o": color, "v": red})
+    await conn.execute(LINK, {"i": first, "o": size, "v": small, "p": pid})
+    await conn.execute(LINK, {"i": first, "o": color, "v": red, "p": pid})
 
     # a second value for the same option
-    await assert_rejected(conn, LINK.bindparams(i=first, o=size, v=large))
+    await assert_rejected(
+        conn,
+        LINK.bindparams(i=first, o=size, v=large, p=pid),
+        "variant_option_values_pkey",
+    )
     # a value that belongs to a different option
-    await assert_rejected(conn, LINK.bindparams(i=second, o=color, v=small))
+    await assert_rejected(
+        conn,
+        LINK.bindparams(i=second, o=color, v=small, p=pid),
+        "fk_variant_option_values_value_option",
+    )
+
+
+async def test_a_variant_cannot_use_an_option_of_another_product(
+    conn: AsyncConnection,
+):
+    mine, other = await product(conn, "mine"), await product(conn, "other")
+    size, (small,) = await option(conn, other, "Size", "S")
+    own_variant = await variant(conn, mine)
+
+    await assert_rejected(
+        conn,
+        LINK.bindparams(i=own_variant, o=size, v=small, p=mine),
+        "fk_variant_option_values_option_product",
+    )
+    await assert_rejected(
+        conn,
+        LINK.bindparams(i=own_variant, o=size, v=small, p=other),
+        "fk_variant_option_values_variant_product",
+    )
 
 
 async def test_lookup_indexes_exist(conn: AsyncConnection):
@@ -317,8 +365,13 @@ async def test_lookup_indexes_exist(conn: AsyncConnection):
 
     assert {
         "uq_products_slug",
+        "ix_products_status",
+        "uq_product_options_product_name",
+        "uq_product_option_values_option_value",
         "uq_variants_sku_lower",
         "ix_variants_product_id",
+        "ix_variant_option_values_option_value_id",
+        "ix_variant_option_values_option_product",
     } <= names
 
 
