@@ -2684,6 +2684,12 @@ export type HealthCheckResponse = HealthCheckResponses[keyof HealthCheckResponse
 
 export type ReadinessCheckData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/health/ready';

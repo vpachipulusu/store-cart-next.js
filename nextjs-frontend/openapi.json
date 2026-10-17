@@ -53,8 +53,26 @@
           "health"
         ],
         "summary": "Readiness Check",
-        "description": "Readiness check: 200 when the database answers, 503 otherwise.\n\nRedis is deliberately not checked: rate limiting fails open, so a Redis blip\nmust not take the service out of rotation.",
+        "description": "Readiness check: 200 when the database answers, 503 otherwise.\n\nNeeds the service key (KAN-247): it queries the database, so it must not be an\nopen probe on a public URL. Liveness (`/health`) stays open.\n\nRedis is deliberately not checked: rate limiting fails open, so a Redis blip\nmust not take the service out of rotation.",
         "operationId": "readiness_check",
+        "parameters": [
+          {
+            "name": "X-Internal-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Key"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",

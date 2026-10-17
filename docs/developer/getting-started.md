@@ -118,7 +118,7 @@ The template's fastapi-users secrets (`ACCESS_SECRET_KEY` and the other two), `T
 
 ### Run the backend
 
-FastAPI serves on `http://localhost:8000`, with FastAPI's default `/docs` page.
+FastAPI serves on `http://localhost:8000`, with FastAPI's default `/docs` and `/redoc` pages. These and `/openapi.json` exist only when `ENVIRONMENT` is `local` or `test` (or Vercel `preview`/`development`); in production they return 404 (KAN-247). `commands.generate_openapi_schema` still works because it calls `app.openapi()` directly. `GET /health` is open; `GET /health/ready` needs the `X-Internal-Key` header.
 
 `./start.sh` runs the API together with `watcher.py`, which regenerates the OpenAPI file. On Windows, run it from Git Bash. To regenerate the OpenAPI file once:
 
