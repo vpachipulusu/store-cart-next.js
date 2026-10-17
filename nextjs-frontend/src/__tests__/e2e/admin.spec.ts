@@ -10,7 +10,7 @@ import {
  * Admin Dashboard E2E Tests
  *
  * These tests cover the admin panel pages including:
- * - Switched-off pages: dashboard, analytics, SEO, settings (KAN-184, "Not available yet")
+ * - Switched-off pages: dashboard, SEO (KAN-184, "Not available yet")
  * - User management (user list, search, user detail view, actions)
  * - Subscription management (read through the admin subscriptions API, KAN-50)
  * - Audit logs (read through the admin audit logs API, KAN-50)
@@ -113,9 +113,7 @@ test.describe('Admin Dashboard', () => {
 
     for (const [path, heading] of [
       ['/admin', /admin dashboard/i],
-      ['/admin/analytics', /^analytics$/i],
       ['/admin/seo', /seo management/i],
-      ['/admin/settings', /^settings$/i],
     ] as const) {
       test(`${path} shows a not available state`, async ({ page }) => {
         await page.goto(path);

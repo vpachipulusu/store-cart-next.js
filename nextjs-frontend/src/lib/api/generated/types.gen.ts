@@ -524,6 +524,32 @@ export type DisableRequest = {
 };
 
 /**
+ * DriftData
+ */
+export type DriftData = {
+    /**
+     * Kind
+     */
+    kind: 'unmatched' | 'subscription_id' | 'status' | 'plan' | 'cancel_at_period_end' | 'missing_in_stripe';
+    /**
+     * Organization Id
+     */
+    organization_id: string | null;
+    /**
+     * Subscription Id
+     */
+    subscription_id: string | null;
+    /**
+     * Stripe Status
+     */
+    stripe_status: string | null;
+    /**
+     * Local Status
+     */
+    local_status: string | null;
+};
+
+/**
  * EnrollmentData
  */
 export type EnrollmentData = {
@@ -1366,6 +1392,20 @@ export type OrganizationSummary = {
 };
 
 /**
+ * OrganizationsOverview
+ */
+export type OrganizationsOverview = {
+    /**
+     * Total
+     */
+    total: number;
+    /**
+     * New This Month
+     */
+    new_this_month: number;
+};
+
+/**
  * OrganizationsPage
  */
 export type OrganizationsPage = {
@@ -1398,6 +1438,31 @@ export type OrganizationsPageResponse = {
      */
     success?: true;
     data: OrganizationsPage;
+};
+
+/**
+ * OverviewData
+ */
+export type OverviewData = {
+    users: UsersOverview;
+    organizations: OrganizationsOverview;
+    /**
+     * Stores By Status
+     */
+    stores_by_status: {
+        [key: string]: number;
+    };
+};
+
+/**
+ * OverviewResponse
+ */
+export type OverviewResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: OverviewData;
 };
 
 /**
@@ -1554,6 +1619,21 @@ export type PlanPricesResponse = {
      */
     success?: true;
     data: PlanPricesData;
+};
+
+/**
+ * PlanRevenueData
+ */
+export type PlanRevenueData = {
+    plan: PlanKey;
+    /**
+     * Organizations
+     */
+    organizations: number;
+    /**
+     * Mrr Minor
+     */
+    mrr_minor: number;
 };
 
 /**
@@ -1851,6 +1931,71 @@ export type RefundResponse = {
      */
     success?: true;
     data: RefundData;
+};
+
+/**
+ * RevenueData
+ */
+export type RevenueData = {
+    /**
+     * Currency
+     */
+    currency: string;
+    /**
+     * Mrr Minor
+     */
+    mrr_minor: number;
+    /**
+     * Arr Minor
+     */
+    arr_minor: number;
+    /**
+     * Billed Organizations
+     */
+    billed_organizations: number;
+    /**
+     * Unpriced Organizations
+     */
+    unpriced_organizations: number;
+    /**
+     * Complete
+     */
+    complete: boolean;
+    /**
+     * By Plan
+     */
+    by_plan: Array<PlanRevenueData>;
+    /**
+     * Organizations By Status
+     */
+    organizations_by_status: {
+        [key: string]: number;
+    };
+    /**
+     * Organizations By Tier
+     */
+    organizations_by_tier: {
+        [key: string]: number;
+    };
+    /**
+     * Cancelling At Period End
+     */
+    cancelling_at_period_end: number;
+    /**
+     * Active Grants
+     */
+    active_grants: number;
+};
+
+/**
+ * RevenueResponse
+ */
+export type RevenueResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: RevenueData;
 };
 
 /**
@@ -2363,6 +2508,96 @@ export type SubscriptionsPageResponse = {
 };
 
 /**
+ * SyncData
+ */
+export type SyncData = {
+    /**
+     * Stripe Subscriptions
+     */
+    stripe_subscriptions: number;
+    /**
+     * In Sync
+     */
+    in_sync: number;
+    /**
+     * Drift Count
+     */
+    drift_count: number;
+    /**
+     * Historical Ignored
+     */
+    historical_ignored: number;
+    /**
+     * Truncated
+     */
+    truncated: boolean;
+    /**
+     * Drifts
+     */
+    drifts: Array<DriftData>;
+};
+
+/**
+ * SyncResponse
+ */
+export type SyncResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: SyncData;
+};
+
+/**
+ * SystemData
+ */
+export type SystemData = {
+    /**
+     * App Settings
+     */
+    app_settings: number;
+    /**
+     * Feature Flags
+     */
+    feature_flags: number;
+    /**
+     * Email Templates
+     */
+    email_templates: number;
+    /**
+     * Seo Entries
+     */
+    seo_entries: number;
+    /**
+     * Redirects
+     */
+    redirects: number;
+    /**
+     * Audit Logs
+     */
+    audit_logs: number;
+    /**
+     * Stripe Events
+     */
+    stripe_events: number;
+    /**
+     * Admin Users
+     */
+    admin_users: number;
+};
+
+/**
+ * SystemResponse
+ */
+export type SystemResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: SystemData;
+};
+
+/**
  * TierPricesData
  *
  * Minor units (cents) of the Stripe price; null when unconfigured or unreadable.
@@ -2522,6 +2757,32 @@ export type UserDetailResponse = {
      */
     success?: true;
     data: AdminUserDetail;
+};
+
+/**
+ * UsersOverview
+ */
+export type UsersOverview = {
+    /**
+     * Total
+     */
+    total: number;
+    /**
+     * Verified
+     */
+    verified: number;
+    /**
+     * New This Month
+     */
+    new_this_month: number;
+    /**
+     * Active Last 30 Days
+     */
+    active_last_30_days: number;
+    /**
+     * Admins
+     */
+    admins: number;
 };
 
 /**
@@ -5563,6 +5824,242 @@ export type AdminGrantSubscriptionResponses = {
 };
 
 export type AdminGrantSubscriptionResponse = AdminGrantSubscriptionResponses[keyof AdminGrantSubscriptionResponses];
+
+export type AdminOverviewData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/admin/analytics/overview';
+};
+
+export type AdminOverviewErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type AdminOverviewError = AdminOverviewErrors[keyof AdminOverviewErrors];
+
+export type AdminOverviewResponses = {
+    /**
+     * Successful Response
+     */
+    200: OverviewResponse;
+};
+
+export type AdminOverviewResponse = AdminOverviewResponses[keyof AdminOverviewResponses];
+
+export type AdminRevenueData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/admin/analytics/revenue';
+};
+
+export type AdminRevenueErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type AdminRevenueError = AdminRevenueErrors[keyof AdminRevenueErrors];
+
+export type AdminRevenueResponses = {
+    /**
+     * Successful Response
+     */
+    200: RevenueResponse;
+};
+
+export type AdminRevenueResponse = AdminRevenueResponses[keyof AdminRevenueResponses];
+
+export type AdminSystemStatsData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/admin/analytics/system';
+};
+
+export type AdminSystemStatsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type AdminSystemStatsError = AdminSystemStatsErrors[keyof AdminSystemStatsErrors];
+
+export type AdminSystemStatsResponses = {
+    /**
+     * Successful Response
+     */
+    200: SystemResponse;
+};
+
+export type AdminSystemStatsResponse = AdminSystemStatsResponses[keyof AdminSystemStatsResponses];
+
+export type AdminSyncSubscriptionsData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/admin/analytics/subscription-sync';
+};
+
+export type AdminSyncSubscriptionsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type AdminSyncSubscriptionsError = AdminSyncSubscriptionsErrors[keyof AdminSyncSubscriptionsErrors];
+
+export type AdminSyncSubscriptionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: SyncResponse;
+};
+
+export type AdminSyncSubscriptionsResponse = AdminSyncSubscriptionsResponses[keyof AdminSyncSubscriptionsResponses];
 
 export type ReadBillingData = {
     body?: never;

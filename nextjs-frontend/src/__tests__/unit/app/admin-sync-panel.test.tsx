@@ -1,0 +1,88 @@
+/**
+ * KAN-119: the Stripe reconciliation panel runs the sync action and lists what differs; failures show the
+ * action's curated message.
+ */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+
+const mocks = vi.hoisted(() => ({ sync: vi.fn() }));
+vi.mock('@/app/actions/admin/analytics-actions', () => ({
+  syncStripeSubscriptionsAction: mocks.sync,
+}));
+
+import { SyncPanel } from '@/app/(admin)/admin/subscriptions/sync-panel';
+
+const REPORT = {
+  stripe_subscriptions: 5,
+  in_sync: 3,
+  drift_count: 3,
+  historical_ignored: 1,
+  truncated: false,
+  drifts: [
+    {
+      kind: 'status',
+      organization_id: 'org1',
+      subscription_id: 'sub_1',
+      stripe_status: 'past_due',
+      local_status: 'active',
+    },
+    {
+      kind: 'missing_in_stripe',
+      organization_id: 'org2',
+      subscription_id: 'sub_2',
+      stripe_status: null,
+      local_status: 'active',
+    },
+  ],
+};
+
+describe('SyncPanel', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('shows nothing until the check is run', () => {
+    render(<SyncPanel />);
+
+    expect(screen.getByRole('button', { name: /check against stripe/i })).toBeEnabled();
+    expect(screen.queryByText(/in sync/i)).not.toBeInTheDocument();
+  });
+
+  it('runs the sync and lists the differences', async () => {
+    mocks.sync.mockResolvedValue({ success: true, data: REPORT });
+    render(<SyncPanel />);
+
+    await userEvent.setup().click(screen.getByRole('button', { name: /check against stripe/i }));
+
+    expect(await screen.findByText(/Read 5 Stripe subscriptions: 3 in sync/)).toBeInTheDocument();
+    expect(screen.getByText(/1 old ones ignored/)).toBeInTheDocument();
+    expect(screen.getByText('Status differs')).toBeInTheDocument();
+    expect(screen.getByText('Not found in Stripe')).toBeInTheDocument();
+    expect(screen.getByText(/Showing the first 2 of 3/)).toBeInTheDocument();
+    expect(mocks.sync).toHaveBeenCalledTimes(1);
+  });
+
+  it('says the result is partial when Stripe has more than one check reads', async () => {
+    mocks.sync.mockResolvedValue({
+      success: true,
+      data: { ...REPORT, drift_count: 0, drifts: [], historical_ignored: 0, truncated: true },
+    });
+    render(<SyncPanel />);
+
+    await userEvent.setup().click(screen.getByRole('button', { name: /check against stripe/i }));
+
+    expect(await screen.findByText(/result is partial/)).toBeInTheDocument();
+  });
+
+  it('shows the action error as an alert and no report', async () => {
+    mocks.sync.mockResolvedValue({
+      success: false,
+      error: 'Something went wrong. Please try again.',
+    });
+    render(<SyncPanel />);
+
+    await userEvent.setup().click(screen.getByRole('button', { name: /check against stripe/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong');
+    expect(screen.queryByText(/Stripe subscriptions:/)).not.toBeInTheDocument();
+  });
+});
