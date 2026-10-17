@@ -229,12 +229,13 @@ async def test_search_accepts_100_characters_and_rejects_101(
         products_url(store, f"?q=%20{'x' * 100}%20"), headers=ALICE
     )
     too_long = await client.get(products_url(store, f"?q={'x' * 101}"), headers=ALICE)
-    huge = await client.get(products_url(store, f"?q={'x' * 300}"), headers=ALICE)
+    huge = await client.get(products_url(store, f"?q={'x' * 5000}"), headers=ALICE)
     nul = await client.get(products_url(store, "?q=a%00b"), headers=ALICE)
 
     assert (ok.status_code, padded.status_code) == (200, 200)
     assert too_long.status_code == huge.status_code == nul.status_code == 422
     assert_no_database_text(too_long)
+    assert too_long.json() == huge.json() == nul.json()
 
 
 async def test_search_text_is_not_executed_as_sql(

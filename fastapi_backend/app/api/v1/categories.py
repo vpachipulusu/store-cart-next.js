@@ -65,6 +65,15 @@ async def list_categories(
     no_store(response)
     result = await service.list_categories()
     return CategoryListResponse(
-        data=[CategoryData(**vars(row)) for row in result.items],
+        data=[
+            CategoryData(
+                id=row.id,
+                name=row.name,
+                slug=row.slug,
+                parent_id=row.parent_id,
+                position=row.position,
+            )
+            for row in result.items
+        ],
         truncated=result.truncated,
     )

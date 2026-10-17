@@ -30,7 +30,7 @@ limited by subject). Responses carry `Cache-Control: no-store`; errors use the u
 Categories (KAN-246) are on their own prefix: `GET /v1/stores/{store_id}/categories` (any member, same store resolution
 and `no-store`) returns `{"data": [{id, name, slug, parent_id, position}], "truncated": false}`. Order is roots first,
 then by parent, `position`, `id` (siblings stay together); at most 1000 rows, `truncated` is true when the store holds
-more. The list is flat, not depth-first: a client builds the tree from `parent_id`. There is no write route here (405).
+more. The list is flat, not depth-first: a client builds the tree from `parent_id`. When `truncated` is true the cut is by `parent_id`, `position`, `id` order, so a returned child's parent may be missing: treat the list as incomplete and do not render a tree from it. There is no write route here (405).
 
 ## Search (KAN-246)
 
@@ -39,7 +39,7 @@ character). It matches when the product **title** or **any variant SKU** contain
 with an explicit escape character). `%`, `_` and `\` in `q` are literal: the text is escaped in
 `search_pattern` and sent as one bound parameter, never concatenated into SQL. It combines with `status` and
 `category_id` (all must match); `total`, `limit` and `offset` behave as before, and the order is still newest first.
-It is a sequential scan per store (no index added, no migration); fine for the catalogue sizes the plan limits allow; a `pg_trgm` index (a store migration) is the option if that changes.
+It is a sequential scan per store (no index added, no migration); fine for the catalogue sizes the plan limits allow; a `pg_trgm` GIN index (a store migration) is needed if catalogues grow, because a leading-wildcard `ILIKE` scans products and variants.
 Tests: `tests/api/test_products_search_e2e.py`.
 
 Writes also need an ACTIVE store (`require_merchant`: any non-GET is a write). Reads work on SUSPENDED and PROVISIONING

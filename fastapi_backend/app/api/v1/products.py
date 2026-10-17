@@ -290,8 +290,6 @@ def _summary_data(row: ProductSummaryRow) -> ProductSummaryData:
     )
 
 
-# Room for whitespace around a 100 character search; the service trims, then enforces 100.
-MAX_SEARCH_QUERY_LENGTH = 200
 NO_STORE = {"Cache-Control": "no-store"}
 
 
@@ -346,8 +344,10 @@ async def list_products(
     q: Annotated[
         str | None,
         Query(
-            max_length=MAX_SEARCH_QUERY_LENGTH,
-            description="Title or SKU contains this text, ignoring case; trimmed, at most 100 characters.",
+            description=(
+                "Title or SKU contains this text, ignoring case; trimmed, at most 100 "
+                "characters (the service decides, so every length error has one shape)."
+            ),
         ),
     ] = None,
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,

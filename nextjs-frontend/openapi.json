@@ -9822,17 +9822,16 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string",
-                  "maxLength": 200
+                  "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "Title or SKU contains this text, ignoring case; trimmed, at most 100 characters.",
+              "description": "Title or SKU contains this text, ignoring case; trimmed, at most 100 characters (the service decides, so every length error has one shape).",
               "title": "Q"
             },
-            "description": "Title or SKU contains this text, ignoring case; trimmed, at most 100 characters."
+            "description": "Title or SKU contains this text, ignoring case; trimmed, at most 100 characters (the service decides, so every length error has one shape)."
           },
           {
             "name": "limit",

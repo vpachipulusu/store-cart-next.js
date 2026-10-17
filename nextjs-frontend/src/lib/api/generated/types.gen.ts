@@ -7084,7 +7084,7 @@ export type ListProductsData = {
         /**
          * Q
          *
-         * Title or SKU contains this text, ignoring case; trimmed, at most 100 characters.
+         * Title or SKU contains this text, ignoring case; trimmed, at most 100 characters (the service decides, so every length error has one shape).
          */
         q?: string | null;
         /**
