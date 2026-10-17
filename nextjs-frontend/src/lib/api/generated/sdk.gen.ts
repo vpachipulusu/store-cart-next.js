@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AdminCancelSubscriptionData, AdminCancelSubscriptionErrors, AdminCancelSubscriptionResponses, AdminGrantSubscriptionData, AdminGrantSubscriptionErrors, AdminGrantSubscriptionResponses, AdminListOrganizationsData, AdminListOrganizationsErrors, AdminListOrganizationsResponses, AdminListStoresData, AdminListStoresErrors, AdminListStoresResponses, AdminListSubscriptionsData, AdminListSubscriptionsErrors, AdminListSubscriptionsResponses, AdminMigrateStoreData, AdminMigrateStoreErrors, AdminMigrateStoreResponses, AdminReadSubscriptionData, AdminReadSubscriptionErrors, AdminReadSubscriptionResponses, AdminRefundPaymentData, AdminRefundPaymentErrors, AdminRefundPaymentResponses, AdminReprovisionStoreData, AdminReprovisionStoreErrors, AdminReprovisionStoreResponses, AdminRevokeGrantData, AdminRevokeGrantErrors, AdminRevokeGrantResponses, AdminSuspendStoreData, AdminSuspendStoreErrors, AdminSuspendStoreResponses, AdminUnsuspendStoreData, AdminUnsuspendStoreErrors, AdminUnsuspendStoreResponses, BanUserData, BanUserErrors, BanUserResponses, CancelSubscriptionData, CancelSubscriptionErrors, CancelSubscriptionResponses, ChangePasswordData, ChangePasswordErrors, ChangePasswordResponses, ChangePlanData, ChangePlanErrors, ChangePlanResponses, CreateCheckoutData, CreateCheckoutErrors, CreateCheckoutResponses, CreateOrganizationData, CreateOrganizationErrors, CreateOrganizationResponses, CreatePortalData, CreatePortalErrors, CreatePortalResponses, CreateSessionData, CreateSessionErrors, CreateSessionResponses, CreateStoreData, CreateStoreErrors, CreateStoreResponses, DeleteAccountData, DeleteAccountErrors, DeleteAccountResponses, DeleteNotificationData, DeleteNotificationErrors, DeleteNotificationResponses, DeletePaymentMethodData, DeletePaymentMethodErrors, DeletePaymentMethodResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DeleteUserData, DeleteUserErrors, DeleteUserResponses, DisableData, DisableErrors, DisableResponses, EnrollData, EnrollErrors, EnrollResponses, ExportMyDataData, ExportMyDataErrors, ExportMyDataResponses, GrantAdminData, GrantAdminErrors, GrantAdminResponses, HealthCheckData, HealthCheckErrors, HealthCheckResponses, ListAuditLogsData, ListAuditLogsErrors, ListAuditLogsResponses, ListInvoicesData, ListInvoicesErrors, ListInvoicesResponses, ListNotificationsData, ListNotificationsErrors, ListNotificationsResponses, ListOrganizationsData, ListOrganizationsErrors, ListOrganizationsResponses, ListOrganizationStoresData, ListOrganizationStoresErrors, ListOrganizationStoresResponses, ListPaymentMethodsData, ListPaymentMethodsErrors, ListPaymentMethodsResponses, ListUsersData, ListUsersErrors, ListUsersResponses, MarkAllNotificationsReadData, MarkAllNotificationsReadErrors, MarkAllNotificationsReadResponses, MarkNotificationReadData, MarkNotificationReadErrors, MarkNotificationReadResponses, PresignImageUploadData, PresignImageUploadErrors, PresignImageUploadResponses, ReadBillingData, ReadBillingErrors, ReadBillingResponses, ReadCurrencyData, ReadCurrencyErrors, ReadCurrencyResponses, ReadHistoryData, ReadHistoryErrors, ReadHistoryResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, ReadOrganizationData, ReadOrganizationErrors, ReadOrganizationResponses, ReadPlanPricesData, ReadPlanPricesErrors, ReadPlanPricesResponses, ReadProfileData, ReadProfileErrors, ReadProfileResponses, ReadSessionData, ReadSessionErrors, ReadSessionResponses, ReadSessionStatusData, ReadSessionStatusErrors, ReadSessionStatusResponses, ReadSettingsData, ReadSettingsErrors, ReadSettingsResponses, ReadStoreData, ReadStoreErrors, ReadStorefrontData, ReadStorefrontErrors, ReadStorefrontResponses, ReadStoreResponses, ReadUserData, ReadUserErrors, ReadUserResponses, RefreshSessionData, RefreshSessionErrors, RefreshSessionResponses, ResumeSubscriptionData, ResumeSubscriptionErrors, ResumeSubscriptionResponses, RetryStoreProvisioningData, RetryStoreProvisioningErrors, RetryStoreProvisioningResponses, RevokeAdminData, RevokeAdminErrors, RevokeAdminResponses, SetDefaultPaymentMethodData, SetDefaultPaymentMethodErrors, SetDefaultPaymentMethodResponses, UnbanUserData, UnbanUserErrors, UnbanUserResponses, UpdateAvatarData, UpdateAvatarErrors, UpdateAvatarResponses, UpdateOrganizationData, UpdateOrganizationErrors, UpdateOrganizationResponses, UpdateProfileData, UpdateProfileErrors, UpdateProfileResponses, UpdateSettingsData, UpdateSettingsErrors, UpdateSettingsResponses, UpdateStoreData, UpdateStoreErrors, UpdateStoreResponses, UpdateUserData, UpdateUserErrors, UpdateUserResponses, VerifyData, VerifyErrors, VerifyIdTokenData, VerifyIdTokenErrors, VerifyIdTokenResponses, VerifyResponses } from './types.gen';
+import type { AddImageData, AddImageErrors, AddImageResponses, AddVariantData, AddVariantErrors, AddVariantResponses, AdminCancelSubscriptionData, AdminCancelSubscriptionErrors, AdminCancelSubscriptionResponses, AdminGrantSubscriptionData, AdminGrantSubscriptionErrors, AdminGrantSubscriptionResponses, AdminListOrganizationsData, AdminListOrganizationsErrors, AdminListOrganizationsResponses, AdminListStoresData, AdminListStoresErrors, AdminListStoresResponses, AdminListSubscriptionsData, AdminListSubscriptionsErrors, AdminListSubscriptionsResponses, AdminMigrateStoreData, AdminMigrateStoreErrors, AdminMigrateStoreResponses, AdminReadSubscriptionData, AdminReadSubscriptionErrors, AdminReadSubscriptionResponses, AdminRefundPaymentData, AdminRefundPaymentErrors, AdminRefundPaymentResponses, AdminReprovisionStoreData, AdminReprovisionStoreErrors, AdminReprovisionStoreResponses, AdminRevokeGrantData, AdminRevokeGrantErrors, AdminRevokeGrantResponses, AdminSuspendStoreData, AdminSuspendStoreErrors, AdminSuspendStoreResponses, AdminUnsuspendStoreData, AdminUnsuspendStoreErrors, AdminUnsuspendStoreResponses, BanUserData, BanUserErrors, BanUserResponses, CancelSubscriptionData, CancelSubscriptionErrors, CancelSubscriptionResponses, ChangePasswordData, ChangePasswordErrors, ChangePasswordResponses, ChangePlanData, ChangePlanErrors, ChangePlanResponses, CreateCheckoutData, CreateCheckoutErrors, CreateCheckoutResponses, CreateOrganizationData, CreateOrganizationErrors, CreateOrganizationResponses, CreatePortalData, CreatePortalErrors, CreatePortalResponses, CreateProductData, CreateProductErrors, CreateProductResponses, CreateSessionData, CreateSessionErrors, CreateSessionResponses, CreateStoreData, CreateStoreErrors, CreateStoreResponses, DeleteAccountData, DeleteAccountErrors, DeleteAccountResponses, DeleteImageData, DeleteImageErrors, DeleteImageResponses, DeleteNotificationData, DeleteNotificationErrors, DeleteNotificationResponses, DeletePaymentMethodData, DeletePaymentMethodErrors, DeletePaymentMethodResponses, DeleteProductData, DeleteProductErrors, DeleteProductResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DeleteUserData, DeleteUserErrors, DeleteUserResponses, DeleteVariantData, DeleteVariantErrors, DeleteVariantResponses, DisableData, DisableErrors, DisableResponses, EnrollData, EnrollErrors, EnrollResponses, ExportMyDataData, ExportMyDataErrors, ExportMyDataResponses, GrantAdminData, GrantAdminErrors, GrantAdminResponses, HealthCheckData, HealthCheckErrors, HealthCheckResponses, ListAuditLogsData, ListAuditLogsErrors, ListAuditLogsResponses, ListInvoicesData, ListInvoicesErrors, ListInvoicesResponses, ListNotificationsData, ListNotificationsErrors, ListNotificationsResponses, ListOrganizationsData, ListOrganizationsErrors, ListOrganizationsResponses, ListOrganizationStoresData, ListOrganizationStoresErrors, ListOrganizationStoresResponses, ListPaymentMethodsData, ListPaymentMethodsErrors, ListPaymentMethodsResponses, ListProductsData, ListProductsErrors, ListProductsResponses, ListUsersData, ListUsersErrors, ListUsersResponses, MarkAllNotificationsReadData, MarkAllNotificationsReadErrors, MarkAllNotificationsReadResponses, MarkNotificationReadData, MarkNotificationReadErrors, MarkNotificationReadResponses, PresignImageUploadData, PresignImageUploadErrors, PresignImageUploadResponses, ReadBillingData, ReadBillingErrors, ReadBillingResponses, ReadCurrencyData, ReadCurrencyErrors, ReadCurrencyResponses, ReadHistoryData, ReadHistoryErrors, ReadHistoryResponses, ReadinessCheckData, ReadinessCheckErrors, ReadinessCheckResponses, ReadOrganizationData, ReadOrganizationErrors, ReadOrganizationResponses, ReadPlanPricesData, ReadPlanPricesErrors, ReadPlanPricesResponses, ReadProductData, ReadProductErrors, ReadProductResponses, ReadProfileData, ReadProfileErrors, ReadProfileResponses, ReadSessionData, ReadSessionErrors, ReadSessionResponses, ReadSessionStatusData, ReadSessionStatusErrors, ReadSessionStatusResponses, ReadSettingsData, ReadSettingsErrors, ReadSettingsResponses, ReadStoreData, ReadStoreErrors, ReadStorefrontData, ReadStorefrontErrors, ReadStorefrontResponses, ReadStoreResponses, ReadUserData, ReadUserErrors, ReadUserResponses, RefreshSessionData, RefreshSessionErrors, RefreshSessionResponses, ResumeSubscriptionData, ResumeSubscriptionErrors, ResumeSubscriptionResponses, RetryStoreProvisioningData, RetryStoreProvisioningErrors, RetryStoreProvisioningResponses, RevokeAdminData, RevokeAdminErrors, RevokeAdminResponses, SetDefaultPaymentMethodData, SetDefaultPaymentMethodErrors, SetDefaultPaymentMethodResponses, UnbanUserData, UnbanUserErrors, UnbanUserResponses, UpdateAvatarData, UpdateAvatarErrors, UpdateAvatarResponses, UpdateOrganizationData, UpdateOrganizationErrors, UpdateOrganizationResponses, UpdateProductData, UpdateProductErrors, UpdateProductResponses, UpdateProfileData, UpdateProfileErrors, UpdateProfileResponses, UpdateSettingsData, UpdateSettingsErrors, UpdateSettingsResponses, UpdateStoreData, UpdateStoreErrors, UpdateStoreResponses, UpdateUserData, UpdateUserErrors, UpdateUserResponses, UpdateVariantData, UpdateVariantErrors, UpdateVariantResponses, VerifyData, VerifyErrors, VerifyIdTokenData, VerifyIdTokenErrors, VerifyIdTokenResponses, VerifyResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -565,6 +565,106 @@ export const presignImageUpload = <ThrowOnError extends boolean = false>(options
         ...options.headers
     }
 });
+
+/**
+ * List products
+ *
+ * Newest first, filtered by ``status`` and ``category_id``; ``total`` ignores paging.
+ */
+export const listProducts = <ThrowOnError extends boolean = false>(options: Options<ListProductsData, ThrowOnError>) => (options.client ?? client).get<ListProductsResponses, ListProductsErrors, ThrowOnError>({ url: '/v1/stores/{store_id}/products', ...options });
+
+/**
+ * Create a product with its options and variants
+ */
+export const createProduct = <ThrowOnError extends boolean = false>(options: Options<CreateProductData, ThrowOnError>) => (options.client ?? client).post<CreateProductResponses, CreateProductErrors, ThrowOnError>({
+    url: '/v1/stores/{store_id}/products',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Delete a product
+ *
+ * Removes the product, its variants, images and links. Orders keep their snapshots.
+ */
+export const deleteProduct = <ThrowOnError extends boolean = false>(options: Options<DeleteProductData, ThrowOnError>) => (options.client ?? client).delete<DeleteProductResponses, DeleteProductErrors, ThrowOnError>({ url: '/v1/stores/{store_id}/products/{product_id}', ...options });
+
+/**
+ * Read a product
+ */
+export const readProduct = <ThrowOnError extends boolean = false>(options: Options<ReadProductData, ThrowOnError>) => (options.client ?? client).get<ReadProductResponses, ReadProductErrors, ThrowOnError>({ url: '/v1/stores/{store_id}/products/{product_id}', ...options });
+
+/**
+ * Update a product
+ *
+ * Setting ``status`` to ``draft`` unpublishes; ``DELETE`` removes the product.
+ */
+export const updateProduct = <ThrowOnError extends boolean = false>(options: Options<UpdateProductData, ThrowOnError>) => (options.client ?? client).patch<UpdateProductResponses, UpdateProductErrors, ThrowOnError>({
+    url: '/v1/stores/{store_id}/products/{product_id}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Add a variant
+ */
+export const addVariant = <ThrowOnError extends boolean = false>(options: Options<AddVariantData, ThrowOnError>) => (options.client ?? client).post<AddVariantResponses, AddVariantErrors, ThrowOnError>({
+    url: '/v1/stores/{store_id}/products/{product_id}/variants',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Delete a variant
+ *
+ * The last variant of a product cannot be deleted. Orders keep their snapshots.
+ */
+export const deleteVariant = <ThrowOnError extends boolean = false>(options: Options<DeleteVariantData, ThrowOnError>) => (options.client ?? client).delete<DeleteVariantResponses, DeleteVariantErrors, ThrowOnError>({ url: '/v1/stores/{store_id}/products/{product_id}/variants/{variant_id}', ...options });
+
+/**
+ * Update a variant
+ */
+export const updateVariant = <ThrowOnError extends boolean = false>(options: Options<UpdateVariantData, ThrowOnError>) => (options.client ?? client).patch<UpdateVariantResponses, UpdateVariantErrors, ThrowOnError>({
+    url: '/v1/stores/{store_id}/products/{product_id}/variants/{variant_id}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Attach an uploaded image
+ *
+ * Records an image row for an object already uploaded to this store's prefix.
+ *
+ * 422 when ``storage_key`` is not ``stores/{store_id}/{id}.(jpg|png|webp)`` of this store.
+ * The object's existence is not checked.
+ */
+export const addImage = <ThrowOnError extends boolean = false>(options: Options<AddImageData, ThrowOnError>) => (options.client ?? client).post<AddImageResponses, AddImageErrors, ThrowOnError>({
+    url: '/v1/stores/{store_id}/products/{product_id}/images',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Remove an image row
+ *
+ * Removes the row only; the stored object is not deleted.
+ */
+export const deleteImage = <ThrowOnError extends boolean = false>(options: Options<DeleteImageData, ThrowOnError>) => (options.client ?? client).delete<DeleteImageResponses, DeleteImageErrors, ThrowOnError>({ url: '/v1/stores/{store_id}/products/{product_id}/images/{image_id}', ...options });
 
 /**
  * Read Storefront

@@ -5,6 +5,22 @@ export type ClientOptions = {
 };
 
 /**
+ * AddImageRequest
+ */
+export type AddImageRequest = {
+    /**
+     * Storage Key
+     *
+     * The key from the presign response; must start with stores/{store_id}/.
+     */
+    storage_key: string;
+    /**
+     * Alt Text
+     */
+    alt_text?: string | null;
+};
+
+/**
  * AdminGrantData
  */
 export type AdminGrantData = {
@@ -396,6 +412,42 @@ export type CheckoutRequest = {
      * Cancel Url
      */
     cancel_url: string;
+};
+
+/**
+ * CreateProductRequest
+ */
+export type CreateProductRequest = {
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Slug
+     *
+     * Derived from the title when omitted.
+     */
+    slug?: string | null;
+    /**
+     * Description
+     */
+    description?: string | null;
+    /**
+     * Status
+     */
+    status?: 'draft' | 'active';
+    /**
+     * Options
+     */
+    options?: Array<OptionBody>;
+    /**
+     * Variants
+     */
+    variants: Array<VariantBody>;
+    /**
+     * Category Ids
+     */
+    category_ids?: Array<string>;
 };
 
 /**
@@ -907,6 +959,28 @@ export type IdentityResponse = {
 };
 
 /**
+ * ImageData
+ */
+export type ImageData = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Storage Key
+     */
+    storage_key: string;
+    /**
+     * Alt Text
+     */
+    alt_text: string | null;
+    /**
+     * Position
+     */
+    position: number;
+};
+
+/**
  * ImageUploadData
  */
 export type ImageUploadData = {
@@ -1135,6 +1209,60 @@ export type OkResponse = {
      * Success
      */
     success?: true;
+};
+
+/**
+ * OptionBody
+ */
+export type OptionBody = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Values
+     */
+    values: Array<string>;
+};
+
+/**
+ * OptionData
+ */
+export type OptionData = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Position
+     */
+    position: number;
+    /**
+     * Values
+     */
+    values: Array<OptionValueData>;
+};
+
+/**
+ * OptionValueData
+ */
+export type OptionValueData = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Value
+     */
+    value: string;
+    /**
+     * Position
+     */
+    position: number;
 };
 
 /**
@@ -1436,6 +1564,135 @@ export type PortalRequest = {
      * Return Url
      */
     return_url: string;
+};
+
+/**
+ * ProductData
+ */
+export type ProductData = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Slug
+     */
+    slug: string;
+    /**
+     * Description
+     */
+    description: string | null;
+    /**
+     * Status
+     */
+    status: 'draft' | 'active';
+    /**
+     * Currency
+     */
+    currency: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+    /**
+     * Options
+     */
+    options: Array<OptionData>;
+    /**
+     * Variants
+     */
+    variants: Array<VariantData>;
+    /**
+     * Category Ids
+     */
+    category_ids: Array<string>;
+    /**
+     * Images
+     */
+    images: Array<ImageData>;
+};
+
+/**
+ * ProductListResponse
+ */
+export type ProductListResponse = {
+    /**
+     * Data
+     */
+    data: Array<ProductSummaryData>;
+    /**
+     * Currency
+     */
+    currency: string;
+    /**
+     * Total
+     */
+    total: number;
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Offset
+     */
+    offset: number;
+};
+
+/**
+ * ProductResponse
+ */
+export type ProductResponse = {
+    data: ProductData;
+};
+
+/**
+ * ProductSummaryData
+ */
+export type ProductSummaryData = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Slug
+     */
+    slug: string;
+    /**
+     * Status
+     */
+    status: 'draft' | 'active';
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+    /**
+     * Variant Count
+     */
+    variant_count: number;
+    /**
+     * Min Price Minor
+     */
+    min_price_minor: number | null;
+    /**
+     * Max Price Minor
+     */
+    max_price_minor: number | null;
 };
 
 /**
@@ -2134,6 +2391,34 @@ export type TotpChangedResponse = {
 };
 
 /**
+ * UpdateProductRequest
+ *
+ * Send only the fields to change; ``category_ids`` replaces the whole set.
+ */
+export type UpdateProductRequest = {
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Slug
+     */
+    slug?: string | null;
+    /**
+     * Description
+     */
+    description?: string | null;
+    /**
+     * Status
+     */
+    status?: 'draft' | 'active' | null;
+    /**
+     * Category Ids
+     */
+    category_ids?: Array<string> | null;
+};
+
+/**
  * UpdateRequest
  *
  * Partial update of a name and/or slug; at least one is required.
@@ -2177,6 +2462,34 @@ export type UpdateUserRequest = {
      * Avatar Url
      */
     avatar_url?: string | null;
+};
+
+/**
+ * UpdateVariantRequest
+ *
+ * Send only the fields to change; null clears ``compare_at_price_minor`` and weight.
+ */
+export type UpdateVariantRequest = {
+    /**
+     * Sku
+     */
+    sku?: string | null;
+    /**
+     * Price Minor
+     */
+    price_minor?: number | null;
+    /**
+     * Compare At Price Minor
+     */
+    compare_at_price_minor?: number | null;
+    /**
+     * Weight Grams
+     */
+    weight_grams?: number | null;
+    /**
+     * Stock
+     */
+    stock?: number | null;
 };
 
 /**
@@ -2242,6 +2555,92 @@ export type UsersPageResponse = {
      */
     success?: true;
     data: UsersPage;
+};
+
+/**
+ * VariantBody
+ */
+export type VariantBody = {
+    /**
+     * Sku
+     */
+    sku: string;
+    /**
+     * Price Minor
+     */
+    price_minor: number;
+    /**
+     * Compare At Price Minor
+     */
+    compare_at_price_minor?: number | null;
+    /**
+     * Weight Grams
+     */
+    weight_grams?: number | null;
+    /**
+     * Stock
+     */
+    stock?: number;
+    /**
+     * Options
+     *
+     * Chosen value per option name; empty for a product without options.
+     */
+    options?: {
+        [key: string]: string;
+    };
+};
+
+/**
+ * VariantChoiceData
+ */
+export type VariantChoiceData = {
+    /**
+     * Option Id
+     */
+    option_id: string;
+    /**
+     * Option Value Id
+     */
+    option_value_id: string;
+};
+
+/**
+ * VariantData
+ */
+export type VariantData = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Sku
+     */
+    sku: string;
+    /**
+     * Price Minor
+     */
+    price_minor: number;
+    /**
+     * Compare At Price Minor
+     */
+    compare_at_price_minor: number | null;
+    /**
+     * Weight Grams
+     */
+    weight_grams: number | null;
+    /**
+     * Stock
+     */
+    stock: number;
+    /**
+     * Position
+     */
+    position: number;
+    /**
+     * Option Values
+     */
+    option_values: Array<VariantChoiceData>;
 };
 
 /**
@@ -6608,6 +7007,747 @@ export type PresignImageUploadResponses = {
 };
 
 export type PresignImageUploadResponse = PresignImageUploadResponses[keyof PresignImageUploadResponses];
+
+export type ListProductsData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: {
+        /**
+         * Status
+         */
+        status?: 'draft' | 'active' | null;
+        /**
+         * Category Id
+         */
+        category_id?: string | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Offset
+         */
+        offset?: number;
+    };
+    url: '/v1/stores/{store_id}/products';
+};
+
+export type ListProductsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ListProductsError = ListProductsErrors[keyof ListProductsErrors];
+
+export type ListProductsResponses = {
+    /**
+     * Successful Response
+     */
+    200: ProductListResponse;
+};
+
+export type ListProductsResponse = ListProductsResponses[keyof ListProductsResponses];
+
+export type CreateProductData = {
+    body: CreateProductRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/stores/{store_id}/products';
+};
+
+export type CreateProductErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type CreateProductError = CreateProductErrors[keyof CreateProductErrors];
+
+export type CreateProductResponses = {
+    /**
+     * Successful Response
+     */
+    201: ProductResponse;
+};
+
+export type CreateProductResponse = CreateProductResponses[keyof CreateProductResponses];
+
+export type DeleteProductData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Product Id
+         */
+        product_id: string;
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/stores/{store_id}/products/{product_id}';
+};
+
+export type DeleteProductErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type DeleteProductError = DeleteProductErrors[keyof DeleteProductErrors];
+
+export type DeleteProductResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type DeleteProductResponse = DeleteProductResponses[keyof DeleteProductResponses];
+
+export type ReadProductData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Product Id
+         */
+        product_id: string;
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/stores/{store_id}/products/{product_id}';
+};
+
+export type ReadProductErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ReadProductError = ReadProductErrors[keyof ReadProductErrors];
+
+export type ReadProductResponses = {
+    /**
+     * Successful Response
+     */
+    200: ProductResponse;
+};
+
+export type ReadProductResponse = ReadProductResponses[keyof ReadProductResponses];
+
+export type UpdateProductData = {
+    body: UpdateProductRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Product Id
+         */
+        product_id: string;
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/stores/{store_id}/products/{product_id}';
+};
+
+export type UpdateProductErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type UpdateProductError = UpdateProductErrors[keyof UpdateProductErrors];
+
+export type UpdateProductResponses = {
+    /**
+     * Successful Response
+     */
+    200: ProductResponse;
+};
+
+export type UpdateProductResponse = UpdateProductResponses[keyof UpdateProductResponses];
+
+export type AddVariantData = {
+    body: VariantBody;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Product Id
+         */
+        product_id: string;
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/stores/{store_id}/products/{product_id}/variants';
+};
+
+export type AddVariantErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type AddVariantError = AddVariantErrors[keyof AddVariantErrors];
+
+export type AddVariantResponses = {
+    /**
+     * Successful Response
+     */
+    201: ProductResponse;
+};
+
+export type AddVariantResponse = AddVariantResponses[keyof AddVariantResponses];
+
+export type DeleteVariantData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Product Id
+         */
+        product_id: string;
+        /**
+         * Variant Id
+         */
+        variant_id: string;
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/stores/{store_id}/products/{product_id}/variants/{variant_id}';
+};
+
+export type DeleteVariantErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type DeleteVariantError = DeleteVariantErrors[keyof DeleteVariantErrors];
+
+export type DeleteVariantResponses = {
+    /**
+     * Successful Response
+     */
+    200: ProductResponse;
+};
+
+export type DeleteVariantResponse = DeleteVariantResponses[keyof DeleteVariantResponses];
+
+export type UpdateVariantData = {
+    body: UpdateVariantRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Product Id
+         */
+        product_id: string;
+        /**
+         * Variant Id
+         */
+        variant_id: string;
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/stores/{store_id}/products/{product_id}/variants/{variant_id}';
+};
+
+export type UpdateVariantErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type UpdateVariantError = UpdateVariantErrors[keyof UpdateVariantErrors];
+
+export type UpdateVariantResponses = {
+    /**
+     * Successful Response
+     */
+    200: ProductResponse;
+};
+
+export type UpdateVariantResponse = UpdateVariantResponses[keyof UpdateVariantResponses];
+
+export type AddImageData = {
+    body: AddImageRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Product Id
+         */
+        product_id: string;
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/stores/{store_id}/products/{product_id}/images';
+};
+
+export type AddImageErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type AddImageError = AddImageErrors[keyof AddImageErrors];
+
+export type AddImageResponses = {
+    /**
+     * Successful Response
+     */
+    201: ProductResponse;
+};
+
+export type AddImageResponse = AddImageResponses[keyof AddImageResponses];
+
+export type DeleteImageData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Product Id
+         */
+        product_id: string;
+        /**
+         * Image Id
+         */
+        image_id: string;
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/stores/{store_id}/products/{product_id}/images/{image_id}';
+};
+
+export type DeleteImageErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type DeleteImageError = DeleteImageErrors[keyof DeleteImageErrors];
+
+export type DeleteImageResponses = {
+    /**
+     * Successful Response
+     */
+    200: ProductResponse;
+};
+
+export type DeleteImageResponse = DeleteImageResponses[keyof DeleteImageResponses];
 
 export type ReadStorefrontData = {
     body?: never;
