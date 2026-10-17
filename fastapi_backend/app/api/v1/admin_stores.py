@@ -36,6 +36,7 @@ from app.repositories.admin_stores import (
 from app.services.admin_stores import (
     MAX_PAGE_SIZE,
     MAX_REPROVISION_ATTEMPTS,
+    RETRY_LIMIT_MESSAGE,
     AdminStoreNotFound,
     AdminStoresService,
     CommitFailed,
@@ -252,7 +253,7 @@ ServiceDep = Annotated[AdminStoresService, Depends(get_admin_stores_service)]
 _ERRORS: dict[type[Exception], tuple[int, str, dict[str, str] | None]] = {
     AdminStoreNotFound: (404, "Store not found", None),
     StoreConflict: (409, "Operation not allowed in the current state", None),
-    RetryLimitReached: (409, "Provisioning retry limit reached", None),
+    RetryLimitReached: (409, RETRY_LIMIT_MESSAGE, None),
     ProvisioningNotStarted: (502, "Provisioning could not be started", None),
     MigrationFailed: (502, "Store migration failed", None),
     CommitFailed: (
@@ -275,6 +276,10 @@ def _http_error(exc: Exception) -> HTTPException:
         raise TypeError(f"unmapped admin stores error: {type(exc).__name__}")
     status_code, detail, headers = mapped
     return HTTPException(status_code, detail, headers=headers)
+
+
+# Shared with the merchant retry route (KAN-242), which maps the same domain errors.
+http_error = _http_error
 
 
 def _no_store(response: Response) -> None:

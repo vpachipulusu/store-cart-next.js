@@ -43,6 +43,12 @@ STOREFRONT_POLICY = RateLimitPolicy(
 PUBLIC_SETTINGS_POLICY = RateLimitPolicy(
     "public_settings", limit=120, window_seconds=60, fail_closed=False
 )
+# Merchant retry of a FAILED store (KAN-242): hit once per user and once per store, so one
+# merchant cannot spam many stores and nobody can spam one store. Fail closed: a retry
+# queues external work, so an outage must not lift the limit.
+RETRY_PROVISIONING_POLICY = RateLimitPolicy(
+    "retry_provisioning", limit=5, window_seconds=10 * 60, fail_closed=True
+)
 
 
 @dataclass(frozen=True)

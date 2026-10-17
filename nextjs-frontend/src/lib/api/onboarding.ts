@@ -6,6 +6,7 @@ import {
   createStore,
   listOrganizations,
   readStore,
+  retryStoreProvisioning,
   type OrganizationData,
   type StoreStatus,
 } from './generated';
@@ -178,4 +179,55 @@ export async function fetchStoreStatus(storeId: string): Promise<StoreStatusResu
     return { success: false, reason: 'not_found' };
   }
   return { success: false, reason: 'unavailable' };
+}
+
+export type RetryFailureReason =
+  | 'limit'
+  | 'not_failed'
+  | 'rate_limited'
+  | 'unauthorized'
+  | 'forbidden'
+  | 'not_found'
+  | 'unavailable';
+
+export type RetryProvisioningResult =
+  | { success: true; attempt: number; maxAttempts: number }
+  | { success: false; reason: RetryFailureReason };
+
+/**
+ * The backend's exact 409 text at the attempt cap (`RETRY_LIMIT_MESSAGE` in app/services/admin_stores.py,
+ * shared with the admin re-run); any other 409 is "not FAILED". Change both together.
+ */
+export const RETRY_LIMIT_MESSAGE = 'Provisioning retry limit reached';
+
+function retryReasonFor(failure: Failure): RetryFailureReason {
+  switch (failure.status) {
+    case 409:
+      return failure.error === RETRY_LIMIT_MESSAGE ? 'limit' : 'not_failed';
+    case 401:
+      return 'unauthorized';
+    case 403:
+      return 'forbidden';
+    case 404:
+      return 'not_found';
+    case 429:
+      return 'rate_limited';
+    default:
+      return 'unavailable';
+  }
+}
+
+/**
+ * Asks the backend to re-run provisioning of a FAILED store (KAN-242). Only an owner or admin of the store's
+ * organisation may; the cap and rate limit are the backend's. Backend text is mapped to a fixed reason, never
+ * forwarded.
+ */
+export async function requestProvisioningRetry(storeId: string): Promise<RetryProvisioningResult> {
+  const result = await callBackend((client) =>
+    retryStoreProvisioning({ client, path: { store_id: storeId } })
+  );
+  if (result.success) {
+    return { success: true, attempt: result.data.attempt, maxAttempts: result.data.max_attempts };
+  }
+  return { success: false, reason: retryReasonFor(result) };
 }

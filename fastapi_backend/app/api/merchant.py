@@ -55,14 +55,20 @@ MerchantServiceDep = Annotated[MerchantService, Depends(get_merchant_service)]
 
 
 def require_merchant(
-    roles: frozenset[MembershipRole] = ALL_ROLES, *, write: bool = False
+    roles: frozenset[MembershipRole] = ALL_ROLES,
+    *,
+    write: bool = False,
+    any_status: bool = False,
 ) -> Callable[..., Awaitable[MerchantAccess]]:
     """Dependency factory: the caller holds one of ``roles`` in the store's organisation.
 
     ``write=True`` also requires an ACTIVE store (see ``app.services.merchant``). Any
     request whose method is not GET, HEAD or OPTIONS is treated as a write whatever the
     flag says, so a forgotten ``write=True`` cannot let a mutation through on a
-    suspended store.
+    suspended store. ``any_status=True`` is for the one route that acts on a store that
+    is not ACTIVE (retrying a FAILED store, KAN-242): the role is still checked, the
+    status is left to the route. Any route that passes it MUST restrict the store status
+    itself, in its service and under a lock (the retry route requires FAILED).
     Returns the user id, organisation, store and role. 404 is the same body whether
     the store is unknown or belongs to someone else.
     """
@@ -78,7 +84,7 @@ def require_merchant(
     ) -> MerchantAccess:
         if not store_id or len(store_id) > MAX_STORE_ID_LENGTH or "\0" in store_id:
             raise HTTPException(404, NOT_FOUND)
-        is_write = write or request.method not in SAFE_METHODS
+        is_write = (write or request.method not in SAFE_METHODS) and not any_status
         try:
             return await service.authorize(
                 store_id, identity.uid, allowed, write=is_write

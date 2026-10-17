@@ -6189,6 +6189,78 @@ export type UpdateStoreResponses = {
 
 export type UpdateStoreResponse = UpdateStoreResponses[keyof UpdateStoreResponses];
 
+export type RetryStoreProvisioningData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/stores/{store_id}/retry-provisioning';
+};
+
+export type RetryStoreProvisioningErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * The store is not FAILED, or it was already retried the maximum number of times (3, shared with admin re-runs): `Provisioning retry limit reached`.
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * The job could not be enqueued. The store goes back to FAILED and the attempt does not count against the cap, unless the job already moved it on, in which case it is left as it is.
+     */
+    502: ErrorResponse;
+    /**
+     * The change or its audit row could not be recorded and was rolled back. Retry after `Retry-After` seconds (5). If it was the step that returns a failed enqueue to FAILED, the store may stay PROVISIONING and is logged for follow-up. Also returned when the rate limiter is unavailable.
+     */
+    503: ErrorResponse;
+};
+
+export type RetryStoreProvisioningError = RetryStoreProvisioningErrors[keyof RetryStoreProvisioningErrors];
+
+export type RetryStoreProvisioningResponses = {
+    /**
+     * Successful Response
+     */
+    200: StoreReprovisionResponse;
+};
+
+export type RetryStoreProvisioningResponse = RetryStoreProvisioningResponses[keyof RetryStoreProvisioningResponses];
+
 export type PresignImageUploadData = {
     body: ImageUploadRequest;
     headers?: {

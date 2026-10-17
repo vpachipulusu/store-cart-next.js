@@ -4,6 +4,8 @@ import { revalidatePath } from 'next/cache';
 import {
   createOrganizationWithStore,
   fetchStoreStatus,
+  requestProvisioningRetry,
+  type RetryFailureReason,
   type StoreStatus,
 } from '@/lib/api/onboarding';
 import { getVerifiedSessionClaims, isEmailNotVerifiedError } from '@/lib/auth/verified-session';
@@ -168,5 +170,37 @@ export async function getStoreStatusAction(storeId: string): Promise<StoreStatus
       errorName: error instanceof Error ? error.name : typeof error,
     });
     return { success: false, error: STATUS_ERROR };
+  }
+}
+
+export type RetryProvisioningResponse =
+  | { success: true; data: { attempt: number }; code?: undefined; reason?: undefined }
+  | {
+      success: false;
+      data?: undefined;
+      code?: 'unauthorized';
+      reason?: Exclude<RetryFailureReason, 'unauthorized'>;
+    };
+
+/**
+ * The merchant's "Retry setup" for a FAILED store (KAN-242). The backend decides who may (owner or admin), the
+ * attempt cap and the rate limit; the client gets a fixed reason, never backend text.
+ */
+export async function retryProvisioningAction(storeId: string): Promise<RetryProvisioningResponse> {
+  const session = await checkSession();
+  if (session === 'unauthorized') return { success: false, code: 'unauthorized' };
+  if (session === 'unavailable') return { success: false, reason: 'unavailable' };
+  if (!isStoreId(storeId)) return { success: false, reason: 'not_found' };
+
+  try {
+    const result = await requestProvisioningRetry(storeId);
+    if (result.success) return { success: true, data: { attempt: result.attempt } };
+    if (result.reason === 'unauthorized') return { success: false, code: 'unauthorized' };
+    return { success: false, reason: result.reason };
+  } catch (error) {
+    logger.error('Provisioning retry error', {
+      errorName: error instanceof Error ? error.name : typeof error,
+    });
+    return { success: false, reason: 'unavailable' };
   }
 }
