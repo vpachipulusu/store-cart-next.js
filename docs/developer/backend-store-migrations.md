@@ -128,3 +128,13 @@ TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:55460/storemi
   uv run pytest tests/services/test_store_migrations_e2e.py
 docker rm -f store-mig-pg
 ```
+
+## Store tables
+
+| Revision | Adds | Doc |
+| -------- | ---- | --- |
+| `0001` | baseline (no tables) | this page |
+| `0002` | catalogue: products, variants, options, option values (KAN-70) | [backend-store-catalogue.md](backend-store-catalogue.md) |
+
+Tests that need "a store at version 1" pass a tree that stops at `0001` (`baseline` fixture in
+`tests/services/test_store_migrations_e2e.py`) instead of depending on the real head.

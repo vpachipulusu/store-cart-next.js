@@ -177,11 +177,13 @@ class World:
             await engine.dispose()
 
 
-async def test_fresh_store_is_migrated_and_its_version_recorded(world: "World"):
+async def test_fresh_store_is_migrated_and_its_version_recorded(
+    world: "World", baseline: Path
+):
     database = await world.store_database("a")
     store_id = await world.add_store(url_for(database))
 
-    version = await migrate_store(store_id, world.provider)
+    version = await migrate_store(store_id, world.provider, script_location=baseline)
 
     assert version == 1
     assert await world.schema_version(store_id) == 1
@@ -189,12 +191,12 @@ async def test_fresh_store_is_migrated_and_its_version_recorded(world: "World"):
 
 
 async def test_rerun_is_idempotent_and_pending_revisions_are_applied(
-    world: "World", tmp_path: Path
+    world: "World", tmp_path: Path, baseline: Path
 ):
     database = await world.store_database("a")
     store_id = await world.add_store(url_for(database))
-    assert await migrate_store(store_id, world.provider) == 1
-    assert await migrate_store(store_id, world.provider) == 1
+    assert await migrate_store(store_id, world.provider, script_location=baseline) == 1
+    assert await migrate_store(store_id, world.provider, script_location=baseline) == 1
 
     tree = make_tree(tmp_path, REVISION_0002)
 
@@ -204,7 +206,9 @@ async def test_rerun_is_idempotent_and_pending_revisions_are_applied(
     assert await world.stamped_revision(database) == "0002"
 
 
-async def test_batch_migrates_every_active_store_across_batches(world: "World"):
+async def test_batch_migrates_every_active_store_across_batches(
+    world: "World", baseline: Path
+):
     ids = []
     databases = []
     for tag in ("a", "b", "c"):
@@ -212,7 +216,9 @@ async def test_batch_migrates_every_active_store_across_batches(world: "World"):
         databases.append(database)
         ids.append(await world.add_store(url_for(database)))
 
-    report = await migrate_active_stores(world.provider, batch_size=2)
+    report = await migrate_active_stores(
+        world.provider, batch_size=2, script_location=baseline
+    )
 
     assert report.succeeded
     assert sorted(result.store_id for result in report.migrated) == sorted(ids)
@@ -247,7 +253,7 @@ async def test_non_active_stores_are_skipped_and_reported(world: "World"):
 
 
 async def test_first_failure_stops_the_run_and_leaves_later_stores_untouched(
-    world: "World",
+    world: "World", baseline: Path
 ):
     good_db = await world.store_database("a")
     later_db = await world.store_database("c")
@@ -258,7 +264,9 @@ async def test_first_failure_stops_the_run_and_leaves_later_stores_untouched(
     )
     await world.add_store(url_for(later_db), store_id=ids[2])
 
-    report = await migrate_active_stores(world.provider, batch_size=1)
+    report = await migrate_active_stores(
+        world.provider, batch_size=1, script_location=baseline
+    )
 
     assert not report.succeeded
     assert report.failed_store_id == ids[1]
@@ -283,15 +291,26 @@ async def test_failure_output_never_contains_connection_secrets(world: "World"):
         assert secret not in printed
 
 
-def make_tree(tmp_path: Path, revision_0002: str) -> Path:
-    tree = tmp_path / "alembic_store"
-    (tree / "versions").mkdir(parents=True)
+def _copy_baseline(root: Path) -> Path:
+    tree = root / "versions"
+    tree.mkdir(parents=True)
     real = Path(__file__).resolve().parents[2] / "alembic_store"
-    (tree / "env.py").write_text((real / "env.py").read_text())
-    (tree / "script.py.mako").write_text((real / "script.py.mako").read_text())
-    (tree / "versions" / "0001_store_baseline.py").write_text(
+    (root / "env.py").write_text((real / "env.py").read_text())
+    (root / "script.py.mako").write_text((real / "script.py.mako").read_text())
+    (tree / "0001_store_baseline.py").write_text(
         (real / "versions" / "0001_store_baseline.py").read_text()
     )
+    return root
+
+
+@pytest.fixture
+def baseline(tmp_path: Path) -> Path:
+    """A store tree that stops at the 0001 baseline, whatever the real tree has added."""
+    return _copy_baseline(tmp_path / "baseline_store")
+
+
+def make_tree(tmp_path: Path, revision_0002: str) -> Path:
+    tree = _copy_baseline(tmp_path / "alembic_store")
     (tree / "versions" / "0002_next.py").write_text(revision_0002)
     return tree
 
@@ -304,11 +323,11 @@ FAILING_REVISION = REVISION_0002.replace(
 
 
 async def test_failing_revision_rolls_back_and_keeps_the_previous_version(
-    world: "World", tmp_path: Path
+    world: "World", tmp_path: Path, baseline: Path
 ):
     database = await world.store_database("a")
     store_id = await world.add_store(url_for(database))
-    await migrate_store(store_id, world.provider)
+    await migrate_store(store_id, world.provider, script_location=baseline)
     tree = make_tree(tmp_path, FAILING_REVISION)
 
     with pytest.raises(StoreMigrationFailed) as caught:
@@ -343,7 +362,7 @@ async def test_concurrent_runs_on_one_store_are_serialised(
 
 
 async def test_failed_version_write_is_repaired_by_the_next_run(
-    world: "World", monkeypatch: pytest.MonkeyPatch
+    world: "World", monkeypatch: pytest.MonkeyPatch, baseline: Path
 ):
     database = await world.store_database("a")
     store_id = await world.add_store(url_for(database))
@@ -354,16 +373,16 @@ async def test_failed_version_write_is_repaired_by_the_next_run(
     with monkeypatch.context() as patch:
         patch.setattr(store_migrations, "_record_version", broken)
         with pytest.raises(StoreVersionNotRecorded):
-            await migrate_store(store_id, world.provider)
+            await migrate_store(store_id, world.provider, script_location=baseline)
     assert await world.stamped_revision(database) == "0001"
     assert await world.schema_version(store_id) == 0
 
-    assert await migrate_store(store_id, world.provider) == 1
+    assert await migrate_store(store_id, world.provider, script_location=baseline) == 1
     assert await world.schema_version(store_id) == 1
 
 
 async def test_store_database_ahead_of_the_code_is_refused_and_never_lowered(
-    world: "World", tmp_path: Path
+    world: "World", tmp_path: Path, baseline: Path
 ):
     database = await world.store_database("a")
     store_id = await world.add_store(url_for(database))
@@ -373,14 +392,16 @@ async def test_store_database_ahead_of_the_code_is_refused_and_never_lowered(
 
     # An older build (only knows 0001) runs late, as in a rolling deploy.
     with pytest.raises(StoreMigrationFailed) as caught:
-        await migrate_store(store_id, world.provider)
+        await migrate_store(store_id, world.provider, script_location=baseline)
 
     assert caught.value.reason == "StoreSchemaAhead"
     assert await world.stamped_revision(database) == "0002"
     assert await world.schema_version(store_id) == 2
 
 
-async def test_recorded_schema_version_never_goes_backwards(world: "World"):
+async def test_recorded_schema_version_never_goes_backwards(
+    world: "World", baseline: Path
+):
     database = await world.store_database("a")
     store_id = await world.add_store(url_for(database))
     async with world.platform.begin() as connection:
@@ -388,7 +409,7 @@ async def test_recorded_schema_version_never_goes_backwards(world: "World"):
             text("UPDATE stores SET schema_version = 5 WHERE id = :i"), {"i": store_id}
         )
 
-    assert await migrate_store(store_id, world.provider) == 1
+    assert await migrate_store(store_id, world.provider, script_location=baseline) == 1
     assert await world.schema_version(store_id) == 5
 
 
@@ -421,7 +442,7 @@ async def lock_held_elsewhere(database: str) -> AsyncIterator[None]:
 
 
 async def test_a_long_held_lock_is_waited_for_not_failed_as_a_ddl_timeout(
-    world: "World", monkeypatch: pytest.MonkeyPatch
+    world: "World", monkeypatch: pytest.MonkeyPatch, baseline: Path
 ):
     # lock_timeout is 1s here; the other runner holds the lock for ~2.5s, so the wait
     # must not be governed by the DDL lock_timeout.
@@ -433,7 +454,9 @@ async def test_a_long_held_lock_is_waited_for_not_failed_as_a_ddl_timeout(
 
     async with lock_held_elsewhere(database) as _:
         started = loop.time()
-        migrating = asyncio.create_task(migrate_store(store_id, world.provider))
+        migrating = asyncio.create_task(
+            migrate_store(store_id, world.provider, script_location=baseline)
+        )
         await asyncio.sleep(2.5)
         assert not migrating.done()
     version = await migrating
