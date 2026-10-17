@@ -193,7 +193,10 @@ async def test_failed_stores_do_not_count_against_the_plan_limit(
     assert response.status_code == 201
     blocked = await post_store(client, "olga", org_id, "shop-three")
     assert blocked.status_code == 409
-    assert error_of(blocked) == "Store limit reached for the current plan"
+    assert (
+        error_of(blocked)
+        == "The Free plan allows 1 store. Upgrade your plan to add more."
+    )
 
 
 # --- signed callbacks against the real database --------------------------------

@@ -31,15 +31,23 @@ def plan_for(tier: str) -> Plan:
         return PLANS[PlanKey.FREE]
 
 
+def _allows(
+    plan: Plan, limit: int | None, singular: str, plural: str, scope: str = ""
+) -> str:
+    noun = singular if limit == 1 else plural
+    return f"The {plan.name} plan allows {limit} {noun}{scope}. {UPGRADE_HINT}"
+
+
+def store_limit_message(plan: Plan) -> str:
+    return _allows(plan, plan.max_stores, "store", "stores")
+
+
 def product_limit_message(plan: Plan) -> str:
-    return (
-        f"The {plan.name} plan allows {plan.max_products} products per store. "
-        f"{UPGRADE_HINT}"
-    )
+    return _allows(plan, plan.max_products, "product", "products", " per store")
 
 
 def staff_limit_message(plan: Plan) -> str:
-    return f"The {plan.name} plan allows {plan.max_staff} team members. {UPGRADE_HINT}"
+    return _allows(plan, plan.max_staff, "team member", "team members")
 
 
 def require_staff_capacity(current_members: int, tier: str) -> None:

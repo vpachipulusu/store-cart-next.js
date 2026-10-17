@@ -24,7 +24,6 @@ from typing import Any, Protocol
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.plans import PLANS, PlanKey
 from app.core.sentry import report_exception
 from app.core.slugs import normalize_slug
 from app.models.platform.membership import MembershipRole
@@ -37,6 +36,7 @@ from app.repositories.organizations import (
     StoreRecord,
 )
 from app.services.audit import sanitize
+from app.services.plan_limits import plan_for, store_limit_message
 
 logger = logging.getLogger("storecart.organizations")
 
@@ -78,7 +78,7 @@ class SlugTaken(Exception):
 
 
 class StoreLimitReached(Exception):
-    """The organisation's plan allows no more stores (409)."""
+    """The organisation's plan allows no more stores (409); the message names the plan."""
 
 
 class OrganizationLimitReached(Exception):
@@ -286,12 +286,12 @@ class OrganizationsService:
             raise OrgForbidden
         clean_name = normalize_name(name)
         clean_slug = normalize_slug(slug)
-        limit = self._max_stores(organization.effective_plan)
+        plan = plan_for(organization.effective_plan)
         if (
-            limit is not None
-            and await self._store.count_stores(organization_id) >= limit
+            plan.max_stores is not None
+            and await self._store.count_stores(organization_id) >= plan.max_stores
         ):
-            raise StoreLimitReached
+            raise StoreLimitReached(store_limit_message(plan))
         store = await self._store.insert_store(organization_id, clean_name, clean_slug)
         if store is None:
             raise SlugTaken
@@ -393,13 +393,6 @@ class OrganizationsService:
             stores[:MAX_INLINE_STORES],
             len(stores) > MAX_INLINE_STORES,
         )
-
-    @staticmethod
-    def _max_stores(tier: str) -> int | None:
-        try:
-            return PLANS[PlanKey(tier)].max_stores
-        except ValueError:
-            return PLANS[PlanKey.FREE].max_stores
 
     @staticmethod
     def _changes(

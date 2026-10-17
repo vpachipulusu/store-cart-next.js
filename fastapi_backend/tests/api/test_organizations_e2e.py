@@ -602,7 +602,9 @@ async def test_store_limit_follows_plan_and_counts_non_archived_only(
     pro_over = await post_store(client, "bob", pro_org, "pro-four")
 
     assert free.status_code == 409
-    assert error_of(free) == "Store limit reached for the current plan"
+    assert (
+        error_of(free) == "The Free plan allows 1 store. Upgrade your plan to add more."
+    )
     assert pro_ok.status_code == 201
     assert pro_over.status_code == 409
 

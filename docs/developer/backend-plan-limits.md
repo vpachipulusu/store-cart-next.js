@@ -21,7 +21,7 @@ A new product has no row to lock, so `create` takes `pg_advisory_xact_lock` (`St
 before counting; the lock is per database and each store has its own. Two concurrent creates therefore run one after
 the other and only one can take the last slot. No schema change. The check is skipped for an unlimited plan.
 
-Response: `409 {"error": "The Free plan allows 25 products per store. Upgrade your plan to add more."}`.
+Response: `409 {"error": "The Free plan allows 25 products per store. Upgrade your plan to add more."}`. The store limit answers the same way ("The Free plan allows 1 store. ..."); limits of 1 are singular ("1 team member").
 
 ## Staff
 

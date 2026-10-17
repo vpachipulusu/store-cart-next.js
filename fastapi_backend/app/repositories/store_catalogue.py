@@ -117,6 +117,8 @@ class StoreCatalogueRepository(BaseRepository):
         same total. The advisory lock is per database, and every store has its own.
         """
         # A stuck holder must not queue creates forever: 55P03 becomes "store is busy, retry".
+        # SET LOCAL lasts until the transaction ends, so the timeout also covers the later
+        # insert and commit; a timeout there surfaces as the 409 "The store is busy, retry".
         await self._session.execute(text("SET LOCAL lock_timeout = '5s'"))
         await self._session.execute(
             text("SELECT pg_advisory_xact_lock(:key)"), {"key": PRODUCT_CREATE_LOCK_KEY}

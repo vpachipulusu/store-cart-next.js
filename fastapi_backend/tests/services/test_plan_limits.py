@@ -9,6 +9,7 @@ from app.services.plan_limits import (
     plan_for,
     product_limit_message,
     require_staff_capacity,
+    store_limit_message,
 )
 
 
@@ -28,7 +29,7 @@ def test_staff_at_the_limit_is_refused_with_an_upgrade_message() -> None:
     assert isinstance(caught.value, PlanLimitReached)
     assert (
         str(caught.value)
-        == "The Free plan allows 1 team members. Upgrade your plan to add more."
+        == "The Free plan allows 1 team member. Upgrade your plan to add more."
     )
 
 
@@ -49,4 +50,13 @@ def test_product_message_names_plan_and_limit() -> None:
     assert (
         message
         == "The Pro plan allows 1000 products per store. Upgrade your plan to add more."
+    )
+
+
+def test_store_message_names_the_plan_and_pluralises() -> None:
+    assert store_limit_message(PLANS[PlanKey.FREE]) == (
+        "The Free plan allows 1 store. Upgrade your plan to add more."
+    )
+    assert store_limit_message(PLANS[PlanKey.PRO]) == (
+        "The Pro plan allows 3 stores. Upgrade your plan to add more."
     )
