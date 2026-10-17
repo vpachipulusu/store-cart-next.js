@@ -31,12 +31,14 @@ import {
 
 /** Exchanges a fresh Firebase ID token for a session cookie; the backend syncs the user and records the login. */
 export function createBackendSession(idToken: string, userAgent: string | null) {
-  return callBackend((client) =>
-    createSession({
-      client,
-      body: { id_token: idToken },
-      ...(userAgent ? { headers: { 'User-Agent': userAgent.slice(0, 512) } } : {}),
-    })
+  return callBackend(
+    (client) =>
+      createSession({
+        client,
+        body: { id_token: idToken },
+        ...(userAgent ? { headers: { 'User-Agent': userAgent.slice(0, 512) } } : {}),
+      }),
+    { requireInternalKey: true }
   );
 }
 
@@ -45,7 +47,9 @@ export function createBackendSession(idToken: string, userAgent: string | null) 
  * requires the same uid, records no login history and rejects an ID token too old to mint a cookie.
  */
 export function refreshBackendSession(idToken: string) {
-  return callBackend((client) => refreshSession({ client, body: { id_token: idToken } }));
+  return callBackend((client) => refreshSession({ client, body: { id_token: idToken } }), {
+    requireInternalKey: true,
+  });
 }
 
 export function revokeBackendSession() {
@@ -82,6 +86,7 @@ export function fetchSessionStatus() {
 export function verifyBackendIdToken(idToken: string) {
   return callBackend((client) => verifyIdToken({ client, body: { id_token: idToken } }), {
     withSession: false,
+    requireInternalKey: true,
   });
 }
 

@@ -218,5 +218,36 @@ describe('callBackend', () => {
         'BACKEND_API_URL is not set'
       );
     });
+
+    it('marks the error so sign-in can report an outage (KAN-241)', async () => {
+      delete process.env.BACKEND_API_URL;
+
+      await expect(callBackend((client) => healthCheck({ client }))).rejects.toMatchObject({
+        code: 'backend/not-configured',
+      });
+    });
+  });
+
+  describe('Given BACKEND_INTERNAL_KEY is not set (KAN-241)', () => {
+    it('fails fast with the marked error when the route requires the key', async () => {
+      vi.stubEnv('BACKEND_INTERNAL_KEY', '');
+
+      await expect(
+        callBackend((client) => healthCheck({ client }), { requireInternalKey: true })
+      ).rejects.toMatchObject({
+        code: 'backend/not-configured',
+        message: 'BACKEND_INTERNAL_KEY is not set',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('still calls public routes without the key', async () => {
+      vi.stubEnv('BACKEND_INTERNAL_KEY', '');
+      fetchMock.mockResolvedValue(jsonResponse({ status: 'ok' }));
+
+      const result = await callBackend((client) => healthCheck({ client }));
+
+      expect(result.success).toBe(true);
+    });
   });
 });
