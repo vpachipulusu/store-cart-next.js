@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   suspendStoreAction: vi.fn(),
   unsuspendStoreAction: vi.fn(),
   migrateStoreAction: vi.fn(),
+  reprovisionStoreAction: vi.fn(),
   refresh: vi.fn(),
   toast: vi.fn(),
 }));
@@ -14,6 +15,7 @@ vi.mock('@/app/actions/admin-store-actions', () => ({
   suspendStoreAction: mocks.suspendStoreAction,
   unsuspendStoreAction: mocks.unsuspendStoreAction,
   migrateStoreAction: mocks.migrateStoreAction,
+  reprovisionStoreAction: mocks.reprovisionStoreAction,
 }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: mocks.refresh }) }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: mocks.toast }) }));
@@ -153,5 +155,129 @@ describe('StoreRowActions', () => {
     );
     expect(JSON.stringify(mocks.toast.mock.calls)).not.toContain('SECRET');
     expect(mocks.refresh).toHaveBeenCalled();
+  });
+
+  describe('re-run provisioning', () => {
+    const RERUN = 'Re-run provisioning for Acme Shop';
+
+    it.each(['ACTIVE', 'SUSPENDED', 'PROVISIONING', 'ARCHIVED'] as const)(
+      'is not offered for a %s store',
+      (status) => {
+        renderActions(status);
+
+        expect(
+          screen.queryByRole('button', { name: /re-run provisioning/i })
+        ).not.toBeInTheDocument();
+      }
+    );
+
+    it('is the only action for a failed store', () => {
+      renderActions('FAILED');
+
+      expect(screen.getByRole('button', { name: RERUN })).toBeInTheDocument();
+      expect(screen.queryByText('No actions')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /migrations|suspend/i })).not.toBeInTheDocument();
+    });
+
+    it('asks first and does nothing when the confirmation is cancelled', async () => {
+      const user = userEvent.setup();
+      renderActions('FAILED');
+
+      await user.click(screen.getByRole('button', { name: RERUN }));
+      expect(await screen.findByRole('dialog')).toHaveTextContent(/re-run provisioning/i);
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      expect(mocks.reprovisionStoreAction).not.toHaveBeenCalled();
+    });
+
+    it('re-runs after confirmation, toasts the message and refreshes', async () => {
+      mocks.reprovisionStoreAction.mockResolvedValue({
+        success: true,
+        data: { message: 'Provisioning re-run started (attempt 1 of 3)' },
+      });
+      const user = userEvent.setup();
+      renderActions('FAILED');
+
+      await user.click(screen.getByRole('button', { name: RERUN }));
+      await user.click(await screen.findByRole('button', { name: 'Re-run provisioning' }));
+
+      await waitFor(() => expect(mocks.refresh).toHaveBeenCalled());
+      expect(mocks.reprovisionStoreAction).toHaveBeenCalledTimes(1);
+      expect(mocks.reprovisionStoreAction).toHaveBeenCalledWith('store-1');
+      expect(mocks.toast).toHaveBeenCalledWith({
+        title: 'Success',
+        description: 'Provisioning re-run started (attempt 1 of 3)',
+      });
+    });
+
+    it('disables the button while the request runs, so it cannot be submitted twice', async () => {
+      let finish: (value: { success: boolean }) => void = () => {};
+      mocks.reprovisionStoreAction.mockReturnValue(
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+      );
+      const user = userEvent.setup();
+      renderActions('FAILED');
+
+      await user.click(screen.getByRole('button', { name: RERUN }));
+      await user.click(await screen.findByRole('button', { name: 'Re-run provisioning' }));
+
+      await waitFor(() => expect(screen.getByRole('button', { name: RERUN })).toBeDisabled());
+      await user.click(screen.getByRole('button', { name: RERUN }));
+      expect(mocks.reprovisionStoreAction).toHaveBeenCalledTimes(1);
+
+      finish({ success: true });
+      await waitFor(() => expect(screen.getByRole('button', { name: RERUN })).toBeEnabled());
+    });
+
+    it('toasts the curated error and refreshes when the action refuses', async () => {
+      mocks.reprovisionStoreAction.mockResolvedValue({
+        success: false,
+        error: 'This store has used all of its provisioning re-runs.',
+      });
+      const user = userEvent.setup();
+      renderActions('FAILED');
+
+      await user.click(screen.getByRole('button', { name: RERUN }));
+      await user.click(await screen.findByRole('button', { name: 'Re-run provisioning' }));
+
+      await waitFor(() =>
+        expect(mocks.toast).toHaveBeenCalledWith({
+          title: 'Error',
+          description: 'This store has used all of its provisioning re-runs.',
+          variant: 'destructive',
+        })
+      );
+      expect(mocks.refresh).toHaveBeenCalled();
+    });
+
+    it('can be retried after the action throws', async () => {
+      mocks.reprovisionStoreAction
+        .mockRejectedValueOnce(new Error('network'))
+        .mockResolvedValueOnce({ success: true, data: { message: 'Started' } });
+      const user = userEvent.setup();
+      renderActions('FAILED');
+
+      await user.click(screen.getByRole('button', { name: RERUN }));
+      await user.click(await screen.findByRole('button', { name: 'Re-run provisioning' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: RERUN })).toBeEnabled());
+
+      await user.click(screen.getByRole('button', { name: RERUN }));
+      await user.click(await screen.findByRole('button', { name: 'Re-run provisioning' }));
+
+      await waitFor(() => expect(mocks.reprovisionStoreAction).toHaveBeenCalledTimes(2));
+    });
+
+    it('closes the confirmation once it is confirmed', async () => {
+      mocks.reprovisionStoreAction.mockResolvedValue({ success: true });
+      const user = userEvent.setup();
+      renderActions('FAILED');
+
+      await user.click(screen.getByRole('button', { name: RERUN }));
+      await user.click(await screen.findByRole('button', { name: 'Re-run provisioning' }));
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    });
   });
 });

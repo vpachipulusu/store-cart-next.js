@@ -16,11 +16,15 @@ import {
  * - Onboarding leaves a store PROVISIONING (nothing activates it until KAN-56), so the suspend, unsuspend and
  *   migrate flow needs a store that is already ACTIVE. Set E2E_ACTIVE_STORE_SLUG to the slug of one you made ACTIVE
  *   in your own throwaway database; without it that flow is skipped. The flow ends with the store ACTIVE again.
- * - Re-running provisioning is KAN-200 and has no control yet.
+ * - "Re-run provisioning" is offered only for FAILED stores. Set E2E_FAILED_STORE_SLUG to the slug of one you
+ *   marked FAILED in your own throwaway database (with fewer than 3 re-runs used); without it that flow is
+ *   skipped. A local backend has no job queue, so the re-run may end as a start failure: the test accepts the
+ *   started toast or the curated "could not be started" toast, and checks the row either way.
  */
 
 const HAS_BACKEND = Boolean(process.env.BACKEND_INTERNAL_KEY);
 const ACTIVE_STORE_SLUG = process.env.E2E_ACTIVE_STORE_SLUG;
+const FAILED_STORE_SLUG = process.env.E2E_FAILED_STORE_SLUG;
 
 async function searchStores(page: Page, slug: string): Promise<void> {
   await page.goto(`/admin/stores?q=${encodeURIComponent(slug)}`);
@@ -120,6 +124,36 @@ test.describe('Admin stores and organisations', () => {
           await expect(unsuspend).toHaveCount(0);
         }
       }
+    });
+
+    test('offers re-run provisioning only for a failed store, behind a confirmation', async ({
+      page,
+    }) => {
+      test.skip(
+        !FAILED_STORE_SLUG,
+        'Skipped: E2E_FAILED_STORE_SLUG not set (needs a FAILED store)'
+      );
+      await searchStores(page, FAILED_STORE_SLUG!);
+
+      const row = page.getByRole('row').filter({ hasText: FAILED_STORE_SLUG! });
+      await expect(row.getByText('Failed', { exact: true })).toBeVisible();
+      const rerun = row.getByRole('button', { name: /^re-run provisioning for/i });
+      await expect(rerun).toBeVisible();
+      await expect(row.getByRole('button')).toHaveCount(1);
+
+      // Cancelling the confirmation changes nothing.
+      await rerun.click();
+      const dialog = page.getByRole('dialog');
+      await expect(dialog.getByText(/starts a new provisioning run/i)).toBeVisible();
+      await dialog.getByRole('button', { name: 'Cancel' }).click();
+      await expect(dialog).toHaveCount(0);
+      await expect(row.getByText('Failed', { exact: true })).toBeVisible();
+
+      // Confirming starts a run. Without a job queue the start can fail; both outcomes use fixed copy.
+      await rerun.click();
+      await page.getByRole('dialog').getByRole('button', { name: 'Re-run provisioning' }).click();
+      await expectToast(page, /re-run started|could not be started/i);
+      await expect(page.getByText(/retry limit|traceback|sqlalchemy/i)).toHaveCount(0);
     });
   });
 
