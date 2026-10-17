@@ -116,9 +116,9 @@ async def test_the_transaction_is_released_before_stripe_is_read():
     store = FakeAnalyticsStore([PriceGroup("price_pro_m", 1)])
 
     class Prices(FakePrices):
-        async def get_unit_amount(self, price_id: str) -> int | None:
+        async def get_price(self, price_id: str):
             seen.append(store.released)
-            return await super().get_unit_amount(price_id)
+            return await super().get_price(price_id)
 
     service = AdminAnalyticsService(
         store, Prices({"price_pro_m": 100}), CATALOGUE, Currency(), store.release
@@ -139,6 +139,39 @@ async def test_monthly_and_inexact_yearly_prices_are_rounded_once_per_plan():
 
     # 2 * 24001 / 12 = 4000.17 -> 4000, added to 1000 monthly
     assert report.mrr_minor == 5000
+
+
+async def test_a_price_in_another_currency_is_unpriced_not_added():
+    prices = FakePrices({"price_pro_m": 2900, "price_ent_m": 9900})
+    prices.currencies["price_ent_m"] = "EUR"
+    groups = [PriceGroup("price_pro_m", 2), PriceGroup("price_ent_m", 1)]
+    service, _ = analytics(groups, prices)
+
+    report = await service.revenue()
+
+    assert report.currency == "GBP"
+    assert report.unpriced_organizations == 1  # the EUR price cannot join a GBP total
+    assert report.mrr_minor == 2 * 2900
+    assert not report.complete
+
+
+async def test_prices_in_the_platform_currency_are_added_even_if_cased_differently():
+    prices = FakePrices({"price_pro_m": 2900}, currency="gbp")
+    service, _ = analytics([PriceGroup("price_pro_m", 2)], prices)
+
+    report = await service.revenue()
+
+    assert report.mrr_minor == 5800 and report.complete
+
+
+async def test_arr_is_exact_for_yearly_prices_not_twelve_rounded_months():
+    groups = [PriceGroup("price_pro_m", 1), PriceGroup("price_pro_y", 2)]
+    prices = FakePrices({"price_pro_m": 1000, "price_pro_y": 24001}, currency="GBP")
+    service, _ = analytics(groups, prices)
+
+    report = await service.revenue()
+
+    assert report.arr_minor == 1000 * 12 + 2 * 24001
 
 
 async def test_yearly_prices_count_as_one_twelfth_per_month():
@@ -405,3 +438,68 @@ async def test_without_stripe_the_sync_is_not_configured():
         await service.reconcile(ADMIN)
 
     assert auditor.rows == [] and session.commits == 0
+
+
+async def test_stripe_failing_on_the_second_page_is_unavailable_and_audited():
+    lister = FakeLister(
+        [snapshot(f"sub_{n}", f"cus_{n}") for n in range(4)], page_size=2
+    )
+    lister.fail_on_call = 2
+    service, session, auditor = syncer(lister)
+
+    with pytest.raises(SyncUnavailable):
+        await service.reconcile(ADMIN)
+
+    assert lister.cursors == [None, "sub_1"]
+    assert [r["details"] for r in auditor.rows] == [{"outcome": "unavailable"}]
+    assert session.commits == 1
+
+
+async def test_unreadable_stripe_rows_skip_the_not_found_check():
+    lister = FakeLister([])
+    lister.skipped = 1  # Stripe sent a row without an id or status
+    service, _, auditor = syncer(lister, org())
+
+    report = await service.reconcile(ADMIN)
+
+    assert report.skipped == 1
+    assert [d.kind for d in report.drifts] == []  # org1 is not reported missing
+    assert auditor.rows[0]["details"]["skipped"] == 1
+
+
+async def test_the_time_budget_stops_reading_and_marks_the_report_partial():
+    items = [snapshot(f"sub_{n}", f"cus_{n}") for n in range(6)]
+    lister = FakeLister(items, page_size=2)
+    ticks = iter([0.0, 10.0, 70.0, 80.0, 90.0])
+    session, auditor = Session(), Auditor()
+    service = SubscriptionSyncService(
+        FakeSyncStore(org(stripe_subscription_id="sub_local")),
+        session,  # type: ignore[arg-type]
+        lister,
+        auditor,
+        PLANS,
+        clock=lambda: next(ticks),
+        budget_seconds=60.0,
+    )
+
+    report = await service.reconcile(ADMIN)
+
+    assert report.truncated
+    assert lister.cursors == [None, "sub_1"]  # stopped after the page that ran over
+    assert report.stripe_subscriptions == 4
+    assert all(d.kind != "missing_in_stripe" for d in report.drifts)
+
+
+async def test_a_fast_sync_is_not_cut_by_the_time_budget():
+    items = [snapshot(f"sub_{n}", f"cus_{n}") for n in range(4)]
+    orgs = [
+        org(
+            id=f"o{n}", stripe_customer_id=f"cus_{n}", stripe_subscription_id=f"sub_{n}"
+        )
+        for n in range(4)
+    ]
+    service, _, _ = syncer(FakeLister(items, page_size=2), *orgs)
+
+    report = await service.reconcile(ADMIN)
+
+    assert not report.truncated and report.in_sync == 4

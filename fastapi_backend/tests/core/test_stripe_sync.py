@@ -121,3 +121,30 @@ def test_factory_needs_a_secret_key(monkeypatch):
 
     monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", SecretStr(SECRET))
     assert isinstance(get_stripe_subscription_lister(), HttpStripeSubscriptionLister)
+
+
+async def test_rows_that_cannot_be_read_are_counted_as_skipped():
+    rows = [SUB, {"id": "sub_bad"}, "junk", {"status": "active"}]
+
+    page = await lister_for({"data": rows}).list_subscriptions(None)
+
+    assert [i.id for i in page.items] == ["sub_1"]
+    assert page.skipped == 3
+
+
+async def test_all_pages_of_a_sync_share_the_given_client(monkeypatch):
+    monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", SecretStr(SECRET))
+    seen: list[httpx.Request] = []
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda r: seen.append(r) or httpx.Response(200, json={"data": []})
+        )
+    )
+    lister = get_stripe_subscription_lister(client)
+    assert lister is not None
+
+    await lister.list_subscriptions(None)
+    await lister.list_subscriptions("sub_1")
+
+    assert len(seen) == 2
+    assert not client.is_closed

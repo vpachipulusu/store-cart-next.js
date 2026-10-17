@@ -14,7 +14,7 @@ from typing import Literal, Protocol
 
 from app.core.plans import PlanKey
 from app.core.stripe_billing import StripeError
-from app.core.stripe_prices import StripePriceReader
+from app.core.stripe_prices import StripePrice, StripePriceDetailsReader
 from app.repositories.admin_analytics import (
     OverviewCounts,
     PriceGroup,
@@ -80,7 +80,7 @@ class AdminAnalyticsService:
     def __init__(
         self,
         store: AnalyticsStore,
-        prices: StripePriceReader | None,
+        prices: StripePriceDetailsReader | None,
         catalogue: Mapping[str, PriceEntry],
         currency: CurrencySource,
         release: Callable[[], Awaitable[None]],
@@ -105,20 +105,27 @@ class AdminAnalyticsService:
         currency = await self.currency.currency()
         # End the read transaction: no connection is held while Stripe is called.
         await self.release()
-        amounts = await self._amounts({g.price_id for g in groups if g.price_id})
+        found = await self._prices({g.price_id for g in groups if g.price_id})
         monthly: dict[PlanKey, int] = {}
         yearly: dict[PlanKey, int] = {}
         counts: dict[PlanKey, int] = {}
         unpriced = 0
         for group in groups:
             entry = self.catalogue.get(group.price_id or "")
-            amount = amounts.get(group.price_id or "")
-            if entry is None or amount is None:
+            price = found.get(group.price_id or "")
+            # A price in another currency than the platform's cannot be added to the total.
+            if (
+                entry is None
+                or price is None
+                or price.currency.upper() != currency.upper()
+            ):
                 unpriced += group.count
                 continue
             counts[entry.plan] = counts.get(entry.plan, 0) + group.count
             target = monthly if entry.interval == "month" else yearly
-            target[entry.plan] = target.get(entry.plan, 0) + amount * group.count
+            target[entry.plan] = (
+                target.get(entry.plan, 0) + price.unit_amount * group.count
+            )
         by_plan = [
             PlanRevenue(
                 plan,
@@ -128,27 +135,27 @@ class AdminAnalyticsService:
             for plan in (PlanKey.PRO, PlanKey.ENTERPRISE)
             if plan in counts
         ]
-        mrr = sum(item.mrr_minor for item in by_plan)
         return RevenueReport(
             currency=currency,
-            mrr_minor=mrr,
-            arr_minor=mrr * MONTHS_PER_YEAR,
+            mrr_minor=sum(item.mrr_minor for item in by_plan),
+            # Exact: a yearly price is paid once a year, not as 12 rounded months.
+            arr_minor=sum(monthly.values()) * MONTHS_PER_YEAR + sum(yearly.values()),
             billed_organizations=sum(g.count for g in groups),
             unpriced_organizations=unpriced,
             by_plan=by_plan,
             breakdown=breakdown,
         )
 
-    async def _amounts(self, price_ids: set[str]) -> dict[str, int]:
-        """Unit amounts (minor units) for the price ids the catalogue knows."""
-        found: dict[str, int] = {}
+    async def _prices(self, price_ids: set[str]) -> dict[str, StripePrice]:
+        """Price details for the price ids the catalogue knows."""
+        found: dict[str, StripePrice] = {}
         if self.prices is None:
             return found
         for price_id in sorted(price_ids & self.catalogue.keys()):
             try:
-                amount = await self.prices.get_unit_amount(price_id)
+                price = await self.prices.get_price(price_id)
             except StripeError:
                 continue
-            if amount is not None:
-                found[price_id] = amount
+            if price is not None:
+                found[price_id] = price
         return found

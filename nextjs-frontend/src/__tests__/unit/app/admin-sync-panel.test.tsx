@@ -19,6 +19,7 @@ const REPORT = {
   drift_count: 3,
   historical_ignored: 1,
   truncated: false,
+  skipped_rows: 0,
   drifts: [
     {
       kind: 'status',
@@ -110,5 +111,14 @@ describe('SyncPanel', () => {
     finish({ success: false, error: 'Something went wrong.' });
     expect(await screen.findByRole('alert')).toBeInTheDocument();
     expect(screen.queryByText(/Read 5 Stripe subscriptions/)).not.toBeInTheDocument();
+  });
+
+  it('says when Stripe rows could not be read', async () => {
+    mocks.sync.mockResolvedValue({ success: true, data: { ...REPORT, skipped_rows: 2 } });
+    render(<SyncPanel />);
+
+    await userEvent.setup().click(screen.getByRole('button', { name: /check against stripe/i }));
+
+    expect(await screen.findByText(/2 Stripe row\(s\) could not be read/)).toBeInTheDocument();
   });
 });

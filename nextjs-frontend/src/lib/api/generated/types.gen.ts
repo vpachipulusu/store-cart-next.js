@@ -2532,6 +2532,10 @@ export type SyncData = {
      */
     truncated: boolean;
     /**
+     * Skipped Rows
+     */
+    skipped_rows: number;
+    /**
      * Drifts
      */
     drifts: Array<DriftData>;

@@ -16449,6 +16449,10 @@
             "type": "boolean",
             "title": "Truncated"
           },
+          "skipped_rows": {
+            "type": "integer",
+            "title": "Skipped Rows"
+          },
           "drifts": {
             "items": {
               "$ref": "#/components/schemas/DriftData"
@@ -16464,6 +16468,7 @@
           "drift_count",
           "historical_ignored",
           "truncated",
+          "skipped_rows",
           "drifts"
         ],
         "title": "SyncData"

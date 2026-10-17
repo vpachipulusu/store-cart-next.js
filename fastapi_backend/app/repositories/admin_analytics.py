@@ -81,15 +81,15 @@ def _total(table: Any) -> Any:
     return select(func.count()).select_from(table).scalar_subquery()
 
 
-def _linked(row: Organization) -> LinkedOrganization:
-    return LinkedOrganization(
-        id=row.id,
-        stripe_customer_id=row.stripe_customer_id,
-        stripe_subscription_id=row.stripe_subscription_id,
-        subscription_tier=row.subscription_tier,
-        subscription_status=row.subscription_status,
-        stripe_cancel_at_period_end=row.stripe_cancel_at_period_end,
-    )
+# Only what reconciliation compares, in LinkedOrganization field order.
+_LINKED_COLUMNS = (
+    Organization.id,
+    Organization.stripe_customer_id,
+    Organization.stripe_subscription_id,
+    Organization.subscription_tier,
+    Organization.subscription_status,
+    Organization.stripe_cancel_at_period_end,
+)
 
 
 class AdminAnalyticsRepository(BaseRepository):
@@ -187,20 +187,20 @@ class AdminAnalyticsRepository(BaseRepository):
         self, subscription_ids: list[str], customer_ids: list[str]
     ) -> list[LinkedOrganization]:
         """Organisations linked to any of these Stripe subscriptions or customers."""
-        rows = await self._session.scalars(
-            select(Organization).where(
+        rows = await self._session.execute(
+            select(*_LINKED_COLUMNS).where(
                 Organization.stripe_subscription_id.in_(subscription_ids)
                 | Organization.stripe_customer_id.in_(customer_ids)
             )
         )
-        return [_linked(row) for row in rows]
+        return [LinkedOrganization(*row) for row in rows]
 
     async def billed_subscriptions(
         self, statuses: frozenset[str], limit: int
     ) -> list[LinkedOrganization]:
         """Organisations that claim a live subscription (newest first, bounded)."""
-        rows = await self._session.scalars(
-            select(Organization)
+        rows = await self._session.execute(
+            select(*_LINKED_COLUMNS)
             .where(
                 Organization.stripe_subscription_id.is_not(None),
                 Organization.subscription_status.in_(statuses),
@@ -208,4 +208,4 @@ class AdminAnalyticsRepository(BaseRepository):
             .order_by(Organization.created_at.desc(), Organization.id.desc())
             .limit(limit)
         )
-        return [_linked(row) for row in rows]
+        return [LinkedOrganization(*row) for row in rows]

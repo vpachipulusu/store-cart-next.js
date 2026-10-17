@@ -8,8 +8,10 @@ data, and are never cached. The sync reports drift and writes one audit row; see
 ``SubscriptionSyncService``.
 """
 
+from collections.abc import AsyncIterator
 from typing import Annotated, Literal
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 
@@ -23,7 +25,7 @@ from app.core.errors import ErrorResponse
 from app.core.permissions import AdminContext
 from app.core.plans import PlanKey
 from app.core.rate_limit import ADMIN_SYNC_POLICY, API_POLICY
-from app.core.stripe_prices import StripePriceReader, get_stripe_prices
+from app.core.stripe_prices import StripePriceDetailsReader, get_stripe_prices
 from app.core.stripe_sync import (
     StripeSubscriptionLister,
     get_stripe_subscription_lister,
@@ -36,6 +38,7 @@ from app.services.admin_subscription_sync import (
     SyncNotConfigured,
     SyncUnavailable,
 )
+from app.services.price_cache import SHARED_PRICE_CACHE, CachedPriceReader
 from app.services.public_settings import PublicSettingsService
 
 router = APIRouter(
@@ -152,6 +155,8 @@ class SyncData(BaseModel):
     historical_ignored: int
     # True when Stripe had more subscriptions than one sync reads.
     truncated: bool
+    # Stripe rows that could not be read; the not-found check is skipped when > 0.
+    skipped_rows: int
     drifts: list[DriftData]
 
 
@@ -175,13 +180,15 @@ def price_entries() -> dict[str, PriceEntry]:
     return {price: entry for price, entry in configured.items() if price}
 
 
-def stripe_prices() -> StripePriceReader | None:
-    return get_stripe_prices()
+def stripe_prices() -> StripePriceDetailsReader | None:
+    """Price reads, reused for a few minutes across requests (see ``price_cache``)."""
+    reader = get_stripe_prices()
+    return CachedPriceReader(reader, SHARED_PRICE_CACHE) if reader else None
 
 
 def get_analytics_service(
     session: SessionDep,
-    prices: Annotated[StripePriceReader | None, Depends(stripe_prices)],
+    prices: Annotated[StripePriceDetailsReader | None, Depends(stripe_prices)],
 ) -> AdminAnalyticsService:
     return AdminAnalyticsService(
         AdminAnalyticsRepository(session),
@@ -192,8 +199,13 @@ def get_analytics_service(
     )
 
 
-def stripe_lister() -> StripeSubscriptionLister | None:
-    return get_stripe_subscription_lister()
+async def stripe_lister() -> AsyncIterator[StripeSubscriptionLister | None]:
+    """One HTTP client for all the pages of a sync, closed when the request ends."""
+    if get_stripe_subscription_lister() is None:
+        yield None
+        return
+    async with httpx.AsyncClient() as client:
+        yield get_stripe_subscription_lister(client)
 
 
 def get_sync_service(
@@ -306,6 +318,7 @@ async def admin_sync_subscriptions(
             drift_count=report.drift_count,
             historical_ignored=report.historical_ignored,
             truncated=report.truncated,
+            skipped_rows=report.skipped,
             drifts=[
                 DriftData(
                     kind=item.kind,

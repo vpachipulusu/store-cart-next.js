@@ -1,5 +1,7 @@
 """Admin analytics e2e (KAN-119): permissions, real aggregate queries, sync and its audit row."""
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -148,6 +150,65 @@ async def test_revenue_comes_from_organisation_billing_with_one_read_per_price(
     assert sorted(prices.calls) == ["price_pro_m", "price_pro_y"]
 
 
+async def test_revenue_counts_only_billed_orgs_across_plans_and_active_grants(
+    client, engine
+):
+    await seed_user(engine, "boss", "super_admin", ["*"])
+    now = datetime.now(UTC)
+    orgs = [
+        ("active", "price_pro_m", {}),
+        ("past_due", "price_pro_m", {}),
+        ("active", "price_ent_m", {"subscription_tier": "enterprise"}),
+        ("canceled", "price_pro_m", {}),
+        ("unpaid", "price_pro_m", {}),
+        ("incomplete", "price_pro_m", {}),
+    ]
+    for index, (status, price, extra) in enumerate(orgs):
+        await seed_org(
+            engine,
+            **paying(
+                stripe_customer_id=f"cus_{index}",
+                stripe_subscription_id=f"sub_{index}",
+                stripe_price_id=price,
+                subscription_status=status,
+                **extra,
+            ),
+        )
+    await seed_org(
+        engine, granted_plan="pro", granted_until=now + timedelta(days=30)
+    )  # active grant
+    await seed_org(
+        engine, granted_plan="pro", granted_until=now - timedelta(days=1)
+    )  # expired grant
+    await seed_org(engine)  # no grant
+
+    result = await client.get(f"{BASE}/revenue", headers=as_user("boss"))
+
+    data = result.json()["data"]
+    assert data["mrr_minor"] == 2 * 2900 + 9900
+    assert data["billed_organizations"] == 3 and data["complete"] is True
+    assert data["by_plan"] == [
+        {"plan": "pro", "organizations": 2, "mrr_minor": 5800},
+        {"plan": "enterprise", "organizations": 1, "mrr_minor": 9900},
+    ]
+    assert data["active_grants"] == 1
+    assert data["organizations_by_status"]["canceled"] == 1
+    assert data["organizations_by_status"]["unpaid"] == 1
+    assert data["organizations_by_status"]["incomplete"] == 1
+
+
+async def test_revenue_leaves_out_a_price_in_another_currency(client, engine, prices):
+    await seed_user(engine, "boss", "super_admin", ["*"])
+    await seed_org(engine, **paying())
+    prices.currencies["price_pro_m"] = "EUR"  # the platform currency defaults to USD
+
+    result = await client.get(f"{BASE}/revenue", headers=as_user("boss"))
+
+    data = result.json()["data"]
+    assert data["complete"] is False and data["unpriced_organizations"] == 1
+    assert data["mrr_minor"] == 0
+
+
 async def test_revenue_uses_the_platform_currency_setting(client, engine):
     await seed_user(engine, "boss", "super_admin", ["*"])
     async with engine.begin() as connection:
@@ -206,6 +267,7 @@ async def test_sync_reports_drift_and_writes_one_audit_row_without_changing_data
 
     assert result.status_code == 200
     data = result.json()["data"]
+    assert data["skipped_rows"] == 0
     assert (data["stripe_subscriptions"], data["in_sync"], data["drift_count"]) == (
         3,
         1,

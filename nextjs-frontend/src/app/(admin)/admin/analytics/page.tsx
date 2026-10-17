@@ -11,14 +11,14 @@ import { KpiStrip, type KpiCell } from '@/components/dashboard/kpi-strip';
 import { Panel } from '@/components/dashboard/overview/panel';
 import { RefreshButton } from '@/components/admin/refresh-button';
 import { InlineError } from '../_components/inline-error';
-import { formatMinorUnits } from '../_components/format-money';
+import { formatCount, formatMinorUnits } from '../_components/format-money';
 
 // Always show current figures.
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 const ANALYTICS_HREF = '/admin/analytics';
-const number = (value: number) => value.toLocaleString('en-GB');
+const number = formatCount;
 
 function failed(what: string, result: Extract<ApiResult<unknown>, { success: false }>) {
   logger.error(`Admin analytics page: ${what} failed`, { status: result.status });

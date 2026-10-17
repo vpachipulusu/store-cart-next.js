@@ -19,6 +19,7 @@ vi.mock('@/lib/logger', () => ({ logger: { error: mocks.logError } }));
 
 import { syncStripeSubscriptionsAction } from '@/app/actions/admin/analytics-actions';
 import {
+  ADMIN_SYNC_RATE_LIMITED_MESSAGE,
   ADMIN_FORBIDDEN_MESSAGE,
   ADMIN_REQUEST_FAILED_MESSAGE,
   ADMIN_UNAVAILABLE_MESSAGE,
@@ -28,6 +29,14 @@ const SECRET = 'SECRET-sk_live_abc123';
 
 describe('syncStripeSubscriptionsAction', () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it('tells the admin to wait when the sync is rate limited', async () => {
+    mocks.syncAdminSubscriptions.mockResolvedValue({ success: false, error: SECRET, status: 429 });
+
+    const result = await syncStripeSubscriptionsAction();
+
+    expect(result).toEqual({ success: false, error: ADMIN_SYNC_RATE_LIMITED_MESSAGE });
+  });
 
   it('returns the report and revalidates the subscriptions page', async () => {
     const data = { stripe_subscriptions: 3, in_sync: 3, drift_count: 0, drifts: [] };

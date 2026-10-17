@@ -8,6 +8,8 @@ response; only the fields reconciliation compares are kept.
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+import httpx
+
 from app.core.config import settings
 from app.core.stripe_billing import HttpStripeBilling, as_text
 
@@ -30,6 +32,8 @@ class StripeSubscriptionPage:
     # Id of the last row Stripe sent (even one that was skipped): the next page's cursor.
     cursor: str | None
     has_more: bool
+    # Rows Stripe sent that could not be read (no id or status).
+    skipped: int = 0
 
 
 class StripeSubscriptionLister(Protocol):
@@ -73,21 +77,33 @@ class HttpStripeSubscriptionLister(HttpStripeBilling):
         body = await self._call("GET", "/subscriptions", params=params)
         items: list[StripeSubscriptionSnapshot] = []
         cursor: str | None = None
+        skipped = 0
         for row in body.get("data") or []:
             if not isinstance(row, dict):
+                skipped += 1
                 continue
             cursor = as_text(row.get("id")) or cursor
             snapshot = _snapshot(row)  # one unusable row never hides the others
-            if snapshot is not None:
+            if snapshot is None:
+                skipped += 1
+            else:
                 items.append(snapshot)
         return StripeSubscriptionPage(
-            items, cursor, has_more=body.get("has_more") is True and cursor is not None
+            items,
+            cursor,
+            has_more=body.get("has_more") is True and cursor is not None,
+            skipped=skipped,
         )
 
 
-def get_stripe_subscription_lister() -> StripeSubscriptionLister | None:
-    """The one place the real client is built; None when Stripe is not configured."""
+def get_stripe_subscription_lister(
+    client: httpx.AsyncClient | None = None,
+) -> StripeSubscriptionLister | None:
+    """The one place the real client is built; None when Stripe is not configured.
+
+    Pass one ``client`` to reuse a single connection pool for all the pages of a sync.
+    """
     secret = settings.STRIPE_SECRET_KEY
     if secret is None or not secret.get_secret_value():
         return None
-    return HttpStripeSubscriptionLister(secret.get_secret_value())
+    return HttpStripeSubscriptionLister(secret.get_secret_value(), client)

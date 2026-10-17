@@ -75,6 +75,12 @@ function SyncReport({ report }: { report: SyncData }) {
         {report.drift_count} differ
         {report.historical_ignored > 0 ? `, ${report.historical_ignored} old ones ignored` : ''}.
       </p>
+      {report.skipped_rows > 0 ? (
+        <p className="text-muted-foreground">
+          {report.skipped_rows} Stripe row(s) could not be read, so the check for subscriptions
+          missing from Stripe was skipped.
+        </p>
+      ) : null}
       {report.truncated ? (
         <p className="text-muted-foreground">
           Stripe has more subscriptions than one check reads, so the result is partial.

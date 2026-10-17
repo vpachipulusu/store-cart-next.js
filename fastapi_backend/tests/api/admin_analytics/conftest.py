@@ -64,7 +64,9 @@ def price_ids(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def prices() -> FakePrices:
-    return FakePrices({"price_pro_m": 2900, "price_pro_y": 24000, "price_ent_m": 9900})
+    return FakePrices(
+        {"price_pro_m": 2900, "price_pro_y": 24000, "price_ent_m": 9900}, currency="USD"
+    )
 
 
 @pytest.fixture

@@ -88,3 +88,39 @@ def test_factory_builds_the_http_client_with_the_configured_key(
 
     assert isinstance(get_stripe_prices(), HttpStripePrices)
     assert stripe_prices.PRICE_ID.fullmatch("price_1Abc")
+
+
+async def test_get_price_returns_amount_and_upper_case_currency() -> None:
+    stripe = client_for(
+        lambda r: httpx.Response(200, json={"unit_amount": 2900, "currency": "gbp"})
+    )
+
+    price = await stripe.get_price("price_abc")
+
+    assert price is not None
+    assert (price.unit_amount, price.currency) == (2900, "GBP")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"unit_amount": None, "currency": "gbp"},
+        {"unit_amount": -1, "currency": "gbp"},
+        {"unit_amount": 100},
+        {"unit_amount": 100, "currency": 5},
+    ],
+)
+async def test_get_price_without_a_usable_amount_or_currency_is_none(
+    body: Any,
+) -> None:
+    stripe = client_for(lambda r: httpx.Response(200, json=body))
+
+    assert await stripe.get_price("price_abc") is None
+
+
+async def test_get_price_never_sends_a_malformed_id_to_stripe() -> None:
+    seen: list[httpx.Request] = []
+    stripe = client_for(lambda r: httpx.Response(200, json={}), seen)
+
+    assert await stripe.get_price("../customers") is None
+    assert seen == []

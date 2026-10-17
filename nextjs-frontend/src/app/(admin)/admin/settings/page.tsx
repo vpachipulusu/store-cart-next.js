@@ -4,6 +4,7 @@ import { logger } from '@/lib/logger';
 import { Panel } from '@/components/dashboard/overview/panel';
 import { RefreshButton } from '@/components/admin/refresh-button';
 import { InlineError } from '../_components/inline-error';
+import { formatCount } from '../_components/format-money';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -44,9 +45,7 @@ export default async function AdminSettingsPage() {
             {LABELS.map(([key, label]) => (
               <div key={key} className="contents">
                 <dt className="text-muted-foreground">{label}</dt>
-                <dd className="text-right tabular-nums">
-                  {stats.data[key].toLocaleString('en-GB')}
-                </dd>
+                <dd className="text-right tabular-nums">{formatCount(stats.data[key])}</dd>
               </div>
             ))}
           </dl>

@@ -7,13 +7,15 @@ writer of subscription state, so a sync can never overwrite newer webhook data w
 older read. An admin fixes a reported organisation by replaying the Stripe event.
 
 The read transaction opened by the admin check is ended before Stripe is called, so no
-connection is held during the Stripe calls. Report size is bounded: at most ``MAX_PAGES`` Stripe pages, and at most
-``MAX_DRIFTS`` drift items in the response (the counts are always complete for what
-was read; ``truncated`` says the read stopped at the page cap).
+connection is held during the Stripe calls. The work is bounded: at most ``MAX_PAGES``
+Stripe pages and ``SYNC_BUDGET_SECONDS`` of reading, and at most ``MAX_DRIFTS`` drift
+items in the response (the counts are always complete for what was read; ``truncated``
+says the read stopped at a cap, ``skipped`` that Stripe rows could not be read).
 """
 
 import logging
-from collections.abc import Mapping
+import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
@@ -29,6 +31,8 @@ from app.core.stripe_sync import (
 from app.repositories.admin_analytics import LinkedOrganization
 
 MAX_PAGES = 20
+# Overall reading time, so a slow Stripe cannot hold the request for 20 x 10 s.
+SYNC_BUDGET_SECONDS = 60.0
 MAX_DRIFTS = 100
 MAX_BILLED_LOOKUP = 10_000
 SYNC_ACTION = "admin.subscriptions.sync"
@@ -73,6 +77,8 @@ class SyncReport:
     drift_count: int
     historical_ignored: int
     truncated: bool
+    # Stripe rows that could not be read; the not-found check is skipped when > 0.
+    skipped: int
     drifts: list[Drift]
 
 
@@ -142,20 +148,23 @@ class SubscriptionSyncService:
         lister: StripeSubscriptionLister | None,
         auditor: AuditRecorder,
         prices: Mapping[str, PlanKey],
+        clock: Callable[[], float] = time.monotonic,
+        budget_seconds: float = SYNC_BUDGET_SECONDS,
     ) -> None:
         self.store, self.session, self.lister = store, session, lister
         self.auditor, self.prices = auditor, prices
+        self.clock, self.budget_seconds = clock, budget_seconds
 
     async def reconcile(self, actor: AdminContext) -> SyncReport:
         if self.lister is None:
             raise SyncNotConfigured
         await self.session.rollback()
         try:
-            snapshots, truncated = await self._read_stripe(self.lister)
+            snapshots, truncated, skipped = await self._read_stripe(self.lister)
         except SyncUnavailable:
             await self._audit(actor, {"outcome": "unavailable"})
             raise
-        report = await self._compare(snapshots, truncated)
+        report = await self._compare(snapshots, truncated, skipped)
         await self._audit(
             actor,
             {
@@ -164,6 +173,7 @@ class SubscriptionSyncService:
                 "in_sync": report.in_sync,
                 "drift_count": report.drift_count,
                 "truncated": report.truncated,
+                "skipped": report.skipped,
             },
         )
         return report
@@ -174,25 +184,33 @@ class SubscriptionSyncService:
         )
         await self.session.commit()
 
-    @staticmethod
     async def _read_stripe(
-        lister: StripeSubscriptionLister,
-    ) -> tuple[list[StripeSubscriptionSnapshot], bool]:
+        self, lister: StripeSubscriptionLister
+    ) -> tuple[list[StripeSubscriptionSnapshot], bool, int]:
+        """(subscriptions, stopped at a cap, rows that could not be read)."""
         snapshots: list[StripeSubscriptionSnapshot] = []
         cursor: str | None = None
+        skipped = 0
+        started = self.clock()
         for _ in range(MAX_PAGES):
             try:
                 page = await lister.list_subscriptions(cursor)
             except StripeError:
                 raise SyncUnavailable from None
             snapshots.extend(page.items)
+            skipped += page.skipped
             if not page.has_more:
-                return snapshots, False
+                return snapshots, False, skipped
             cursor = page.cursor
-        return snapshots, True
+            if self.clock() - started >= self.budget_seconds:
+                return snapshots, True, skipped
+        return snapshots, True, skipped
 
     async def _compare(
-        self, snapshots: list[StripeSubscriptionSnapshot], truncated: bool
+        self,
+        snapshots: list[StripeSubscriptionSnapshot],
+        truncated: bool,
+        skipped: int,
     ) -> SyncReport:
         orgs = await self.store.organizations_for_stripe(
             [s.id for s in snapshots],
@@ -225,7 +243,8 @@ class SubscriptionSyncService:
                         org.subscription_status if org else None,
                     )
                 )
-        if not truncated:
+        # A row Stripe sent but we could not read may belong to a local organisation.
+        if not truncated and skipped == 0:
             seen = {s.id for s in snapshots}
             billed = await self.store.billed_subscriptions(
                 BILLED, MAX_BILLED_LOOKUP + 1
@@ -247,5 +266,11 @@ class SubscriptionSyncService:
                 )
         logger.info("subscription sync read %d subscriptions", len(snapshots))
         return SyncReport(
-            len(snapshots), in_sync, drift_count, historical, truncated, drifts
+            len(snapshots),
+            in_sync,
+            drift_count,
+            historical,
+            truncated,
+            skipped,
+            drifts,
         )

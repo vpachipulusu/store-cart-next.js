@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { logger } from '@/lib/logger';
-import { adminErrorMessage } from '@/lib/api/admin-errors';
+import { ADMIN_SYNC_RATE_LIMITED_MESSAGE, adminErrorMessage } from '@/lib/api/admin-errors';
 import { syncAdminSubscriptions, type SyncData } from '@/lib/api/admin-analytics';
 
 /**
@@ -16,6 +16,7 @@ type SyncActionResponse = { success: true; data: SyncData } | { success: false; 
 export async function syncStripeSubscriptionsAction(): Promise<SyncActionResponse> {
   const result = await syncAdminSubscriptions();
   if (!result.success) {
+    if (result.status === 429) return { success: false, error: ADMIN_SYNC_RATE_LIMITED_MESSAGE };
     if (result.status !== 401 && result.status !== 403) {
       logger.error('Admin subscription sync failed', { status: result.status });
     }
