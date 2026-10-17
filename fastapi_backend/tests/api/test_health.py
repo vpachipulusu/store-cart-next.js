@@ -3,6 +3,7 @@ from collections.abc import Iterator
 import asyncpg
 import pytest
 from httpx import ASGITransport, AsyncClient
+from pydantic import SecretStr
 
 from app.api.deps import get_session_provider
 from app.core.config import settings
@@ -95,19 +96,45 @@ def test_openapi_identifies_storecart() -> None:
     assert schema["paths"]["/health"]["get"]["operationId"] == "health-health_check"
 
 
-@pytest.mark.usefixtures("override_provider")
 @pytest.mark.parametrize("headers", [{}, {"X-Internal-Key": "wrong"}])
-async def test_ready_rejects_missing_or_wrong_service_key_without_touching_db(
+async def test_ready_rejects_missing_or_wrong_service_key(
     client: AsyncClient, headers: dict[str, str]
 ) -> None:
-    provider = FakeSessionProvider(FakeSession(value=1))
-    app.dependency_overrides[get_session_provider] = lambda: provider
-
+    # The key dependency answers 401 before any database dependency is built.
     async with client:
         response = await client.get("/health/ready", headers=headers)
 
     assert response.status_code == 401
-    assert provider.opened == 0
+    assert response.json() == {"success": False, "error": "Unauthorized"}
+
+
+@pytest.mark.usefixtures("override_provider")
+async def test_ready_accepts_the_next_rotation_key(
+    monkeypatch: pytest.MonkeyPatch, client: AsyncClient
+) -> None:
+    next_key = "next-internal-key-that-is-at-least-32-chars"
+    monkeypatch.setattr(settings, "BACKEND_INTERNAL_KEY_NEXT", SecretStr(next_key))
+    provider = FakeSessionProvider(FakeSession(value=1))
+    app.dependency_overrides[get_session_provider] = lambda: provider
+
+    async with client:
+        response = await client.get(
+            "/health/ready", headers={"X-Internal-Key": next_key}
+        )
+
+    assert response.status_code == 200
+
+
+async def test_ready_is_503_when_no_service_key_is_configured(
+    monkeypatch: pytest.MonkeyPatch, client: AsyncClient
+) -> None:
+    monkeypatch.setattr(settings, "BACKEND_INTERNAL_KEY", None)
+    monkeypatch.setattr(settings, "BACKEND_INTERNAL_KEY_NEXT", None)
+
+    async with client:
+        response = await client.get("/health/ready", headers=KEY_HEADER)
+
+    assert response.status_code == 503
 
 
 async def test_liveness_stays_open_without_a_key(client: AsyncClient) -> None:
@@ -120,7 +147,7 @@ async def test_liveness_stays_open_without_a_key(client: AsyncClient) -> None:
 @pytest.mark.parametrize("path", ["/openapi.json", "/docs", "/redoc"])
 @pytest.mark.parametrize(
     ("environment", "vercel_env"),
-    [("local", None), ("production", "preview")],
+    [("local", None), ("production", "preview"), ("production", "development")],
 )
 async def test_docs_are_served_outside_production(
     monkeypatch: pytest.MonkeyPatch,
@@ -143,7 +170,12 @@ async def test_docs_are_served_outside_production(
 @pytest.mark.parametrize("path", ["/openapi.json", "/docs", "/redoc"])
 @pytest.mark.parametrize(
     ("environment", "vercel_env"),
-    [("production", None), ("staging", None), ("local", "production")],
+    [
+        ("production", None),
+        ("staging", None),
+        ("local", "production"),
+        ("local", "unknown"),
+    ],
 )
 async def test_docs_are_not_served_in_production(
     monkeypatch: pytest.MonkeyPatch,
@@ -163,3 +195,19 @@ async def test_docs_are_not_served_in_production(
     assert response.status_code == 404
     # Schema generation (commands.generate_openapi_schema) must keep working.
     assert prod_app.openapi()["info"]["title"] == "StoreCart API"
+
+
+async def test_custom_openapi_url_is_ignored_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    monkeypatch.setattr(settings, "VERCEL_ENV", None)
+    monkeypatch.setattr(settings, "OPENAPI_URL", "/custom-schema.json")
+    prod_app = create_app()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=prod_app), base_url="http://test"
+    ) as http:
+        response = await http.get("/custom-schema.json")
+
+    assert response.status_code == 404
