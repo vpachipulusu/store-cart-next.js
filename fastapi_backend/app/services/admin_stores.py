@@ -281,7 +281,7 @@ class AdminStoresService:
                 return True
         except Exception as exc:  # noqa: BLE001 - treated like a refused enqueue
             logger.error(
-                "admin store provisioning start crashed: %s",
+                "store provisioning start crashed: %s",
                 safe_reason(exc),
                 extra={"store_id": record.id, "admin_user_id": actor.user_id},
             )
@@ -410,7 +410,7 @@ class AdminStoresService:
             await self._abort(StoreConflict(), record.id)
         except Exception as exc:  # noqa: BLE001
             logger.error(
-                "admin store outcome was not recorded: %s",
+                "store outcome was not recorded: %s",
                 safe_reason(exc),
                 extra={
                     "store_id": record.id,

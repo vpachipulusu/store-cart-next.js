@@ -207,7 +207,7 @@ class AdminStoresRepository(BaseRepository):
 
         ``started`` only grows, so ``started + 1`` is a monotonic attempt number; the
         retry cap uses ``started - failed``. This relies on audit rows being retained:
-        any future audit purge must keep ``admin.stores.reprovision*`` rows.
+        any future audit purge must keep ``admin.stores.reprovision*`` and ``stores.retry_provisioning*`` rows.
         """
         started = func.count(AuditLog.id).filter(AuditLog.action.in_(_STARTED_ACTIONS))
         failed = func.count(AuditLog.id).filter(AuditLog.action.in_(_FAILED_ACTIONS))

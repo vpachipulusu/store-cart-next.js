@@ -65,6 +65,8 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
   /** Whether the store was FAILED when the user pressed the button; only then is "still" accurate. */
   const checkedFromFailedRef = useRef(false);
   const dashboardLinkRef = useRef<HTMLAnchorElement>(null);
+  /** The focused "Retry setup" button unmounts on success or at the cap; focus moves here so it is not lost. */
+  const statusRegionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (initialStatus !== 'PROVISIONING' && retryCount === 0) return;
@@ -135,6 +137,7 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
     checkedFromFailedRef.current = status === 'FAILED';
     setCoolingDown(true);
     setProblem(null);
+    setRetryProblem(null);
     setStillFailed(false);
     setRetryCount((count) => count + 1);
   };
@@ -170,6 +173,7 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
     } finally {
       retryingRef.current = false;
       setRetrying(false);
+      statusRegionRef.current?.focus();
     }
   };
 
@@ -195,7 +199,13 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
 
   return (
     <div className="flex flex-col items-start gap-4" data-testid="store-status">
-      <div role="status" aria-live="polite" className="flex flex-col items-start gap-2">
+      <div
+        ref={statusRegionRef}
+        tabIndex={-1}
+        role="status"
+        aria-live="polite"
+        className="flex flex-col items-start gap-2 outline-none"
+      >
         {provisioningFailed ? (
           <>
             <StatusPill variant="crit" data-testid="provisioning-pill">
