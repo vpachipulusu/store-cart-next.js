@@ -16,6 +16,7 @@ OPENERS = re.compile(r"\b(open_store_session|get_store_session)\b")
 ALLOWED = {
     "services/store_sessions.py": "defines the opener",
     "services/store_migrations.py": "tenant isolation e2e: migration runner stays inside its database",
+    "api/store_db.py": "tests/api/test_products_e2e.py: every product route, two stores (KAN-245)",
 }
 
 

@@ -14,6 +14,7 @@ from app.api.v1 import (
     notifications,
     org_billing,
     organizations,
+    products,
     settings,
     store_retry,
     storefront,
@@ -41,5 +42,6 @@ api_router.include_router(organizations.router)
 api_router.include_router(stores.router)
 api_router.include_router(store_retry.router)
 api_router.include_router(media.router)
+api_router.include_router(products.router)
 api_router.include_router(storefront.router)
 api_router.include_router(settings.router)

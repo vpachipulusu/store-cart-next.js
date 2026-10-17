@@ -4,7 +4,7 @@ Categories and product images (store revision `0003`) are in [their own section]
 
 Store revision `0002` (`fastapi_backend/alembic_store/versions/0002_catalogue.py`) adds the catalogue to every store
 database. It is a **store** revision (ADR-005, [backend-store-migrations.md](backend-store-migrations.md)); no platform
-revision (the platform head stays `0009`). Models only: no API routes yet. Hand-written `op.*` DDL, like all store
+revision (the platform head stays `0009`). The merchant product API over these tables is in [backend-products-api.md](backend-products-api.md) (KAN-245). Hand-written `op.*` DDL, like all store
 revisions (no ORM metadata for the store tree).
 
 | Table | Purpose | Key constraints |
@@ -30,7 +30,7 @@ Decisions:
 - **SKU characters:** no control characters (newline, tab) and no leading or trailing space; internal spaces and any
   other characters are allowed. Unicode look-alikes are not normalised.
 
-## Rules the future API and services must follow
+## Rules the API and services must follow (implemented by KAN-245)
 
 - **Deploy:** the revision reaches existing stores only when `commands.migrate_stores` (or the admin migrate endpoint)
   runs after the deploy that ships it ([backend-store-migrations.md](backend-store-migrations.md)). New stores get it
@@ -56,7 +56,7 @@ and checks each constraint (needs `TEST_DATABASE_URL`, see [backend-store-migrat
 ## Categories and product images (KAN-71)
 
 Store revision `0003` (`alembic_store/versions/0003_categories_images.py`) adds three tables. Store tree only; the
-platform head stays `0009`. Models only: no API routes yet (the product editor is KAN-73).
+platform head stays `0009`. The product API is in [backend-products-api.md](backend-products-api.md); the product editor is KAN-73.
 
 | Table | Purpose | Key constraints |
 | ----- | ------- | --------------- |
