@@ -62,7 +62,6 @@ def upgrade() -> None:
         sa.CheckConstraint("status IN ('draft', 'active')", name="ck_products_status"),
         sa.UniqueConstraint("slug", name="uq_products_slug"),
     )
-    op.create_index("ix_products_status", "products", ["status"])
 
     op.create_table(
         "product_options",
@@ -70,7 +69,9 @@ def upgrade() -> None:
         sa.Column(
             "product_id",
             sa.String(),
-            sa.ForeignKey("products.id", ondelete="CASCADE"),
+            sa.ForeignKey(
+                "products.id", ondelete="CASCADE", name="fk_product_options_product"
+            ),
             nullable=False,
         ),
         sa.Column("name", sa.String(), nullable=False),
@@ -95,7 +96,11 @@ def upgrade() -> None:
         sa.Column(
             "option_id",
             sa.String(),
-            sa.ForeignKey("product_options.id", ondelete="CASCADE"),
+            sa.ForeignKey(
+                "product_options.id",
+                ondelete="CASCADE",
+                name="fk_product_option_values_option",
+            ),
             nullable=False,
         ),
         sa.Column("value", sa.String(), nullable=False),
@@ -123,7 +128,9 @@ def upgrade() -> None:
         sa.Column(
             "product_id",
             sa.String(),
-            sa.ForeignKey("products.id", ondelete="CASCADE"),
+            sa.ForeignKey(
+                "products.id", ondelete="CASCADE", name="fk_variants_product"
+            ),
             nullable=False,
         ),
         sa.Column("sku", sa.String(), nullable=False),
@@ -134,7 +141,9 @@ def upgrade() -> None:
         sa.Column("position", sa.Integer(), server_default="0", nullable=False),
         *_timestamps(),
         sa.CheckConstraint(
-            r"sku ~ '^\S(.*\S)?$' AND char_length(sku) <= 100",
+            # No control characters (newline, tab, ...) and no leading/trailing space.
+            r"sku ~ '^[^[:cntrl:][:space:]]([^[:cntrl:]]*[^[:cntrl:][:space:]])?$'"
+            " AND char_length(sku) <= 100",
             name="ck_variants_sku_format",
         ),
         sa.CheckConstraint("price_minor >= 0", name="ck_variants_price_minor"),
@@ -172,16 +181,25 @@ def upgrade() -> None:
             ["option_id", "product_id"],
             ["product_options.id", "product_options.product_id"],
             name="fk_variant_option_values_option_product",
-            ondelete="CASCADE",
+            ondelete="NO ACTION",
+            deferrable=True,
+            initially="DEFERRED",
         ),
         sa.ForeignKeyConstraint(
             ["option_value_id", "option_id"],
             ["product_option_values.id", "product_option_values.option_id"],
             name="fk_variant_option_values_value_option",
-            ondelete="CASCADE",
+            ondelete="NO ACTION",
+            deferrable=True,
+            initially="DEFERRED",
         ),
     )
-    # The foreign keys cascade from these parents; index their referencing columns.
+    # Deleting an option or a value that a variant still uses is rejected instead of
+    # silently stripping the option from the variant. The check is deferred to commit:
+    # when a product is deleted, Postgres checks the options before the cascade through
+    # variants has removed the links, so even an end-of-statement NO ACTION check would
+    # reject the whole-product delete. At commit the links are gone and it passes.
+    # Index the referencing columns of the parent-side foreign keys.
     op.create_index(
         "ix_variant_option_values_option_value_id",
         "variant_option_values",

@@ -6,6 +6,8 @@ migration suite; skipped when ``TEST_DATABASE_URL`` is unset.
 """
 
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
 
 import pytest
 from alembic import command
@@ -13,6 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
+from sqlalchemy.sql.base import Executable
 
 from app.core.ids import new_id
 from app.services.store_migrations import (
@@ -23,6 +26,7 @@ from app.services.store_migrations import (
 from tests.pg_scaffold import TEST_DATABASE_URL, url_for
 from tests.services.test_store_migrations_e2e import (  # noqa: F401  (fixtures)
     World,
+    baseline,
     server,
     world,
 )
@@ -107,15 +111,28 @@ async def option(
     return option_id, value_ids
 
 
-async def assert_rejected(
-    conn: AsyncConnection, statement: object, constraint: str
-) -> None:
-    """The statement must violate exactly ``constraint``; the transaction is rolled back."""
+def violated_constraint(error: IntegrityError) -> str | None:
+    """The constraint or index name asyncpg reports for the violation."""
+    driver_error = error.orig.__cause__ if error.orig is not None else None
+    return getattr(driver_error, "constraint_name", None)
+
+
+@asynccontextmanager
+async def violates(conn: AsyncConnection, *constraints: str) -> AsyncIterator[None]:
+    """The block must fail on one of ``constraints``; the transaction is rolled back."""
     await conn.commit()
     with pytest.raises(IntegrityError) as caught:
-        await conn.execute(statement)  # type: ignore[arg-type]
+        yield
+        await conn.commit()  # deferred constraints are checked here
     await conn.rollback()
-    assert f'"{constraint}"' in str(caught.value.orig)
+    assert violated_constraint(caught.value) in constraints
+
+
+async def assert_rejected(
+    conn: AsyncConnection, statement: Executable, constraint: str
+) -> None:
+    async with violates(conn, constraint):
+        await conn.execute(statement)
 
 
 async def test_migration_creates_the_catalogue_tables(conn: AsyncConnection):
@@ -235,6 +252,8 @@ async def test_variant_stock_defaults_to_zero_and_optionals_to_null(
         ({"sku": ""}, "ck_variants_sku_format"),
         ({"sku": " A "}, "ck_variants_sku_format"),
         ({"sku": "A\t"}, "ck_variants_sku_format"),
+        ({"sku": "A\nB"}, "ck_variants_sku_format"),
+        ({"sku": "A\n"}, "ck_variants_sku_format"),
         ({"sku": "A" * 101}, "ck_variants_sku_format"),
     ],
 )
@@ -242,12 +261,9 @@ async def test_variant_value_constraints(
     conn: AsyncConnection, extra: dict[str, object], constraint: str
 ):
     pid = await product(conn)
-    await conn.commit()
 
-    with pytest.raises(IntegrityError) as caught:
+    async with violates(conn, constraint):
         await variant(conn, pid, **extra)
-    await conn.rollback()
-    assert f'"{constraint}"' in str(caught.value.orig)
 
 
 async def test_sku_is_unique_case_insensitively_across_the_store(
@@ -255,17 +271,64 @@ async def test_sku_is_unique_case_insensitively_across_the_store(
 ):
     await variant(conn, await product(conn, "a"), "Tee-1")
     other = await product(conn, "b")
-    await conn.commit()
 
-    with pytest.raises(IntegrityError):
+    async with violates(conn, "uq_variants_sku_lower"):
         await variant(conn, other, "tee-1")
-    await conn.rollback()
 
 
 async def test_variant_requires_an_existing_product(conn: AsyncConnection):
-    with pytest.raises(IntegrityError):
+    async with violates(conn, "fk_variants_product"):
         await variant(conn, "missing")
-    await conn.rollback()
+
+
+async def test_deleting_an_option_value_or_option_still_used_is_rejected(
+    conn: AsyncConnection,
+):
+    pid = await product(conn)
+    size, (small,) = await option(conn, pid, "Size", "S")
+    await conn.execute(
+        LINK, {"i": await variant(conn, pid), "o": size, "v": small, "p": pid}
+    )
+
+    async with violates(conn, "fk_variant_option_values_value_option"):
+        await conn.execute(
+            text("DELETE FROM product_option_values WHERE id = :v"), {"v": small}
+        )
+    # Deleting the option also deletes its values; either link key may report first.
+    async with violates(
+        conn,
+        "fk_variant_option_values_value_option",
+        "fk_variant_option_values_option_product",
+    ):
+        await conn.execute(
+            text("DELETE FROM product_options WHERE id = :o"), {"o": size}
+        )
+
+    links = (
+        await conn.execute(text("SELECT count(*) FROM variant_option_values"))
+    ).scalar_one()
+    assert links == 1
+
+
+async def test_an_unused_option_value_can_be_deleted(conn: AsyncConnection):
+    pid = await product(conn)
+    _, (small, large) = await option(conn, pid, "Size", "S", "L")
+
+    await conn.execute(
+        text("DELETE FROM product_option_values WHERE id = :v"), {"v": large}
+    )
+
+    remaining = (
+        (
+            await conn.execute(
+                text("SELECT id FROM product_option_values WHERE id IN (:a, :b)"),
+                {"a": small, "b": large},
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert remaining == [small]
 
 
 async def test_deleting_a_product_removes_its_variants_options_and_values(
@@ -365,7 +428,6 @@ async def test_lookup_indexes_exist(conn: AsyncConnection):
 
     assert {
         "uq_products_slug",
-        "ix_products_status",
         "uq_product_options_product_name",
         "uq_product_option_values_option_value",
         "uq_variants_sku_lower",
@@ -391,3 +453,44 @@ async def test_downgrade_removes_the_catalogue_and_upgrade_restores_it(
 
     assert gone is None
     assert back is not None
+
+
+async def test_downgrade_returns_the_version_table_to_the_baseline(
+    conn: AsyncConnection,
+):
+    config = _alembic_config(STORE_SCRIPT_LOCATION)
+
+    def downgrade(connection: Connection) -> None:
+        config.attributes["connection"] = connection
+        command.downgrade(config, "0001")
+
+    await conn.run_sync(downgrade)
+
+    stamped = (
+        await conn.execute(text("SELECT version_num FROM store_alembic_version"))
+    ).scalar_one()
+    assert stamped == "0001"
+
+
+async def test_a_baseline_store_with_data_is_upgraded_intact(
+    world: World,  # noqa: F811
+    baseline: Path,  # noqa: F811
+):
+    database = await world.store_database("old")
+    store_id = await world.add_store(url_for(database))
+    await migrate_store(store_id, world.provider, script_location=baseline)
+    engine = create_async_engine(url_for(database))
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text("CREATE TABLE legacy (note text)"))
+            await connection.execute(text("INSERT INTO legacy VALUES ('kept')"))
+
+        await migrate_store(store_id, world.provider)
+
+        async with engine.connect() as connection:
+            notes = (await connection.execute(text("SELECT note FROM legacy"))).all()
+            tables = await connection.execute(text("SELECT to_regclass('variants')"))
+            assert [row[0] for row in notes] == ["kept"]
+            assert tables.scalar_one() is not None
+    finally:
+        await engine.dispose()
