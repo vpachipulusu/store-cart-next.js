@@ -2,6 +2,7 @@ import logging
 import math
 import time
 
+import httpx
 import pytest
 from fastapi import Depends, FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -13,6 +14,7 @@ from app.api.rate_limit import (
     limit_auth_attempts,
     limit_by_subject,
 )
+from app.core import rate_limit as rate_limit_module
 from app.core import sentry as sentry_module
 from app.core.errors import register_error_handlers
 from app.core.rate_limit import (
@@ -20,9 +22,10 @@ from app.core.rate_limit import (
     AUTH_POLICY,
     WEBHOOK_POLICY,
     RateLimitPolicy,
+    UpstashRateLimiter,
 )
 from app.core.request_id import RequestIdMiddleware
-from tests.fakes import FakeRateLimiter, RaisingRateLimiter, as_limiter
+from tests.fakes import FakeRateLimiter, RaisingRateLimiter
 
 SMALL_OPEN = RateLimitPolicy("api", limit=2, window_seconds=60, fail_closed=False)
 
@@ -39,11 +42,13 @@ def body_email() -> str:
     return "Ada@Example.com "
 
 
-def build_app(limiter: FakeRateLimiter | RaisingRateLimiter) -> FastAPI:
+def build_app(
+    limiter: FakeRateLimiter | RaisingRateLimiter | UpstashRateLimiter,
+) -> FastAPI:
     app = FastAPI()
     app.add_middleware(RequestIdMiddleware)
     register_error_handlers(app)
-    app.dependency_overrides[get_rate_limiter] = lambda: as_limiter(limiter)
+    app.dependency_overrides[get_rate_limiter] = lambda: limiter
 
     @app.get("/api", dependencies=[Depends(limit_by_subject(SMALL_OPEN, user_subject))])
     async def api() -> dict[str, bool]:
@@ -66,7 +71,9 @@ def build_app(limiter: FakeRateLimiter | RaisingRateLimiter) -> FastAPI:
     return app
 
 
-def client_for(limiter: FakeRateLimiter | RaisingRateLimiter) -> AsyncClient:
+def client_for(
+    limiter: FakeRateLimiter | RaisingRateLimiter | UpstashRateLimiter,
+) -> AsyncClient:
     return AsyncClient(
         transport=ASGITransport(app=build_app(limiter)), base_url="http://test"
     )
@@ -245,3 +252,43 @@ async def test_upstash_seconds_reset_drives_retry_after_and_reset_header() -> No
     assert response.status_code == 429
     assert response.headers["X-RateLimit-Reset"] == str(math.ceil(reset))
     assert 42 <= int(response.headers["Retry-After"]) <= 44
+
+
+class ConnectErrorWindow:
+    """A scripted Upstash window whose Redis connection is always refused."""
+
+    calls = 0
+
+    async def limit(self, identifier: str) -> object:
+        type(self).calls += 1
+        raise httpx.ConnectError("[Errno 16] Device or resource busy")
+
+
+async def test_a_real_limiter_with_a_dead_redis_answers_503_on_auth_and_200_on_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ConnectErrorWindow.calls = 0
+    monkeypatch.setattr(
+        rate_limit_module, "Ratelimit", lambda *_a, **_k: ConnectErrorWindow()
+    )
+    limiter = UpstashRateLimiter(
+        object(),  # type: ignore[arg-type]
+        redis_factory=object,
+        rebuild_cooldown_seconds=0,
+        close_grace_seconds=0,
+    )
+
+    async with client_for(limiter) as client:
+        signin = await client.post("/signin")
+        api = await client.get("/api")
+
+    assert signin.status_code == 503
+    assert signin.headers["Retry-After"] == "5"
+    assert signin.json() == {
+        "success": False,
+        "error": "Service temporarily unavailable",
+    }
+    assert api.status_code == 200  # fail-open policies still let the request through
+    assert (
+        ConnectErrorWindow.calls == 3
+    )  # sign-in: one attempt plus one retry; api: one
