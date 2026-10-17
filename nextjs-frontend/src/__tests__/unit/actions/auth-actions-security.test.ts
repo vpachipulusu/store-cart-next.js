@@ -139,10 +139,34 @@ describe('KAN-122: auth server actions', () => {
 
         const result = await authActions.verifyTokenAction('id-token');
 
-        expect(result).toEqual({ success: false, error: SIGN_IN_SERVICE_UNAVAILABLE_ERROR });
+        expect(result).toEqual({
+          success: false,
+          error: SIGN_IN_SERVICE_UNAVAILABLE_ERROR,
+          data: { serviceUnavailable: true },
+        });
         expect(mocks.cookieSet).not.toHaveBeenCalled();
       }
     );
+
+    // KAN-241: the boundary is exact. 4xx is the backend's answer; only 5xx or no status is an outage.
+    it.each([400, 401, 403, 404, 409, 422, 429, 499])(
+      'keeps %s generic with no outage flag',
+      async (status) => {
+        mocks.createBackendSession.mockResolvedValue({ success: false, error: 'x', status });
+
+        const result = await authActions.verifyTokenAction('id-token');
+
+        expect(result).toEqual({ success: false, error: 'Token verification failed' });
+      }
+    );
+
+    it.each([500, 501, 599, undefined])('flags %s as an outage', async (status) => {
+      mocks.createBackendSession.mockResolvedValue({ success: false, error: 'x', status });
+
+      const result = await authActions.verifyTokenAction('id-token');
+
+      expect(result.data).toEqual({ serviceUnavailable: true });
+    });
   });
 
   describe('KAN-163: a session refresh records no login (no API sign-in)', () => {
@@ -194,25 +218,45 @@ describe('KAN-122: auth server actions', () => {
       );
 
       it.each([
-        [429, 'Token verification failed'],
-        [503, SIGN_IN_SERVICE_UNAVAILABLE_ERROR],
-        [undefined, SIGN_IN_SERVICE_UNAVAILABLE_ERROR],
-      ])(
-        'fails without ending the session when the API answers %s',
-        async (status, expectedError) => {
-          mocks.refreshBackendSession.mockResolvedValue({
+        [429, { success: false, error: 'Token verification failed' }],
+        [
+          500,
+          {
             success: false,
-            error: 'Backend unavailable',
-            status,
-          });
+            error: SIGN_IN_SERVICE_UNAVAILABLE_ERROR,
+            data: { serviceUnavailable: true },
+          },
+        ],
+        [
+          503,
+          {
+            success: false,
+            error: SIGN_IN_SERVICE_UNAVAILABLE_ERROR,
+            data: { serviceUnavailable: true },
+          },
+        ],
+        [
+          undefined,
+          {
+            success: false,
+            error: SIGN_IN_SERVICE_UNAVAILABLE_ERROR,
+            data: { serviceUnavailable: true },
+          },
+        ],
+      ])('fails without ending the session when the API answers %s', async (status, expected) => {
+        mocks.refreshBackendSession.mockResolvedValue({
+          success: false,
+          error: 'Backend unavailable',
+          status,
+        });
 
-          const result = await authActions.refreshSessionAction('id-token');
+        const result = await authActions.refreshSessionAction('id-token');
 
-          expect(result).toEqual({ success: false, error: expectedError });
-          expect(mocks.cookieDelete).not.toHaveBeenCalled();
-          expect(mocks.cookieSet).not.toHaveBeenCalled();
-        }
-      );
+        expect(result).toEqual(expected);
+        expect(result.data?.signInRequired).toBeUndefined();
+        expect(mocks.cookieDelete).not.toHaveBeenCalled();
+        expect(mocks.cookieSet).not.toHaveBeenCalled();
+      });
     });
 
     it('checks the existing session through the backend status (revocation) and does not require email_verified', async () => {

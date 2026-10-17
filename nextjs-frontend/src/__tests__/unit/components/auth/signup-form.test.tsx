@@ -79,6 +79,21 @@ describe('SignupForm', () => {
     expect(mocks.signUpWithEmail).toHaveBeenCalledTimes(1);
   });
 
+  it('names an outage when the action sets the typed flag (KAN-241)', async () => {
+    const user = userEvent.setup();
+    mocks.signUpWithEmail.mockResolvedValue({ user: {}, idToken: 't', error: null });
+    mocks.verifyTokenAction.mockResolvedValue({
+      success: false,
+      error: 'Sign-in service unavailable',
+      data: { serviceUnavailable: true },
+    });
+    render(<SignupForm />);
+
+    await fill(user);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/sign-in is unavailable right now/i);
+  });
+
   it('goes to verify-email on success', async () => {
     const user = userEvent.setup();
     mocks.signUpWithEmail.mockResolvedValue({ user: {}, idToken: 't', error: null });

@@ -1,4 +1,4 @@
-import { SIGN_IN_SERVICE_UNAVAILABLE_ERROR } from '@/lib/auth/auth-error-messages';
+import { isServiceUnavailableResult } from '@/lib/auth/auth-error-messages';
 import { getFirebaseErrorMessage } from '@/lib/utils/firebase-errors';
 
 /**
@@ -76,14 +76,25 @@ export function classifyThrownAuthError(thrown: unknown, flow: AuthFlow): AuthFo
   return classifyAuthError(null, flow);
 }
 
-export function classifyAuthError(
-  message: string | null | undefined,
+/**
+ * Classifies a failed auth server action response. The outage is read from the typed
+ * `data.serviceUnavailable` field (KAN-241); the message is display text and is never matched for it.
+ */
+export function classifyAuthResult(
+  result: { error?: string; data?: { serviceUnavailable?: unknown } | null },
   flow: AuthFlow
 ): AuthFormError {
-  const kind =
-    message === SIGN_IN_SERVICE_UNAVAILABLE_ERROR
-      ? 'service-unavailable'
-      : (message && KIND_BY_MESSAGE.get(message)) || 'unknown';
+  return classifyAuthError(result.error, flow, isServiceUnavailableResult(result));
+}
+
+export function classifyAuthError(
+  message: string | null | undefined,
+  flow: AuthFlow,
+  serviceUnavailable = false
+): AuthFormError {
+  const kind = serviceUnavailable
+    ? 'service-unavailable'
+    : (message && KIND_BY_MESSAGE.get(message)) || 'unknown';
 
   switch (kind) {
     case 'service-unavailable':

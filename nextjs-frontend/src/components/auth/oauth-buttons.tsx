@@ -6,8 +6,26 @@ import { signInWithGoogle, signInWithGitHub } from '@/lib/firebase/auth-helpers'
 import { verifyTokenAction } from '@/app/actions/auth-actions';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { SIGN_IN_SERVICE_UNAVAILABLE_ERROR } from '@/lib/auth/auth-error-messages';
-import { classifyAuthError } from './auth-form-errors';
+import { classifyAuthResult } from './auth-form-errors';
+
+/**
+ * Toast for a failed server-side verification, shared by every provider. An outage (typed flag, KAN-241) is
+ * not a refused sign-in, so it says so instead of "Authentication Failed" (KAN-240).
+ */
+function verificationFailureToast(result: {
+  error?: string;
+  data?: { serviceUnavailable?: unknown } | null;
+}) {
+  const failure = classifyAuthResult(result, 'sign-in');
+  const isOutage = failure.kind === 'service-unavailable';
+  return {
+    title: isOutage ? failure.title : 'Authentication Failed',
+    description: isOutage
+      ? failure.message
+      : result.error || 'Failed to create session. Please try again.',
+    variant: 'destructive' as const,
+  };
+}
 
 export function OAuthButtons() {
   const router = useRouter();
@@ -15,10 +33,14 @@ export function OAuthButtons() {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [isGitHubLoading, setIsGitHubLoading] = useState(false);
 
-  const handleGoogleSignIn = async () => {
+  const signInWithProvider = async (
+    providerName: string,
+    signIn: typeof signInWithGoogle,
+    setLoading: (loading: boolean) => void
+  ) => {
     try {
-      setIsGoogleLoading(true);
-      const { user, idToken, error } = await signInWithGoogle();
+      setLoading(true);
+      const { user, idToken, error } = await signIn();
 
       if (error) {
         // Don't show error if user cancelled the popup
@@ -39,17 +61,7 @@ export function OAuthButtons() {
         const result = await verifyTokenAction(idToken);
 
         if (!result.success) {
-          // An outage is not a refused sign-in (KAN-240): say so instead of "Authentication Failed".
-          const outage =
-            result.error === SIGN_IN_SERVICE_UNAVAILABLE_ERROR
-              ? classifyAuthError(result.error, 'sign-in')
-              : null;
-          toast({
-            title: outage?.title ?? 'Authentication Failed',
-            description:
-              outage?.message ?? (result.error || 'Failed to create session. Please try again.'),
-            variant: 'destructive',
-          });
+          toast(verificationFailureToast(result));
           return;
         }
 
@@ -61,75 +73,22 @@ export function OAuthButtons() {
         router.push('/dashboard');
         router.refresh();
       }
-    } catch (error: any) {
-      console.error('Google sign-in error:', error);
+    } catch (error: unknown) {
+      console.error(`${providerName} sign-in error:`, error);
       toast({
         title: 'Sign-in Failed',
         description: 'An unexpected error occurred. Please try again.',
         variant: 'destructive',
       });
     } finally {
-      setIsGoogleLoading(false);
+      setLoading(false);
     }
   };
 
-  const handleGitHubSignIn = async () => {
-    try {
-      setIsGitHubLoading(true);
-      const { user, idToken, error } = await signInWithGitHub();
-
-      if (error) {
-        // Don't show error if user cancelled the popup
-        if (error.includes('cancelled')) {
-          return;
-        }
-
-        toast({
-          title: 'Sign-in Failed',
-          description: error,
-          variant: 'destructive',
-        });
-        return;
-      }
-
-      if (user && idToken) {
-        // Create session on server
-        const result = await verifyTokenAction(idToken);
-
-        if (!result.success) {
-          // An outage is not a refused sign-in (KAN-240): say so instead of "Authentication Failed".
-          const outage =
-            result.error === SIGN_IN_SERVICE_UNAVAILABLE_ERROR
-              ? classifyAuthError(result.error, 'sign-in')
-              : null;
-          toast({
-            title: outage?.title ?? 'Authentication Failed',
-            description:
-              outage?.message ?? (result.error || 'Failed to create session. Please try again.'),
-            variant: 'destructive',
-          });
-          return;
-        }
-
-        toast({
-          title: 'Success',
-          description: 'Signed in successfully!',
-        });
-
-        router.push('/dashboard');
-        router.refresh();
-      }
-    } catch (error: any) {
-      console.error('GitHub sign-in error:', error);
-      toast({
-        title: 'Sign-in Failed',
-        description: 'An unexpected error occurred. Please try again.',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsGitHubLoading(false);
-    }
-  };
+  const handleGoogleSignIn = () =>
+    signInWithProvider('Google', signInWithGoogle, setIsGoogleLoading);
+  const handleGitHubSignIn = () =>
+    signInWithProvider('GitHub', signInWithGitHub, setIsGitHubLoading);
 
   return (
     <div className="grid gap-2">
