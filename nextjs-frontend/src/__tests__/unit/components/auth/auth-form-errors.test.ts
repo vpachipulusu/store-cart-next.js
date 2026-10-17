@@ -2,7 +2,11 @@
 import { describe, expect, it } from 'vitest';
 import { getFirebaseErrorMessage } from '@/lib/utils/firebase-errors';
 import { SIGN_IN_SERVICE_UNAVAILABLE_ERROR } from '@/lib/auth/auth-error-messages';
-import { classifyAuthError, classifyThrownAuthError } from '@/components/auth/auth-form-errors';
+import {
+  classifyAuthError,
+  classifyAuthResult,
+  classifyThrownAuthError,
+} from '@/components/auth/auth-form-errors';
 
 const fromCode = (code: string) => getFirebaseErrorMessage({ code });
 
@@ -62,9 +66,14 @@ describe('classifyAuthError', () => {
     expect(`${result.title} ${result.message}`).not.toMatch(/token/i);
   });
 
-  it('names a sign-in service outage, per flow, without technical detail (KAN-240)', () => {
-    const signIn = classifyAuthError(SIGN_IN_SERVICE_UNAVAILABLE_ERROR, 'sign-in');
-    const signUp = classifyAuthError(SIGN_IN_SERVICE_UNAVAILABLE_ERROR, 'sign-up');
+  it('names a sign-in service outage from the typed flag, per flow, without technical detail (KAN-241)', () => {
+    const outage = {
+      success: false,
+      error: SIGN_IN_SERVICE_UNAVAILABLE_ERROR,
+      data: { serviceUnavailable: true },
+    };
+    const signIn = classifyAuthResult(outage, 'sign-in');
+    const signUp = classifyAuthResult(outage, 'sign-up');
 
     expect(signIn.kind).toBe('service-unavailable');
     expect(signIn.title).toBe('Sign-in is unavailable right now');
@@ -73,6 +82,19 @@ describe('classifyAuthError', () => {
     expect(`${signIn.title} ${signIn.message} ${signUp.message}`).not.toMatch(
       /token|500|backend|server error/i
     );
+  });
+
+  it('does not infer an outage from the message text alone', () => {
+    const textOnly = { success: false, error: SIGN_IN_SERVICE_UNAVAILABLE_ERROR };
+
+    expect(classifyAuthResult(textOnly, 'sign-in').kind).toBe('unknown');
+    expect(classifyAuthError(SIGN_IN_SERVICE_UNAVAILABLE_ERROR, 'sign-in').kind).toBe('unknown');
+  });
+
+  it('classifies a result without the flag by its message', () => {
+    const refused = { success: false, error: 'Token verification failed' };
+
+    expect(classifyAuthResult(refused, 'sign-in').kind).toBe('unknown');
   });
 
   it('asks for a stronger password instead of blaming the server', () => {

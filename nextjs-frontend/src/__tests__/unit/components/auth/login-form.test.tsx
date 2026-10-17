@@ -119,6 +119,35 @@ describe('LoginForm', () => {
     expect(alert).toHaveTextContent(/try again/i);
   });
 
+  it('names an outage when the action sets the typed flag (KAN-241)', async () => {
+    const user = userEvent.setup();
+    mocks.signInWithEmail.mockResolvedValue({ user: {}, idToken: 't', error: null });
+    mocks.verifyTokenAction.mockResolvedValue({
+      success: false,
+      error: 'Sign-in service unavailable',
+      data: { serviceUnavailable: true },
+    });
+    render(<LoginForm />);
+
+    await fillAndSubmit(user);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/sign-in is unavailable right now/i);
+  });
+
+  it('does not name an outage from the message text alone (KAN-241)', async () => {
+    const user = userEvent.setup();
+    mocks.signInWithEmail.mockResolvedValue({ user: {}, idToken: 't', error: null });
+    mocks.verifyTokenAction.mockResolvedValue({
+      success: false,
+      error: 'Sign-in service unavailable',
+    });
+    render(<LoginForm />);
+
+    await fillAndSubmit(user);
+
+    expect(await screen.findByRole('alert')).not.toHaveTextContent(/unavailable right now/i);
+  });
+
   it('treats a thrown error as a network problem', async () => {
     const user = userEvent.setup();
     mocks.signInWithEmail.mockRejectedValue(new TypeError('Failed to fetch'));

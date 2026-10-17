@@ -2,6 +2,7 @@ import 'server-only';
 
 import { isIP } from 'node:net';
 import { cookies, headers } from 'next/headers';
+import { BACKEND_NOT_CONFIGURED_CODE } from '@/lib/auth/auth-error-messages';
 import { createClient, createConfig, type Client } from './generated/client';
 
 /**
@@ -33,10 +34,15 @@ type SdkResult<TData> = { data?: TData; error?: unknown; response?: Response };
 /** Generated success envelopes are unwrapped; plain success bodies retain their type. */
 export type BackendData<T> = T extends { data: infer TPayload; success?: true } ? TPayload : T;
 
+/** A missing backend setting. Sign-in maps it to a service-unavailable result; the text is for server logs only. */
+function notConfigured(variable: string): Error {
+  return Object.assign(new Error(`${variable} is not set`), { code: BACKEND_NOT_CONFIGURED_CODE });
+}
+
 function getBackendUrl(): string {
   const url = process.env.BACKEND_API_URL;
   if (!url) {
-    throw new Error('BACKEND_API_URL is not set');
+    throw notConfigured('BACKEND_API_URL');
   }
   return url.replace(/\/+$/, '');
 }
@@ -44,14 +50,20 @@ function getBackendUrl(): string {
 /** `withSession: false` leaves the caller's session cookie out, for public internal-key-only routes. */
 export interface BackendOptions {
   withSession?: boolean;
+  /** Throw when BACKEND_INTERNAL_KEY is missing; for routes the backend rejects without it (sign-in). */
+  requireInternalKey?: boolean;
 }
 
 /** A fresh client per call, so one request's session can never leak into another. */
 export async function getBackendClient({
   withSession = true,
+  requireInternalKey = false,
 }: BackendOptions = {}): Promise<Client> {
   const sessionToken = withSession ? (await cookies()).get(SESSION_COOKIE_NAME)?.value : undefined;
   const internalKey = process.env.BACKEND_INTERNAL_KEY;
+  if (requireInternalKey && !internalKey) {
+    throw notConfigured('BACKEND_INTERNAL_KEY');
+  }
   // Caller headers are trusted only at Vercel's boundary, never raw X-Forwarded-For.
   const forwardedIp =
     internalKey && process.env.VERCEL === '1'

@@ -9,6 +9,8 @@ import { logger } from '@/lib/logger';
 import {
   SIGN_IN_SERVICE_UNAVAILABLE_ERROR,
   isServiceUnavailable,
+  isServiceUnavailableError,
+  type ServiceUnavailableData,
 } from '@/lib/auth/auth-error-messages';
 import {
   isEmailNotVerifiedError,
@@ -176,6 +178,22 @@ export async function refreshSessionAction(idToken: string): Promise<AuthActionR
 const GENERIC_SIGN_IN_ERROR = 'Token verification failed';
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 5; // 5 days, matches the backend session lifetime
 
+/** The one outage result: display text plus the typed flag the forms act on (KAN-241). */
+function serviceUnavailableResult(): AuthActionResponse<ServiceUnavailableData> {
+  return {
+    success: false,
+    error: SIGN_IN_SERVICE_UNAVAILABLE_ERROR,
+    data: { serviceUnavailable: true },
+  };
+}
+
+/** Maps a failed backend call to the outage result (5xx or unreachable) or the generic refusal. */
+function failedBackendResult(status: number | undefined): AuthActionResponse {
+  return isServiceUnavailable(status)
+    ? serviceUnavailableResult()
+    : { success: false, error: GENERIC_SIGN_IN_ERROR };
+}
+
 /** Statuses meaning the API refused to refresh this session (as opposed to being down or rate limited). */
 function isRefreshRejection(status: number | undefined): boolean {
   return status === 401 || status === 403 || status === 409 || status === 422;
@@ -222,12 +240,7 @@ async function establishSession(
         status: verified.status,
         error: verified.error,
       });
-      return {
-        success: false,
-        error: isServiceUnavailable(verified.status)
-          ? SIGN_IN_SERVICE_UNAVAILABLE_ERROR
-          : GENERIC_SIGN_IN_ERROR,
-      };
+      return failedBackendResult(verified.status);
     }
     const { uid, email, email_verified } = verified.data;
     const isExplicitSignIn = requestedExplicit || !(await hasMatchingActiveSession(uid));
@@ -257,12 +270,7 @@ async function establishSession(
         return { success: false, error: GENERIC_SIGN_IN_ERROR, data: { signInRequired: true } };
       }
       // Outage, rate limit or server error: keep the current cookie; the next refresh retries.
-      return {
-        success: false,
-        error: isServiceUnavailable(session.status)
-          ? SIGN_IN_SERVICE_UNAVAILABLE_ERROR
-          : GENERIC_SIGN_IN_ERROR,
-      };
+      return failedBackendResult(session.status);
     }
     const maxAge = Number.isFinite(session.data.expires_in)
       ? Math.min(Math.max(Math.trunc(session.data.expires_in), 1), SESSION_MAX_AGE_SECONDS)
@@ -278,6 +286,9 @@ async function establishSession(
     };
   } catch (error: unknown) {
     logger.error('Verify token error:', error);
+    // Missing backend settings or a network failure from Firebase Admin: the service cannot be used, which is
+    // not a refused token. Only the error code is inspected, and nothing from it reaches the client.
+    if (isServiceUnavailableError(error)) return serviceUnavailableResult();
     return {
       success: false,
       error: GENERIC_SIGN_IN_ERROR,

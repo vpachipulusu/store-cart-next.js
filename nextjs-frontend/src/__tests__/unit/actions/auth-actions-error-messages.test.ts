@@ -77,6 +77,11 @@ function expectNoLeak(result: { success: boolean; error?: string }, generic: str
   expect(JSON.stringify(result)).not.toContain('SECRET');
 }
 
+function expectOutage(result: { success: boolean; error?: string; data?: unknown }) {
+  expectNoLeak(result, SIGN_IN_SERVICE_UNAVAILABLE_ERROR);
+  expect(result.data).toEqual({ serviceUnavailable: true });
+}
+
 describe('KAN-129: auth actions return generic errors', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -137,7 +142,7 @@ describe('KAN-129: auth actions return generic errors', () => {
   ])('verifyTokenAction reports the service as unavailable on %s', async (_label, failure) => {
     mocks.verifyBackendIdToken.mockResolvedValue(failure);
 
-    expectNoLeak(await verifyTokenAction('tok'), SIGN_IN_SERVICE_UNAVAILABLE_ERROR);
+    expectOutage(await verifyTokenAction('tok'));
     expect(mocks.logError).toHaveBeenCalled();
   });
 
@@ -148,7 +153,7 @@ describe('KAN-129: auth actions return generic errors', () => {
     });
     mocks.createBackendSession.mockResolvedValue({ success: false, error: SECRET, status: 502 });
 
-    expectNoLeak(await verifyTokenAction('tok'), SIGN_IN_SERVICE_UNAVAILABLE_ERROR);
+    expectOutage(await verifyTokenAction('tok'));
   });
 
   it('refreshSessionAction keeps the session and reports unavailable on a 5xx refresh', async () => {
@@ -159,8 +164,61 @@ describe('KAN-129: auth actions return generic errors', () => {
     mocks.readSessionStatus.mockResolvedValue({ uid: 'u' });
     mocks.refreshBackendSession.mockResolvedValue({ success: false, error: SECRET, status: 503 });
 
-    expectNoLeak(await refreshSessionAction('tok'), SIGN_IN_SERVICE_UNAVAILABLE_ERROR);
+    expectOutage(await refreshSessionAction('tok'));
     expect(mocks.cookieDelete).not.toHaveBeenCalledWith('session');
+  });
+
+  // KAN-241: a missing backend setting or a Firebase Admin network failure is an outage, not a bad token.
+  it.each([
+    [
+      'BACKEND_API_URL missing',
+      Object.assign(new Error('BACKEND_API_URL is not set'), { code: 'backend/not-configured' }),
+    ],
+    [
+      'BACKEND_INTERNAL_KEY missing',
+      Object.assign(new Error('BACKEND_INTERNAL_KEY is not set'), {
+        code: 'backend/not-configured',
+      }),
+    ],
+    [
+      'Firebase Admin network error',
+      Object.assign(new Error('SECRET'), { code: 'app/network-error' }),
+    ],
+    [
+      'Firebase Admin request failure',
+      Object.assign(new Error('SECRET'), { code: 'auth/network-request-failed' }),
+    ],
+    ['connection refused', Object.assign(new Error('SECRET'), { code: 'ECONNREFUSED' })],
+    [
+      'fetch failed with a socket cause',
+      Object.assign(new TypeError('fetch failed'), { cause: { code: 'ENOTFOUND' } }),
+    ],
+  ])('verifyTokenAction maps a thrown %s to the outage result', async (label, thrown) => {
+    mocks.verifyBackendIdToken.mockRejectedValue(thrown);
+
+    const result = await verifyTokenAction('tok');
+
+    expectOutage(result);
+    expect(JSON.stringify(result)).not.toMatch(/BACKEND_|not set|ECONN|app\/network/);
+    expect(mocks.logError).toHaveBeenCalled();
+    expect(mocks.cookieSet).not.toHaveBeenCalled();
+  });
+
+  it('refreshSessionAction maps a thrown config error to the outage result and keeps the cookie', async () => {
+    mocks.verifyBackendIdToken.mockResolvedValue({
+      success: true,
+      data: { uid: 'u', email: 'a@b.co', email_verified: true },
+    });
+    mocks.readSessionStatus.mockResolvedValue({ uid: 'u' });
+    mocks.refreshBackendSession.mockRejectedValue(
+      Object.assign(new Error('BACKEND_API_URL is not set'), { code: 'backend/not-configured' })
+    );
+
+    const result = await refreshSessionAction('tok');
+
+    expectOutage(result);
+    expect(result.data).not.toHaveProperty('signInRequired');
+    expect(mocks.cookieDelete).not.toHaveBeenCalled();
   });
 
   it('verifyTokenAction hides an unexpected exception from the backend wrapper', async () => {
