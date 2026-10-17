@@ -42,6 +42,10 @@ class CatalogueConflict(CatalogueError):
     """The change clashes with existing data, for example a taken SKU (409)."""
 
 
+class ProductLimitReached(CatalogueError):
+    """The plan allows no more products in this store; the message says to upgrade (409)."""
+
+
 class ProductNotFound(CatalogueError):
     """No product has this id in this store (404)."""
 

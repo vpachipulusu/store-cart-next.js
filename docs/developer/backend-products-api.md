@@ -75,3 +75,7 @@ Use `store_products_service()` (all roles) or `store_products_service(OWNER_ADMI
 session in the router, and add the route to the probe lists in `test_products_isolation_e2e.py` so it is checked against
 a foreign store, a foreign id and a sibling store. `tests/services/test_store_session_callers.py` lists the modules
 allowed to open a store database.
+
+## Plan limit (KAN-84)
+
+`POST` is refused with 409 when the store already holds the plan's `max_products`; see [backend-plan-limits.md](backend-plan-limits.md).

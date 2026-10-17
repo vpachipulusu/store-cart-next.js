@@ -14,13 +14,15 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException
 
-from app.api.deps import get_session_provider
+from app.api.deps import SessionDep, get_session_provider
 from app.api.merchant import require_merchant
 from app.core.database import SessionProvider
+from app.core.plans import Plan
 from app.models.platform.membership import MembershipRole
-from app.repositories.merchant import MerchantAccess
+from app.repositories.merchant import MerchantAccess, MerchantRepository
 from app.repositories.store_catalogue import StoreCatalogueRepository
 from app.services.merchant import ALL_ROLES
+from app.services.plan_limits import plan_for
 from app.services.store_products import StoreProductsService
 from app.services.store_sessions import StoreSessionError, open_store_session
 
@@ -41,12 +43,21 @@ def store_products_service(
     async def dependency(
         merchant: Annotated[MerchantAccess, Depends(merchant_dependency)],
         provider: Annotated[SessionProvider, Depends(get_session_provider)],
+        platform: SessionDep,
     ) -> AsyncIterator[StoreProductsService]:
         store_id = merchant.store.id
+
+        async def plan() -> Plan:
+            tier = await MerchantRepository(platform).effective_plan(
+                merchant.organization.id
+            )
+            await platform.rollback()  # do not hold the platform connection
+            return plan_for(tier)
+
         try:
             async with open_store_session(store_id, provider) as session:
                 yield StoreProductsService(
-                    StoreCatalogueRepository(session), session, store_id
+                    StoreCatalogueRepository(session), session, store_id, plan
                 )
         except StoreSessionError as error:
             logger.error(

@@ -50,6 +50,7 @@ from app.services.store_product_types import (
     NewProduct,
     NewVariant,
     OptionRecord,
+    ProductLimitReached,
     ProductNotFound,
     ProductPatch,
     ProductRecord,
@@ -300,6 +301,9 @@ def http_error(error: CatalogueError) -> HTTPException:
         return HTTPException(404, "Variant not found", headers=NO_STORE)
     if isinstance(error, ImageNotFound):
         return HTTPException(404, "Image not found", headers=NO_STORE)
+    if isinstance(error, ProductLimitReached):
+        # The message names the plan and says to upgrade; it holds no data of the store.
+        return HTTPException(409, str(error), headers=NO_STORE)
     if isinstance(error, CatalogueConflict):
         return HTTPException(409, str(error), headers=NO_STORE)
     if isinstance(error, InvalidProduct):

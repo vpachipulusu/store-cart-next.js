@@ -8,6 +8,7 @@ to. ``a.east`` stays unprovisioned (no database) for the 503 test.
 """
 
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import pytest
@@ -35,15 +36,33 @@ PROVISIONED = (
 LISTING_STORE = ("b", "south")
 
 
-@pytest_asyncio.fixture(scope="module", loop_scope="module")
-async def world() -> AsyncIterator[World]:
+@asynccontextmanager
+async def provisioned_world(*, unlimited: bool) -> AsyncIterator[World]:
+    """The product world; ``unlimited`` puts both organisations on Enterprise (KAN-84).
+
+    The catalogue suites create more products than the Free plan allows, so they run on
+    Enterprise; ``test_products_plan_limit_e2e.py`` keeps the organisations on Free.
+    """
     with pytest.MonkeyPatch.context() as patch:
         async with open_world(patch) as built:
             for label, slug in PROVISIONED:
                 store_id = built.tenant(label).stores[slug]
                 await built.provision(store_id)
                 await migrate_store(store_id, built.provider)
+            if unlimited:
+                async with built.platform.begin() as connection:
+                    await connection.execute(
+                        text(
+                            "UPDATE organizations SET subscription_tier = 'enterprise'"
+                        )
+                    )
             yield built
+
+
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
+async def world() -> AsyncIterator[World]:
+    async with provisioned_world(unlimited=True) as built:
+        yield built
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
