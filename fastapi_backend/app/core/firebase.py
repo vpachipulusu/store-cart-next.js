@@ -1,6 +1,7 @@
 """Revocable Firebase identities behind an async, injectable boundary."""
 
 import asyncio
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import timedelta
@@ -12,6 +13,8 @@ import firebase_admin
 from firebase_admin import auth, credentials, exceptions
 
 from app.core.config import settings
+
+logger = logging.getLogger("storecart.firebase")
 
 
 class AuthenticationFailed(Exception):
@@ -28,6 +31,24 @@ class IdentityUserNotFound(Exception):
 
 class IdentityPasswordRejected(Exception):
     """Firebase refused a new password (for example, it violates the password policy)."""
+
+
+def _log_and_wrap_outage(operation: str, exc: Exception) -> IdentityProviderUnavailable:
+    """Log why Firebase Admin failed and return the sanitized domain error.
+
+    Records the operation, exception class and SDK code, never the message.
+
+    The SDK text can carry tokens or key fragments, so only the class name and the
+    Firebase error code (for example ``PERMISSION_DENIED``) are recorded.
+    """
+    code: str | None = exc.code if isinstance(exc, exceptions.FirebaseError) else None
+    logger.error(
+        "firebase admin unavailable: operation=%s error=%s code=%s",
+        operation,
+        type(exc).__name__,
+        code,
+    )
+    return IdentityProviderUnavailable()
 
 
 @dataclass(frozen=True)
@@ -60,6 +81,18 @@ def _initialize_firebase_app() -> firebase_admin.App:
     email = settings.FIREBASE_ADMIN_CLIENT_EMAIL
     key = settings.FIREBASE_ADMIN_PRIVATE_KEY
     if not project or not email or not key:
+        missing = [
+            name
+            for name, value in (
+                ("FIREBASE_ADMIN_PROJECT_ID", project),
+                ("FIREBASE_ADMIN_CLIENT_EMAIL", email),
+                ("FIREBASE_ADMIN_PRIVATE_KEY", key),
+            )
+            if not value
+        ]
+        logger.error(
+            "firebase admin is not configured, missing: %s", ", ".join(missing)
+        )
         raise IdentityProviderUnavailable()
     try:
         return firebase_admin.get_app("storecart-auth")
@@ -105,8 +138,8 @@ class FirebaseIdentityProvider:
                 )
             except INVALID_CREDENTIAL_ERRORS:
                 raise AuthenticationFailed() from None
-            except (exceptions.FirebaseError, ValueError):
-                raise IdentityProviderUnavailable() from None
+            except (exceptions.FirebaseError, ValueError) as exc:
+                raise _log_and_wrap_outage("verify_id_token", exc) from None
 
         return await asyncio.to_thread(verify)
 
@@ -124,8 +157,8 @@ class FirebaseIdentityProvider:
                 )
             except INVALID_CREDENTIAL_ERRORS:
                 raise AuthenticationFailed() from None
-            except (exceptions.FirebaseError, ValueError):
-                raise IdentityProviderUnavailable() from None
+            except (exceptions.FirebaseError, ValueError) as exc:
+                raise _log_and_wrap_outage("verify_session_cookie", exc) from None
 
         return await asyncio.to_thread(verify)
 
@@ -142,8 +175,8 @@ class FirebaseIdentityProvider:
                 )
             except INVALID_CREDENTIAL_ERRORS:
                 raise AuthenticationFailed() from None
-            except (exceptions.FirebaseError, ValueError):
-                raise IdentityProviderUnavailable() from None
+            except (exceptions.FirebaseError, ValueError) as exc:
+                raise _log_and_wrap_outage("create_session_cookie", exc) from None
 
         return await asyncio.to_thread(create)
 
@@ -151,8 +184,8 @@ class FirebaseIdentityProvider:
         def revoke() -> None:
             try:
                 auth.revoke_refresh_tokens(uid, app=firebase_app())
-            except (exceptions.FirebaseError, ValueError):
-                raise IdentityProviderUnavailable() from None
+            except (exceptions.FirebaseError, ValueError) as exc:
+                raise _log_and_wrap_outage("revoke_refresh_tokens", exc) from None
 
         await asyncio.to_thread(revoke)
 
@@ -162,8 +195,8 @@ class FirebaseIdentityProvider:
                 auth.update_user(uid, disabled=disabled, app=firebase_app())
             except auth.UserNotFoundError:
                 raise IdentityUserNotFound() from None
-            except (exceptions.FirebaseError, ValueError):
-                raise IdentityProviderUnavailable() from None
+            except (exceptions.FirebaseError, ValueError) as exc:
+                raise _log_and_wrap_outage("set_user_disabled", exc) from None
 
         await asyncio.to_thread(update)
 
@@ -178,8 +211,8 @@ class FirebaseIdentityProvider:
                 raise IdentityPasswordRejected() from None
             except exceptions.InvalidArgumentError:
                 raise IdentityPasswordRejected() from None
-            except exceptions.FirebaseError:
-                raise IdentityProviderUnavailable() from None
+            except exceptions.FirebaseError as exc:
+                raise _log_and_wrap_outage("update_password", exc) from None
 
         await asyncio.to_thread(update)
 
@@ -190,7 +223,7 @@ class FirebaseIdentityProvider:
             except auth.UserNotFoundError:
                 # Idempotent across a Firebase success followed by a database failure.
                 return
-            except (exceptions.FirebaseError, ValueError):
-                raise IdentityProviderUnavailable() from None
+            except (exceptions.FirebaseError, ValueError) as exc:
+                raise _log_and_wrap_outage("delete_user", exc) from None
 
         await asyncio.to_thread(delete)
