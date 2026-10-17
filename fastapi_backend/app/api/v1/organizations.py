@@ -202,7 +202,7 @@ def http_error(exc: Exception) -> HTTPException:
     if isinstance(exc, SlugTaken):
         return HTTPException(409, "Slug is already taken")
     if isinstance(exc, StoreLimitReached):
-        return HTTPException(409, "Store limit reached for the current plan")
+        return HTTPException(409, str(exc))
     if isinstance(exc, OrganizationLimitReached):
         return HTTPException(409, "Organization limit reached")
     if isinstance(exc, ReservedSlug):

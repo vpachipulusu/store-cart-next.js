@@ -1,7 +1,9 @@
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 
+from app.core.plans import effective_plan_key
 from app.models.platform.membership import Membership, MembershipRole
 from app.models.platform.organization import Organization
 from app.models.platform.store import Store, StoreStatus
@@ -66,3 +68,18 @@ class MerchantRepository(BaseRepository):
             ),
             role,
         )
+
+    async def effective_plan(self, organization_id: str) -> str:
+        """The plan in force for the organisation: Stripe tier or a higher unexpired grant."""
+        row = (
+            await self._session.execute(
+                select(
+                    Organization.subscription_tier,
+                    Organization.granted_plan,
+                    Organization.granted_until,
+                ).where(Organization.id == organization_id)
+            )
+        ).first()
+        if row is None:
+            return effective_plan_key("free", None, None, datetime.now(UTC)).value
+        return effective_plan_key(*row, datetime.now(UTC)).value

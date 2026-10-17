@@ -12,6 +12,9 @@ Rules kept here because the database cannot express them (``docs/developer/backe
   product share a combination (the product row is locked while checking);
 * a product always keeps at least one variant;
 * ``compare_at`` equal to the price means "no sale" and is stored as null; below it is invalid;
+* a create fails with ``ProductLimitReached`` when the store already holds the plan's
+  maximum number of products (KAN-84); the count runs under an advisory lock in the same
+  transaction as the insert, so two concurrent creates cannot both take the last slot;
 * an image ``storage_key`` must live under this store's own prefix ``stores/{store_id}/``.
 """
 
@@ -21,7 +24,9 @@ from sqlalchemy.exc import DataError, DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ids import new_id
+from app.core.plans import Plan
 from app.repositories.store_catalogue import StoreCatalogueRepository
+from app.services.plan_limits import product_limit_message
 from app.services.store_product_rules import (
     CONFLICTS,
     CleanVariant,
@@ -59,6 +64,7 @@ from app.services.store_product_types import (
     InvalidProduct,
     NewProduct,
     NewVariant,
+    ProductLimitReached,
     ProductNotFound,
     ProductPage,
     ProductPatch,
@@ -68,6 +74,8 @@ from app.services.store_product_types import (
     VariantPatch,
 )
 
+PlanLookup = Callable[[], Awaitable[Plan]]
+
 
 class StoreProductsService:
     def __init__(
@@ -75,7 +83,10 @@ class StoreProductsService:
         repository: StoreCatalogueRepository,
         session: AsyncSession,
         store_id: str,
+        plan: PlanLookup,
     ) -> None:
+        # Resolves the organisation's plan on create (required: no silent unlimited).
+        self._plan = plan
         self._repository = repository
         self._session = session
         self._store_id = store_id
@@ -147,8 +158,15 @@ class StoreProductsService:
             raise InvalidProduct("A product without options has exactly one variant")
         category_ids = await self._checked_categories(data.category_ids)
         product_id = new_id()
+        plan = await self._plan()
 
         async def write() -> None:
+            if plan.max_products is not None:
+                # Counting relies on READ COMMITTED (the default): the count must see
+                # rows the previous lock holder committed.
+                await self._repository.lock_catalogue()
+                if await self._repository.count_all_products() >= plan.max_products:
+                    raise ProductLimitReached(product_limit_message(plan))
             await self._repository.insert_product(
                 product_id=product_id,
                 title=title,

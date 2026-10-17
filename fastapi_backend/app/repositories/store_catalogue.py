@@ -79,6 +79,9 @@ class ProductSummaryRow:
     max_price_minor: int | None
 
 
+# Advisory lock key serialising product creates; unique to this use within a store database.
+PRODUCT_CREATE_LOCK_KEY = 0x5C0A0001
+
 _LIST_FILTER = (
     "(CAST(:status AS varchar) IS NULL OR p.status = CAST(:status AS varchar)) "
     "AND (CAST(:category_id AS varchar) IS NULL OR EXISTS ("
@@ -106,6 +109,28 @@ class StoreCatalogueRepository(BaseRepository):
             )
         ).first()
         return row is not None
+
+    async def lock_catalogue(self) -> None:
+        """Serialise product creates in this store until the transaction ends.
+
+        A new product has no row to lock yet, so concurrent creates would each count the
+        same total. The advisory lock is per database, and every store has its own.
+        """
+        # A stuck holder must not queue creates forever: 55P03 becomes "store is busy, retry".
+        # SET LOCAL lasts until the transaction ends, so the timeout also covers the later
+        # insert and commit; a timeout there surfaces as the 409 "The store is busy, retry".
+        await self._session.execute(text("SET LOCAL lock_timeout = '5s'"))
+        await self._session.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"), {"key": PRODUCT_CREATE_LOCK_KEY}
+        )
+
+    async def count_all_products(self) -> int:
+        """Every product, drafts included: the number the plan limit applies to."""
+        return int(
+            (
+                await self._session.execute(text("SELECT count(*) FROM products"))
+            ).scalar_one()
+        )
 
     async def insert_product(
         self,
