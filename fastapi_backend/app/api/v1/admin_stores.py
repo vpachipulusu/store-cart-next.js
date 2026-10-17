@@ -277,6 +277,10 @@ def _http_error(exc: Exception) -> HTTPException:
     return HTTPException(status_code, detail, headers=headers)
 
 
+# Shared with the merchant retry route (KAN-242), which maps the same domain errors.
+http_error = _http_error
+
+
 def _no_store(response: Response) -> None:
     response.headers["Cache-Control"] = "no-store"
 

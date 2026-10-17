@@ -2,9 +2,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render, screen } from '@testing-library/react';
 
-const mocks = vi.hoisted(() => ({ getStoreStatusAction: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  getStoreStatusAction: vi.fn(),
+  retryProvisioningAction: vi.fn(),
+}));
 vi.mock('@/app/actions/onboarding-actions', () => ({
   getStoreStatusAction: mocks.getStoreStatusAction,
+  retryProvisioningAction: mocks.retryProvisioningAction,
 }));
 
 import {
@@ -420,5 +424,152 @@ describe('ProvisioningStatus', () => {
       expect(pill()).toHaveTextContent('Needs attention');
       expect(pill().className).toContain('bg-crit');
     });
+  });
+});
+
+describe('Retry setup on a FAILED store (KAN-242)', () => {
+  const retryButton = () => screen.queryByRole('button', { name: /retry setup/i });
+  const clickRetry = async () => {
+    await act(async () => {
+      screen.getByRole('button', { name: /retry setup/i }).click();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    mocks.retryProvisioningAction.mockResolvedValue({ success: true, data: { attempt: 1 } });
+    mocks.getStoreStatusAction.mockResolvedValue(ok('PROVISIONING'));
+  });
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it('offers Retry setup next to Check again, outside the live region', () => {
+    renderStatus('FAILED');
+
+    expect(retryButton()).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /check again/i })).toBeInTheDocument();
+    expect(statusRegion()).not.toContainElement(retryButton());
+  });
+
+  it.each(['PROVISIONING', 'ACTIVE', 'SUSPENDED', 'UNKNOWN'] as const)(
+    'does not offer it when the status is %s',
+    (status) => {
+      renderStatus(status);
+      expect(retryButton()).toBeNull();
+    }
+  );
+
+  it('queues the retry through the server action and shows setting-up progress', async () => {
+    renderStatus('FAILED');
+
+    await clickRetry();
+
+    expect(mocks.retryProvisioningAction).toHaveBeenCalledWith(STORE_ID);
+    expect(statusRegion()).toHaveTextContent(/we are setting up your store/i);
+    expect(statusRegion()).not.toHaveTextContent(/could not finish/i);
+    expect(retryButton()).toBeNull();
+    expect(screen.getByTestId('provisioning-pill')).toHaveTextContent('Setting up');
+  });
+
+  it('keeps polling after the retry and shows ready when the store turns ACTIVE', async () => {
+    mocks.getStoreStatusAction
+      .mockResolvedValueOnce(ok('PROVISIONING'))
+      .mockResolvedValue(ok('ACTIVE'));
+    renderStatus('FAILED');
+
+    await clickRetry();
+    await advance(POLL_MAX_MS);
+
+    expect(statusRegion()).toHaveTextContent(/your store is ready/i);
+    expect(screen.getByRole('link', { name: /open dashboard/i })).toBeInTheDocument();
+  });
+
+  it('offers the retry again when the new run fails too', async () => {
+    mocks.getStoreStatusAction.mockResolvedValue(ok('FAILED'));
+    renderStatus('FAILED');
+
+    await clickRetry();
+    await advance(POLL_MAX_MS);
+
+    expect(statusRegion()).toHaveTextContent(/could not finish setting up/i);
+    expect(retryButton()).toBeInTheDocument();
+  });
+
+  it('sends one request for a double click', async () => {
+    let resolve: (value: unknown) => void = () => {};
+    mocks.retryProvisioningAction.mockImplementation(() => new Promise((done) => (resolve = done)));
+    renderStatus('FAILED');
+
+    await act(async () => {
+      const button = screen.getByRole('button', { name: /retry setup/i });
+      button.click();
+      button.click();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => resolve({ success: true, data: { attempt: 1 } }));
+
+    expect(mocks.retryProvisioningAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides Retry at the cap and keeps the contact-support copy and Check again', async () => {
+    mocks.retryProvisioningAction.mockResolvedValue({ success: false, reason: 'limit' });
+    renderStatus('FAILED');
+
+    await clickRetry();
+
+    expect(retryButton()).toBeNull();
+    expect(screen.getByTestId('store-status')).toHaveTextContent(/contact support/i);
+    expect(screen.getByTestId('store-status')).toHaveTextContent(STORE_ID);
+    expect(screen.getByRole('button', { name: /check again/i })).toBeInTheDocument();
+    expect(statusRegion()).toHaveTextContent(/tried the maximum number of times/i);
+  });
+
+  it.each([
+    ['rate_limited', /too many attempts/i],
+    ['forbidden', /owner or admin/i],
+    ['unavailable', /could not retry/i],
+  ])('shows a fixed message for %s and keeps the button', async (reason, message) => {
+    mocks.retryProvisioningAction.mockResolvedValue({ success: false, reason });
+    renderStatus('FAILED');
+
+    await clickRetry();
+
+    expect(statusRegion()).toHaveTextContent(message);
+    expect(statusRegion()).toHaveTextContent(/could not finish setting up/i);
+    expect(retryButton()).toBeInTheDocument();
+  });
+
+  it('shows the session-expired text when the session is gone', async () => {
+    mocks.retryProvisioningAction.mockResolvedValue({ success: false, code: 'unauthorized' });
+    renderStatus('FAILED');
+
+    await clickRetry();
+
+    expect(statusRegion()).toHaveTextContent(/session/i);
+  });
+
+  it('re-reads the status when the store is no longer FAILED', async () => {
+    mocks.retryProvisioningAction.mockResolvedValue({ success: false, reason: 'not_failed' });
+    mocks.getStoreStatusAction.mockResolvedValue(ok('ACTIVE'));
+    renderStatus('FAILED');
+
+    await clickRetry();
+
+    expect(mocks.getStoreStatusAction).toHaveBeenCalledWith(STORE_ID);
+    expect(statusRegion()).toHaveTextContent(/your store is ready/i);
+  });
+
+  it('shows an error when the action itself rejects', async () => {
+    mocks.retryProvisioningAction.mockRejectedValue(new Error('stale deployment'));
+    renderStatus('FAILED');
+
+    await clickRetry();
+
+    expect(statusRegion()).toHaveTextContent(/could not retry/i);
+    expect(retryButton()).toBeInTheDocument();
   });
 });

@@ -44,6 +44,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.permissions import AdminContext
 from app.models.platform.store import StoreStatus
 from app.repositories.admin_stores import (
+    MERCHANT_RETRY_ACTION,
+    MERCHANT_RETRY_FAILED_ACTION,
     REPROVISION_ACTION,
     REPROVISION_FAILED_ACTION,
     OrganizationPage,
@@ -114,6 +116,7 @@ class StoresStore(Protocol):
         self, store_id: str, *, lock: bool = False
     ) -> StoreRecord | None: ...
     async def set_status(self, store_id: str, status: StoreStatus) -> None: ...
+    async def claim_failed(self, store_id: str) -> bool: ...
     async def count_reprovisions(self, store_id: str) -> ReprovisionCounts: ...
 
 
@@ -143,6 +146,21 @@ class StatusResult:
 class ReprovisionResult:
     status: StoreStatus
     attempt: int
+
+
+@dataclass(frozen=True)
+class ReprovisionKind:
+    """Who re-runs provisioning: names the audit actions (the cap counts all of them)."""
+
+    started_action: str
+    failed_action: str
+    label: str
+
+
+ADMIN_RERUN = ReprovisionKind(REPROVISION_ACTION, REPROVISION_FAILED_ACTION, "admin")
+MERCHANT_RETRY = ReprovisionKind(
+    MERCHANT_RETRY_ACTION, MERCHANT_RETRY_FAILED_ACTION, "merchant"
+)
 
 
 @dataclass(frozen=True)
@@ -202,8 +220,18 @@ class AdminStoresService:
         )
 
     async def reprovision(
-        self, actor: AdminContext, store_id: str
+        self,
+        actor: AdminContext,
+        store_id: str,
+        kind: ReprovisionKind = ADMIN_RERUN,
     ) -> ReprovisionResult:
+        """Re-run provisioning of a FAILED store: the one cap-and-requeue path.
+
+        Used by the admin route and by the merchant retry (KAN-242; ``kind`` only names
+        the audit actions). The cap counts both kinds of audit row. FAILED to
+        PROVISIONING is a single conditional UPDATE, so of two concurrent callers only
+        one queues a chain.
+        """
         record = await self.repository.get_store(store_id, lock=True)
         if record is None:
             await self._abort(AdminStoreNotFound(), store_id)
@@ -218,28 +246,33 @@ class AdminStoresService:
         await self._record(
             actor,
             record,
-            REPROVISION_ACTION,
+            kind.started_action,
             before={"status": StoreStatus.FAILED.value},
             after={"status": StoreStatus.PROVISIONING.value},
-            new_status=StoreStatus.PROVISIONING,
+            claim_failed=True,
             extra={"attempt": attempt, "max_attempts": MAX_REPROVISION_ATTEMPTS},
         )
         logger.info(
-            "admin store provisioning re-run",
+            "store provisioning re-run",
             extra={
                 "store_id": store_id,
                 "admin_user_id": actor.user_id,
                 "attempt": attempt,
+                "kind": kind.label,
             },
         )
         # Shielded: a client disconnect after the commit must not strand the store in
         # PROVISIONING without a job, nor skip the compensation below.
-        if not await asyncio.shield(self._launch(actor, record, attempt)):
+        if not await asyncio.shield(self._launch(actor, record, attempt, kind)):
             raise ProvisioningNotStarted
         return ReprovisionResult(StoreStatus.PROVISIONING, attempt)
 
     async def _launch(
-        self, actor: AdminContext, record: StoreRecord, attempt: int
+        self,
+        actor: AdminContext,
+        record: StoreRecord,
+        attempt: int,
+        kind: ReprovisionKind,
     ) -> bool:
         """Enqueue the first step. On any failure the store is FAILED again and a
         ``reprovision_failed`` row frees the attempt's slot in the cap."""
@@ -255,7 +288,7 @@ class AdminStoresService:
         await self._record(
             actor,
             record,
-            REPROVISION_FAILED_ACTION,
+            kind.failed_action,
             before={"status": StoreStatus.PROVISIONING.value},
             after={"status": StoreStatus.FAILED.value},
             new_status=StoreStatus.FAILED,
@@ -347,14 +380,18 @@ class AdminStoresService:
         after: object = None,
         reason: str | None = None,
         new_status: StoreStatus | None = None,
+        claim_failed: bool = False,
         extra: dict[str, object] | None = None,
     ) -> None:
         """Audit an outcome and commit it, with the status change if any, in one transaction.
 
-        A failure is a 503 telling the admin to retry: a migration is idempotent and a
-        status change was rolled back.
+        ``claim_failed`` makes FAILED to PROVISIONING a conditional UPDATE; losing that
+        race is a ``StoreConflict``. Any other failure is a 503 telling the caller to
+        retry: a migration is idempotent and a status change was rolled back.
         """
         try:
+            if claim_failed and not await self.repository.claim_failed(record.id):
+                raise StoreConflict
             if new_status is not None:
                 await self.repository.set_status(record.id, new_status)
             await self.auditor.record(
@@ -369,6 +406,8 @@ class AdminStoresService:
                 details=_details(reason, extra),
             )
             await self.session.commit()
+        except StoreConflict:
+            await self._abort(StoreConflict(), record.id)
         except Exception as exc:  # noqa: BLE001
             logger.error(
                 "admin store outcome was not recorded: %s",

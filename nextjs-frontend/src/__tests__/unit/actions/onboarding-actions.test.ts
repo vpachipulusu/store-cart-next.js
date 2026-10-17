@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   getVerifiedSessionClaims: vi.fn(),
   createOrganizationWithStore: vi.fn(),
   fetchStoreStatus: vi.fn(),
+  requestProvisioningRetry: vi.fn(),
   revalidatePath: vi.fn(),
   loggerError: vi.fn(),
 }));
@@ -21,9 +22,14 @@ vi.mock('@/lib/auth/verified-session', () => ({
 vi.mock('@/lib/api/onboarding', () => ({
   createOrganizationWithStore: mocks.createOrganizationWithStore,
   fetchStoreStatus: mocks.fetchStoreStatus,
+  requestProvisioningRetry: mocks.requestProvisioningRetry,
 }));
 
-import { createStoreAction, getStoreStatusAction } from '@/app/actions/onboarding-actions';
+import {
+  createStoreAction,
+  getStoreStatusAction,
+  retryProvisioningAction,
+} from '@/app/actions/onboarding-actions';
 
 const NEW = {
   mode: 'new',
@@ -255,5 +261,68 @@ describe('getStoreStatusAction', () => {
       success: false,
       error: 'Could not check your store. Please try again.',
     });
+  });
+});
+
+describe('retryProvisioningAction (KAN-242)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getVerifiedSessionClaims.mockResolvedValue({ uid: 'u1' });
+  });
+
+  it('queues the retry for the store and returns the attempt number', async () => {
+    mocks.requestProvisioningRetry.mockResolvedValue({ success: true, attempt: 2, maxAttempts: 3 });
+
+    expect(await retryProvisioningAction(STORE_ID)).toEqual({
+      success: true,
+      data: { attempt: 2 },
+    });
+    expect(mocks.requestProvisioningRetry).toHaveBeenCalledWith(STORE_ID);
+  });
+
+  it('needs a verified session and does not call the backend without one', async () => {
+    mocks.getVerifiedSessionClaims.mockResolvedValue(null);
+
+    expect(await retryProvisioningAction(STORE_ID)).toEqual({
+      success: false,
+      code: 'unauthorized',
+    });
+    expect(mocks.requestProvisioningRetry).not.toHaveBeenCalled();
+  });
+
+  it('treats a malformed store id as not found without calling the backend', async () => {
+    expect(await retryProvisioningAction('../admin')).toEqual({
+      success: false,
+      reason: 'not_found',
+    });
+    expect(mocks.requestProvisioningRetry).not.toHaveBeenCalled();
+  });
+
+  it.each(['limit', 'not_failed', 'rate_limited', 'forbidden', 'not_found', 'unavailable'])(
+    'passes the fixed reason %s through, never backend text',
+    async (reason) => {
+      mocks.requestProvisioningRetry.mockResolvedValue({ success: false, reason });
+
+      expect(await retryProvisioningAction(STORE_ID)).toEqual({ success: false, reason });
+    }
+  );
+
+  it('turns an expired session from the backend into the unauthorized code', async () => {
+    mocks.requestProvisioningRetry.mockResolvedValue({ success: false, reason: 'unauthorized' });
+
+    expect(await retryProvisioningAction(STORE_ID)).toEqual({
+      success: false,
+      code: 'unauthorized',
+    });
+  });
+
+  it('reports unavailable and logs only the error name when the wrapper throws', async () => {
+    mocks.requestProvisioningRetry.mockRejectedValue(new Error('postgres://secret'));
+
+    expect(await retryProvisioningAction(STORE_ID)).toEqual({
+      success: false,
+      reason: 'unavailable',
+    });
+    expect(JSON.stringify(mocks.loggerError.mock.calls)).not.toContain('secret');
   });
 });
