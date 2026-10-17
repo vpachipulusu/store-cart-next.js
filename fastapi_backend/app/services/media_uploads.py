@@ -16,6 +16,8 @@ from app.core.ids import new_id
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 PRESIGN_TTL_SECONDS = 300
 # SVG is deliberately absent: it can carry script.
+# product_images.storage_key (store revision 0003) allows exactly these extensions; adding one
+# needs a new store revision that relaxes ck_product_images_storage_key.
 ImageContentType = Literal["image/jpeg", "image/png", "image/webp"]
 ALLOWED_IMAGE_TYPES = MappingProxyType(
     {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}

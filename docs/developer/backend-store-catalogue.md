@@ -1,4 +1,6 @@
-# Backend store catalogue schema (KAN-70)
+# Backend store catalogue schema (KAN-70, KAN-71)
+
+Categories and product images (store revision `0003`) are in [their own section](#categories-and-product-images-kan-71) below.
 
 Store revision `0002` (`fastapi_backend/alembic_store/versions/0002_catalogue.py`) adds the catalogue to every store
 database. It is a **store** revision (ADR-005, [backend-store-migrations.md](backend-store-migrations.md)); no platform
@@ -60,15 +62,20 @@ platform head stays `0009`. Models only: no API routes yet (the product editor i
 | ----- | ------- | --------------- |
 | `categories` | nested categories (adjacency list) | `parent_id` null for a root; `position >= 0` orders siblings (read with `ORDER BY position, id`); `slug` unique per store, lower-case hyphenated, max 200; name not blank, max 255; `parent_id <> id`; index `(parent_id, position)` |
 | `product_categories` | product in many categories | primary key (product, category); both foreign keys `CASCADE` (deleting either side removes only the links); index on `category_id` |
-| `product_images` | ordered images of a product | `storage_key` unique, shaped `stores/{store_id}/{id}.(jpg\|png\|webp)` (what `MediaUploadService` builds), max 255; `position >= 0`, unique per product and `DEFERRABLE INITIALLY DEFERRED`; `alt_text` max 500; cascades with the product |
+| `product_images` | ordered images of a product | `storage_key` unique, shaped `stores/{store_id}/{id}.(jpg\|png\|webp)` (what `MediaUploadService` builds), max 255; `position >= 0`, unique per product and `DEFERRABLE INITIALLY DEFERRED`; `alt_text` max 500; cascades with the product; `created_at` and `updated_at` (set by the service) |
 
 Rules for the future API and services:
 
-- **Deleting a category with children is rejected** (`RESTRICT` on `fk_categories_parent`); move or delete the children first.
+- **Deleting a category with children is rejected** (`NO ACTION` on `fk_categories_parent`, checked at the end of the statement); move or delete the children first. One `DELETE` statement may remove a whole subtree.
 - **Cycles and depth** are not enforced by the database (only "not its own parent"). The service must reject a move under
-  one of the category's own descendants and cap the depth.
+  one of the category's own descendants and cap the depth. Do the check and the move in one transaction and lock the
+  moved category and its ancestors (`SELECT ... FOR UPDATE`), or two concurrent moves (A under B, B under A) can each pass
+  the check and form a cycle.
 - **Reordering** (categories or images) renumbers positions in one transaction. Image positions are unique per product but
-  the check is deferred, so swapping two positions in a single transaction works. Categories have no uniqueness on
+  the check is deferred, so swapping two positions in a single transaction works. Because it is deferred, a duplicate
+  position raises its `IntegrityError` at `COMMIT`, not at the statement (map it to 409 around the commit), and the constraint
+  cannot be an `ON CONFLICT` arbiter: use plain `INSERT`/`UPDATE`, never an upsert on `(product_id, position)`. Positions
+  have no upper cap in the database: the API must cap them (an `int` overflow raises `DataError`). Categories have no uniqueness on
   position: ties are legal and break by id.
 - **R2 objects:** the row stores the object key only; the public URL is `R2_PUBLIC_BASE_URL/{key}`. Deleting a product (or
   an image) removes rows, not objects: the service deletes the R2 objects. The store segment of the key is not checked by

@@ -135,6 +135,7 @@ docker rm -f store-mig-pg
 | -------- | ---- | --- |
 | `0001` | baseline (no tables) | this page |
 | `0002` | catalogue: products, variants, options, option values (KAN-70) | [backend-store-catalogue.md](backend-store-catalogue.md) |
+| `0003` | categories, product-category links, product images (KAN-71) | [backend-store-catalogue.md](backend-store-catalogue.md#categories-and-product-images-kan-71) |
 
 Tests that need "a store at version 1" pass a tree that stops at `0001` (`baseline` fixture in
 `tests/services/test_store_migrations_e2e.py`) instead of depending on the real head.

@@ -4,7 +4,8 @@ Store-database tables only (the platform tree is untouched). Expand-only: new ta
 
 * ``categories`` is an adjacency list: ``parent_id`` points at the parent (null for a root)
   and ``position`` orders siblings (ties break by id in the reader). Deleting a category
-  that still has children is rejected (``RESTRICT``) so a subtree is never lost silently.
+  that still has children is rejected (``NO ACTION``, checked at the end of the statement)
+  so a subtree is never lost silently; one DELETE statement may remove a whole subtree.
   That the parent chain has no cycle and a depth limit are service rules.
 * ``categories.slug`` is unique per store, lower-case hyphenated, like ``products.slug``.
 * ``product_categories`` links a product to many categories; deleting either side removes
@@ -54,7 +55,7 @@ def upgrade() -> None:
             "parent_id",
             sa.String(),
             sa.ForeignKey(
-                "categories.id", ondelete="RESTRICT", name="fk_categories_parent"
+                "categories.id", ondelete="NO ACTION", name="fk_categories_parent"
             ),
             nullable=True,
         ),
@@ -117,14 +118,10 @@ def upgrade() -> None:
         sa.Column("storage_key", sa.String(), nullable=False),
         sa.Column("alt_text", sa.String(), nullable=True),
         sa.Column("position", sa.Integer(), nullable=False),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
+        *_timestamps(),
         sa.CheckConstraint(
             # The key shape MediaUploadService builds: stores/{store_id}/{id}.{ext}.
+            # A new extension in ALLOWED_IMAGE_TYPES needs a store revision that relaxes this.
             "storage_key ~ '^stores/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+[.](jpg|png|webp)$'"
             " AND char_length(storage_key) <= 255",
             name="ck_product_images_storage_key",
