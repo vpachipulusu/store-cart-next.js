@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { StatusPill } from '@/components/ui/status-pill';
-import { getStoreStatusAction } from '@/app/actions/onboarding-actions';
+import { getStoreStatusAction, retryProvisioningAction } from '@/app/actions/onboarding-actions';
 import { SESSION_EXPIRED_MESSAGE } from '@/lib/onboarding/schema';
 import type { StoreStatus } from '@/lib/api/onboarding';
 
@@ -27,6 +27,12 @@ export function nextPollDelay(attempt: number): number {
 const UNAVAILABLE_MESSAGE = 'This store is not available right now.';
 const SLOW_MESSAGE = 'Setting up your store is taking longer than expected.';
 const CHECK_FAILED_MESSAGE = 'We could not check your store. Please try again.';
+const RETRY_LIMIT_MESSAGE = 'We have already tried the maximum number of times.';
+const RETRY_MESSAGES = {
+  rate_limited: 'Too many attempts. Wait a few minutes and try again.',
+  forbidden: 'Only an owner or admin of this business can retry the setup.',
+  unavailable: 'We could not retry the setup. Please try again.',
+} as const;
 
 type ProvisioningStatusProps = {
   storeId: string;
@@ -50,9 +56,19 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
   const [coolingDown, setCoolingDown] = useState(false);
   /** True once a manual check came back FAILED again, so the unchanged screen still gives feedback. */
   const [stillFailed, setStillFailed] = useState(false);
+  /** A retry request is in flight (a second click is ignored), and what the last one said (KAN-242). */
+  const [retrying, setRetrying] = useState(false);
+  const retryingRef = useRef(false);
+  const [retryProblem, setRetryProblem] = useState<string | null>(null);
+  /** The backend refused because the store was already retried the maximum number of times. */
+  const [retryLimitReached, setRetryLimitReached] = useState(false);
+  /** The caller is not an owner or admin, so the button is pointless for them. */
+  const [retryForbidden, setRetryForbidden] = useState(false);
   /** Whether the store was FAILED when the user pressed the button; only then is "still" accurate. */
   const checkedFromFailedRef = useRef(false);
   const dashboardLinkRef = useRef<HTMLAnchorElement>(null);
+  /** The focused "Retry setup" button unmounts on success or at the cap; focus moves here so it is not lost. */
+  const statusRegionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (initialStatus !== 'PROVISIONING' && retryCount === 0) return;
@@ -123,12 +139,56 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
     checkedFromFailedRef.current = status === 'FAILED';
     setCoolingDown(true);
     setProblem(null);
+    setRetryProblem(null);
     setStillFailed(false);
     setRetryCount((count) => count + 1);
   };
 
-  // FAILED is the provisioning job giving up. There is no merchant-facing way to re-run it yet, so the screen
-  // says so and the button only re-reads the status (an admin re-run, KAN-200, turns it ACTIVE).
+  const focusStatusRegion = () => statusRegionRef.current?.focus();
+
+  /** Re-runs the job (KAN-242). Success shows the normal setting-up progress and polls until it settles. */
+  const handleSetupRetry = async () => {
+    if (retryingRef.current) return;
+    retryingRef.current = true;
+    setRetrying(true);
+    setRetryProblem(null);
+    try {
+      const result = await retryProvisioningAction(storeId);
+      if (result.success) {
+        checkedFromFailedRef.current = false;
+        setStatus('PROVISIONING');
+        setProblem(null);
+        setStillFailed(false);
+        setRetryCount((count) => count + 1);
+        focusStatusRegion(); // the button unmounts: the setting-up text is announced from here
+      } else if (result.code === 'unauthorized') {
+        setRetryProblem(SESSION_EXPIRED_MESSAGE);
+      } else if (result.reason === 'limit') {
+        setRetryLimitReached(true);
+        focusStatusRegion();
+      } else if (result.reason === 'forbidden') {
+        setRetryProblem(RETRY_MESSAGES.forbidden);
+        setRetryForbidden(true);
+        focusStatusRegion();
+      } else if (result.reason === 'not_failed' || result.reason === 'not_found') {
+        // The store changed under us: show what it is now instead of guessing.
+        checkedFromFailedRef.current = false;
+        setRetryCount((count) => count + 1);
+      } else {
+        setRetryProblem(RETRY_MESSAGES[result.reason ?? 'unavailable']);
+      }
+    } catch {
+      // A dropped connection or a stale deployment rejects the action.
+      setRetryProblem(RETRY_MESSAGES.unavailable);
+    } finally {
+      retryingRef.current = false;
+      setRetrying(false);
+    }
+  };
+
+  // FAILED is the provisioning job giving up. An owner or admin can re-run it (KAN-242, "Retry setup") until the
+  // attempt cap; after that, or for anyone else, the screen says to contact support. "Check again" only re-reads
+  // the status (an admin re-run, KAN-200, may have turned it ACTIVE).
   // A failed check while FAILED keeps this explanation and adds the problem as an extra line.
   const provisioningFailed = status === 'FAILED';
   const message =
@@ -148,7 +208,13 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
 
   return (
     <div className="flex flex-col items-start gap-4" data-testid="store-status">
-      <div role="status" aria-live="polite" className="flex flex-col items-start gap-2">
+      <div
+        ref={statusRegionRef}
+        tabIndex={-1}
+        role="status"
+        aria-live="polite"
+        className="flex flex-col items-start gap-2 outline-none"
+      >
         {provisioningFailed ? (
           <>
             <StatusPill variant="crit" data-testid="provisioning-pill">
@@ -156,6 +222,8 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
             </StatusPill>
             <p className="font-medium">We could not finish setting up your store</p>
             {problem !== null && <p className="text-sm">{problem}</p>}
+            {retryProblem !== null && <p className="text-sm">{retryProblem}</p>}
+            {retryLimitReached && <p className="text-sm">{RETRY_LIMIT_MESSAGE}</p>}
             {stillFailed && problem === null && (
               // Keyed per check so each repeat check is announced again.
               <p key={retryCount} className="text-sm">
@@ -210,15 +278,27 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
         </>
       )}
       {needsAttention && (
-        <Button
-          type="button"
-          variant="outline"
-          onClick={handleRetry}
-          aria-disabled={coolingDown}
-          className="min-h-11 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
-        >
-          {provisioningFailed ? 'Check again' : 'Try again'}
-        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          {provisioningFailed && !retryLimitReached && !retryForbidden && (
+            <Button
+              type="button"
+              onClick={() => void handleSetupRetry()}
+              aria-disabled={retrying}
+              className="min-h-11 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+            >
+              {retrying ? 'Retrying...' : 'Retry setup'}
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleRetry}
+            aria-disabled={coolingDown}
+            className="min-h-11 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+          >
+            {provisioningFailed ? 'Check again' : 'Try again'}
+          </Button>
+        </div>
       )}
       {ready && (
         <Button asChild className="min-h-11">

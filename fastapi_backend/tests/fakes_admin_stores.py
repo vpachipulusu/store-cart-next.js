@@ -90,6 +90,21 @@ class FakeStoresRepository:
     async def set_status(self, store_id: str, status: StoreStatus) -> None:
         self.stores[store_id] = replace(self.stores[store_id], status=status)
 
+    async def release_provisioning(self, store_id: str) -> StoreStatus | None:
+        current = self.stores.get(store_id)
+        if current is None:
+            return None
+        if current.status is StoreStatus.PROVISIONING:
+            await self.set_status(store_id, StoreStatus.FAILED)
+            return StoreStatus.FAILED
+        return current.status
+
+    async def claim_failed(self, store_id: str) -> bool:
+        if self.stores[store_id].status is not StoreStatus.FAILED:
+            return False
+        await self.set_status(store_id, StoreStatus.PROVISIONING)
+        return True
+
 
 class FakeAuditor:
     def __init__(self) -> None:

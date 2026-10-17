@@ -17,6 +17,11 @@ from app.repositories.base import BaseRepository
 
 REPROVISION_ACTION = "admin.stores.reprovision"
 REPROVISION_FAILED_ACTION = "admin.stores.reprovision_failed"
+# The merchant's own retry (KAN-242) writes its own actions; the cap counts both families.
+MERCHANT_RETRY_ACTION = "stores.retry_provisioning"
+MERCHANT_RETRY_FAILED_ACTION = "stores.retry_provisioning_failed"
+_STARTED_ACTIONS = (REPROVISION_ACTION, MERCHANT_RETRY_ACTION)
+_FAILED_ACTIONS = (REPROVISION_FAILED_ACTION, MERCHANT_RETRY_FAILED_ACTION)
 
 
 @dataclass(frozen=True)
@@ -184,24 +189,55 @@ class AdminStoresRepository(BaseRepository):
             update(Store).where(Store.id == store_id).values(status=status)
         )
 
+    async def claim_failed(self, store_id: str) -> bool:
+        """FAILED to PROVISIONING in one conditional UPDATE; False when it was not FAILED.
+
+        Of two concurrent callers exactly one gets True, so only one chain is queued.
+        """
+        result = await self._session.execute(
+            update(Store)
+            .where(Store.id == store_id, Store.status == StoreStatus.FAILED)
+            .values(status=StoreStatus.PROVISIONING)
+            .returning(Store.id)
+        )
+        return result.first() is not None
+
+    async def release_provisioning(self, store_id: str) -> StoreStatus | None:
+        """PROVISIONING to FAILED in one conditional UPDATE (the enqueue compensation).
+
+        Returns the status the store has afterwards: FAILED when this update did it or
+        when it was already FAILED (``start_provisioning`` marks it itself), anything
+        else when the job already moved it on, and that outcome is not overwritten.
+        None when the store no longer exists.
+        """
+        result = await self._session.execute(
+            update(Store)
+            .where(Store.id == store_id, Store.status == StoreStatus.PROVISIONING)
+            .values(status=StoreStatus.FAILED)
+            .returning(Store.id)
+        )
+        if result.first() is not None:
+            return StoreStatus.FAILED
+        current = await self._session.execute(
+            select(Store.status).where(Store.id == store_id)
+        )
+        return current.scalar_one_or_none()
+
     async def count_reprovisions(self, store_id: str) -> ReprovisionCounts:
-        """Audited admin re-runs of the store and how many of them failed to enqueue.
+        """Audited re-runs of the store (admin or merchant) and how many failed to enqueue.
 
         ``started`` only grows, so ``started + 1`` is a monotonic attempt number; the
         retry cap uses ``started - failed``. This relies on audit rows being retained:
-        any future audit purge must keep ``admin.stores.reprovision*`` rows.
+        any future audit purge must keep ``admin.stores.reprovision*`` and
+        ``stores.retry_provisioning*`` rows.
         """
-        started = func.count(AuditLog.id).filter(AuditLog.action == REPROVISION_ACTION)
-        failed = func.count(AuditLog.id).filter(
-            AuditLog.action == REPROVISION_FAILED_ACTION
-        )
+        started = func.count(AuditLog.id).filter(AuditLog.action.in_(_STARTED_ACTIONS))
+        failed = func.count(AuditLog.id).filter(AuditLog.action.in_(_FAILED_ACTIONS))
         row = (
             await self._session.execute(
                 select(started, failed).where(
                     AuditLog.store_id == store_id,
-                    AuditLog.action.in_(
-                        (REPROVISION_ACTION, REPROVISION_FAILED_ACTION)
-                    ),
+                    AuditLog.action.in_(_STARTED_ACTIONS + _FAILED_ACTIONS),
                 )
             )
         ).one()
