@@ -33,6 +33,7 @@ describe('OAuthButtons verification failures', () => {
       mocks.verifyTokenAction.mockResolvedValue({
         success: false,
         error: SIGN_IN_SERVICE_UNAVAILABLE_ERROR,
+        data: { serviceUnavailable: true },
       });
       render(<OAuthButtons />);
 
@@ -42,6 +43,22 @@ describe('OAuthButtons verification failures', () => {
       const toast = mocks.toast.mock.calls[0][0];
       expect(toast.title).toBe('Sign-in is unavailable right now');
       expect(JSON.stringify(toast)).not.toMatch(/Authentication Failed|token/i);
+    }
+  );
+
+  it.each(['Google', 'GitHub'])(
+    '%s does not treat the outage text without the typed flag as an outage',
+    async (provider) => {
+      mocks.verifyTokenAction.mockResolvedValue({
+        success: false,
+        error: SIGN_IN_SERVICE_UNAVAILABLE_ERROR,
+      });
+      render(<OAuthButtons />);
+
+      fireEvent.click(screen.getByRole('button', { name: new RegExp(provider, 'i') }));
+
+      await waitFor(() => expect(mocks.toast).toHaveBeenCalled());
+      expect(mocks.toast.mock.calls[0][0].title).toBe('Authentication Failed');
     }
   );
 

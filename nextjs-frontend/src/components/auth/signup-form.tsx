@@ -20,6 +20,7 @@ import { verifyTokenAction } from '@/app/actions/auth-actions';
 import { AuthFormAlert, FIELD_ERROR_CLASS } from './auth-form-alert';
 import {
   classifyAuthError,
+  classifyAuthResult,
   classifyThrownAuthError,
   REDIRECT_RECOVERY_MS,
   type AuthFormError,
@@ -94,7 +95,7 @@ export function SignupForm({ selectedPlan }: SignupFormProps) {
         const result = await verifyTokenAction(idToken);
 
         if (!result.success) {
-          setError(classifyAuthError(result.error, 'sign-up'));
+          setError(classifyAuthResult(result, 'sign-up'));
           return;
         }
 

@@ -21,6 +21,7 @@ import { verifyTokenAction } from '@/app/actions/auth-actions';
 import { AuthFormAlert, FIELD_ERROR_CLASS } from './auth-form-alert';
 import {
   classifyAuthError,
+  classifyAuthResult,
   classifyThrownAuthError,
   REDIRECT_RECOVERY_MS,
   type AuthFormError,
@@ -76,7 +77,7 @@ export function LoginForm() {
         const result = await verifyTokenAction(idToken);
 
         if (!result.success) {
-          setError(classifyAuthError(result.error, 'sign-in'));
+          setError(classifyAuthResult(result, 'sign-in'));
           return;
         }
 
