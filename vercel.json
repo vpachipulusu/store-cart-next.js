@@ -13,13 +13,13 @@
           "env": "BACKEND_API_URL"
         }
       ],
-      "ignoreCommand": "bash scripts/vercel-ignore-build.sh"
+      "ignoreCommand": "bash \"$([ -f scripts/vercel-ignore-build.sh ] && echo scripts || echo ../scripts)/vercel-ignore-build.sh\""
     },
     "fastapi_backend": {
       "root": "fastapi_backend",
       "framework": "fastapi",
       "entrypoint": "app.main:app",
-      "ignoreCommand": "bash scripts/vercel-ignore-build.sh"
+      "ignoreCommand": "bash \"$([ -f scripts/vercel-ignore-build.sh ] && echo scripts || echo ../scripts)/vercel-ignore-build.sh\""
     }
   },
   "rewrites": [
