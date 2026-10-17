@@ -50,3 +50,32 @@ Decisions:
 
 Tests: `tests/services/test_store_catalogue_schema_e2e.py` migrates a throwaway store database through `migrate_store`
 and checks each constraint (needs `TEST_DATABASE_URL`, see [backend-store-migrations.md](backend-store-migrations.md#testing)).
+
+## Categories and product images (KAN-71)
+
+Store revision `0003` (`alembic_store/versions/0003_categories_images.py`) adds three tables. Store tree only; the
+platform head stays `0009`. Models only: no API routes yet (the product editor is KAN-73).
+
+| Table | Purpose | Key constraints |
+| ----- | ------- | --------------- |
+| `categories` | nested categories (adjacency list) | `parent_id` null for a root; `position >= 0` orders siblings (read with `ORDER BY position, id`); `slug` unique per store, lower-case hyphenated, max 200; name not blank, max 255; `parent_id <> id`; index `(parent_id, position)` |
+| `product_categories` | product in many categories | primary key (product, category); both foreign keys `CASCADE` (deleting either side removes only the links); index on `category_id` |
+| `product_images` | ordered images of a product | `storage_key` unique, shaped `stores/{store_id}/{id}.(jpg\|png\|webp)` (what `MediaUploadService` builds), max 255; `position >= 0`, unique per product and `DEFERRABLE INITIALLY DEFERRED`; `alt_text` max 500; cascades with the product |
+
+Rules for the future API and services:
+
+- **Deleting a category with children is rejected** (`RESTRICT` on `fk_categories_parent`); move or delete the children first.
+- **Cycles and depth** are not enforced by the database (only "not its own parent"). The service must reject a move under
+  one of the category's own descendants and cap the depth.
+- **Reordering** (categories or images) renumbers positions in one transaction. Image positions are unique per product but
+  the check is deferred, so swapping two positions in a single transaction works. Categories have no uniqueness on
+  position: ties are legal and break by id.
+- **R2 objects:** the row stores the object key only; the public URL is `R2_PUBLIC_BASE_URL/{key}`. Deleting a product (or
+  an image) removes rows, not objects: the service deletes the R2 objects. The store segment of the key is not checked by
+  the database (it does not know its own store id); the service must use the store's id from `MediaUploadService`.
+- **Deploy:** reaches existing stores only when `commands.migrate_stores` (or the admin migrate endpoint) runs after the
+  deploy. Expand-only, so the previous code is unaffected while it runs. Rollback in production means restore;
+  `downgrade()` is for local use and tests.
+
+Tests: `tests/services/test_store_categories_images_schema_e2e.py` (constraints, downgrade to `0002`, and a store at
+`0002` with data reaching `0003` through `migrate_store`).
