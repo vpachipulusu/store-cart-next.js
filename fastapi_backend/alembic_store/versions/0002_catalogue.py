@@ -1,0 +1,184 @@
+"""Catalogue: products, variants, options and option values (KAN-70)
+
+Store-database tables only (the platform tree is untouched). Expand-only: new tables.
+
+* Money is integer minor units (``*_minor``, bigint); the currency is a store setting, not
+  a column here. Weight is whole grams.
+* ``products.slug`` is unique per store (one database per store) and stored lower-case in
+  hyphenated form; ``status`` is ``draft`` (default) or ``active``.
+* ``variants.sku`` is unique per store, compared case-insensitively.
+* A variant picks exactly one value per option: ``variant_option_values`` is keyed by
+  (variant, option) and its composite foreign key forces the value to belong to that option.
+  That the variant and the option belong to the same product is a service rule (the API
+  story), not enforced here.
+
+Revision ID: 0002
+Revises: 0001
+Create Date: 2026-10-17
+"""
+
+from collections.abc import Sequence
+
+import sqlalchemy as sa
+from alembic import op
+
+# revision identifiers, used by Alembic.
+revision: str = "0002"
+down_revision: str | None = "0001"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
+
+
+def _timestamps() -> list[sa.Column[sa.DateTime]]:
+    return [
+        sa.Column(
+            name,
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        )
+        for name in ("created_at", "updated_at")
+    ]
+
+
+def upgrade() -> None:
+    op.create_table(
+        "products",
+        sa.Column("id", sa.String(), primary_key=True),
+        sa.Column("title", sa.String(), nullable=False),
+        sa.Column("slug", sa.String(), nullable=False),
+        sa.Column("description", sa.Text(), nullable=True),
+        sa.Column("status", sa.String(), server_default="draft", nullable=False),
+        *_timestamps(),
+        sa.CheckConstraint("btrim(title) <> ''", name="ck_products_title_not_blank"),
+        sa.CheckConstraint(
+            "slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$' AND char_length(slug) <= 200",
+            name="ck_products_slug_format",
+        ),
+        sa.CheckConstraint("status IN ('draft', 'active')", name="ck_products_status"),
+        sa.UniqueConstraint("slug", name="uq_products_slug"),
+    )
+    op.create_index("ix_products_status", "products", ["status"])
+
+    op.create_table(
+        "product_options",
+        sa.Column("id", sa.String(), primary_key=True),
+        sa.Column(
+            "product_id",
+            sa.String(),
+            sa.ForeignKey("products.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column("name", sa.String(), nullable=False),
+        sa.Column("position", sa.Integer(), server_default="0", nullable=False),
+        sa.CheckConstraint(
+            "btrim(name) <> ''", name="ck_product_options_name_not_blank"
+        ),
+        sa.CheckConstraint("position >= 0", name="ck_product_options_position"),
+    )
+    op.create_index(
+        "uq_product_options_product_name",
+        "product_options",
+        ["product_id", sa.text("lower(name)")],
+        unique=True,
+    )
+
+    op.create_table(
+        "product_option_values",
+        sa.Column("id", sa.String(), primary_key=True),
+        sa.Column(
+            "option_id",
+            sa.String(),
+            sa.ForeignKey("product_options.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column("value", sa.String(), nullable=False),
+        sa.Column("position", sa.Integer(), server_default="0", nullable=False),
+        sa.CheckConstraint(
+            "btrim(value) <> ''", name="ck_product_option_values_value_not_blank"
+        ),
+        sa.CheckConstraint("position >= 0", name="ck_product_option_values_position"),
+        # Target of the composite foreign key in variant_option_values.
+        sa.UniqueConstraint(
+            "id", "option_id", name="uq_product_option_values_id_option"
+        ),
+    )
+    op.create_index(
+        "uq_product_option_values_option_value",
+        "product_option_values",
+        ["option_id", sa.text("lower(value)")],
+        unique=True,
+    )
+
+    op.create_table(
+        "variants",
+        sa.Column("id", sa.String(), primary_key=True),
+        sa.Column(
+            "product_id",
+            sa.String(),
+            sa.ForeignKey("products.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column("sku", sa.String(), nullable=False),
+        sa.Column("price_minor", sa.BigInteger(), nullable=False),
+        sa.Column("compare_at_price_minor", sa.BigInteger(), nullable=True),
+        sa.Column("weight_grams", sa.Integer(), nullable=True),
+        sa.Column("stock", sa.Integer(), server_default="0", nullable=False),
+        sa.Column("position", sa.Integer(), server_default="0", nullable=False),
+        *_timestamps(),
+        sa.CheckConstraint(
+            "sku = btrim(sku) AND sku <> '' AND char_length(sku) <= 100",
+            name="ck_variants_sku_format",
+        ),
+        sa.CheckConstraint("price_minor >= 0", name="ck_variants_price_minor"),
+        sa.CheckConstraint(
+            "compare_at_price_minor IS NULL OR compare_at_price_minor > price_minor",
+            name="ck_variants_compare_at_above_price",
+        ),
+        sa.CheckConstraint(
+            "weight_grams IS NULL OR weight_grams >= 0", name="ck_variants_weight_grams"
+        ),
+        sa.CheckConstraint("stock >= 0", name="ck_variants_stock"),
+        sa.CheckConstraint("position >= 0", name="ck_variants_position"),
+    )
+    op.create_index("ix_variants_product_id", "variants", ["product_id"])
+    op.create_index(
+        "uq_variants_sku_lower", "variants", [sa.text("lower(sku)")], unique=True
+    )
+
+    op.create_table(
+        "variant_option_values",
+        sa.Column(
+            "variant_id",
+            sa.String(),
+            sa.ForeignKey("variants.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "option_id",
+            sa.String(),
+            sa.ForeignKey("product_options.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column("option_value_id", sa.String(), nullable=False),
+        sa.PrimaryKeyConstraint("variant_id", "option_id"),
+        sa.ForeignKeyConstraint(
+            ["option_value_id", "option_id"],
+            ["product_option_values.id", "product_option_values.option_id"],
+            name="fk_variant_option_values_value_option",
+            ondelete="CASCADE",
+        ),
+    )
+    op.create_index(
+        "ix_variant_option_values_option_value_id",
+        "variant_option_values",
+        ["option_value_id"],
+    )
+
+
+def downgrade() -> None:
+    op.drop_table("variant_option_values")
+    op.drop_table("variants")
+    op.drop_table("product_option_values")
+    op.drop_table("product_options")
+    op.drop_table("products")

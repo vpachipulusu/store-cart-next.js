@@ -9,6 +9,7 @@ both are dropped afterwards. QStash is replaced by a recording enqueuer.
 from collections.abc import AsyncIterator
 
 import pytest
+from alembic.script import ScriptDirectory
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
@@ -17,7 +18,11 @@ from app.core.ids import new_id
 from app.core.store_crypto import StoreSecretCodec, generate_key
 from app.models.platform.store import Store, StoreStatus
 from app.services import store_secrets
-from app.services.store_migrations import StoreMigrationFailed
+from app.services.store_migrations import (
+    STORE_SCRIPT_LOCATION,
+    StoreMigrationFailed,
+    _alembic_config,
+)
 from app.services.store_provisioning import (
     LocalDatabaseProvisioner,
     ProvisionerNotConfigured,
@@ -38,6 +43,15 @@ from tests.pg_scaffold import (
     require_local_test_server,
     sweep_stale_databases,
     unique_name,
+)
+
+# A freshly provisioned store is migrated to the head of the real store tree.
+STORE_SCHEMA_VERSION = len(
+    list(
+        ScriptDirectory.from_config(
+            _alembic_config(STORE_SCRIPT_LOCATION)
+        ).walk_revisions()
+    )
 )
 
 pytestmark = pytest.mark.skipif(
@@ -177,7 +191,7 @@ async def test_the_chain_provisions_migrates_and_activates_the_store(world: Worl
 
     row = await world.row(store_id)
     assert row["status"] == "ACTIVE"
-    assert row["schema_version"] == 1
+    assert row["schema_version"] == STORE_SCHEMA_VERSION
     assert row["database_ref"] == database_name_for(store_id)
     ciphertext = str(row["connection_string_encrypted"])
     assert ciphertext
@@ -217,7 +231,7 @@ async def test_run_migrations_is_idempotent(world: World):
     await runner.run(Step.RUN_MIGRATIONS, store_id)
     await runner.run(Step.RUN_MIGRATIONS, store_id)
 
-    assert (await world.row(store_id))["schema_version"] == 1
+    assert (await world.row(store_id))["schema_version"] == STORE_SCHEMA_VERSION
 
 
 async def test_mark_ready_is_idempotent(world: World):
