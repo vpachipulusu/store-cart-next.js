@@ -12,14 +12,12 @@
           "format": "url",
           "env": "BACKEND_API_URL"
         }
-      ],
-      "ignoreCommand": "bash \"$([ -f scripts/vercel-ignore-build.sh ] && echo scripts || echo ../scripts)/vercel-ignore-build.sh\""
+      ]
     },
     "fastapi_backend": {
       "root": "fastapi_backend",
       "framework": "fastapi",
-      "entrypoint": "app.main:app",
-      "ignoreCommand": "bash \"$([ -f scripts/vercel-ignore-build.sh ] && echo scripts || echo ../scripts)/vercel-ignore-build.sh\""
+      "entrypoint": "app.main:app"
     }
   },
   "rewrites": [
