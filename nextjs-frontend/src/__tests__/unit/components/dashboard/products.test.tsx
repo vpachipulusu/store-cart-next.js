@@ -264,7 +264,7 @@ describe('ProductEditor', () => {
     expect(price).toHaveValue('12.50');
     await user.clear(price);
     await user.type(price, '19.99');
-    await user.click(screen.getByRole('button', { name: 'Save variant' }));
+    await user.click(screen.getByRole('button', { name: /^Save variant/ }));
 
     expect(mocks.updateVariantAction).toHaveBeenCalledWith(
       'p1',
@@ -279,7 +279,7 @@ describe('ProductEditor', () => {
     const price = screen.getByLabelText('Price (USD)');
     await user.clear(price);
     await user.type(price, 'abc');
-    await user.click(screen.getByRole('button', { name: 'Save variant' }));
+    await user.click(screen.getByRole('button', { name: /^Save variant/ }));
     expect(screen.getByText('Enter a price like 12.50')).toBeInTheDocument();
     expect(mocks.updateVariantAction).not.toHaveBeenCalled();
   });
@@ -292,9 +292,9 @@ describe('ProductEditor', () => {
     });
     render(<ProductEditor initial={makeProduct()} categories={null} />);
 
-    await user.click(screen.getByRole('button', { name: 'Delete variant' }));
+    await user.click(screen.getByRole('button', { name: /^Delete variant/ }));
     expect(mocks.deleteVariantAction).not.toHaveBeenCalled();
-    await user.click(screen.getByRole('button', { name: 'Confirm delete variant' }));
+    await user.click(screen.getByRole('button', { name: /^Confirm delete variant/ }));
 
     expect(mocks.deleteVariantAction).toHaveBeenCalledWith('p1', 'v1');
     expect(await screen.findByText('A product needs at least one variant')).toBeInTheDocument();
@@ -400,7 +400,7 @@ describe('ProductEditor save feedback', () => {
     const price = screen.getByLabelText('Price (USD)');
     await user.clear(price);
     await user.type(price, '19.99');
-    await user.click(screen.getByRole('button', { name: 'Save variant' }));
+    await user.click(screen.getByRole('button', { name: /^Save variant/ }));
 
     expect(await screen.findByText('Variant saved.')).toBeInTheDocument();
     expect(screen.getByLabelText('Price (USD)')).toHaveValue('20.00');
@@ -417,7 +417,7 @@ describe('ProductEditor save feedback', () => {
     const title = screen.getByLabelText('Title');
     await user.clear(title);
     await user.type(title, 'Unsaved name');
-    await user.click(screen.getByRole('button', { name: 'Save variant' }));
+    await user.click(screen.getByRole('button', { name: /^Save variant/ }));
 
     expect(await screen.findByText('Variant saved.')).toBeInTheDocument();
     expect(screen.getByLabelText('Title')).toHaveValue('Unsaved name');
@@ -454,7 +454,7 @@ describe('ProductCreateForm options', () => {
     await user.click(screen.getByRole('button', { name: 'Add option' }));
     await user.type(screen.getByLabelText('Option 1 name'), 'Size');
     await user.click(screen.getByRole('button', { name: 'Create product' }));
-    expect(screen.getByRole('alert')).toHaveTextContent('Each option needs a name');
+    expect(screen.getAllByRole('alert')[0]).toHaveTextContent('Each option needs a name');
     expect(mocks.createProductAction).not.toHaveBeenCalled();
   });
 
@@ -527,5 +527,126 @@ describe('CategoriesField with the store category list', () => {
       'p1',
       expect.objectContaining({ categoryIds: ['c2'] })
     );
+  });
+});
+
+describe('ProductEditor accessibility', () => {
+  it('has one h1 followed by h2 section titles', () => {
+    render(<ProductEditor initial={makeProduct()} categories={null} />);
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    const h2 = screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent);
+    expect(h2).toEqual(['Details', 'Variants', 'Images', 'Delete product']);
+    expect(screen.queryAllByRole('heading', { level: 3 })).toHaveLength(0);
+  });
+
+  it('names each variant button by its variant', () => {
+    const withTwo = makeProduct({
+      options: [sizeOption],
+      variants: [
+        {
+          ...makeProduct().variants[0],
+          option_values: [{ option_id: 'o1', option_value_id: 'ov1' }],
+        },
+        {
+          ...makeProduct().variants[0],
+          id: 'v2',
+          sku: 'TEE-2',
+          option_values: [{ option_id: 'o1', option_value_id: 'ov2' }],
+        },
+      ],
+    });
+    render(<ProductEditor initial={withTwo} categories={null} />);
+    expect(screen.getByRole('button', { name: 'Save variant: S' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete variant: M' })).toBeInTheDocument();
+  });
+
+  it('announces a field error with role alert', async () => {
+    const user = userEvent.setup();
+    render(<ProductEditor initial={makeProduct()} categories={null} />);
+    const price = screen.getByLabelText('Price (USD)');
+    await user.clear(price);
+    await user.type(price, 'abc');
+    await user.click(screen.getByRole('button', { name: /^Save variant/ }));
+    expect(screen.getByText('Enter a price like 12.50')).toHaveAttribute('role', 'alert');
+  });
+
+  it('announces an added variant with role status', async () => {
+    const user = userEvent.setup();
+    const withOptions = makeProduct({ options: [sizeOption] });
+    mocks.addVariantAction.mockResolvedValue({ success: true, data: withOptions });
+    render(<ProductEditor initial={withOptions} categories={null} />);
+    const form = screen.getByRole('form', { name: 'Add variant' });
+    await user.selectOptions(within(form).getByLabelText('Size'), 'M');
+    await user.type(within(form).getByLabelText('SKU'), 'TEE-M');
+    await user.type(within(form).getByLabelText('Price (USD)'), '13');
+    await user.click(within(form).getByRole('button', { name: 'Add variant' }));
+    expect(await within(form).findByRole('status')).toHaveTextContent('Variant added.');
+  });
+
+  it('moves focus to Confirm, back to the trigger on Cancel, and cancels on Escape', async () => {
+    const user = userEvent.setup();
+    render(<ProductEditor initial={makeProduct()} categories={null} />);
+    await user.click(screen.getByRole('button', { name: 'Delete product' }));
+    expect(screen.getByRole('button', { name: 'Confirm delete product' })).toHaveFocus();
+
+    const group = screen.getByRole('group', { name: 'Delete product' });
+    await user.click(within(group).getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('button', { name: 'Delete product' })).toHaveFocus();
+
+    await user.click(screen.getByRole('button', { name: 'Delete product' }));
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('button', { name: 'Delete product' })).toHaveFocus();
+    expect(mocks.deleteProductAction).not.toHaveBeenCalled();
+  });
+});
+
+describe('ProductCreateForm variants and option names', () => {
+  type User = ReturnType<typeof userEvent.setup>;
+
+  async function addOption(user: User, index: number, name: string, values: string) {
+    await user.click(screen.getByRole('button', { name: 'Add option' }));
+    await user.type(screen.getByLabelText(`Option ${index} name`), name);
+    await user.click(screen.getByLabelText(`Option ${index} values`));
+    await user.paste(values);
+  }
+
+  it('shows an error and no rows when the options make more than 100 variants', async () => {
+    const user = userEvent.setup();
+    render(<ProductCreateForm currency="USD" categories={null} />);
+    const many = Array.from({ length: 11 }, (_, i) => `v${i}`).join(',');
+    await addOption(user, 1, 'A', many);
+    await addOption(user, 2, 'B', many);
+    expect(screen.queryAllByTestId('variant-row')).toHaveLength(0);
+    expect(screen.getAllByRole('alert')[0]).toHaveTextContent('121 variants');
+
+    await user.type(screen.getByLabelText('Title'), 'Tee');
+    await user.click(screen.getByRole('button', { name: 'Create product' }));
+    expect(mocks.createProductAction).not.toHaveBeenCalled();
+  });
+
+  it('rejects option names that differ only by case', async () => {
+    const user = userEvent.setup();
+    render(<ProductCreateForm currency="USD" categories={null} />);
+    await addOption(user, 1, 'Size', 'S');
+    await addOption(user, 2, 'size', 'M');
+    await user.type(screen.getByLabelText('Title'), 'Tee');
+    await user.click(screen.getByRole('button', { name: 'Create product' }));
+    expect(screen.getAllByRole('alert')[0]).toHaveTextContent('different name');
+    expect(mocks.createProductAction).not.toHaveBeenCalled();
+  });
+
+  it('keeps typed variant data when an option is renamed or a later value is added', async () => {
+    const user = userEvent.setup();
+    render(<ProductCreateForm currency="USD" categories={null} />);
+    await addOption(user, 1, 'Size', 'S');
+    await user.type(screen.getByLabelText('SKU'), 'E-S');
+
+    await user.clear(screen.getByLabelText('Option 1 name'));
+    await user.type(screen.getByLabelText('Option 1 name'), 'Length');
+    expect(screen.getByLabelText('SKU')).toHaveValue('E-S');
+
+    await user.type(screen.getByLabelText('Option 1 values'), ', M');
+    const first = screen.getAllByTestId('variant-row')[0];
+    expect(within(first).getByLabelText('SKU')).toHaveValue('E-S');
   });
 });

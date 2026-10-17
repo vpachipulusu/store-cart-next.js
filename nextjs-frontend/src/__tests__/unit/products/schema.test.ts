@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createProductSchema,
   fieldErrors,
+  indexedCombinations,
   isEntityId,
   optionCombinations,
   productDetailsSchema,
@@ -99,6 +100,16 @@ describe('createProductSchema', () => {
     if (!result.success) expect(fieldErrors(result.error).variants).toMatch(/own SKU/);
   });
 
+  it('rejects option names that differ only by case', () => {
+    const options = [
+      { name: 'Size', values: ['S'] },
+      { name: 'size', values: ['M'] },
+    ];
+    const result = createProductSchema.safeParse({ ...base, options });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(fieldErrors(result.error).options).toMatch(/different name/);
+  });
+
   it('rejects more than three options', () => {
     const options = ['A', 'B', 'C', 'D'].map((name) => ({ name, values: ['x'] }));
     expect(createProductSchema.safeParse({ ...base, options }).success).toBe(false);
@@ -125,5 +136,26 @@ describe('helpers', () => {
       { Size: 'S', Color: 'Red' },
       { Size: 'M', Color: 'Red' },
     ]);
+  });
+});
+
+describe('indexedCombinations', () => {
+  it('keys each combination by the positions of its values', () => {
+    const combos = indexedCombinations([
+      { name: 'Size', values: ['S', 'M'] },
+      { name: 'Color', values: ['Red', 'Blue'] },
+    ]);
+    expect(combos.map((combo) => combo.key)).toEqual(['0.0', '0.1', '1.0', '1.1']);
+    expect(combos[1].values).toEqual({ Size: 'S', Color: 'Blue' });
+  });
+
+  it('keeps the key of an existing row when an option is renamed', () => {
+    const before = indexedCombinations([{ name: 'Size', values: ['S'] }]);
+    const after = indexedCombinations([{ name: 'Length', values: ['S', 'M'] }]);
+    expect(after[0].key).toBe(before[0].key);
+  });
+
+  it('gives one empty combination without options', () => {
+    expect(indexedCombinations([])).toEqual([{ key: '', values: {} }]);
   });
 });

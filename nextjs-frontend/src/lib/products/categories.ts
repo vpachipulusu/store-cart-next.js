@@ -50,6 +50,12 @@ export function toCategoryOptions(
     }
   };
   visit(null, 0);
+  // Rows in a parent cycle have no root above them; list them flat rather than dropping them.
+  for (const row of [...rows].sort(byOrder)) {
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    out.push({ id: row.id, label: row.name, depth: 0 });
+  }
   return out;
 }
 

@@ -75,6 +75,10 @@ describe('formatMinor and formatPriceRange', () => {
     expect(formatMinor(1200, 'JPY')).toContain('1,200');
   });
 
+  it('keeps the cents exact for a large amount', () => {
+    expect(formatMinor(9007199254740991, 'USD')).toContain('90,071,992,547,409.91');
+  });
+
   it('falls back to a plain amount for an unknown currency', () => {
     expect(formatMinor(1250, 'not-a-code')).toBe('12.50 not-a-code');
   });

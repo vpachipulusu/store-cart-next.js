@@ -1,6 +1,7 @@
 import 'server-only';
 
-import { callBackend, type ApiResult } from './server';
+import { logger } from '@/lib/logger';
+import { BACKEND_ERROR_MESSAGE, callBackend, type ApiResult } from './server';
 import type { Client } from './generated/client';
 import type { CategoryList } from '@/lib/products/categories';
 import {
@@ -48,13 +49,17 @@ type ProductBody = { data: ProductData } | ProductData;
  * Product responses are `{ data: product }` without the `success` flag `callBackend` unwraps, so the product is
  * taken out here. A body that is already the product (or was unwrapped) passes through unchanged.
  */
+function isProductBody(body: unknown): body is ProductBody {
+  return typeof body === 'object' && body !== null && !Array.isArray(body);
+}
+
 async function callProduct(
   call: (client: Client) => Promise<{ data?: ProductBody; error?: unknown; response?: Response }>
 ): Promise<ApiResult<ProductData>> {
   const result = await callBackend(call);
   if (!result.success) return result;
-  const body = result.data as unknown as ProductBody | null | undefined;
-  if (!body || typeof body !== 'object') {
+  const body: unknown = result.data;
+  if (!isProductBody(body)) {
     return { success: false, error: PRODUCT_REQUEST_FAILED_MESSAGE, status: 502 };
   }
   return { success: true, data: 'data' in body ? body.data : body };
@@ -62,11 +67,23 @@ async function callProduct(
 
 const CURATED_STATUSES: ReadonlySet<number> = new Set([404, 409, 422]);
 
+/** Longest backend message shown; the curated ones are short sentences. */
+const CURATED_MAX_LENGTH = 200;
+
+/**
+ * Backend text is shown only when it came from the API's own error envelope. A body of another shape (a raw
+ * FastAPI/Pydantic 422 with a `detail` list) reaches here as the generic "Request failed" text, which is not
+ * shown as if it were a curated message.
+ */
+function isCurated(text: string): boolean {
+  return text !== '' && text !== BACKEND_ERROR_MESSAGE && text.length <= CURATED_MAX_LENGTH;
+}
+
 /** The message to show for a failed result. */
 export function productErrorMessage(result: { error: string; status?: number }): string {
   const { status } = result;
   if (status === undefined) return PRODUCT_UNAVAILABLE_MESSAGE;
-  if (CURATED_STATUSES.has(status) && result.error) return result.error;
+  if (CURATED_STATUSES.has(status) && isCurated(result.error)) return result.error;
   if (status === 401) return PRODUCT_SESSION_MESSAGE;
   if (status === 403) return PRODUCT_FORBIDDEN_MESSAGE;
   if (status === 429) return PRODUCT_RATE_LIMITED_MESSAGE;
@@ -215,5 +232,6 @@ export async function fetchCategories(storeId: string): Promise<ApiResult<Catego
 /** The categories for the screens, or null when they cannot be loaded (the screens then fall back to ids). */
 export async function loadCategoryList(storeId: string): Promise<CategoryList | null> {
   const result = await fetchCategories(storeId);
+  if (!result.success) logger.error('Products: category list failed', { status: result.status });
   return result.success ? { rows: result.data.data, truncated: result.data.truncated } : null;
 }

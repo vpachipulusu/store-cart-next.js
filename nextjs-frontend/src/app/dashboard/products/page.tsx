@@ -80,7 +80,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Sea
   const categoryParam = first(params.category);
   const category = isEntityId(categoryParam) ? categoryParam : undefined;
   const page = parsePage(first(params.page));
-  const q = first(params.q)?.trim().slice(0, SEARCH_MAX_LENGTH) || undefined;
+  const q = first(params.q)?.trim().slice(0, SEARCH_MAX_LENGTH).trim() || undefined;
   const filters: Filters = { q, status, category };
 
   // The layout already explains a missing store or a failed store list, so there is nothing to list here.
@@ -270,7 +270,11 @@ function CategoryFilter({
             {option.label}
           </option>
         ))}
-        {selected && !known && <option value={selected}>Unknown category ({selected})</option>}
+        {selected && !known && (
+          <option value={selected}>
+            {categories.truncated ? 'Category not listed' : 'Unknown category'} ({selected})
+          </option>
+        )}
       </select>
     </div>
   );

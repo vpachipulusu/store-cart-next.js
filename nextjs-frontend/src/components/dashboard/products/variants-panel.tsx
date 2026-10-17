@@ -108,12 +108,19 @@ function VariantRow({
         </Alert>
       )}
       <div className="flex flex-wrap items-center gap-3">
-        <Button type="button" onClick={save} disabled={pending}>
+        <Button
+          type="button"
+          aria-label={`Save variant: ${variantLabel(product, variant)}`}
+          onClick={save}
+          disabled={pending}
+        >
           Save variant
         </Button>
         <ConfirmButton
           label="Delete variant"
           confirmLabel="Confirm delete variant"
+          ariaLabel={`Delete variant: ${variantLabel(product, variant)}`}
+          confirmAriaLabel={`Confirm delete variant: ${variantLabel(product, variant)}`}
           pending={pending}
           onConfirm={remove}
         />
@@ -132,12 +139,14 @@ function AddVariantForm({ product, exponent, onUpdated }: PanelProps & { exponen
   const [chosen, setChosen] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [added, setAdded] = useState(false);
   const [pending, setPending] = useState(false);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (pending) return;
     setError(null);
+    setAdded(false);
     const missing = product.options.find((option) => !chosen[option.name]);
     if (missing) return setError(`Choose a value for ${missing.name}.`);
     const result = draftToVariant(draft, exponent, chosen);
@@ -157,6 +166,7 @@ function AddVariantForm({ product, exponent, onUpdated }: PanelProps & { exponen
       onUpdated(response.data);
       setDraft(EMPTY_VARIANT_DRAFT);
       setChosen({});
+      setAdded(true);
     } else {
       setError(response.error);
     }
@@ -209,6 +219,11 @@ function AddVariantForm({ product, exponent, onUpdated }: PanelProps & { exponen
       <Button type="submit" disabled={pending}>
         {pending ? 'Adding…' : 'Add variant'}
       </Button>
+      {added && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Variant added.
+        </p>
+      )}
     </form>
   );
 }

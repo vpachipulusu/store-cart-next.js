@@ -14,6 +14,7 @@ Rules:
 - The store always comes from `getCurrentStoreSelection()` on the server; the backend authorizes it again. Ids from the URL or the browser are shape-checked (`isEntityId`) before any call.
 - Money is integer minor units in the store currency. Inputs take major units (`12.50`); `src/lib/products/money.ts` converts with string arithmetic and the currency exponent from `Intl` (JPY 0, KWD 3). The currency is the one the API reports (`ProductListResponse.currency`, `ProductData.currency`).
 - Input is validated with one Zod schema set (`src/lib/products/schema.ts`) in the forms and again in the actions. Backend 404, 409 and 422 messages are curated by the API and shown; every other failure becomes a fixed message (`productErrorMessage`).
+- Backend text is shown only when the API's own error envelope carried it (and only for 404, 409, 422, up to 200 characters). A raw FastAPI 422 with a `detail` list gets the fixed message.
 - `callBackend` only unwraps bodies with `success: true`; product responses are `{ data }`, so `callProduct` unwraps them.
 
 ## Search and categories (KAN-246)
@@ -27,6 +28,7 @@ Rules:
 
 - **Images.** No browser upload (storage CORS is undecided), so adding an image is not offered; existing images show by alt text and storage key (the public base URL is backend-only) and can be removed.
 - **Options and add variant.** Options and values are fixed at creation; a product without options has exactly one variant, so "add variant" is only offered when the product has options.
+- **Description.** Plain text: it is stored and shown as typed, never as HTML or Markdown.
 - **Archive.** There is no archived status; "Draft" unpublishes.
 - **Currency exponent.** Taken from the runtime `Intl` data; the API returns none.
 - **Categories.** Created elsewhere; this story cannot create, rename or reorder them.

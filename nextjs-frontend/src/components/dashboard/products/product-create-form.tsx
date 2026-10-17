@@ -7,18 +7,14 @@ import { createProductAction } from '@/app/actions/product-actions';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  comboKey,
-  draftToVariant,
-  EMPTY_VARIANT_DRAFT,
-  type VariantDraft,
-} from '@/lib/products/draft';
+import { draftToVariant, EMPTY_VARIANT_DRAFT, type VariantDraft } from '@/lib/products/draft';
 import { currencyExponent } from '@/lib/products/money';
 import {
   createProductSchema,
   fieldErrors,
+  indexedCombinations,
   MAX_OPTIONS,
-  optionCombinations,
+  MAX_VARIANTS,
   type OptionInput,
   type VariantInput,
 } from '@/lib/products/schema';
@@ -74,10 +70,12 @@ export function ProductCreateForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [rowErrors, setRowErrors] = useState<Record<string, Record<string, string>>>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
   const options = useMemo(() => parseOptions(optionDrafts), [optionDrafts]);
-  const combos = useMemo(() => optionCombinations(options), [options]);
+  const combos = useMemo(() => indexedCombinations(options), [options]);
+  const tooManyVariants = combos.length > MAX_VARIANTS;
 
   function updateOption(index: number, next: OptionDraft) {
     setOptionDrafts(optionDrafts.map((option, i) => (i === index ? next : option)));
@@ -87,25 +85,32 @@ export function ProductCreateForm({
     event.preventDefault();
     if (pending) return;
     setFormError(null);
+    setOptionsError(null);
 
     const half = optionDrafts.find(
       (option) => (option.name.trim() === '') !== (option.values.trim() === '')
     );
-    if (half) {
-      setFormError(
-        'Each option needs a name and at least one value. Fill in or remove the option.'
-      );
+    const names = options.map((option) => option.name.toLowerCase());
+    const problem = half
+      ? 'Each option needs a name and at least one value. Fill in or remove the option.'
+      : new Set(names).size !== names.length
+        ? 'Each option needs a different name.'
+        : tooManyVariants
+          ? `These options make ${combos.length} variants; a product can have at most ${MAX_VARIANTS}.`
+          : null;
+    if (problem) {
+      setOptionsError(problem);
+      setFormError(problem);
       return;
     }
 
     const nextRowErrors: Record<string, Record<string, string>> = {};
     const variants: VariantInput[] = [];
-    for (const combo of combos) {
-      const key = comboKey(combo);
+    for (const { key, values } of combos) {
       const result = draftToVariant(
         rows[key] ?? EMPTY_VARIANT_DRAFT,
         exponent,
-        options.length > 0 ? combo : undefined
+        options.length > 0 ? values : undefined
       );
       if (result.ok) variants.push(result.value);
       else nextRowErrors[key] = result.errors;
@@ -113,15 +118,19 @@ export function ProductCreateForm({
 
     const parsed = createProductSchema.safeParse({ ...details, options, variants });
     const allErrors = parsed.success ? {} : fieldErrors(parsed.error);
-    const { variants: variantsMessage, ...topErrors } = allErrors;
+    const { variants: variantsMessage, options: optionsMessage, ...topErrors } = allErrors;
+    setOptionsError(optionsMessage ?? null);
     setRowErrors(nextRowErrors);
     setErrors(topErrors);
     if (
       !parsed.success ||
       Object.keys(nextRowErrors).length > 0 ||
-      Object.keys(topErrors).length > 0
+      Object.keys(topErrors).length > 0 ||
+      optionsMessage
     ) {
-      setFormError(variantsMessage ?? 'Check the highlighted fields and try again.');
+      setFormError(
+        variantsMessage ?? optionsMessage ?? 'Check the highlighted fields and try again.'
+      );
       return;
     }
 
@@ -175,6 +184,11 @@ export function ProductCreateForm({
             Optional, up to {MAX_OPTIONS} (for example Size). Options and their values cannot be
             changed after the product is created.
           </p>
+          {optionsError && (
+            <p role="alert" className="mt-1 text-sm text-destructive">
+              {optionsError}
+            </p>
+          )}
         </div>
         {optionDrafts.map((option, index) => (
           <div key={index} className="flex flex-wrap items-end gap-3" data-testid="option-row">
@@ -234,15 +248,20 @@ export function ProductCreateForm({
         <p className="text-sm text-muted-foreground">
           Prices are in {currency}. Leave compare-at empty for no sale price.
         </p>
-        {combos.map((combo, index) => {
-          const key = comboKey(combo);
+        {tooManyVariants && (
+          <p role="alert" className="text-sm text-destructive">
+            These options make {combos.length} variants; a product can have at most {MAX_VARIANTS}.
+            Remove an option or some values.
+          </p>
+        )}
+        {(tooManyVariants ? [] : combos).map(({ key, values }, index) => {
           return (
             <fieldset
               key={key}
               className="space-y-2 rounded-lg border border-border p-4"
               data-testid="variant-row"
             >
-              <legend className="px-1 text-sm font-medium">{comboLabel(combo)}</legend>
+              <legend className="px-1 text-sm font-medium">{comboLabel(values)}</legend>
               <VariantFields
                 idPrefix={`variant-${index}`}
                 draft={rows[key] ?? EMPTY_VARIANT_DRAFT}

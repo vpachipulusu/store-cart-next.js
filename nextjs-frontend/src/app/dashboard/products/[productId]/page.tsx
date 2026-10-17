@@ -36,10 +36,13 @@ export default async function EditProductPage({
       {result.success ? (
         <ProductEditor key={result.data.id} initial={result.data} categories={categories} />
       ) : (
-        <ProductsLoadError
-          message={productErrorMessage(result)}
-          retryHref={`/dashboard/products/${productId}`}
-        />
+        <>
+          <h1 className="text-3xl font-bold tracking-tight">Product</h1>
+          <ProductsLoadError
+            message={productErrorMessage(result)}
+            retryHref={`/dashboard/products/${productId}`}
+          />
+        </>
       )}
     </div>
   );

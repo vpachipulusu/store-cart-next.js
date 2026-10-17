@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { deleteProductAction } from '@/app/actions/product-actions';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card';
 import type { ProductData } from '@/lib/api/products';
 import type { CategoryList } from './categories-field';
 import { ConfirmButton } from './confirm-button';
@@ -51,7 +51,7 @@ export function ProductEditor({
 
       <Card>
         <CardHeader>
-          <CardTitle>Details</CardTitle>
+          <h2 className="font-semibold leading-none tracking-tight">Details</h2>
           <CardDescription>Title, address, description, status and categories</CardDescription>
         </CardHeader>
         <CardContent>
@@ -61,7 +61,7 @@ export function ProductEditor({
 
       <Card>
         <CardHeader>
-          <CardTitle>Variants</CardTitle>
+          <h2 className="font-semibold leading-none tracking-tight">Variants</h2>
           <CardDescription>SKU, price, stock and weight for each variant</CardDescription>
         </CardHeader>
         <CardContent>
@@ -71,7 +71,7 @@ export function ProductEditor({
 
       <Card>
         <CardHeader>
-          <CardTitle>Images</CardTitle>
+          <h2 className="font-semibold leading-none tracking-tight">Images</h2>
           <CardDescription>Images attached to this product</CardDescription>
         </CardHeader>
         <CardContent>
@@ -81,7 +81,7 @@ export function ProductEditor({
 
       <Card>
         <CardHeader>
-          <CardTitle>Delete product</CardTitle>
+          <h2 className="font-semibold leading-none tracking-tight">Delete product</h2>
           <CardDescription>
             Removes the product with its variants, images and category links. Past orders keep their
             snapshot.

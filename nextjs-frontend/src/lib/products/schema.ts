@@ -101,6 +101,12 @@ export const createProductSchema = z
       new Set(product.variants.map((variant) => variant.sku.toLowerCase())).size ===
       product.variants.length,
     { path: ['variants'], message: 'Each variant needs its own SKU' }
+  )
+  .refine(
+    (product) =>
+      new Set(product.options.map((option) => option.name.toLowerCase())).size ===
+      product.options.length,
+    { path: ['options'], message: 'Each option needs a different name' }
   );
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 
@@ -122,5 +128,24 @@ export function optionCombinations(
     (combos, option) =>
       combos.flatMap((combo) => option.values.map((value) => ({ ...combo, [option.name]: value }))),
     [{}]
+  );
+}
+
+/**
+ * Like optionCombinations, but each combination carries a key made of the positions of its values, not their
+ * text, so a row keeps what was typed when an option is renamed or a value is added after it.
+ */
+export function indexedCombinations(
+  options: ReadonlyArray<OptionInput>
+): ReadonlyArray<{ key: string; values: Record<string, string> }> {
+  return options.reduce<ReadonlyArray<{ key: string; values: Record<string, string> }>>(
+    (combos, option) =>
+      combos.flatMap((combo) =>
+        option.values.map((value, index) => ({
+          key: combo.key === '' ? String(index) : `${combo.key}.${index}`,
+          values: { ...combo.values, [option.name]: value },
+        }))
+      ),
+    [{ key: '', values: {} }]
   );
 }

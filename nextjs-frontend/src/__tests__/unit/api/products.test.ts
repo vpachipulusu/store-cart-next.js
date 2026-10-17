@@ -148,6 +148,13 @@ describe('products API wrapper', () => {
     });
   });
 
+  it('refuses a product body that is empty or not an object', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('null', { status: 200 }));
+    expect(await fetchProduct(STORE, PRODUCT)).toMatchObject({ success: false, status: 502 });
+    fetchMock.mockResolvedValueOnce(jsonResponse([1, 2]));
+    expect(await fetchProduct(STORE, PRODUCT)).toMatchObject({ success: false, status: 502 });
+  });
+
   it('reports an unreachable backend without a status', async () => {
     fetchMock.mockRejectedValue(new TypeError('fetch failed'));
     const result = await fetchProducts(STORE);
@@ -173,6 +180,32 @@ describe('productErrorMessage', () => {
     [500, PRODUCT_REQUEST_FAILED_MESSAGE],
   ])('never forwards backend text for %i', (status, expected) => {
     expect(productErrorMessage({ error: 'internal detail: db password', status })).toBe(expected);
+  });
+
+  it('does not show the generic text of a raw FastAPI 422 as if it were curated', async () => {
+    vi.stubEnv('BACKEND_API_URL', 'http://backend.test');
+    vi.stubEnv('BACKEND_INTERNAL_KEY', 'server-key');
+    cookieGet.mockReturnValue({ name: 'session', value: 'firebase-session-cookie' });
+    const raw = vi.fn(async () =>
+      jsonResponse(
+        { detail: [{ loc: ['body', 'title'], msg: 'field required', type: 'missing' }] },
+        422
+      )
+    );
+    vi.stubGlobal('fetch', raw);
+    const result = await addProductVariant(STORE, PRODUCT, { sku: 'A', price_minor: 1 });
+    expect(result).toMatchObject({ success: false, status: 422 });
+    if (!result.success) {
+      expect(productErrorMessage(result)).toBe(PRODUCT_REQUEST_FAILED_MESSAGE);
+    }
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it('does not show an over-long backend text', () => {
+    expect(productErrorMessage({ error: 'x'.repeat(201), status: 409 })).toBe(
+      PRODUCT_REQUEST_FAILED_MESSAGE
+    );
   });
 
   it('treats a missing status as unreachable', () => {

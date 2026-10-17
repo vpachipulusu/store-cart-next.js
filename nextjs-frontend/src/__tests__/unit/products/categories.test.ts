@@ -46,6 +46,11 @@ describe('toCategoryOptions', () => {
     ]);
   });
 
+  it('lists rows of a parent cycle flat instead of dropping them', () => {
+    const options = toCategoryOptions([row('a', 'A', 'b'), row('b', 'B', 'a')], false);
+    expect(options.map((option) => option.id).sort()).toEqual(['a', 'b']);
+  });
+
   it('returns nothing for an empty list', () => {
     expect(toCategoryOptions([], false)).toEqual([]);
   });

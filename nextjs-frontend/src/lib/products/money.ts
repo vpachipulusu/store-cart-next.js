@@ -42,8 +42,9 @@ export function minorToInput(minor: number, exponent: number): string {
 /** 1250 and "GBP" become "£12.50". */
 export function formatMinor(minor: number, currency: string): string {
   try {
+    // A decimal string keeps the cents exact for amounts beyond what a float holds.
     return new Intl.NumberFormat('en', { style: 'currency', currency }).format(
-      minor / 10 ** currencyExponent(currency)
+      minorToInput(minor, currencyExponent(currency)) as unknown as number
     );
   } catch {
     return `${minorToInput(minor, 2)} ${currency}`;

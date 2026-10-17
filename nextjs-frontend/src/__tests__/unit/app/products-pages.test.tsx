@@ -217,6 +217,11 @@ describe('edit product page', () => {
     await expect(edit('p9')).rejects.toThrow('NEXT_NOT_FOUND');
   });
 
+  it('keeps an h1 on the error page', async () => {
+    mocks.fetchProduct.mockResolvedValue({ success: false, error: 'x', status: 503 });
+    expect(await edit('p1')).toContain('<h1');
+  });
+
   it('shows a Retry link on other failures', async () => {
     mocks.fetchProduct.mockResolvedValue({ success: false, error: 'x', status: 503 });
     const markup = await edit('p1');
@@ -259,6 +264,17 @@ describe('products list search and category filter', () => {
     const markup = await listPage({ q: 'zzz', category: 'gone' });
     expect(markup).toContain('Unknown category (gone)');
     expect(markup).toContain('No products match these filters.');
+  });
+
+  it('says Category not listed for a chosen category when the list is truncated', async () => {
+    mocks.loadCategoryList.mockResolvedValue({ ...CATEGORIES, truncated: true });
+    const markup = await listPage({ category: 'zz' });
+    expect(markup).toContain('Category not listed (zz)');
+  });
+
+  it('trims again after cutting the search text', async () => {
+    await listPage({ q: `${'a'.repeat(99)}  b` });
+    expect(mocks.fetchProducts.mock.calls[0][1].search).toBe('a'.repeat(99));
   });
 
   it('falls back to a hidden category field when the categories cannot be loaded', async () => {
