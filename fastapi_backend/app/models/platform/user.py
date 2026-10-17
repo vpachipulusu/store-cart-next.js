@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Index, func, text
+from sqlalchemy import CheckConstraint, ForeignKey, Index, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.base import Base
@@ -55,10 +55,42 @@ class LoginHistory(IdMixin, Base):
 
 
 class Notification(IdMixin, CreatedAtMixin, Base):
+    """An in-app notification for one user, optionally scoped to an organisation or store."""
+
     __tablename__ = "notifications"
-    __table_args__ = (Index("ix_notifications_user_id_read", "user_id", "read"),)
+    __table_args__ = (
+        Index("ix_notifications_user_id_read", "user_id", "read"),
+        Index("ix_notifications_user_id_created_at", "user_id", "created_at"),
+        Index("ix_notifications_user_id_organization_id", "user_id", "organization_id"),
+        Index("ix_notifications_user_id_store_id", "user_id", "store_id"),
+        # Parent deletes cascade by these columns alone, so they need their own indexes.
+        Index(
+            "ix_notifications_organization_id",
+            "organization_id",
+            postgresql_where=text("organization_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_notifications_store_id",
+            "store_id",
+            postgresql_where=text("store_id IS NOT NULL"),
+        ),
+        CheckConstraint(
+            "store_id IS NULL OR organization_id IS NOT NULL",
+            name="store_requires_organization",
+        ),
+    )
 
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    # Scope (KAN-40): both null is a personal notification. A store scope also carries
+    # the store's organisation so an organisation filter finds its stores' notifications.
+    # The database only enforces "store implies organisation"; whoever creates a row must
+    # take organization_id from the store itself (there is no writer yet).
+    organization_id: Mapped[str | None] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE")
+    )
+    store_id: Mapped[str | None] = mapped_column(
+        ForeignKey("stores.id", ondelete="CASCADE")
+    )
     type: Mapped[str]
     title: Mapped[str]
     message: Mapped[str]

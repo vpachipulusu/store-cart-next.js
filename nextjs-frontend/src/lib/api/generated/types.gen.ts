@@ -787,9 +787,116 @@ export type InvoicesResponse = {
 };
 
 /**
+ * MarkAllReadData
+ */
+export type MarkAllReadData = {
+    /**
+     * Updated Count
+     */
+    updated_count: number;
+};
+
+/**
+ * MarkAllReadResponse
+ */
+export type MarkAllReadResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: MarkAllReadData;
+};
+
+/**
  * MembershipRole
  */
 export type MembershipRole = 'OWNER' | 'ADMIN' | 'STAFF';
+
+/**
+ * NotificationItem
+ */
+export type NotificationItem = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Type
+     */
+    type: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Message
+     */
+    message: string;
+    /**
+     * Read
+     */
+    read: boolean;
+    /**
+     * Link
+     */
+    link: string | null;
+    /**
+     * Organization Id
+     */
+    organization_id: string | null;
+    /**
+     * Store Id
+     */
+    store_id: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * NotificationListData
+ */
+export type NotificationListData = {
+    /**
+     * Notifications
+     */
+    notifications: Array<NotificationItem>;
+    /**
+     * Total Count
+     *
+     * Matches for the filters, including `unread_only` (for paging).
+     */
+    total_count: number;
+    /**
+     * Unread Count
+     *
+     * Unread matches for the organisation/store filters, ignoring `unread_only`.
+     */
+    unread_count: number;
+};
+
+/**
+ * NotificationListResponse
+ */
+export type NotificationListResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: NotificationListData;
+};
+
+/**
+ * NotificationResponse
+ */
+export type NotificationResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: NotificationItem;
+};
 
 /**
  * OkResponse
@@ -2734,6 +2841,290 @@ export type ChangePasswordResponses = {
 };
 
 export type ChangePasswordResponse = ChangePasswordResponses[keyof ChangePasswordResponses];
+
+export type ListNotificationsData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Organization Id
+         *
+         * Only your notifications for this organisation (includes its stores).
+         */
+        organization_id?: string | null;
+        /**
+         * Store Id
+         *
+         * Only your notifications for this store.
+         */
+        store_id?: string | null;
+        /**
+         * Unread Only
+         */
+        unread_only?: boolean;
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Offset
+         */
+        offset?: number;
+    };
+    url: '/v1/notifications';
+};
+
+export type ListNotificationsErrors = {
+    /**
+     * Not signed in
+     */
+    401: ErrorResponse;
+    /**
+     * Email not verified
+     */
+    403: ErrorResponse;
+    /**
+     * User, or the notification (missing or not yours), not found
+     */
+    404: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ListNotificationsError = ListNotificationsErrors[keyof ListNotificationsErrors];
+
+export type ListNotificationsResponses = {
+    /**
+     * Successful Response
+     */
+    200: NotificationListResponse;
+};
+
+export type ListNotificationsResponse = ListNotificationsResponses[keyof ListNotificationsResponses];
+
+export type MarkAllNotificationsReadData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Organization Id
+         *
+         * Only your notifications for this organisation (includes its stores).
+         */
+        organization_id?: string | null;
+        /**
+         * Store Id
+         *
+         * Only your notifications for this store.
+         */
+        store_id?: string | null;
+    };
+    url: '/v1/notifications/read-all';
+};
+
+export type MarkAllNotificationsReadErrors = {
+    /**
+     * Not signed in
+     */
+    401: ErrorResponse;
+    /**
+     * Email not verified
+     */
+    403: ErrorResponse;
+    /**
+     * User, or the notification (missing or not yours), not found
+     */
+    404: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type MarkAllNotificationsReadError = MarkAllNotificationsReadErrors[keyof MarkAllNotificationsReadErrors];
+
+export type MarkAllNotificationsReadResponses = {
+    /**
+     * Successful Response
+     */
+    200: MarkAllReadResponse;
+};
+
+export type MarkAllNotificationsReadResponse = MarkAllNotificationsReadResponses[keyof MarkAllNotificationsReadResponses];
+
+export type MarkNotificationReadData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Notification Id
+         */
+        notification_id: string;
+    };
+    query?: never;
+    url: '/v1/notifications/{notification_id}/read';
+};
+
+export type MarkNotificationReadErrors = {
+    /**
+     * Not signed in
+     */
+    401: ErrorResponse;
+    /**
+     * Email not verified
+     */
+    403: ErrorResponse;
+    /**
+     * User, or the notification (missing or not yours), not found
+     */
+    404: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type MarkNotificationReadError = MarkNotificationReadErrors[keyof MarkNotificationReadErrors];
+
+export type MarkNotificationReadResponses = {
+    /**
+     * Successful Response
+     */
+    200: NotificationResponse;
+};
+
+export type MarkNotificationReadResponse = MarkNotificationReadResponses[keyof MarkNotificationReadResponses];
+
+export type DeleteNotificationData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Notification Id
+         */
+        notification_id: string;
+    };
+    query?: never;
+    url: '/v1/notifications/{notification_id}';
+};
+
+export type DeleteNotificationErrors = {
+    /**
+     * Not signed in
+     */
+    401: ErrorResponse;
+    /**
+     * Email not verified
+     */
+    403: ErrorResponse;
+    /**
+     * User, or the notification (missing or not yours), not found
+     */
+    404: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type DeleteNotificationError = DeleteNotificationErrors[keyof DeleteNotificationErrors];
+
+export type DeleteNotificationResponses = {
+    /**
+     * Successful Response
+     */
+    200: DeletedResponse;
+};
+
+export type DeleteNotificationResponse = DeleteNotificationResponses[keyof DeleteNotificationResponses];
 
 export type EnrollData = {
     body: EnrollmentRequest;
