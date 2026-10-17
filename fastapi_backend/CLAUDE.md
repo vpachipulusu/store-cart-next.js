@@ -15,7 +15,7 @@ uv run ruff check .                              # lint (add --fix to apply)
 uv run ruff format .                             # format (CI runs --check)
 uv run mypy                                      # strict; checks app/ and commands/
 uv run pytest                                    # all tests, no network, no database
-uv run pytest --cov --cov-report=term-missing:skip-covered   # CI form
+uv run pytest -n auto --dist loadfile --cov --cov-report=term-missing:skip-covered   # CI form (parallel)
 uv run alembic upgrade head                      # only against a database you own (see Alembic)
 ```
 
