@@ -120,3 +120,10 @@ class UpstashRateLimiter:
             remaining=max(response.remaining, 0),
             reset_at=float(response.reset),
         )
+
+
+# Personal data export (KAN-120): assembles every row the user owns, so it is capped hard
+# per user. Fail closed: an outage must not lift the limit on an expensive read.
+EXPORT_POLICY = RateLimitPolicy(
+    "me_export", limit=3, window_seconds=60 * 60, fail_closed=True
+)

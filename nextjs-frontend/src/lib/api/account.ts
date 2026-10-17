@@ -7,6 +7,7 @@ import {
   deleteAccount,
   deleteSession,
   disable,
+  exportMyData,
   readHistory,
   readProfile,
   readSession,
@@ -123,6 +124,19 @@ export function fetchSettings() {
 
 export function patchSettings(body: SettingsRequest) {
   return callBackend((client) => updateSettings({ client, body }));
+}
+
+/**
+ * The caller's own personal data (`POST /v1/me/export`, KAN-120): profile, settings, memberships, login history
+ * and notifications. Rate limited (429) and audit logged by the backend; secrets are never part of it.
+ */
+export function exportBackendData(userAgent: string | null) {
+  return callBackend((client) =>
+    exportMyData({
+      client,
+      ...(userAgent ? { headers: { 'User-Agent': userAgent.slice(0, 512) } } : {}),
+    })
+  );
 }
 
 export function fetchLoginHistory(limit: number, offset: number) {

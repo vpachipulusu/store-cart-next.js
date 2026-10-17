@@ -14,6 +14,7 @@ vi.mock('next/headers', () => ({
 import {
   changeBackendPassword,
   createBackendSession,
+  exportBackendData,
   fetchLoginHistory,
   fetchProfile,
   fetchSessionStatus,
@@ -79,6 +80,28 @@ describe('account wrappers', () => {
     await createBackendSession('id-token', 'x'.repeat(2000));
 
     expect(fetchMock.mock.calls[0][0].headers.get('User-Agent')).toHaveLength(512);
+  });
+
+  it('exportBackendData posts to /v1/me/export with the session and a capped user agent', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ success: true, data: { profile: { id: 'u1' } } }));
+
+    const result = await exportBackendData('x'.repeat(2000));
+
+    expect(result).toEqual({ success: true, data: { profile: { id: 'u1' } } });
+    const request = fetchMock.mock.calls[0][0];
+    expect(request.url).toBe('http://backend.test/v1/me/export');
+    expect(request.method).toBe('POST');
+    expect(request.headers.get('User-Agent')).toHaveLength(512);
+    expect(request.headers.get('X-Session-Token')).toBe('firebase-session-cookie');
+    expect(request.headers.get('X-Internal-Key')).toBe('server-key');
+  });
+
+  it('exportBackendData forwards no custom User-Agent when the browser sent none', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ success: true, data: {} }));
+
+    await exportBackendData(null);
+
+    expect(fetchMock.mock.calls[0][0].headers.get('User-Agent') ?? '').not.toContain('xxxx');
   });
 
   it('fetchProfile forwards the session cookie as X-Session-Token', async () => {

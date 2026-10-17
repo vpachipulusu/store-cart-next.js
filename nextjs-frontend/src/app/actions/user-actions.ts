@@ -1,6 +1,6 @@
 'use server';
 
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { z } from 'zod';
 import { profileUpdateSchema, userSettingsSchema } from '@/lib/utils/validation';
 import { logger } from '@/lib/logger';
@@ -9,6 +9,7 @@ import { SESSION_COOKIE_NAME } from '@/lib/api/server';
 import {
   changeBackendPassword,
   disableBackendTotp,
+  exportBackendData,
   fetchLoginHistory,
   fetchProfile,
   fetchSettings,
@@ -27,7 +28,7 @@ import {
  * user, so no user id ever comes from the browser.
  *
  * Switched off until their replacements land (the controls are hidden, no Prisma access is left behind):
- * - notifications and data export: KAN-114
+ * - notifications: KAN-114
  * - 2FA setup stays hidden while KAN-125 (sign-in enforcement) is parked; disable and account deletion take a
  *   fresh ID token from the browser's re-authentication dialog (KAN-180)
  */
@@ -90,6 +91,36 @@ function apiFailure(
     return fail(logMessage, { status: result.status }, 'Invalid input');
   }
   return fail(logMessage, { status: result.status, error: result.error }, publicMessage);
+}
+
+/**
+ * Downloads the caller's personal data as JSON text (KAN-120). The backend rate limits the export (429) and
+ * writes the audit entry; the browser turns the returned text into a file. Nothing from the browser selects
+ * whose data is exported.
+ */
+export async function exportMyDataAction(): Promise<
+  UserActionResponse<{ filename: string; json: string; truncated: boolean }>
+> {
+  try {
+    const result = await exportBackendData((await headers()).get('user-agent'));
+    if (!result.success) {
+      if (result.status === 429) {
+        return { success: false, error: 'Too many export requests. Try again later.' };
+      }
+      return apiFailure(result, 'Export my data error:', 'Failed to export your data');
+    }
+    const day = new Date().toISOString().slice(0, 10).replaceAll('-', '');
+    return {
+      success: true,
+      data: {
+        filename: `storecart-export-${day}.json`,
+        json: JSON.stringify(result.data, null, 2),
+        truncated: result.data.truncated,
+      },
+    };
+  } catch (error: unknown) {
+    return fail('Export my data error:', error, 'Failed to export your data');
+  }
 }
 
 /**

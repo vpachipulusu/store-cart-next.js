@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   reauthenticate: vi.fn(),
   changePasswordAction: vi.fn(),
   disableTwoFactorAction: vi.fn(),
+  exportMyDataAction: vi.fn(),
 }));
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
@@ -23,6 +24,7 @@ vi.mock('@/app/actions/user-actions', () => ({
   changePasswordAction: mocks.changePasswordAction,
   deleteAccountAction: vi.fn(),
   disableTwoFactorAction: mocks.disableTwoFactorAction,
+  exportMyDataAction: vi.fn(),
   getLoginHistoryAction: mocks.getLoginHistoryAction,
   getTwoFactorStatusAction: mocks.getTwoFactorStatusAction,
 }));
