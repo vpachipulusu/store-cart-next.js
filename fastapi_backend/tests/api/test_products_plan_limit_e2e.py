@@ -4,8 +4,6 @@ The Free plan allows 25 products per store (``app.core.plans``). Runs only when
 ``TEST_DATABASE_URL`` points at a throwaway local server (see ``tests/isolation_world.py``).
 """
 
-
-
 import asyncio
 from collections.abc import AsyncIterator
 
