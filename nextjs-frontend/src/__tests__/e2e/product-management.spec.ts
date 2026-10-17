@@ -14,6 +14,9 @@ import { loginAsThrowawayAccount, waitForPageReady } from './helpers/e2e-utils';
  * the backend). See docs/developer/local-e2e.md.
  */
 
+/** The backend allows 100 calls a minute per account; each page load costs several. */
+const RATE_WINDOW_MS = 62_000;
+
 const BACKEND_DIR = process.env.E2E_BACKEND_DIR;
 const ACTIVATE_SCRIPT = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -76,14 +79,40 @@ async function createSimpleProduct(
   await expect(page.getByRole('heading', { level: 1, name: input.title })).toBeVisible();
 }
 
+/** Options create one variant row per combination; options cannot be changed after creation. */
+async function createSizedProduct(page: Page): Promise<void> {
+  await page.goto('/dashboard/products/new');
+  await waitForPageReady(page);
+  await page.getByLabel('Title').fill('Sized Tee');
+  await page.getByRole('button', { name: 'Add option' }).click();
+  await page.getByLabel('Option 1 name').fill('Size');
+  await page.getByLabel('Option 1 values').fill('S, M');
+
+  const rows = page.getByTestId('variant-row');
+  await expect(rows).toHaveCount(2);
+  for (const [index, sku, price] of [
+    [0, 'E2E-S', '10'],
+    [1, 'E2E-M', '12'],
+  ] as const) {
+    await rows.nth(index).getByLabel('SKU').fill(sku);
+    await rows
+      .nth(index)
+      .getByLabel(/^Price \(/)
+      .fill(price);
+  }
+  await page.getByRole('button', { name: 'Create product' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Sized Tee' })).toBeVisible();
+  await expect(page.getByTestId('variant-row')).toHaveCount(2);
+}
+
 test.describe('Merchant product management', () => {
   test.skip(
     !process.env.BACKEND_INTERNAL_KEY || !BACKEND_DIR,
     'Skipped: BACKEND_INTERNAL_KEY and E2E_BACKEND_DIR not set (needs FastAPI and uv)'
   );
-  test.setTimeout(240_000);
+  test.setTimeout(480_000);
 
-  test('validates, creates, lists and filters products', async ({
+  test('validates, creates, lists, filters, edits and deletes products', async ({
     page,
     throwawayAccount,
   }) => {
@@ -107,6 +136,11 @@ test.describe('Merchant product management', () => {
     await createSimpleProduct(page, { title: 'Blue Tee', sku: 'E2E-TEE', price: '12.50' });
     await createSimpleProduct(page, { title: 'Red Mug', sku: 'E2E-MUG', price: '8' });
 
+    // Pause so one account stays under the backend's 100 calls a minute.
+    await page.waitForTimeout(RATE_WINDOW_MS);
+    await createSizedProduct(page);
+
+    await page.waitForTimeout(RATE_WINDOW_MS);
     // A duplicate SKU shows the backend's curated message and keeps the form.
     await page.goto('/dashboard/products/new');
     await waitForPageReady(page);
@@ -121,7 +155,10 @@ test.describe('Merchant product management', () => {
     // List: both rows, the page filter is labelled as page-only, and the status filter is applied by the server.
     await page.goto('/dashboard/products');
     await waitForPageReady(page);
-    await expect(page.getByTestId('product-row')).toHaveCount(2);
+    await expect(page.getByTestId('product-row')).toHaveCount(3);
+    await expect(page.getByTestId('product-row').filter({ hasText: 'Sized Tee' })).toContainText(
+      '–'
+    );
     await expect(page.getByText(/store-wide search is not available yet/i)).toBeVisible();
     await page.getByLabel('Filter this page by title').fill('mug');
     await expect(page.getByTestId('product-row')).toHaveCount(1);
@@ -129,18 +166,15 @@ test.describe('Merchant product management', () => {
     await page.getByLabel('Status').selectOption('active');
     await page.getByRole('button', { name: 'Apply' }).click();
     await expect(page.getByTestId('no-products')).toContainText('No products match these filters.');
-  });
 
-  // A second test with its own account: the backend rate-limits each account (100 calls a minute), and every
-  // page load costs several calls.
-  test('edits variants and details, shows the documented gaps, and deletes a product', async ({
-    page,
-    throwawayAccount,
-  }) => {
-    await loginAsThrowawayAccount(page, throwawayAccount);
-    await seedActiveStore(page, throwawayAccount.email.split('@')[0].slice(-12));
-    await createSimpleProduct(page, { title: 'Blue Tee', sku: 'E2E-TEE', price: '12.50' });
+    // The backend rate-limits sign-in (5 per 15 minutes per address) and each account to 100 calls a minute, so the
+    // editor half continues in the same signed-in session after a pause instead of using a second account.
+    await page.waitForTimeout(RATE_WINDOW_MS);
+    await page.goto('/dashboard/products');
     await waitForPageReady(page);
+    await page.getByRole('link', { name: 'Blue Tee' }).click();
+    await waitForPageReady(page);
+    await expect(page.getByRole('heading', { level: 1, name: 'Blue Tee' })).toBeVisible();
 
     // Editor: publish, change the price, and see both persist after a reload.
     await page.getByLabel('Status').selectOption('active');
@@ -180,42 +214,6 @@ test.describe('Merchant product management', () => {
     await expect(page).toHaveURL(/\/dashboard\/products$/);
     await waitForPageReady(page);
     await expect(page.getByRole('link', { name: 'Blue Tee' })).toHaveCount(0);
-    await expect(page.getByTestId('no-products')).toBeVisible();
-  });
-
-  test('creates a product with options and one variant per combination', async ({
-    page,
-    throwawayAccount,
-  }) => {
-    await loginAsThrowawayAccount(page, throwawayAccount);
-    await seedActiveStore(page, throwawayAccount.email.split('@')[0].slice(-12));
-
-    await page.goto('/dashboard/products/new');
-    await waitForPageReady(page);
-    await page.getByLabel('Title').fill('Sized Tee');
-    await page.getByRole('button', { name: 'Add option' }).click();
-    await page.getByLabel('Option 1 name').fill('Size');
-    await page.getByLabel('Option 1 values').fill('S, M');
-
-    const rows = page.getByTestId('variant-row');
-    await expect(rows).toHaveCount(2);
-    for (const [index, sku, price] of [
-      [0, 'E2E-S', '10'],
-      [1, 'E2E-M', '12'],
-    ] as const) {
-      await rows.nth(index).getByLabel('SKU').fill(sku);
-      await rows
-        .nth(index)
-        .getByLabel(/^Price \(/)
-        .fill(price);
-    }
-    await page.getByRole('button', { name: 'Create product' }).click();
-    await expect(page.getByRole('heading', { level: 1, name: 'Sized Tee' })).toBeVisible();
-    await expect(page.getByTestId('variant-row')).toHaveCount(2);
-
-    // The list shows the price range across variants.
-    await page.goto('/dashboard/products');
-    await waitForPageReady(page);
-    await expect(page.getByTestId('product-row')).toContainText('–');
+    await expect(page.getByRole('link', { name: 'Red Mug' })).toBeVisible();
   });
 });
