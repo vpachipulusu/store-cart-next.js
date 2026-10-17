@@ -14,11 +14,16 @@ def create_app() -> FastAPI:
     # Before the app is built so the SDK can instrument Starlette. No-op without a DSN.
     init_sentry(settings)
 
+    # The backend URL is public, so production serves no schema or docs UI
+    # (ADR-003). `app.openapi()` still works for the schema generation command.
+    docs_enabled = settings.relaxed_environment
     application = FastAPI(
         title=settings.APP_NAME,
         version=settings.APP_VERSION,
         generate_unique_id_function=simple_generate_unique_route_id,
-        openapi_url=settings.OPENAPI_URL,
+        openapi_url=settings.OPENAPI_URL if docs_enabled else None,
+        docs_url="/docs" if docs_enabled else None,
+        redoc_url="/redoc" if docs_enabled else None,
         responses=ERROR_RESPONSES,
     )
 

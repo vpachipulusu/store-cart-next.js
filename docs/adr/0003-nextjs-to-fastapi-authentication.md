@@ -37,7 +37,8 @@ our Next.js server, and which merchant it acts for.
    user, records login history and returns the session cookie value. Next.js sets the cookie in the browser.
    The Firebase Admin credentials then live only in the backend.
 5. **Endpoints not called by Next.js** (Stripe webhooks, QStash callbacks) do not use the service key; each
-   verifies its provider's signature instead. `/health` is also public and returns no internal detail. Because
+   verifies its provider's signature instead. `/health` (liveness, no database) is also public and returns no internal detail; `/health/ready` queries the
+   database, so it requires the service key (KAN-247). Because
    the backend URL is public, the OpenAPI document and docs UI are switched off in production.
 6. **The client IP** for unauthenticated endpoints is forwarded by Next.js in an `X-Client-IP` header, and is
    trusted only on requests that carry a valid service key ([ADR-007](0007-rate-limit-keys.md)). Next.js takes
@@ -56,6 +57,10 @@ our Next.js server, and which merchant it acts for.
   already gives a verifiable, revocable session.
 - **Vercel Deployment Protection / private networking.** Not available for function-to-function calls on all
   plans and ties security to one host. Can be added on top later.
+- **OAuth 2.0 (client credentials or an authorization server) between Next.js and FastAPI.** Rejected (KAN-247):
+  there is one caller, the Next.js server, so a shared rotatable service key plus the revocable Firebase session
+  gives the same assurance without a token issuer, scopes or a second token lifecycle. Revisit only if a second
+  machine caller appears.
 - **Browser calls FastAPI directly with an ID token.** Exposes the backend to the internet as a public API
   and puts CORS and token refresh in the browser, which goes against D14.
 

@@ -30,6 +30,9 @@ export const healthCheck = <ThrowOnError extends boolean = false>(options?: Opti
  *
  * Readiness check: 200 when the database answers, 503 otherwise.
  *
+ * Needs the service key (KAN-247): it queries the database, so it must not be an
+ * open probe on a public URL. Liveness (`/health`) stays open.
+ *
  * Redis is deliberately not checked: rate limiting fails open, so a Redis blip
  * must not take the service out of rotation.
  */

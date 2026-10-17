@@ -35,7 +35,7 @@ fastapi_backend/app/
 ├── api/
 │   ├── deps.py          FastAPI dependencies: get_session_provider, get_session, service factories
 │   ├── ids.py           OpenAPI operation ids
-│   └── v1/              routers: health.py (GET /health, GET /health/ready), router.py
+│   └── v1/              routers: health.py (GET /health, GET /health/ready, which needs X-Internal-Key), router.py
 ├── services/            business logic, no FastAPI imports (health.py)
 └── repositories/        SQLAlchemy queries; receive an AsyncSession, never create one (base.py, health.py)
 ```
