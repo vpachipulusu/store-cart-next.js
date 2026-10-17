@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -37,15 +37,22 @@ type ProvisioningStatusProps = {
 
 /**
  * Shows a new store's provisioning progress (KAN-60): PROVISIONING is "setting up", ACTIVE is ready. Anything
- * else, or repeated failed checks, shows a message with a retry. Polls the server action with backoff and clears
- * its timers on unmount or when the store settles. The text lives in one persistent polite live region so each
- * change (including "ready") is announced; the retry and dashboard controls sit outside it.
+ * else, or repeated failed checks, shows a message with a retry. FAILED (KAN-191) has its own copy: the job gave
+ * up, nothing the merchant can do re-runs it yet, so its button is "Check again" and only re-reads the status.
+ * Polls the server action with backoff and clears its timers on unmount or when the store settles. The text lives
+ * in one persistent polite live region so each change (including "ready" and "still not finished") is announced;
+ * the retry and dashboard controls sit outside it.
  */
 export function ProvisioningStatus({ storeId, storeName, initialStatus }: ProvisioningStatusProps) {
   const [status, setStatus] = useState<StoreStatus | 'UNKNOWN'>(initialStatus);
   const [problem, setProblem] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [coolingDown, setCoolingDown] = useState(false);
+  /** True once a manual check came back FAILED again, so the unchanged screen still gives feedback. */
+  const [stillFailed, setStillFailed] = useState(false);
+  /** Whether the store was FAILED when the user pressed the button; only then is "still" accurate. */
+  const checkedFromFailedRef = useRef(false);
+  const dashboardLinkRef = useRef<HTMLAnchorElement>(null);
 
   useEffect(() => {
     if (initialStatus !== 'PROVISIONING' && retryCount === 0) return;
@@ -89,8 +96,11 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
       }
       failures = 0;
       setStatus(result.data.status);
+      if (checkedFromFailedRef.current && result.data.status === 'FAILED') setStillFailed(true);
       if (result.data.status === 'PROVISIONING') schedule();
-      else if (result.data.status !== 'ACTIVE') setProblem(UNAVAILABLE_MESSAGE);
+      else if (result.data.status !== 'ACTIVE' && result.data.status !== 'FAILED') {
+        setProblem(UNAVAILABLE_MESSAGE);
+      }
     }
 
     if (retryCount > 0) void poll();
@@ -110,24 +120,50 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
 
   const handleRetry = () => {
     if (coolingDown) return;
+    checkedFromFailedRef.current = status === 'FAILED';
     setCoolingDown(true);
     setProblem(null);
+    setStillFailed(false);
     setRetryCount((count) => count + 1);
   };
 
+  // FAILED is the provisioning job giving up. There is no merchant-facing way to re-run it yet, so the screen
+  // says so and the button only re-reads the status (an admin re-run, KAN-200, turns it ACTIVE).
+  // A failed check while FAILED keeps this explanation and adds the problem as an extra line.
+  const provisioningFailed = status === 'FAILED';
   const message =
     problem ??
     (status === 'UNKNOWN'
       ? CHECK_FAILED_MESSAGE
-      : status === 'FAILED' || status === 'SUSPENDED' || status === 'ARCHIVED'
+      : status === 'SUSPENDED' || status === 'ARCHIVED'
         ? UNAVAILABLE_MESSAGE
         : null);
   const ready = message === null && status === 'ACTIVE';
+  const needsAttention = message !== null || provisioningFailed;
+
+  // The button that was focused unmounts when a check turns the store ACTIVE, so focus moves to the new link.
+  useEffect(() => {
+    if (ready && retryCount > 0) dashboardLinkRef.current?.focus();
+  }, [ready, retryCount]);
 
   return (
     <div className="flex flex-col items-start gap-4" data-testid="store-status">
       <div role="status" aria-live="polite" className="flex flex-col items-start gap-2">
-        {message !== null ? (
+        {provisioningFailed ? (
+          <>
+            <StatusPill variant="crit" data-testid="provisioning-pill">
+              Needs attention
+            </StatusPill>
+            <p className="font-medium">We could not finish setting up your store</p>
+            {problem !== null && <p className="text-sm">{problem}</p>}
+            {stillFailed && problem === null && (
+              // Keyed per check so each repeat check is announced again.
+              <p key={retryCount} className="text-sm">
+                Still not finished. We checked just now.
+              </p>
+            )}
+          </>
+        ) : message !== null ? (
           <>
             <StatusPill variant="crit" data-testid="provisioning-pill">
               Needs attention
@@ -160,7 +196,20 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
           </>
         )}
       </div>
-      {message !== null && (
+      {provisioningFailed && (
+        // Outside the live region so the support details are not read out again on every status change.
+        <>
+          <p className="text-sm text-muted-foreground">
+            Setting up {storeName} did not complete. Please contact support and include your store
+            name, the reference below and the time you created it so we can finish the setup. If it
+            has already been fixed, check again below.
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Reference: <span className="font-mono">{storeId}</span>
+          </p>
+        </>
+      )}
+      {needsAttention && (
         <Button
           type="button"
           variant="outline"
@@ -168,12 +217,14 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
           aria-disabled={coolingDown}
           className="min-h-11 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
         >
-          Try again
+          {provisioningFailed ? 'Check again' : 'Try again'}
         </Button>
       )}
       {ready && (
         <Button asChild className="min-h-11">
-          <Link href="/dashboard">Open dashboard</Link>
+          <Link ref={dashboardLinkRef} href="/dashboard">
+            Open dashboard
+          </Link>
         </Button>
       )}
     </div>
