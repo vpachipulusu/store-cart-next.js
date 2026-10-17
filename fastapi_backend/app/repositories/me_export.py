@@ -1,9 +1,10 @@
 """Read side of the personal data export (KAN-120): one user's own rows, nothing else.
 
-Deliberately selects named columns instead of whole models, so a column added to
-``users`` later (hashes, secrets, tokens) is never exported by accident. Excluded on
-purpose: ``firebase_uid``, ``two_factor_secret``, Stripe identifiers, and every row that
-belongs to another user.
+The queries load whole entities, but only the explicit field mapping in the frozen
+dataclasses below leaves this module, so a column added to ``users`` later (hashes,
+secrets, tokens) is never exported by accident: it takes a deliberate edit here and in the
+API response models (a test pins the allow-list). Left out on purpose: ``firebase_uid``,
+``two_factor_secret``, Stripe identifiers, and every row that belongs to another user.
 """
 
 from dataclasses import dataclass
@@ -16,7 +17,8 @@ from app.models.platform.membership import Membership
 from app.models.platform.organization import Organization
 from app.models.platform.user import LoginHistory, Notification, User, UserSettings
 
-# Hard cap per list so one export stays bounded; the export reports when it applied.
+# Hard cap per list so one export stays bounded; every list keeps its newest rows and the
+# export reports (``truncated``) when the cap cut anything.
 MAX_EXPORT_ROWS = 1000
 
 
@@ -116,7 +118,7 @@ class MeExportRepository:
                 select(Membership, Organization)
                 .join(Organization, Organization.id == Membership.organization_id)
                 .where(Membership.user_id == user_id)
-                .order_by(Membership.created_at, Membership.id)
+                .order_by(Membership.created_at.desc(), Membership.id.desc())
                 .limit(MAX_EXPORT_ROWS + 1)
             )
         ).all()

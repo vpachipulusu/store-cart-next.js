@@ -99,7 +99,7 @@ function apiFailure(
  * whose data is exported.
  */
 export async function exportMyDataAction(): Promise<
-  UserActionResponse<{ filename: string; json: string }>
+  UserActionResponse<{ filename: string; json: string; truncated: boolean }>
 > {
   try {
     const result = await exportBackendData((await headers()).get('user-agent'));
@@ -115,6 +115,7 @@ export async function exportMyDataAction(): Promise<
       data: {
         filename: `storecart-export-${day}.json`,
         json: JSON.stringify(result.data, null, 2),
+        truncated: result.data.truncated,
       },
     };
   } catch (error: unknown) {

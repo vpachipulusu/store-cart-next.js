@@ -6,6 +6,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.api.auth import get_current_identity
 from app.api.deps import get_rate_limiter
+from app.api.v1 import me_export as models
 from app.api.v1.me_export import get_export_service
 from app.core.firebase import VerifiedIdentity
 from app.core.rate_limit import EXPORT_POLICY
@@ -83,7 +84,6 @@ async def test_export_returns_attachment_json_for_session_user(context):
         result = await http.post("/v1/me/export")
     assert result.status_code == 200
     assert result.headers["cache-control"] == "no-store"
-    assert result.headers["content-disposition"].startswith("attachment; filename=")
     data = result.json()["data"]
     assert data["profile"]["email"] == "ada@example.com"
     assert data["memberships"][0]["subscription_tier"] == "pro"
@@ -91,11 +91,75 @@ async def test_export_returns_attachment_json_for_session_user(context):
     assert service.calls[0][0] == "firebase-user"
 
 
-async def test_export_has_no_secret_fields(context):
+def test_response_models_expose_only_allow_listed_fields():
+    # Adding a field to an export model (for example a secret column) must be a
+    # deliberate edit of this list, reviewed as a data-exposure change.
+    assert set(models.ExportData.model_fields) == {
+        "exported_at",
+        "profile",
+        "settings",
+        "memberships",
+        "login_history",
+        "notifications",
+        "truncated",
+    }
+    assert set(models.ExportProfile.model_fields) == {
+        "id",
+        "email",
+        "email_verified",
+        "two_factor_enabled",
+        "display_name",
+        "bio",
+        "avatar_url",
+        "location",
+        "website",
+        "phone_number",
+        "last_login_at",
+        "created_at",
+    }
+    assert set(models.ExportSettings.model_fields) == {
+        "theme",
+        "email_notifications",
+        "language",
+        "timezone",
+    }
+    assert set(models.ExportMembership.model_fields) == {
+        "organization_id",
+        "organization_name",
+        "organization_slug",
+        "role",
+        "joined_at",
+        "subscription_tier",
+        "subscription_status",
+        "subscription_current_period_end",
+        "subscription_cancel_at_period_end",
+    }
+    assert set(models.ExportLogin.model_fields) == {
+        "id",
+        "ip_address",
+        "user_agent",
+        "location",
+        "login_at",
+        "successful",
+    }
+    assert set(models.ExportNotification.model_fields) == {
+        "id",
+        "type",
+        "title",
+        "message",
+        "read",
+        "link",
+        "organization_id",
+        "store_id",
+        "created_at",
+    }
+
+
+async def test_response_keys_match_the_allow_list(context):
     async with client(context[0]) as http:
-        body = (await http.post("/v1/me/export")).text
-    for forbidden in ("firebase_uid", "two_factor_secret", "stripe_", "password"):
-        assert forbidden not in body
+        data = (await http.post("/v1/me/export")).json()["data"]
+    assert set(data["profile"]) == set(models.ExportProfile.model_fields)
+    assert set(data["memberships"][0]) == set(models.ExportMembership.model_fields)
 
 
 async def test_export_is_rate_limited_per_user(context):
@@ -134,4 +198,4 @@ async def test_export_requires_internal_key(context):
         transport=ASGITransport(app=context[0]), base_url="http://test"
     ) as http:
         result = await http.post("/v1/me/export")
-    assert result.status_code in {401, 403}
+    assert result.status_code == 401

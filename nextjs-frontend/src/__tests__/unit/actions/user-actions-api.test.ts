@@ -529,17 +529,19 @@ describe('exportMyDataAction (KAN-120)', () => {
 
   it('returns the export as JSON text with a dated filename', async () => {
     mocks.exportBackendData.mockResolvedValue(
-      ok({ profile: { email: 'a@b.test' }, memberships: [] })
+      ok({ profile: { email: 'a@b.test' }, memberships: [], truncated: true })
     );
 
     const result = await exportMyDataAction();
 
     expect(mocks.exportBackendData).toHaveBeenCalledWith('TestAgent/1.0');
     expect(result.success).toBe(true);
+    expect(result.data?.truncated).toBe(true);
     expect(result.data?.filename).toMatch(/^storecart-export-\d{8}\.json$/);
     expect(JSON.parse(result.data?.json ?? '')).toEqual({
       profile: { email: 'a@b.test' },
       memberships: [],
+      truncated: true,
     });
   });
 

@@ -129,11 +129,10 @@ async def export_my_data(
     """Everything stored about the caller: profile, settings, memberships (with the
     organisation's subscription), login history and notifications. Secrets, tokens and
     other users' data are never included. Rate limited; each call is audit logged."""
+    # Hygiene for any direct API caller. The Next.js server action rebuilds the file name and
+    # content itself, so this header does not reach the browser download.
     response.headers["Cache-Control"] = "no-store"
     now = datetime.now(UTC)
-    response.headers["Content-Disposition"] = (
-        f'attachment; filename="storecart-export-{now:%Y%m%d}.json"'
-    )
     try:
         export = await service.export(
             identity.uid,

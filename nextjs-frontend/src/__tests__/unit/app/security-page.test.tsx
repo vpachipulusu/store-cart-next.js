@@ -75,48 +75,98 @@ describe('SecurityPage two-factor status (KAN-183)', () => {
 });
 
 describe('SecurityPage data export (KAN-120)', () => {
+  const originalCreate = URL.createObjectURL;
+  const originalRevoke = URL.revokeObjectURL;
+  const createUrl = vi.fn((_blob: Blob) => 'blob:export');
+  const revokeUrl = vi.fn();
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getLoginHistoryAction.mockResolvedValue({ success: true, data: { history: [] } });
     mocks.getTwoFactorStatusAction.mockResolvedValue({ success: true, data: { enabled: false } });
+    Object.assign(URL, { createObjectURL: createUrl, revokeObjectURL: revokeUrl });
   });
 
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    Object.assign(URL, { createObjectURL: originalCreate, revokeObjectURL: originalRevoke });
+  });
 
-  it('downloads the exported JSON as a file', async () => {
-    mocks.exportMyDataAction.mockResolvedValue({
-      success: true,
-      data: { filename: 'storecart-export-20261017.json', json: '{"a":1}' },
+  async function exportWith(result: unknown, downloads: string[] = []) {
+    mocks.exportMyDataAction.mockResolvedValue(result);
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement
+    ) {
+      downloads.push(this.download);
     });
-    const createUrl = vi.fn(() => 'blob:export');
-    const revokeUrl = vi.fn();
-    Object.assign(URL, { createObjectURL: createUrl, revokeObjectURL: revokeUrl });
-    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-
     render(<SecurityPage />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Export my data' }));
+    const button = await screen.findByRole('button', { name: 'Export my data' });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    fireEvent.click(button);
+    await vi.advanceTimersByTimeAsync(0);
+    return click;
+  }
 
-    await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
-    expect(createUrl).toHaveBeenCalledTimes(1);
+  it('downloads the exported JSON as a named file and revokes the URL later', async () => {
+    const downloads: string[] = [];
+    const click = await exportWith(
+      {
+        success: true,
+        data: { filename: 'storecart-export-20261017.json', json: '{"a":1}', truncated: false },
+      },
+      downloads
+    );
+
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(downloads).toEqual(['storecart-export-20261017.json']);
+    expect(createUrl.mock.calls[0][0].type).toBe('application/json');
+    expect(revokeUrl).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(10_000);
     expect(revokeUrl).toHaveBeenCalledWith('blob:export');
+    expect(mocks.toast).toHaveBeenCalledWith(
+      expect.objectContaining({ description: 'Your data download has started.' })
+    );
+  });
+
+  it('tells the user when older rows were left out of the export', async () => {
+    await exportWith({
+      success: true,
+      data: { filename: 'x.json', json: '{}', truncated: true },
+    });
+
+    expect(mocks.toast).toHaveBeenCalledWith(
+      expect.objectContaining({ description: expect.stringContaining('Older rows were left out') })
+    );
+  });
+
+  it('marks the button busy and disabled while the export runs', async () => {
+    let finish: (value: unknown) => void = () => {};
+    mocks.exportMyDataAction.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    render(<SecurityPage />);
+    const button = await screen.findByRole('button', { name: 'Export my data' });
+
+    fireEvent.click(button);
+
+    await waitFor(() => expect(button).toBeDisabled());
+    expect(button).toHaveAttribute('aria-busy', 'true');
+    finish({ success: false, error: 'x' });
+    await waitFor(() => expect(button).toBeEnabled());
+    expect(button).toHaveAttribute('aria-busy', 'false');
   });
 
   it('shows the error and downloads nothing when the export fails', async () => {
-    mocks.exportMyDataAction.mockResolvedValue({
+    const click = await exportWith({
       success: false,
       error: 'Too many export requests. Try again later.',
     });
-    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
 
-    render(<SecurityPage />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Export my data' }));
-
-    await waitFor(() =>
-      expect(mocks.toast).toHaveBeenCalledWith(
-        expect.objectContaining({ description: 'Too many export requests. Try again later.' })
-      )
+    expect(mocks.toast).toHaveBeenCalledWith(
+      expect.objectContaining({ description: 'Too many export requests. Try again later.' })
     );
     expect(click).not.toHaveBeenCalled();
+    expect(createUrl).not.toHaveBeenCalled();
   });
 
   it('shows a toast when the export call itself rejects', async () => {
