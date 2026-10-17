@@ -10,6 +10,9 @@ separation; both databases share one server login in the test setup. No product 
 exists yet, so there is no route-level cross-store test; the first route that opens a store
 session for catalogue data must add one.
 
+Stores are reached through ``open_store_session``; ``get_store_session`` (the request
+dependency built on it) is not exercised here.
+
 Skipped when ``TEST_DATABASE_URL`` is unset.
 """
 
@@ -17,13 +20,18 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 import pytest
+from alembic.script import ScriptDirectory
 from sqlalchemy import text
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.ids import new_id
-from app.services.store_migrations import migrate_store
+from app.services.store_migrations import (
+    STORE_SCRIPT_LOCATION,
+    _alembic_config,
+    migrate_store,
+)
 from app.services.store_sessions import open_store_session
 from tests.pg_scaffold import TEST_DATABASE_URL, url_for
 from tests.services.test_store_catalogue_schema_e2e import (
@@ -44,7 +52,10 @@ pytestmark = pytest.mark.skipif(
     not TEST_DATABASE_URL, reason="TEST_DATABASE_URL is not set"
 )
 
-CATALOGUE_HEAD = "0002"
+_SCRIPTS = ScriptDirectory.from_config(_alembic_config(STORE_SCRIPT_LOCATION))
+# Derived from the store tree so a later revision does not break this isolation file.
+CATALOGUE_HEAD = str(_SCRIPTS.get_current_head())
+SCHEMA_VERSION = len(list(_SCRIPTS.walk_revisions()))
 SLUG = "tee"
 SKU = "TEE-1"
 TABLES = sorted(CATALOGUE_TABLES)
@@ -158,9 +169,10 @@ async def test_migrating_one_store_leaves_the_other_untouched(
 
     assert await migration_state(s.w, s.store_a, s.database_a) == (
         CATALOGUE_HEAD,
-        int(CATALOGUE_HEAD),
+        SCHEMA_VERSION,
     )
     assert await migration_state(s.w, s.store_b, s.database_b) == (None, 0)
+    # raw engine on purpose: it reads the catalog of an un-routed database, not a store session
     other = create_async_engine(url_for(s.database_b))
     try:
         async with other.connect() as connection:
@@ -181,7 +193,7 @@ async def test_migrating_one_store_leaves_the_other_untouched(
 
     assert await migration_state(s.w, s.store_a, s.database_a) == (
         CATALOGUE_HEAD,
-        int(CATALOGUE_HEAD),
+        SCHEMA_VERSION,
     )
     assert await counts(s.w, s.store_b) == none_each()
 
@@ -193,7 +205,7 @@ async def test_both_stores_have_the_catalogue_tables_at_head(stores: TwoStores) 
     ):
         assert await migration_state(stores.w, store_id, database) == (
             CATALOGUE_HEAD,
-            int(CATALOGUE_HEAD),
+            SCHEMA_VERSION,
         )
         assert await counts(stores.w, store_id) == none_each()
 
@@ -213,7 +225,7 @@ async def test_a_store_added_later_is_migrated_without_touching_the_others(
 
     assert await migration_state(w, late, late_database) == (
         CATALOGUE_HEAD,
-        int(CATALOGUE_HEAD),
+        SCHEMA_VERSION,
     )
     assert await counts(w, late) == none_each()
     assert await counts(w, stores.store_b) == none_each()
@@ -319,7 +331,7 @@ async def test_the_same_id_in_both_stores_is_addressed_per_database(
         async with open_store_session(store_id, w.provider) as session:
             await session.execute(
                 text("INSERT INTO products (id, title, slug) VALUES (:i, 'T', :s)"),
-                {"i": shared, "s": f"p-{store_id[:8].lower()}"},
+                {"i": shared, "s": "shared"},
             )
             await session.commit()
 
@@ -407,8 +419,10 @@ async def test_store_b_cannot_link_its_own_variant_to_store_a_option_ids(
         )
         with pytest.raises(IntegrityError) as caught:
             await session.commit()
-        assert violated_constraint(caught.value) == (
-            "fk_variant_option_values_option_product"
+        # both deferred FKs are violated; Postgres fires them in trigger-OID order
+        assert violated_constraint(caught.value) in (
+            "fk_variant_option_values_option_product",
+            "fk_variant_option_values_value_option",
         )
 
     assert await snapshot(w, stores.store_b) == before_b
@@ -448,3 +462,5 @@ async def test_each_catalogue_session_is_bound_to_its_own_database(
             w, stores.store_a, "SELECT to_regclass(:t)", t=platform_table
         )
         assert found is None, platform_table
+    # positive control: to_regclass does find a table that exists in the store database
+    assert await scalar(w, stores.store_a, "SELECT to_regclass('products')") is not None
