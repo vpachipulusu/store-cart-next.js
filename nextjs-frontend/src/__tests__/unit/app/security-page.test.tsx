@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const mocks = vi.hoisted(() => ({
@@ -81,6 +81,8 @@ describe('SecurityPage data export (KAN-120)', () => {
     mocks.getTwoFactorStatusAction.mockResolvedValue({ success: true, data: { enabled: false } });
   });
 
+  afterEach(() => vi.restoreAllMocks());
+
   it('downloads the exported JSON as a file', async () => {
     mocks.exportMyDataAction.mockResolvedValue({
       success: true,
@@ -97,7 +99,6 @@ describe('SecurityPage data export (KAN-120)', () => {
     await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
     expect(createUrl).toHaveBeenCalledTimes(1);
     expect(revokeUrl).toHaveBeenCalledWith('blob:export');
-    click.mockRestore();
   });
 
   it('shows the error and downloads nothing when the export fails', async () => {
@@ -116,6 +117,19 @@ describe('SecurityPage data export (KAN-120)', () => {
       )
     );
     expect(click).not.toHaveBeenCalled();
-    click.mockRestore();
+  });
+
+  it('shows a toast when the export call itself rejects', async () => {
+    mocks.exportMyDataAction.mockRejectedValue(new Error('network'));
+
+    render(<SecurityPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Export my data' }));
+
+    await waitFor(() =>
+      expect(mocks.toast).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Export failed', variant: 'destructive' })
+      )
+    );
+    expect(screen.getByRole('button', { name: 'Export my data' })).toBeEnabled();
   });
 });

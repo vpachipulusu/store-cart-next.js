@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('next/headers', () => ({
   cookies: async () => ({ get: mocks.cookieGet }),
+  headers: async () => ({ get: () => 'TestAgent/1.0' }),
 }));
 vi.mock('@/lib/api/account', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api/account')>('@/lib/api/account');
@@ -533,6 +534,7 @@ describe('exportMyDataAction (KAN-120)', () => {
 
     const result = await exportMyDataAction();
 
+    expect(mocks.exportBackendData).toHaveBeenCalledWith('TestAgent/1.0');
     expect(result.success).toBe(true);
     expect(result.data?.filename).toMatch(/^storecart-export-\d{8}\.json$/);
     expect(JSON.parse(result.data?.json ?? '')).toEqual({

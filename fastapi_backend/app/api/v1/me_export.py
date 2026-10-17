@@ -96,6 +96,8 @@ class ExportData(BaseModel):
     memberships: list[ExportMembership]
     login_history: list[ExportLogin]
     notifications: list[ExportNotification]
+    # True when a list was cut at the per-list cap (1000 newest rows kept).
+    truncated: bool
 
 
 class ExportResponse(BaseModel):
@@ -115,6 +117,7 @@ ExportServiceDep = Annotated[MeExportService, Depends(get_export_service)]
 @router.post(
     "/export",
     response_model=ExportResponse,
+    summary="Download my personal data",
     dependencies=[Depends(limit_by_subject(EXPORT_POLICY, current_subject))],
 )
 async def export_my_data(

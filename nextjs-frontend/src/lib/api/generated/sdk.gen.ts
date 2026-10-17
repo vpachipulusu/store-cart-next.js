@@ -180,7 +180,7 @@ export const changePassword = <ThrowOnError extends boolean = false>(options: Op
 });
 
 /**
- * Export My Data
+ * Download my personal data
  *
  * Everything stored about the caller: profile, settings, memberships (with the
  * organisation's subscription), login history and notifications. Secrets, tokens and

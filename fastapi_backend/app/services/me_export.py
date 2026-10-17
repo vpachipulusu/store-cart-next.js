@@ -64,6 +64,7 @@ class MeExportService:
             "memberships": len(export.memberships),
             "login_history": len(export.login_history),
             "notifications": len(export.notifications),
+            "truncated": export.truncated,
         }
         if request_id is not None:
             details["request_id"] = request_id

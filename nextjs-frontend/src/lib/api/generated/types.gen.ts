@@ -544,6 +544,10 @@ export type ExportData = {
      * Notifications
      */
     notifications: Array<ExportNotification>;
+    /**
+     * Truncated
+     */
+    truncated: boolean;
 };
 
 /**

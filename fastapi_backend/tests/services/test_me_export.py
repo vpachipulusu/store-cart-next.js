@@ -77,6 +77,7 @@ async def test_export_writes_audit_row_with_counts_only_then_commits():
     assert row["action"] == "me.export"
     assert row["user_id"] == row["resource_id"] == "u1"
     assert row["metadata"]["details"]["notifications"] == 0
+    assert row["metadata"]["details"]["truncated"] is False
     assert "ada@example.com" not in str(row)
     assert len(row["user_agent"]) == 512
     assert session.events == ["commit"]

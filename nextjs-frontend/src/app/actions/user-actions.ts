@@ -1,6 +1,6 @@
 'use server';
 
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { z } from 'zod';
 import { profileUpdateSchema, userSettingsSchema } from '@/lib/utils/validation';
 import { logger } from '@/lib/logger';
@@ -102,7 +102,7 @@ export async function exportMyDataAction(): Promise<
   UserActionResponse<{ filename: string; json: string }>
 > {
   try {
-    const result = await exportBackendData();
+    const result = await exportBackendData((await headers()).get('user-agent'));
     if (!result.success) {
       if (result.status === 429) {
         return { success: false, error: 'Too many export requests. Try again later.' };

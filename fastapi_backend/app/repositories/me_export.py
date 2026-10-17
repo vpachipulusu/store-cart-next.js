@@ -16,7 +16,7 @@ from app.models.platform.membership import Membership
 from app.models.platform.organization import Organization
 from app.models.platform.user import LoginHistory, Notification, User, UserSettings
 
-# Hard cap per list so one export stays bounded; the newest rows win.
+# Hard cap per list so one export stays bounded; the export reports when it applied.
 MAX_EXPORT_ROWS = 1000
 
 
@@ -87,6 +87,8 @@ class AccountExport:
     memberships: list[ExportMembership]
     login_history: list[ExportLogin]
     notifications: list[ExportNotification]
+    # True when any list hit MAX_EXPORT_ROWS and older rows were left out.
+    truncated: bool = False
 
 
 class MeExportRepository:
@@ -115,25 +117,39 @@ class MeExportRepository:
                 .join(Organization, Organization.id == Membership.organization_id)
                 .where(Membership.user_id == user_id)
                 .order_by(Membership.created_at, Membership.id)
-                .limit(MAX_EXPORT_ROWS)
+                .limit(MAX_EXPORT_ROWS + 1)
             )
         ).all()
         logins = (
-            await self.session.execute(
-                select(LoginHistory)
-                .where(LoginHistory.user_id == user_id)
-                .order_by(LoginHistory.login_at.desc(), LoginHistory.id.desc())
-                .limit(MAX_EXPORT_ROWS)
+            (
+                await self.session.execute(
+                    select(LoginHistory)
+                    .where(LoginHistory.user_id == user_id)
+                    .order_by(LoginHistory.login_at.desc(), LoginHistory.id.desc())
+                    .limit(MAX_EXPORT_ROWS + 1)
+                )
             )
-        ).scalars()
+            .scalars()
+            .all()
+        )
         notifications = (
-            await self.session.execute(
-                select(Notification)
-                .where(Notification.user_id == user_id)
-                .order_by(Notification.created_at.desc(), Notification.id.desc())
-                .limit(MAX_EXPORT_ROWS)
+            (
+                await self.session.execute(
+                    select(Notification)
+                    .where(Notification.user_id == user_id)
+                    .order_by(Notification.created_at.desc(), Notification.id.desc())
+                    .limit(MAX_EXPORT_ROWS + 1)
+                )
             )
-        ).scalars()
+            .scalars()
+            .all()
+        )
+        truncated = any(
+            len(rows) > MAX_EXPORT_ROWS for rows in (memberships, logins, notifications)
+        )
+        memberships = memberships[:MAX_EXPORT_ROWS]
+        logins = logins[:MAX_EXPORT_ROWS]
+        notifications = notifications[:MAX_EXPORT_ROWS]
         return AccountExport(
             profile=ExportProfile(
                 user.id,
@@ -194,4 +210,5 @@ class MeExportRepository:
                 )
                 for n in notifications
             ],
+            truncated=truncated,
         )

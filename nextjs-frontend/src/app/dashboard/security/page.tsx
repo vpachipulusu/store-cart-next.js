@@ -225,6 +225,12 @@ export default function SecurityPage() {
       link.remove();
       URL.revokeObjectURL(url);
       toast({ title: 'Export ready', description: 'Your data download has started.' });
+    } catch {
+      toast({
+        title: 'Export failed',
+        description: 'Failed to export your data',
+        variant: 'destructive',
+      });
     } finally {
       setIsExporting(false);
     }

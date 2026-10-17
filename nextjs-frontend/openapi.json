@@ -1815,7 +1815,7 @@
         "tags": [
           "me"
         ],
-        "summary": "Export My Data",
+        "summary": "Download my personal data",
         "description": "Everything stored about the caller: profile, settings, memberships (with the\norganisation's subscription), login history and notifications. Secrets, tokens and\nother users' data are never included. Rate limited; each call is audit logged.",
         "operationId": "export_my_data",
         "parameters": [
@@ -10994,6 +10994,10 @@
             },
             "type": "array",
             "title": "Notifications"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated"
           }
         },
         "type": "object",
@@ -11003,7 +11007,8 @@
           "settings",
           "memberships",
           "login_history",
-          "notifications"
+          "notifications",
+          "truncated"
         ],
         "title": "ExportData"
       },

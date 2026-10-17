@@ -18,7 +18,7 @@ class Result:
         return self.value
 
     def scalars(self):
-        return self.value
+        return self
 
     def all(self):
         return self.value
@@ -100,3 +100,26 @@ async def test_collect_maps_rows_without_secrets_and_scopes_to_user():
         assert secret not in dumped
     for statement in session.statements[1:]:
         assert "u1" in statement.compile().params.values()
+
+
+async def test_collect_flags_and_trims_lists_over_the_cap():
+    from app.repositories.me_export import MAX_EXPORT_ROWS
+
+    user = User(id="u1", email="a@b.c", email_verified=True, created_at=NOW)
+    logins = [
+        SimpleNamespace(
+            id=f"l{i}",
+            ip_address=None,
+            user_agent=None,
+            location=None,
+            login_at=NOW,
+            successful=True,
+        )
+        for i in range(MAX_EXPORT_ROWS + 1)
+    ]
+    session = Session(user, None, [], logins, [])
+    export = await repo(session).collect("u1")
+    assert export is not None
+    assert export.truncated is True
+    assert len(export.login_history) == MAX_EXPORT_ROWS
+    assert session.statements[3].compile().params["param_1"] == MAX_EXPORT_ROWS + 1
