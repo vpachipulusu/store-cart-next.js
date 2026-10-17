@@ -1,6 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "ignoreCommand": "bash scripts/vercel-ignore-build.sh",
   "services": {
     "nextjs-frontend": {
       "root": "nextjs-frontend",
@@ -24,7 +23,9 @@
   "rewrites": [
     {
       "source": "/(.*)",
-      "destination": { "service": "nextjs-frontend" }
+      "destination": {
+        "service": "nextjs-frontend"
+      }
     }
   ]
 }
