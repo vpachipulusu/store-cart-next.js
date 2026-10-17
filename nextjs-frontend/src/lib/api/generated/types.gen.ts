@@ -523,6 +523,231 @@ export type ErrorResponse = {
 };
 
 /**
+ * ExportData
+ */
+export type ExportData = {
+    /**
+     * Exported At
+     */
+    exported_at: string;
+    profile: ExportProfile;
+    settings: ExportSettings;
+    /**
+     * Memberships
+     */
+    memberships: Array<ExportMembership>;
+    /**
+     * Login History
+     */
+    login_history: Array<ExportLogin>;
+    /**
+     * Notifications
+     */
+    notifications: Array<ExportNotification>;
+};
+
+/**
+ * ExportLogin
+ */
+export type ExportLogin = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Ip Address
+     */
+    ip_address: string | null;
+    /**
+     * User Agent
+     */
+    user_agent: string | null;
+    /**
+     * Location
+     */
+    location: string | null;
+    /**
+     * Login At
+     */
+    login_at: string;
+    /**
+     * Successful
+     */
+    successful: boolean;
+};
+
+/**
+ * ExportMembership
+ */
+export type ExportMembership = {
+    /**
+     * Organization Id
+     */
+    organization_id: string;
+    /**
+     * Organization Name
+     */
+    organization_name: string;
+    /**
+     * Organization Slug
+     */
+    organization_slug: string;
+    /**
+     * Role
+     */
+    role: string;
+    /**
+     * Joined At
+     */
+    joined_at: string;
+    /**
+     * Subscription Tier
+     */
+    subscription_tier: string;
+    /**
+     * Subscription Status
+     */
+    subscription_status: string;
+    /**
+     * Subscription Current Period End
+     */
+    subscription_current_period_end: string | null;
+    /**
+     * Subscription Cancel At Period End
+     */
+    subscription_cancel_at_period_end: boolean;
+};
+
+/**
+ * ExportNotification
+ */
+export type ExportNotification = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Type
+     */
+    type: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Message
+     */
+    message: string;
+    /**
+     * Read
+     */
+    read: boolean;
+    /**
+     * Link
+     */
+    link: string | null;
+    /**
+     * Organization Id
+     */
+    organization_id: string | null;
+    /**
+     * Store Id
+     */
+    store_id: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * ExportProfile
+ */
+export type ExportProfile = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Email
+     */
+    email: string;
+    /**
+     * Email Verified
+     */
+    email_verified: boolean;
+    /**
+     * Two Factor Enabled
+     */
+    two_factor_enabled: boolean;
+    /**
+     * Display Name
+     */
+    display_name: string | null;
+    /**
+     * Bio
+     */
+    bio: string | null;
+    /**
+     * Avatar Url
+     */
+    avatar_url: string | null;
+    /**
+     * Location
+     */
+    location: string | null;
+    /**
+     * Website
+     */
+    website: string | null;
+    /**
+     * Phone Number
+     */
+    phone_number: string | null;
+    /**
+     * Last Login At
+     */
+    last_login_at: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * ExportResponse
+ */
+export type ExportResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: ExportData;
+};
+
+/**
+ * ExportSettings
+ */
+export type ExportSettings = {
+    /**
+     * Theme
+     */
+    theme: string;
+    /**
+     * Email Notifications
+     */
+    email_notifications: boolean;
+    /**
+     * Language
+     */
+    language: string;
+    /**
+     * Timezone
+     */
+    timezone: string;
+};
+
+/**
  * GrantAdminRequest
  */
 export type GrantAdminRequest = {
@@ -2873,6 +3098,61 @@ export type ChangePasswordResponses = {
 };
 
 export type ChangePasswordResponse = ChangePasswordResponses[keyof ChangePasswordResponses];
+
+export type ExportMyDataData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/me/export';
+};
+
+export type ExportMyDataErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ExportMyDataError = ExportMyDataErrors[keyof ExportMyDataErrors];
+
+export type ExportMyDataResponses = {
+    /**
+     * Successful Response
+     */
+    200: ExportResponse;
+};
+
+export type ExportMyDataResponse = ExportMyDataResponses[keyof ExportMyDataResponses];
 
 export type ListNotificationsData = {
     body?: never;

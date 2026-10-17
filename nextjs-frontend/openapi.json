@@ -1810,6 +1810,122 @@
         }
       }
     },
+    "/v1/me/export": {
+      "post": {
+        "tags": [
+          "me"
+        ],
+        "summary": "Export My Data",
+        "description": "Everything stored about the caller: profile, settings, memberships (with the\norganisation's subscription), login history and notifications. Secrets, tokens and\nother users' data are never included. Rate limited; each call is audit logged.",
+        "operationId": "export_my_data",
+        "parameters": [
+          {
+            "name": "X-Internal-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Key"
+            }
+          },
+          {
+            "name": "X-Session-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Rate limiter unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/notifications": {
       "get": {
         "tags": [
@@ -10844,6 +10960,414 @@
         ],
         "title": "ErrorResponse",
         "description": "Body of every error response (documents the runtime envelope in OpenAPI)."
+      },
+      "ExportData": {
+        "properties": {
+          "exported_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Exported At"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/ExportProfile"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/ExportSettings"
+          },
+          "memberships": {
+            "items": {
+              "$ref": "#/components/schemas/ExportMembership"
+            },
+            "type": "array",
+            "title": "Memberships"
+          },
+          "login_history": {
+            "items": {
+              "$ref": "#/components/schemas/ExportLogin"
+            },
+            "type": "array",
+            "title": "Login History"
+          },
+          "notifications": {
+            "items": {
+              "$ref": "#/components/schemas/ExportNotification"
+            },
+            "type": "array",
+            "title": "Notifications"
+          }
+        },
+        "type": "object",
+        "required": [
+          "exported_at",
+          "profile",
+          "settings",
+          "memberships",
+          "login_history",
+          "notifications"
+        ],
+        "title": "ExportData"
+      },
+      "ExportLogin": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "ip_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip Address"
+          },
+          "user_agent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Agent"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "login_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Login At"
+          },
+          "successful": {
+            "type": "boolean",
+            "title": "Successful"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "ip_address",
+          "user_agent",
+          "location",
+          "login_at",
+          "successful"
+        ],
+        "title": "ExportLogin"
+      },
+      "ExportMembership": {
+        "properties": {
+          "organization_id": {
+            "type": "string",
+            "title": "Organization Id"
+          },
+          "organization_name": {
+            "type": "string",
+            "title": "Organization Name"
+          },
+          "organization_slug": {
+            "type": "string",
+            "title": "Organization Slug"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "joined_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Joined At"
+          },
+          "subscription_tier": {
+            "type": "string",
+            "title": "Subscription Tier"
+          },
+          "subscription_status": {
+            "type": "string",
+            "title": "Subscription Status"
+          },
+          "subscription_current_period_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subscription Current Period End"
+          },
+          "subscription_cancel_at_period_end": {
+            "type": "boolean",
+            "title": "Subscription Cancel At Period End"
+          }
+        },
+        "type": "object",
+        "required": [
+          "organization_id",
+          "organization_name",
+          "organization_slug",
+          "role",
+          "joined_at",
+          "subscription_tier",
+          "subscription_status",
+          "subscription_current_period_end",
+          "subscription_cancel_at_period_end"
+        ],
+        "title": "ExportMembership"
+      },
+      "ExportNotification": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "read": {
+            "type": "boolean",
+            "title": "Read"
+          },
+          "link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link"
+          },
+          "organization_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization Id"
+          },
+          "store_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Store Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "title",
+          "message",
+          "read",
+          "link",
+          "organization_id",
+          "store_id",
+          "created_at"
+        ],
+        "title": "ExportNotification"
+      },
+      "ExportProfile": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "email_verified": {
+            "type": "boolean",
+            "title": "Email Verified"
+          },
+          "two_factor_enabled": {
+            "type": "boolean",
+            "title": "Two Factor Enabled"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "bio": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bio"
+          },
+          "avatar_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avatar Url"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "website": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Website"
+          },
+          "phone_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone Number"
+          },
+          "last_login_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Login At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "email_verified",
+          "two_factor_enabled",
+          "display_name",
+          "bio",
+          "avatar_url",
+          "location",
+          "website",
+          "phone_number",
+          "last_login_at",
+          "created_at"
+        ],
+        "title": "ExportProfile"
+      },
+      "ExportResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true,
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/ExportData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "ExportResponse"
+      },
+      "ExportSettings": {
+        "properties": {
+          "theme": {
+            "type": "string",
+            "title": "Theme"
+          },
+          "email_notifications": {
+            "type": "boolean",
+            "title": "Email Notifications"
+          },
+          "language": {
+            "type": "string",
+            "title": "Language"
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone"
+          }
+        },
+        "type": "object",
+        "required": [
+          "theme",
+          "email_notifications",
+          "language",
+          "timezone"
+        ],
+        "title": "ExportSettings"
       },
       "GrantAdminRequest": {
         "properties": {

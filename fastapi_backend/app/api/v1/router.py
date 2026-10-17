@@ -9,6 +9,7 @@ from app.api.v1 import (
     health,
     internal_provisioning,
     me,
+    me_export,
     media,
     notifications,
     org_billing,
@@ -25,6 +26,7 @@ api_router = APIRouter()
 api_router.include_router(health.router)
 api_router.include_router(auth.router)
 api_router.include_router(me.router)
+api_router.include_router(me_export.router)
 api_router.include_router(notifications.router)
 api_router.include_router(totp.router)
 api_router.include_router(webhooks.router)

@@ -6,6 +6,7 @@ import {
   changePasswordAction,
   deleteAccountAction,
   disableTwoFactorAction,
+  exportMyDataAction,
   getLoginHistoryAction,
   getTwoFactorStatusAction,
 } from '@/app/actions/user-actions';
@@ -67,6 +68,7 @@ export default function SecurityPage() {
   // True when the last disable attempt was refused by the API, as opposed to a wrong-password error from re-authentication.
   const [codeError, setCodeError] = useState(false);
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
 
   const [passwordData, setPasswordData] = useState({
@@ -200,6 +202,32 @@ export default function SecurityPage() {
     setShowDisableTwoFactor(false);
     toast({ title: 'Success', description: 'Two-factor authentication disabled' });
     return null;
+  }
+
+  async function handleExport() {
+    setIsExporting(true);
+    try {
+      const result = await exportMyDataAction();
+      if (!result.success || !result.data) {
+        toast({
+          title: 'Export failed',
+          description: result.error || 'Failed to export your data',
+          variant: 'destructive',
+        });
+        return;
+      }
+      const url = URL.createObjectURL(new Blob([result.data.json], { type: 'application/json' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = result.data.filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast({ title: 'Export ready', description: 'Your data download has started.' });
+    } finally {
+      setIsExporting(false);
+    }
   }
 
   async function handleDeleteAccount(idToken: string): Promise<string | null> {
@@ -428,7 +456,16 @@ export default function SecurityPage() {
         </div>
       </ReauthDialog>
 
-      {/* Data export: KAN-114 (switched off, no Prisma access left behind) */}
+      <Panel title="Your data" titleId="security-data-export">
+        <PanelHint>
+          Download your profile, settings, organisation memberships, login history and notifications
+          as a JSON file. Exports are limited to a few per hour and recorded in the audit log.
+        </PanelHint>
+        <Button variant="outline" onClick={handleExport} disabled={isExporting}>
+          {isExporting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          Export my data
+        </Button>
+      </Panel>
     </div>
   );
 }

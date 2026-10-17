@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   patchAvatar: vi.fn(),
   patchSettings: vi.fn(),
   changeBackendPassword: vi.fn(),
+  exportBackendData: vi.fn(),
   cookieGet: vi.fn(),
   logError: vi.fn(),
   logWarn: vi.fn(),
@@ -37,6 +38,7 @@ vi.mock('@/lib/api/account', async () => {
     patchAvatar: mocks.patchAvatar,
     patchSettings: mocks.patchSettings,
     changeBackendPassword: mocks.changeBackendPassword,
+    exportBackendData: mocks.exportBackendData,
   };
 });
 vi.mock('@/lib/logger', () => ({
@@ -45,6 +47,7 @@ vi.mock('@/lib/logger', () => ({
 
 import {
   changePasswordAction,
+  exportMyDataAction,
   getLoginHistoryAction,
   getUserLoginHistoryAction,
   getTwoFactorStatusAction,
@@ -517,5 +520,51 @@ describe('changePasswordAction (KAN-208: forwarded to the backend)', () => {
 
     expect((await changePasswordAction(ID_TOKEN, 'x'.repeat(8))).success).toBe(true);
     expect((await changePasswordAction(ID_TOKEN, 'x'.repeat(128))).success).toBe(true);
+  });
+});
+
+describe('exportMyDataAction (KAN-120)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns the export as JSON text with a dated filename', async () => {
+    mocks.exportBackendData.mockResolvedValue(
+      ok({ profile: { email: 'a@b.test' }, memberships: [] })
+    );
+
+    const result = await exportMyDataAction();
+
+    expect(result.success).toBe(true);
+    expect(result.data?.filename).toMatch(/^storecart-export-\d{8}\.json$/);
+    expect(JSON.parse(result.data?.json ?? '')).toEqual({
+      profile: { email: 'a@b.test' },
+      memberships: [],
+    });
+  });
+
+  it('tells the user when the export rate limit is hit', async () => {
+    mocks.exportBackendData.mockResolvedValue(failure(429));
+
+    expect(await exportMyDataAction()).toEqual({
+      success: false,
+      error: 'Too many export requests. Try again later.',
+    });
+  });
+
+  it('answers Unauthorized for a rejected session', async () => {
+    mocks.exportBackendData.mockResolvedValue(failure(401));
+
+    expect(await exportMyDataAction()).toEqual({ success: false, error: 'Unauthorized' });
+  });
+
+  it('never leaks raw backend error text', async () => {
+    mocks.exportBackendData.mockResolvedValue(failure(500));
+
+    expectNoLeak(await exportMyDataAction(), 'Failed to export your data');
+  });
+
+  it('survives a thrown error without leaking it', async () => {
+    mocks.exportBackendData.mockRejectedValue(new Error(SECRET));
+
+    expectNoLeak(await exportMyDataAction(), 'Failed to export your data');
   });
 });

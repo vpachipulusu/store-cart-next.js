@@ -31,6 +31,7 @@ vi.mock('@/app/actions/user-actions', () => ({
   changePasswordAction: mocks.changePasswordAction,
   deleteAccountAction: vi.fn(),
   disableTwoFactorAction: vi.fn(),
+  exportMyDataAction: vi.fn(),
   getLoginHistoryAction: vi.fn().mockResolvedValue({ success: true, data: { history: [] } }),
   getTwoFactorStatusAction: vi.fn().mockResolvedValue({ success: true, data: { enabled: false } }),
 }));
