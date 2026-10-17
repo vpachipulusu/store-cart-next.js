@@ -8,8 +8,9 @@ from app.services.notifications import NotificationNotFound, NotificationsServic
 
 
 class Repository:
-    def __init__(self, found=True):
+    def __init__(self, found=True, notification=None):
         self.found = found
+        self.notification = notification
         self.fail = False
         self.calls = []
 
@@ -19,6 +20,9 @@ class Repository:
 
     async def mark_read(self, user_id, notification_id):
         self.calls.append(("read", user_id, notification_id))
+        if self.fail:
+            raise RuntimeError("storage unavailable")
+        return self.notification
 
     async def mark_all_read(self, user_id, scope):
         self.calls.append(("read-all", user_id, scope))
@@ -28,14 +32,19 @@ class Repository:
 
     async def delete(self, user_id, notification_id):
         self.calls.append(("delete", user_id, notification_id))
+        if self.fail:
+            raise RuntimeError("storage unavailable")
         return self.found
 
 
 class Session:
-    def __init__(self):
+    def __init__(self, commit_fails=False):
         self.events = []
+        self.commit_fails = commit_fails
 
     async def commit(self):
+        if self.commit_fails:
+            raise RuntimeError("commit failed")
         self.events.append("commit")
 
     async def rollback(self):
@@ -86,15 +95,57 @@ async def test_mark_read_of_a_missing_notification_raises_not_found():
     assert session.events == ["rollback"]
 
 
-@pytest.mark.parametrize("found", [True, False])
-async def test_delete_commits_only_when_a_row_was_removed(found):
-    repository, session = Repository(found), Session()
+async def test_mark_read_commits_and_returns_the_notification():
+    repository, session = Repository(notification=object()), Session()
 
-    if found:
-        await service(repository, session).delete("u1", "n1")
-    else:
-        with pytest.raises(NotificationNotFound):
-            await service(repository, session).delete("u1", "n1")
+    result = await service(repository, session).mark_read("u1", "n1")
 
-    assert session.events == (["commit"] if found else ["rollback"])
+    assert result is repository.notification
+    assert session.events == ["commit"]
+
+
+async def test_mark_read_repository_error_rolls_back_and_propagates():
+    repository, session = Repository(), Session()
+    repository.fail = True
+
+    with pytest.raises(RuntimeError):
+        await service(repository, session).mark_read("u1", "n1")
+
+    assert session.events == ["rollback"]
+
+
+async def test_delete_commits_when_a_row_was_removed():
+    repository, session = Repository(found=True), Session()
+
+    await service(repository, session).delete("u1", "n1")
+
+    assert session.events == ["commit"]
     assert repository.calls == [("delete", "u1", "n1")]
+
+
+async def test_delete_of_a_missing_row_rolls_back_and_raises_not_found():
+    repository, session = Repository(found=False), Session()
+
+    with pytest.raises(NotificationNotFound):
+        await service(repository, session).delete("u1", "n1")
+
+    assert session.events == ["rollback"]
+
+
+async def test_delete_repository_error_rolls_back_and_propagates():
+    repository, session = Repository(), Session()
+    repository.fail = True
+
+    with pytest.raises(RuntimeError):
+        await service(repository, session).delete("u1", "n1")
+
+    assert session.events == ["rollback"]
+
+
+async def test_commit_failure_rolls_back_and_propagates():
+    repository, session = Repository(), Session(commit_fails=True)
+
+    with pytest.raises(RuntimeError):
+        await service(repository, session).mark_all_read("u1", NotificationScope())
+
+    assert session.events == ["rollback"]

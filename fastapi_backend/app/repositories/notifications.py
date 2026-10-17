@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any, cast
 
-from sqlalchemy import ColumnElement, and_, delete, func, select, update
+from sqlalchemy import ColumnElement, CursorResult, and_, delete, func, select, update
 
 from app.models.platform.user import Notification
 from app.repositories.base import BaseRepository
@@ -107,9 +108,8 @@ class NotificationsRepository(BaseRepository):
             update(Notification)
             .where(*_owned_by(user_id, scope), Notification.read.is_(False))
             .values(read=True)
-            .returning(Notification.id)
         )
-        return len(result.scalars().all())
+        return int(cast("CursorResult[Any]", result).rowcount)
 
     async def delete(self, user_id: str, notification_id: str) -> bool:
         result = await self._session.execute(

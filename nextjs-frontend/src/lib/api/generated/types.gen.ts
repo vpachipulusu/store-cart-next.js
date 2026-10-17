@@ -864,10 +864,14 @@ export type NotificationListData = {
     notifications: Array<NotificationItem>;
     /**
      * Total Count
+     *
+     * Matches for the filters, including `unread_only` (for paging).
      */
     total_count: number;
     /**
      * Unread Count
+     *
+     * Unread matches for the organisation/store filters, ignoring `unread_only`.
      */
     unread_count: number;
 };
@@ -2882,17 +2886,25 @@ export type ListNotificationsData = {
 
 export type ListNotificationsErrors = {
     /**
-     * Unauthorized
+     * Not signed in
      */
     401: ErrorResponse;
     /**
-     * Not Found
+     * Email not verified
+     */
+    403: ErrorResponse;
+    /**
+     * User, or the notification (missing or not yours), not found
      */
     404: ErrorResponse;
     /**
      * Invalid request
      */
     422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
     /**
      * Internal server error
      */
@@ -2946,17 +2958,25 @@ export type MarkAllNotificationsReadData = {
 
 export type MarkAllNotificationsReadErrors = {
     /**
-     * Unauthorized
+     * Not signed in
      */
     401: ErrorResponse;
     /**
-     * Not Found
+     * Email not verified
+     */
+    403: ErrorResponse;
+    /**
+     * User, or the notification (missing or not yours), not found
      */
     404: ErrorResponse;
     /**
      * Invalid request
      */
     422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
     /**
      * Internal server error
      */
@@ -3002,17 +3022,25 @@ export type MarkNotificationReadData = {
 
 export type MarkNotificationReadErrors = {
     /**
-     * Unauthorized
+     * Not signed in
      */
     401: ErrorResponse;
     /**
-     * Not Found
+     * Email not verified
+     */
+    403: ErrorResponse;
+    /**
+     * User, or the notification (missing or not yours), not found
      */
     404: ErrorResponse;
     /**
      * Invalid request
      */
     422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
     /**
      * Internal server error
      */
@@ -3058,17 +3086,25 @@ export type DeleteNotificationData = {
 
 export type DeleteNotificationErrors = {
     /**
-     * Unauthorized
+     * Not signed in
      */
     401: ErrorResponse;
     /**
-     * Not Found
+     * Email not verified
+     */
+    403: ErrorResponse;
+    /**
+     * User, or the notification (missing or not yours), not found
      */
     404: ErrorResponse;
     /**
      * Invalid request
      */
     422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
     /**
      * Internal server error
      */

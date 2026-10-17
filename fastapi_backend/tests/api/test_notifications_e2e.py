@@ -333,8 +333,139 @@ async def test_delete_removes_only_the_callers_notification(
     assert await is_read(engine, theirs) is False
 
 
-async def test_user_without_platform_row_gets_404(client: AsyncClient) -> None:
-    assert (await client.get(URL, headers=as_user("ghost"))).status_code == 404
+async def test_user_without_platform_row_gets_404_on_every_route(
+    client: AsyncClient,
+) -> None:
+    ghost = as_user("ghost")
+
+    assert (await client.get(URL, headers=ghost)).status_code == 404
+    assert (await client.post(f"{URL}/read-all", headers=ghost)).status_code == 404
+    assert (await client.patch(f"{URL}/n1/read", headers=ghost)).status_code == 404
+    assert (await client.delete(f"{URL}/n1", headers=ghost)).status_code == 404
+
+
+async def test_other_users_rows_in_the_same_org_and_store_never_appear(
+    client: AsyncClient, engine: AsyncEngine
+) -> None:
+    ada = await seed_user(engine, "ada")
+    bob = await seed_user(engine, "bob")
+    org_a, store_a = await seed_org_and_store(engine, "a")
+    mine = await seed_notification(
+        engine, ada, 1, organization_id=org_a, store_id=store_a
+    )
+    theirs = await seed_notification(
+        engine, bob, 2, organization_id=org_a, store_id=store_a
+    )
+
+    by_org = await get_data(client, "ada", organization_id=org_a)
+    by_store = await get_data(client, "ada", store_id=store_a)
+    scoped = await client.post(
+        f"{URL}/read-all", params={"organization_id": org_a}, headers=as_user("ada")
+    )
+
+    for data in (by_org, by_store):
+        assert [n["id"] for n in data["notifications"]] == [mine]
+        assert data["total_count"] == 1 and data["unread_count"] == 1
+    assert scoped.json()["data"]["updated_count"] == 1
+    assert await is_read(engine, theirs) is False
+
+
+async def test_store_filter_from_another_organisation_matches_nothing(
+    client: AsyncClient, engine: AsyncEngine
+) -> None:
+    ada = await seed_user(engine, "ada")
+    org_a, store_a = await seed_org_and_store(engine, "a")
+    org_b, _ = await seed_org_and_store(engine, "b")
+    await seed_notification(engine, ada, organization_id=org_a, store_id=store_a)
+
+    data = await get_data(client, "ada", organization_id=org_b, store_id=store_a)
+
+    assert data["notifications"] == [] and data["total_count"] == 0
+
+
+async def test_unread_only_total_follows_the_filter_but_unread_count_does_not(
+    client: AsyncClient, engine: AsyncEngine
+) -> None:
+    ada = await seed_user(engine, "ada")
+    await seed_notification(engine, ada, 1, read=True)
+    await seed_notification(engine, ada, 2, read=True)
+    await seed_notification(engine, ada, 3)
+
+    data = await get_data(client, "ada", unread_only="true")
+
+    assert len(data["notifications"]) == 1
+    assert data["total_count"] == 1 and data["unread_count"] == 1
+    assert (await get_data(client, "ada"))["total_count"] == 3
+
+
+async def test_equal_timestamps_order_by_id_descending_and_paging_bounds(
+    client: AsyncClient, engine: AsyncEngine
+) -> None:
+    ada = await seed_user(engine, "ada")
+    ids = [await seed_notification(engine, ada, 5) for _ in range(3)]
+
+    data = await get_data(client, "ada")
+    beyond = await get_data(client, "ada", offset=50)
+
+    assert [n["id"] for n in data["notifications"]] == sorted(ids, reverse=True)
+    assert beyond["notifications"] == [] and beyond["total_count"] == 3
+    assert (await get_data(client, "ada", limit=100, offset=10_000))["total_count"] == 3
+    over = await client.get(URL, params={"offset": 10_001}, headers=as_user("ada"))
+    assert over.status_code == 422
+
+
+async def test_mark_all_read_twice_and_for_an_empty_inbox_updates_nothing(
+    client: AsyncClient, engine: AsyncEngine
+) -> None:
+    ada = await seed_user(engine, "ada")
+    await seed_notification(engine, ada)
+
+    first = await client.post(f"{URL}/read-all", headers=as_user("ada"))
+    second = await client.post(f"{URL}/read-all", headers=as_user("ada"))
+
+    assert first.json()["data"]["updated_count"] == 1
+    assert second.status_code == 200 and second.json()["data"]["updated_count"] == 0
+    bob = await seed_user(engine, "bob")
+    empty = await client.post(f"{URL}/read-all", headers=as_user("bob"))
+    assert empty.json()["data"]["updated_count"] == 0 and bob
+
+
+async def test_foreign_and_missing_delete_answer_identically(
+    client: AsyncClient, engine: AsyncEngine
+) -> None:
+    await seed_user(engine, "ada")
+    bob = await seed_user(engine, "bob")
+    theirs = await seed_notification(engine, bob)
+
+    foreign = await client.delete(f"{URL}/{theirs}", headers=as_user("ada"))
+    missing = await client.delete(f"{URL}/nope", headers=as_user("ada"))
+
+    assert foreign.status_code == missing.status_code == 404
+    assert foreign.json() == missing.json()
+
+
+@pytest.mark.parametrize("bad_id", ["bad%20id!", "x" * 129])
+async def test_malformed_notification_ids_are_rejected(
+    client: AsyncClient, engine: AsyncEngine, bad_id: str
+) -> None:
+    await seed_user(engine, "ada")
+
+    patched = await client.patch(f"{URL}/{bad_id}/read", headers=as_user("ada"))
+    deleted = await client.delete(f"{URL}/{bad_id}", headers=as_user("ada"))
+
+    assert patched.status_code == deleted.status_code == 422
+
+
+@pytest.mark.parametrize("key", [None, "wrong-key"])
+async def test_internal_key_is_required(
+    client: AsyncClient, engine: AsyncEngine, key: str | None
+) -> None:
+    await seed_user(engine, "ada")
+    headers = {**as_user("ada"), "X-Internal-Key": key or ""}
+
+    response = await client.get(URL, headers=headers)
+
+    assert response.status_code in {401, 403}
 
 
 async def test_store_scope_requires_an_organisation_and_follows_store_deletes(
@@ -343,7 +474,7 @@ async def test_store_scope_requires_an_organisation_and_follows_store_deletes(
     ada = await seed_user(engine, "ada")
     org_id, store_id = await seed_org_and_store(engine, "a")
 
-    with pytest.raises(IntegrityError):
+    with pytest.raises(IntegrityError, match="store_requires_organization"):
         await seed_notification(engine, ada, store_id=store_id)
 
     note = await seed_notification(

@@ -11,12 +11,12 @@ from datetime import datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.api.auth import require_internal_key
 from app.api.deps import SessionDep
 from app.api.me import CurrentUserIdDep
-from app.api.rate_limit import limit_by_subject
+from app.api.rate_limit import RATE_LIMIT_RESPONSES, limit_by_subject
 from app.api.v1.auth import current_subject
 from app.core.errors import ErrorResponse
 from app.core.rate_limit import API_POLICY
@@ -31,12 +31,18 @@ router = APIRouter(
         Depends(limit_by_subject(API_POLICY, current_subject)),
     ],
     responses={
-        401: {"model": ErrorResponse},
-        404: {"model": ErrorResponse},
+        401: {"model": ErrorResponse, "description": "Not signed in"},
+        403: {"model": ErrorResponse, "description": "Email not verified"},
+        404: {
+            "model": ErrorResponse,
+            "description": "User, or the notification (missing or not yours), not found",
+        },
         503: {"model": ErrorResponse},
+        **RATE_LIMIT_RESPONSES,
     },
 )
 
+DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
 MAX_OFFSET = 10_000
 ID_PATTERN = r"^[A-Za-z0-9_-]+$"
@@ -86,9 +92,12 @@ class NotificationItem(BaseModel):
 
 class NotificationListData(BaseModel):
     notifications: list[NotificationItem]
-    # Within the filtered scope: `total_count` honours `unread_only`, `unread_count` does not.
-    total_count: int
-    unread_count: int
+    total_count: int = Field(
+        description="Matches for the filters, including `unread_only` (for paging)."
+    )
+    unread_count: int = Field(
+        description="Unread matches for the organisation/store filters, ignoring `unread_only`."
+    )
 
 
 class NotificationListResponse(BaseModel):
@@ -122,7 +131,7 @@ async def list_notifications(
     organization_id: OrganizationIdFilter = None,
     store_id: StoreIdFilter = None,
     unread_only: bool = False,
-    limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
+    limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
     offset: Annotated[int, Query(ge=0, le=MAX_OFFSET)] = 0,
 ) -> NotificationListResponse:
     response.headers["Cache-Control"] = "no-store"

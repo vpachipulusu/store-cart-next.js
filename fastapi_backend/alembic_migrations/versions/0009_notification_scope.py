@@ -64,9 +64,24 @@ def upgrade() -> None:
     op.create_index(
         "ix_notifications_user_id_store_id", "notifications", ["user_id", "store_id"]
     )
+    # The cascading foreign keys look rows up by these columns alone.
+    op.create_index(
+        "ix_notifications_organization_id",
+        "notifications",
+        ["organization_id"],
+        postgresql_where=sa.text("organization_id IS NOT NULL"),
+    )
+    op.create_index(
+        "ix_notifications_store_id",
+        "notifications",
+        ["store_id"],
+        postgresql_where=sa.text("store_id IS NOT NULL"),
+    )
 
 
 def downgrade() -> None:
+    op.drop_index("ix_notifications_store_id", table_name="notifications")
+    op.drop_index("ix_notifications_organization_id", table_name="notifications")
     op.drop_index("ix_notifications_user_id_store_id", table_name="notifications")
     op.drop_index(
         "ix_notifications_user_id_organization_id", table_name="notifications"
