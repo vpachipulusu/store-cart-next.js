@@ -48,17 +48,15 @@ check "hostile ref with marker builds" 1 "\$(echo main)" "[deploy preview]"
 env -u VERCEL_GIT_COMMIT_REF -u VERCEL_GIT_COMMIT_MESSAGE bash "$script" >/dev/null
 [ $? -eq 1 ] && echo "ok:   unset env builds" || fail "unset env must build"
 
-# Both vercel.json files must parse and point their ignoreCommand at an existing script.
+# Both vercel.json files must parse and disable Git deployments for non-main branches (KAN-244).
 for cfg in vercel.json fastapi_backend/vercel.json; do
-  dir="$(dirname "$cfg")"
-  cmd="$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(c.ignoreCommand||"")' "$root/$cfg" 2>/dev/null)"
-  if [ -z "$cmd" ]; then fail "$cfg: invalid JSON or no ignoreCommand"; continue; fi
-  target="${cmd#bash }"
-  if [ "$target" = "$cmd" ] || [ ! -f "$root/$dir/$target" ]; then
-    fail "$cfg: ignoreCommand '$cmd' does not resolve to an existing file from $dir"
-  else
-    echo "ok:   $cfg ignoreCommand resolves"
-  fi
+  ok="$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));const d=(c.git||{}).deploymentEnabled||{};process.stdout.write(d.main===true&&d["**"]===false?"yes":"no")' "$root/$cfg" 2>/dev/null)"
+  if [ "$ok" = "yes" ]; then echo "ok:   $cfg git.deploymentEnabled main only"; else fail "$cfg: invalid JSON or git.deploymentEnabled is not {main:true,**:false}"; fi
 done
+
+# The backend config keeps its ignoreCommand fallback pointing at an existing script.
+cmd="$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(c.ignoreCommand||"")' "$root/fastapi_backend/vercel.json" 2>/dev/null)"
+target="${cmd#bash }"
+if [ -n "$cmd" ] && [ "$target" != "$cmd" ] && [ -f "$root/fastapi_backend/$target" ]; then echo "ok:   backend ignoreCommand resolves"; else fail "fastapi_backend/vercel.json: ignoreCommand missing or unresolved"; fi
 
 [ "$failures" -eq 0 ] && echo "all passed" || { echo "$failures failed"; exit 1; }
