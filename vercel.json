@@ -1,6 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "ignoreCommand": "bash scripts/vercel-ignore-build.sh",
   "services": {
     "nextjs-frontend": {
       "root": "nextjs-frontend",
@@ -13,18 +12,22 @@
           "format": "url",
           "env": "BACKEND_API_URL"
         }
-      ]
+      ],
+      "ignoreCommand": "bash scripts/vercel-ignore-build.sh"
     },
     "fastapi_backend": {
       "root": "fastapi_backend",
       "framework": "fastapi",
-      "entrypoint": "app.main:app"
+      "entrypoint": "app.main:app",
+      "ignoreCommand": "bash scripts/vercel-ignore-build.sh"
     }
   },
   "rewrites": [
     {
       "source": "/(.*)",
-      "destination": { "service": "nextjs-frontend" }
+      "destination": {
+        "service": "nextjs-frontend"
+      }
     }
   ]
 }
