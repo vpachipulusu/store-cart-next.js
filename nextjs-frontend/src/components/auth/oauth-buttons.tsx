@@ -6,16 +6,14 @@ import { signInWithGoogle, signInWithGitHub } from '@/lib/firebase/auth-helpers'
 import { verifyTokenAction } from '@/app/actions/auth-actions';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
+import type { AuthFailureResult } from '@/lib/auth/auth-error-messages';
 import { classifyAuthResult } from './auth-form-errors';
 
 /**
  * Toast for a failed server-side verification, shared by every provider. An outage (typed flag, KAN-241) is
  * not a refused sign-in, so it says so instead of "Authentication Failed" (KAN-240).
  */
-function verificationFailureToast(result: {
-  error?: string;
-  data?: { serviceUnavailable?: unknown } | null;
-}) {
+function verificationFailureToast(result: AuthFailureResult) {
   const failure = classifyAuthResult(result, 'sign-in');
   const isOutage = failure.kind === 'service-unavailable';
   return {

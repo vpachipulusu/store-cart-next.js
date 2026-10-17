@@ -12,10 +12,14 @@ export interface ServiceUnavailableData {
   serviceUnavailable: true;
 }
 
+/** The part of a failed auth action response the forms read. */
+export interface AuthFailureResult {
+  error?: string;
+  data?: { serviceUnavailable?: boolean } | null;
+}
+
 /** True when an auth action response carries the typed outage flag. */
-export function isServiceUnavailableResult(result: {
-  data?: { serviceUnavailable?: unknown } | null;
-}): boolean {
+export function isServiceUnavailableResult(result: AuthFailureResult): boolean {
   return result.data?.serviceUnavailable === true;
 }
 

@@ -10,6 +10,7 @@ import {
   SIGN_IN_SERVICE_UNAVAILABLE_ERROR,
   isServiceUnavailable,
   isServiceUnavailableError,
+  type ServiceUnavailableData,
 } from '@/lib/auth/auth-error-messages';
 import {
   isEmailNotVerifiedError,
@@ -178,7 +179,7 @@ const GENERIC_SIGN_IN_ERROR = 'Token verification failed';
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 5; // 5 days, matches the backend session lifetime
 
 /** The one outage result: display text plus the typed flag the forms act on (KAN-241). */
-function serviceUnavailableResult(): AuthActionResponse {
+function serviceUnavailableResult(): AuthActionResponse<ServiceUnavailableData> {
   return {
     success: false,
     error: SIGN_IN_SERVICE_UNAVAILABLE_ERROR,
