@@ -109,3 +109,42 @@ async def test_create_order_rejects_bad_input_before_using_the_session(
             tax_rate_bps=0,
             lines=lines,
         )
+
+
+@pytest.mark.parametrize(
+    ("quantity", "tax_rate_bps", "variant_id"),
+    [
+        (True, 0, "a"),  # bool is an int subclass but not a quantity
+        (1.0, 0, "a"),
+        ("1", 0, "a"),
+        (1, True, "a"),
+        (1, 20.0, "a"),
+        (1, "20", "a"),
+        (1, 0, ""),
+        (1, 0, "a\0b"),
+        (1, 0, "x" * 101),
+        (1, 0, None),
+        (1, 0, 5),
+    ],
+)
+async def test_create_order_rejects_wrongly_typed_input(
+    quantity: object, tax_rate_bps: object, variant_id: object
+):
+    with pytest.raises(InvalidOrder):
+        await create_order(
+            _NoSession(),  # type: ignore[arg-type]
+            currency="GBP",
+            tax_rate_bps=tax_rate_bps,  # type: ignore[arg-type]
+            lines=[OrderLineInput(variant_id, quantity)],  # type: ignore[arg-type]
+        )
+
+
+@pytest.mark.parametrize("currency", [None, 826, "GB", "GBPP", "G1P", "gbp", "£££"])
+async def test_create_order_rejects_a_bad_currency(currency: object):
+    with pytest.raises(InvalidOrder):
+        await create_order(
+            _NoSession(),  # type: ignore[arg-type]
+            currency=currency,  # type: ignore[arg-type]
+            tax_rate_bps=0,
+            lines=[OrderLineInput("a", 1)],
+        )

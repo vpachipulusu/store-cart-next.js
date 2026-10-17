@@ -55,9 +55,24 @@ async with get_store_session(store_id) as session:
 - The tax rate is a parameter because no store tax setting exists yet. Stock is not decremented here (inventory story).
 - A route that exposes an order id must authorize the store id itself (the selected-store cookie is a preference).
 
+## Rules for callers (checkout and order routes)
+
+- **Totals are enforced by the service only.** The database checks `total = subtotal + tax` on the order row, but nothing
+  links the order totals to the item rows. `create_order` is the only writer; add no other path that writes money
+  columns.
+- **Commit promptly after `create_order`.** The row lock (`FOR SHARE`) is held until the caller's transaction ends. A
+  pending order's price is only as fresh as that transaction; it is a snapshot, not a reservation.
+- **Reuse the per-line tax rule.** Tax is `round_half_up(unit * quantity * rate_bps / 10000)` per line, then summed.
+  Checkout and any display of totals must use `line_tax_minor`, not round the order total.
+- **Never return the `InvalidOrderTransition` message to clients.** It names the current status. Map it to a fixed 409
+  message; map `OrderNotFound` to a fixed 404 (the exception message carries the id).
+- `order_items` has `created_at` only: items are immutable snapshots and have no `updated_at`.
+- `pending` and `paid` may race with `cancelled`: paid then cancelled is a legal sequence, so a payment webhook and a
+  merchant cancel arriving together can both succeed, ending `cancelled`. Refund the payment in that case.
+
 ## Tests
 
 `tests/services/test_store_orders.py` (rule matrix, tax rounding, no database), `test_store_orders_schema_e2e.py`
 (constraints, snapshot survival, SET NULL, downgrade, upgrade of a populated 0003 store) and
-`test_store_orders_e2e.py` (service through `open_store_session`, racing transitions, isolation between two stores).
+`test_store_orders_e2e.py` (service through `open_store_session`, real concurrent transitions with `asyncio.gather`, the `FOR SHARE` lock, limits at their boundaries, isolation between two stores).
 The e2e files need `TEST_DATABASE_URL` (see [backend-store-migrations.md](backend-store-migrations.md#testing)).

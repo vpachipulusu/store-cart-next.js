@@ -16,7 +16,8 @@ Store-database tables only (the platform tree is untouched). Expand-only: new ta
   Which moves are allowed (pending > paid > fulfilled, pending/paid > cancelled,
   paid/fulfilled > refunded) is a service rule (``app/services/store_orders.py``); the check
   here only limits the set of values.
-* ``updated_at`` has only a server default; the writing service sets it on update.
+* ``orders.updated_at`` has only a server default; the writing service sets it on update.
+  ``order_items`` are immutable snapshots and have ``created_at`` only.
 
 Revision ID: 0004
 Revises: 0003
@@ -104,7 +105,12 @@ def upgrade() -> None:
         sa.Column("quantity", sa.Integer(), nullable=False),
         sa.Column("tax_rate_bps", sa.Integer(), nullable=False),
         sa.Column("tax_minor", sa.BigInteger(), nullable=False),
-        *_timestamps(),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.CheckConstraint(
             r"product_name ~ '\S' AND char_length(product_name) <= 255",
             name="ck_order_items_product_name",
@@ -127,8 +133,9 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint("tax_minor >= 0", name="ck_order_items_tax_minor"),
     )
-    # One line per variant and order (the service merges quantities); also serves the
-    # order_id foreign key. Lines whose variant was deleted (NULL) are not constrained.
+    # One line per variant and order. Partial: lines whose variant was deleted (NULL) are
+    # not constrained, so it cannot serve the order_id foreign key; that needs the plain
+    # index below.
     op.create_index(
         "uq_order_items_order_variant",
         "order_items",

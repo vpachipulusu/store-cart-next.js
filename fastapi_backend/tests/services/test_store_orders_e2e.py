@@ -5,17 +5,20 @@ transition and tenant isolation: an order id from store A is unknown to store B.
 when ``TEST_DATABASE_URL`` is unset.
 """
 
+import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ids import new_id
 from app.services.store_migrations import migrate_store
 from app.services.store_orders import (
     ALLOWED_TRANSITIONS,
+    MAX_MINOR,
     InvalidOrder,
     InvalidOrderTransition,
     OrderLineInput,
@@ -494,3 +497,228 @@ async def test_an_order_total_beyond_the_bigint_range_is_rejected(
                 tax_rate_bps=0,
                 lines=[OrderLineInput(variant_id=shop.variant_id, quantity=2)],
             )
+
+
+async def move_and_commit(
+    shop: Shop,
+    world: World,  # noqa: F811
+    order_id: str,
+    target: OrderStatus,
+) -> OrderStatus:
+    """One caller in its own session: transition, then commit."""
+    async with open_store_session(shop.store_id, world.provider) as session:
+        result = await transition_order(session, order_id, target)
+        await session.commit()
+        return result
+
+
+async def advance(world: World, shop: Shop, order_id: str, *path: OrderStatus) -> None:  # noqa: F811
+    for target in path:
+        await move_and_commit(shop, world, order_id, target)
+
+
+@pytest.mark.parametrize("attempt", range(5))
+@pytest.mark.parametrize(
+    ("start", "first", "second"),
+    [
+        # Mutually exclusive moves: whichever commits first closes the other.
+        ((OrderStatus.PAID,), OrderStatus.FULFILLED, OrderStatus.CANCELLED),
+        ((OrderStatus.PAID,), OrderStatus.CANCELLED, OrderStatus.FULFILLED),
+        ((), OrderStatus.PAID, OrderStatus.PAID),
+        ((), OrderStatus.CANCELLED, OrderStatus.CANCELLED),
+        ((OrderStatus.PAID,), OrderStatus.REFUNDED, OrderStatus.REFUNDED),
+    ],
+)
+async def test_two_concurrent_conflicting_moves_exactly_one_wins(
+    world: World,  # noqa: F811
+    shop: Shop,
+    start: tuple[OrderStatus, ...],
+    first: OrderStatus,
+    second: OrderStatus,
+    attempt: int,
+):
+    order_id = await place(world, shop)
+    await advance(world, shop, order_id, *start)
+
+    results = await asyncio.gather(
+        move_and_commit(shop, world, order_id, first),
+        move_and_commit(shop, world, order_id, second),
+        return_exceptions=True,
+    )
+
+    wins = [r for r in results if isinstance(r, OrderStatus)]
+    losses = [r for r in results if isinstance(r, InvalidOrderTransition)]
+    assert len(wins) == 1
+    assert len(losses) == 1
+    assert await stored_status(world, shop, order_id) == wins[0].value
+
+
+@pytest.mark.parametrize("attempt", range(5))
+async def test_concurrent_pay_and_cancel_end_in_a_legal_state(
+    world: World,  # noqa: F811
+    shop: Shop,
+    attempt: int,
+):
+    """Paid then cancelled is a legal sequence, so both may win; cancelled-then-paid is not."""
+    order_id = await place(world, shop)
+
+    results = await asyncio.gather(
+        move_and_commit(shop, world, order_id, OrderStatus.PAID),
+        move_and_commit(shop, world, order_id, OrderStatus.CANCELLED),
+        return_exceptions=True,
+    )
+
+    paid, cancelled = results
+    assert cancelled is OrderStatus.CANCELLED  # pending/paid -> cancelled always works
+    assert paid is OrderStatus.PAID or isinstance(paid, InvalidOrderTransition)
+    assert await stored_status(world, shop, order_id) == "cancelled"
+
+
+async def test_create_order_holds_the_catalogue_rows_until_it_commits(
+    world: World,  # noqa: F811
+    shop: Shop,
+):
+    """FOR SHARE: a price edit in another transaction waits for the order's transaction."""
+    async with (
+        open_store_session(shop.store_id, world.provider) as buyer,
+        open_store_session(shop.store_id, world.provider) as editor,
+    ):
+        await create_order(
+            buyer,
+            currency="GBP",
+            tax_rate_bps=0,
+            lines=[OrderLineInput(variant_id=shop.variant_id, quantity=1)],
+        )
+        await editor.execute(text("SET LOCAL lock_timeout = '300ms'"))
+        with pytest.raises(DBAPIError, match="lock timeout|lock_timeout"):
+            await editor.execute(
+                text("UPDATE variants SET price_minor = 1 WHERE id = :v"),
+                {"v": shop.variant_id},
+            )
+        await editor.rollback()
+
+        await buyer.commit()
+        await editor.execute(
+            text("UPDATE variants SET price_minor = 1 WHERE id = :v"),
+            {"v": shop.variant_id},
+        )
+        await editor.commit()
+
+
+async def test_a_variant_of_another_store_is_not_available(
+    world: World,  # noqa: F811
+    shop: Shop,
+):
+    other = await make_shop(world, "foreign")
+
+    async with open_store_session(other.store_id, world.provider) as session:
+        with pytest.raises(InvalidOrder):
+            await create_order(
+                session,
+                currency="GBP",
+                tax_rate_bps=0,
+                lines=[OrderLineInput(variant_id=shop.variant_id, quantity=1)],
+            )
+        await session.commit()
+        count = (
+            await session.execute(text("SELECT count(*) FROM orders"))
+        ).scalar_one()
+    assert count == 0
+
+
+async def test_limits_are_accepted_at_their_boundaries(
+    world: World,  # noqa: F811
+    shop: Shop,
+):
+    async with open_store_session(shop.store_id, world.provider) as session:
+        variant_ids = [shop.variant_id]
+        for index in range(99):
+            variant_id = new_id()
+            await session.execute(
+                text(
+                    "INSERT INTO variants (id, product_id, sku, price_minor) "
+                    "VALUES (:v, :p, :s, 1)"
+                ),
+                {"v": variant_id, "p": shop.product_id, "s": f"B-{index}"},
+            )
+            variant_ids.append(variant_id)
+        await session.commit()
+
+        hundred = await create_order(
+            session,
+            currency="GBP",
+            tax_rate_bps=100_000,
+            lines=[OrderLineInput(variant_id=v, quantity=10_000) for v in variant_ids],
+        )
+        single = await create_order(
+            session,
+            currency="GBP",
+            tax_rate_bps=0,
+            lines=[OrderLineInput(variant_id=shop.variant_id, quantity=1)],
+        )
+        await session.commit()
+
+    assert len(hundred.items) == 100
+    assert hundred.total_minor == hundred.subtotal_minor + hundred.tax_minor
+    assert single.tax_minor == 0
+
+
+async def test_a_total_exactly_at_the_bigint_limit_is_accepted(
+    world: World,  # noqa: F811
+    shop: Shop,
+):
+    async with open_store_session(shop.store_id, world.provider) as session:
+        await session.execute(
+            text("UPDATE variants SET price_minor = :p WHERE id = :v"),
+            {"p": MAX_MINOR, "v": shop.variant_id},
+        )
+        await session.commit()
+        order = await create_order(
+            session,
+            currency="GBP",
+            tax_rate_bps=0,
+            lines=[OrderLineInput(variant_id=shop.variant_id, quantity=1)],
+        )
+        await session.commit()
+
+    assert order.total_minor == MAX_MINOR
+
+
+async def test_a_two_option_label_follows_option_position(
+    world: World,  # noqa: F811
+):
+    shop = await make_shop(world, "labels")
+    async with open_store_session(shop.store_id, world.provider) as session:
+        option_id, value_id = new_id(), new_id()
+        # The seed's Size option sits at position 0; Colour goes after it.
+        await session.execute(
+            text(
+                "INSERT INTO product_options (id, product_id, name, position) "
+                "VALUES (:o, :p, 'Colour', 1)"
+            ),
+            {"o": option_id, "p": shop.product_id},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO product_option_values (id, option_id, value) "
+                "VALUES (:x, :o, 'Red')"
+            ),
+            {"x": value_id, "o": option_id},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO variant_option_values "
+                "(variant_id, option_id, option_value_id, product_id) "
+                "VALUES (:v, :o, :x, :p)"
+            ),
+            {"v": shop.variant_id, "o": option_id, "x": value_id, "p": shop.product_id},
+        )
+        await session.commit()
+        order = await create_order(
+            session,
+            currency="GBP",
+            tax_rate_bps=0,
+            lines=[OrderLineInput(variant_id=shop.variant_id, quantity=1)],
+        )
+
+    assert order.items[0].variant_label == "Large / Red"

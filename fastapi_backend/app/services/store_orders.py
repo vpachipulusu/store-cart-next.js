@@ -28,6 +28,7 @@ MAX_QUANTITY = 10_000
 MAX_TAX_RATE_BPS = 100_000
 BPS_DENOMINATOR = 10_000
 MAX_MINOR = 2**63 - 1  # the bigint columns
+MAX_ID_LENGTH = 100
 MAX_LABEL_LENGTH = 255  # order_items.variant_label
 SELLABLE_PRODUCT_STATUS = "active"
 
@@ -123,21 +124,32 @@ def line_tax_minor(unit_price_minor: int, quantity: int, tax_rate_bps: int) -> i
     ) // BPS_DENOMINATOR
 
 
+def _is_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def _validate(
     currency: str, tax_rate_bps: int, lines: Sequence[OrderLineInput]
 ) -> None:
-    if len(currency) != CURRENCY_LENGTH or not (
-        currency.isascii() and currency.isalpha() and currency.isupper()
-    ):
+    if not isinstance(currency, str) or len(currency) != CURRENCY_LENGTH:
         raise InvalidOrder("Currency must be a three-letter upper-case code")
-    if not 0 <= tax_rate_bps <= MAX_TAX_RATE_BPS:
+    if not (currency.isascii() and currency.isalpha() and currency.isupper()):
+        raise InvalidOrder("Currency must be a three-letter upper-case code")
+    if not _is_int(tax_rate_bps) or not 0 <= tax_rate_bps <= MAX_TAX_RATE_BPS:
         raise InvalidOrder("Tax rate is out of range")
     if not 1 <= len(lines) <= MAX_LINES:
         raise InvalidOrder(f"An order needs 1 to {MAX_LINES} lines")
+    for line in lines:
+        if (
+            not isinstance(line.variant_id, str)
+            or not 1 <= len(line.variant_id) <= MAX_ID_LENGTH
+            or "\0" in line.variant_id
+        ):
+            raise InvalidOrder("An item is not available")
+        if not _is_int(line.quantity) or not 1 <= line.quantity <= MAX_QUANTITY:
+            raise InvalidOrder(f"Quantity must be between 1 and {MAX_QUANTITY}")
     if len({line.variant_id for line in lines}) != len(lines):
         raise InvalidOrder("A variant may appear on one line only")
-    if any(not 1 <= line.quantity <= MAX_QUANTITY for line in lines):
-        raise InvalidOrder(f"Quantity must be between 1 and {MAX_QUANTITY}")
 
 
 _CATALOGUE_SQL = text(
