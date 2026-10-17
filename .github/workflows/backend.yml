@@ -72,7 +72,11 @@ jobs:
       - name: Start throwaway Postgres (durability off, data in memory)
         working-directory: .
         run: |
-          docker run --detach --name ci-postgres             --env POSTGRES_USER=postgres --env POSTGRES_PASSWORD=postgres --env POSTGRES_DB=storecart_test             --publish 127.0.0.1:5432:5432 --tmpfs /var/lib/postgresql/data:rw             postgres:17             -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=200
+          docker run --detach --name ci-postgres \
+            --env POSTGRES_USER=postgres --env POSTGRES_PASSWORD=postgres --env POSTGRES_DB=storecart_test \
+            --publish 127.0.0.1:5432:5432 --tmpfs /var/lib/postgresql/data:rw \
+            postgres:17 \
+            -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=200
           for _ in $(seq 1 40); do
             docker exec ci-postgres pg_isready -U postgres -d storecart_test && exit 0
             sleep 1
