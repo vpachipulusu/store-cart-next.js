@@ -47,7 +47,12 @@ many IPs.
 - Keys: `rl:{scope}:{user|org|store}:{id}` for authenticated routes; sign-in, sign-up and password reset use
   `rl:auth:ip:{X-Client-IP}` and `rl:auth:email:{sha256(lowercased email)}`. Limits: auth 5 per 15 minutes,
   API 100 per minute, webhook 200 per minute (sliding window).
-- Redis timeout is 200 ms. **Auth routes fail closed** (503 with `Retry-After`); **authenticated API and webhook
+- Redis timeout is 200 ms for fail-open policies. Fail-closed policies (sign-in, data export, store retry) get
+  one shared 1 s deadline (KAN-243: a cold connection to a distant region can exceed 200 ms, and a fail-closed
+  timeout locks users out; worst case a sign-in waits 1 s before the 503). A fail-closed call is retried once,
+  and only on a connect error, when at least 200 ms of the deadline is left. A client that fails at the transport
+  level is replaced once and closed after a grace period; a plain timeout does not discard it. Fail-open calls
+  are never retried. Failures log the policy and exception class only. **Auth routes fail closed** (503 with `Retry-After`); **authenticated API and webhook
   routes fail open** (warning log with request ID, and a Sentry event once Sentry is configured).
 - Until the internal service key exists (KAN-51, KAN-37), `X-Client-IP` is trusted only because the backend is
   internal (ADR-003); it is not yet gated on `X-Internal-Key`. If the Upstash settings are unset, limiting is
