@@ -1,46 +1,50 @@
-# Vercel deployments: only `main` deploys, previews are opt-in
+# Vercel deployments: only `main` deploys, previews are manual
 
 The Vercel Hobby plan allows 100 deployments per day. Only the `CI gate` check matters for merging, so branch pushes and PR previews no longer build by default (KAN-212).
 
 ## What builds
 
-| Push | Vercel builds? |
+| Push | Vercel creates a deployment? |
 |---|---|
 | `main` | Yes (production) |
-| Any other branch or PR | No (skipped), unless the head commit message contains `[deploy preview]` |
-| `vercel deploy` from the CLI | Yes (not Git-triggered, the ignore step is not consulted) |
+| Any other branch or PR | No deployment record at all (KAN-244) |
+| `vercel deploy` from the CLI | Yes (not Git-triggered, so Git settings do not apply) |
 
-A skipped build shows as skipped/neutral on the PR and does not count toward the daily quota. `CI gate` is unchanged and stays the only required check.
+`CI gate` is unchanged and stays the only required check.
 
-## How it works
+## Why it changed (KAN-244)
 
-The ignore command is `bash scripts/vercel-ignore-build.sh`. The script exits `1` (build) for `main`, for a commit message containing `[deploy preview]` (case-insensitive), or when no git branch info is available; otherwise it exits `0` (skip). It reads only `VERCEL_GIT_COMMIT_REF` and `VERCEL_GIT_COMMIT_MESSAGE` and never prints the message or any secret.
+KAN-212's Ignored Build Step cancels the build, but Vercel still creates a **Canceled** deployment record for each push, and those records count toward the Hobby limit of 100 deployments per day (`vercel list` shows them, the dashboard hides them). The only way to avoid the record is to stop Vercel from creating the deployment, which is the `git.deploymentEnabled` setting in `vercel.json`:
 
-There are two Vercel projects, and each reads its own config file (the one in its Root Directory):
+```json
+"git": { "deploymentEnabled": { "main": true, "**": false } }
+```
 
-| Project | Root Directory | Config file | `ignoreCommand` |
-|---|---|---|---|
-| Root project with services (`store-cart-next.js`) | repo root | `vercel.json` (no `ignoreCommand`, see below) | Dashboard Ignored Build Step: `bash scripts/vercel-ignore-build.sh` |
-| Backend (`store-cart-backend`) | `fastapi_backend` | `fastapi_backend/vercel.json` | `bash ../scripts/vercel-ignore-build.sh` |
+Both `vercel.json` files carry it (root services project and `fastapi_backend`). Vercel accepts `git` beside `services` (unlike a top-level `ignoreCommand`, see below).
 
-The backend project's script lives outside its Root Directory, so that project needs Settings > Build and Deployment > **Include source files outside of the Root Directory in the Build Step** turned on. Without it the script is missing, the command fails, and Vercel builds (fail open: the backend keeps building every branch, but nothing is ever wrongly skipped). The script never skips `main`.
+Evidence: before and after pushing the throwaway branch `fix/KAN-244-no-preview-deployments` (the push that carried this change), `vercel list` for the team was identical apart from ageing; no new deployment, Canceled or otherwise, and no Vercel status or check on the commit.
 
-A `vercel.json` that defines `services` cannot carry a top-level `ignoreCommand`: Vercel rejects the deploy with "cannot be used with `services` because the owning service is ambiguous" (the cause of the "Deployment failed." status with no deployment). An `ignoreCommand` set inside a service is accepted but was not applied in testing (a non-main branch push still built), so the root project uses the dashboard setting instead.
+Limit: `deploymentEnabled` is per branch, so it cannot read the commit message. The old `[deploy preview]` Git opt-in therefore no longer produces a preview; a preview is now made by hand (below).
+
+## Fallback: Ignored Build Step
+
+`scripts/vercel-ignore-build.sh` (`bash scripts/vercel-ignore-build.sh`, dashboard Ignored Build Step on `store-cart-next.js`; `ignoreCommand` in `fastapi_backend/vercel.json`) stays as a fallback. It exits `1` (build) for `main`, a commit message containing `[deploy preview]`, or no git branch info, otherwise `0` (skip). It reads only `VERCEL_GIT_COMMIT_REF` and `VERCEL_GIT_COMMIT_MESSAGE` and never prints them. It only matters if `git.deploymentEnabled` is removed or the branch is main.
+
+A `vercel.json` that defines `services` cannot carry a top-level `ignoreCommand`: Vercel rejects the deploy with "cannot be used with `services` because the owning service is ambiguous" (the cause of the "Deployment failed." status, PR #176). So the root project uses the dashboard setting for that.
+
+The backend project's script lives outside its Root Directory, so it needs Settings > Build and Deployment > **Include source files outside of the Root Directory in the Build Step** turned on, otherwise the command fails and Vercel builds (fail open).
 
 (ADR-011 describes a single project with services; if the backend is ever folded into the root project, `fastapi_backend/vercel.json` can be deleted.)
 
 ## Getting a preview on purpose
 
-Put the marker in the head commit message of the branch, then push:
+Deploy by hand from your checkout (does not use Git, so it always creates one deployment):
 
 ```bash
-git commit --allow-empty -m "chore(KAN-123): preview please [deploy preview]"
-git push
+npm run vercel:pull && npm run vercel:build && npm run vercel:preview
 ```
 
-Only the head commit is checked, so repeat the marker on each push that needs a fresh preview. Alternatively deploy by hand with the root scripts: `npm run vercel:pull`, `npm run vercel:build`, `npm run vercel:preview`.
-
-Preview deployments need their own preview environment variables (see the backend deploy audit and ADR-003); a preview built without them will answer 503 on the routes that need them.
+Each manual preview counts toward the 100/day limit. Preview deployments need their own preview environment variables (see the backend deploy audit and ADR-003); one built without them answers 503 on the routes that need them.
 
 ## Dry-run test
 
@@ -52,11 +56,8 @@ It runs the script under main, feature-branch, marker, case, empty-env and hosti
 
 ## Owner checklist (dashboard)
 
-Settings that only the project owner can verify or change:
-
-1. Backend project: Settings > Build and Deployment > Ignored Build Step: leave on **Automatic** (`fastapi_backend/vercel.json` sets it). Root services project (`store-cart-next.js`): set Ignored Build Step to **Custom** `bash scripts/vercel-ignore-build.sh` and save.
-2. Backend project (`store-cart-backend`) only: turn on **Include source files outside of the Root Directory in the Build Step**.
-3. Both projects, Settings > Git: confirm the production branch is `main`.
-4. After the first merge, on each project confirm a push to a throwaway branch creates no deployment, a push to `main` still deploys, and a throwaway branch with `[deploy preview]` does create one.
-5. Confirm Git fork protection is on for the project and that preview environment variables hold no production secrets. The `[deploy preview]` marker is a quota control, not an access control: anyone who can push to the repo can use it, and the script itself lives in the pushed branch.
-6. If the `ignoreCommand` is not honoured on a project, set its Ignored Build Step in the dashboard to the same command (`bash scripts/vercel-ignore-build.sh` for the frontend, `bash ../scripts/vercel-ignore-build.sh` for the backend).
+1. Extra project **`store-cart-next-js`** (Root Directory `fastapi_backend`, linked to the same GitHub repo, no Ignored Build Step set): disconnect its Git repository (Settings > Git > Disconnect) or delete the project. The real projects are `store-cart-next.js` (root services) and, per ADR, the backend; this duplicate was building every branch. After this change it also obeys `git.deploymentEnabled`, but it is redundant.
+2. `store-cart-next.js`: keep Ignored Build Step on **Custom** `bash scripts/vercel-ignore-build.sh` (fallback). Production branch `main`, Git fork protection on (already confirmed via the API).
+3. After this merges, confirm one push to `main` deploys to production on `store-cart-next.js` (not testable before merge) and that a throwaway branch push adds nothing to `vercel list`.
+4. Preview environment variables must not hold production secrets.
+5. Delete the throwaway remote branch `fix/KAN-244-no-preview-deployments` after the PR merges (GitHub "delete branch").
