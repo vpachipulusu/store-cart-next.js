@@ -109,7 +109,7 @@ class NoopEnqueuer:
     async def enqueue(self, store_id: str, step: Step, *, attempt: int) -> None:
         logger.warning(
             "qstash not configured: provisioning step not enqueued",
-            extra={"store_id": store_id, "step": step.value},
+            extra={"store_id": store_id, "step": step.value, "attempt": attempt},
         )
 
 
