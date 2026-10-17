@@ -1,13 +1,15 @@
 import { adminErrorMessage } from '@/lib/api/admin-errors';
+import { fetchAdminRevenue } from '@/lib/api/admin-analytics';
 import { fetchAdminSubscriptions } from '@/lib/api/admin-subscriptions';
 import type { ApiResult } from '@/lib/api/server';
 import { logger } from '@/lib/logger';
-import { getStripePrices, getCurrencySymbol } from '@/config/subscriptions';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { KpiStrip, type KpiCell } from '@/components/dashboard/kpi-strip';
 import { RefreshButton } from '@/components/admin/refresh-button';
 import { InlineError } from '../_components/inline-error';
+import { formatMinorUnits } from '../_components/format-money';
 import { SubscriptionsTable } from './subscriptions-table';
+import { SyncPanel } from './sync-panel';
 
 // Force dynamic rendering to always show latest subscription data
 export const dynamic = 'force-dynamic';
@@ -21,19 +23,17 @@ function failure(result: Extract<ApiResult<unknown>, { success: false }>) {
   return { error: adminErrorMessage(result) } as const;
 }
 
-/** Prices only feed the MRR figure, so a failure must not hide the counts and the table. */
-async function loadPrices() {
-  try {
-    return await getStripePrices();
-  } catch (error) {
-    logger.error('Admin subscriptions page: Stripe prices failed', { error });
-    return null;
-  }
+/** Revenue only feeds the MRR figure, so a failure must not hide the counts and the table. */
+async function loadRevenue() {
+  const result = await fetchAdminRevenue();
+  if (result.success) return result.data;
+  logger.error('Admin subscriptions page: revenue failed', { status: result.status });
+  return null;
 }
 
 async function getSubscriptionStats() {
-  const [prices, pro, enterprise, canceled] = await Promise.all([
-    loadPrices(),
+  const [revenue, pro, enterprise, canceled] = await Promise.all([
+    loadRevenue(),
     fetchAdminSubscriptions({ status: 'active', plan: 'pro', limit: RECENT_LIMIT }),
     fetchAdminSubscriptions({ status: 'active', plan: 'enterprise', limit: RECENT_LIMIT }),
     fetchAdminSubscriptions({ status: 'canceled', limit: 1 }),
@@ -55,23 +55,15 @@ async function getSubscriptionStats() {
     activeProSubscriptions,
     activeEnterpriseSubscriptions,
     canceledSubscriptions: canceled.data.total_count,
-    mrr: prices
-      ? activeProSubscriptions * prices.pro.monthly +
-        activeEnterpriseSubscriptions * prices.enterprise.monthly
-      : null,
-    proMonthlyPrice: prices?.pro.monthly ?? null,
-    enterpriseMonthlyPrice: prices?.enterprise.monthly ?? null,
+    mrr: revenue ? formatMinorUnits(revenue.mrr_minor, revenue.currency) : null,
+    revenueComplete: revenue?.complete ?? true,
     recentSubscriptions,
   };
 }
 
-function priceText(price: number | null, currencySymbol: string): string {
-  return price === null ? 'Price unavailable' : `${currencySymbol}${price}/month each`;
-}
-
 type Stats = Extract<Awaited<ReturnType<typeof getSubscriptionStats>>, { error: null }>;
 
-function kpiCells(stats: Stats, currencySymbol: string): KpiCell[] {
+function kpiCells(stats: Stats): KpiCell[] {
   return [
     { id: 'total', label: 'Total active', state: 'ready', value: String(stats.totalSubscriptions) },
     { id: 'pro', label: 'Pro plans', state: 'ready', value: String(stats.activeProSubscriptions) },
@@ -82,18 +74,18 @@ function kpiCells(stats: Stats, currencySymbol: string): KpiCell[] {
       value: String(stats.activeEnterpriseSubscriptions),
     },
     stats.mrr === null
-      ? { id: 'mrr', label: 'MRR', state: 'empty', emptyText: 'Price unavailable' }
+      ? { id: 'mrr', label: 'MRR', state: 'empty', emptyText: 'Revenue unavailable' }
       : {
           id: 'mrr',
           label: 'MRR',
           state: 'ready',
-          value: `${currencySymbol}${stats.mrr.toLocaleString('en-GB')}`,
+          value: stats.mrr,
         },
   ];
 }
 
 export default async function AdminSubscriptionsPage() {
-  const [stats, currencySymbol] = await Promise.all([getSubscriptionStats(), getCurrencySymbol()]);
+  const stats = await getSubscriptionStats();
 
   return (
     <div className="space-y-6">
@@ -110,13 +102,16 @@ export default async function AdminSubscriptionsPage() {
       ) : (
         <>
           <div className="space-y-2">
-            <KpiStrip cells={kpiCells(stats, currencySymbol)} />
+            <KpiStrip cells={kpiCells(stats)} />
             <p className="text-sm text-muted-foreground">
-              Pro: {priceText(stats.proMonthlyPrice, currencySymbol)}. Enterprise:{' '}
-              {priceText(stats.enterpriseMonthlyPrice, currencySymbol)}.{' '}
               {stats.canceledSubscriptions} canceled (all time)
+              {stats.revenueComplete
+                ? ''
+                : '. Some paying organisations could not be priced, so MRR is a minimum'}
             </p>
           </div>
+
+          <SyncPanel />
 
           <Card>
             <CardHeader>

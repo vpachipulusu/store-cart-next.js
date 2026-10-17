@@ -6487,6 +6487,477 @@
         }
       }
     },
+    "/v1/admin/analytics/overview": {
+      "get": {
+        "tags": [
+          "admin-analytics"
+        ],
+        "summary": "Admin Overview",
+        "operationId": "admin_overview",
+        "parameters": [
+          {
+            "name": "X-Internal-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Key"
+            }
+          },
+          {
+            "name": "X-Session-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Rate limiter unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/v1/admin/analytics/revenue": {
+      "get": {
+        "tags": [
+          "admin-analytics"
+        ],
+        "summary": "Admin Revenue",
+        "operationId": "admin_revenue",
+        "parameters": [
+          {
+            "name": "X-Internal-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Key"
+            }
+          },
+          {
+            "name": "X-Session-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevenueResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Rate limiter unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/v1/admin/analytics/system": {
+      "get": {
+        "tags": [
+          "admin-analytics"
+        ],
+        "summary": "Admin System Stats",
+        "operationId": "admin_system_stats",
+        "parameters": [
+          {
+            "name": "X-Internal-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Key"
+            }
+          },
+          {
+            "name": "X-Session-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Rate limiter unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/v1/admin/analytics/subscription-sync": {
+      "post": {
+        "tags": [
+          "admin-analytics"
+        ],
+        "summary": "Compare Stripe subscriptions with stored billing state",
+        "description": "Reads every Stripe subscription and reports where it differs from the organisations' stored state. Changes no subscription; writes one audit row. Limited to 3 runs a minute.",
+        "operationId": "admin_sync_subscriptions",
+        "parameters": [
+          {
+            "name": "X-Internal-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Key"
+            }
+          },
+          {
+            "name": "X-Session-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        }
+      }
+    },
     "/v1/organizations/{organization_id}/billing": {
       "get": {
         "tags": [
@@ -12879,6 +13350,75 @@
         ],
         "title": "DisableRequest"
       },
+      "DriftData": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "unmatched",
+              "subscription_id",
+              "status",
+              "plan",
+              "cancel_at_period_end",
+              "missing_in_stripe"
+            ],
+            "title": "Kind"
+          },
+          "organization_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization Id"
+          },
+          "subscription_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subscription Id"
+          },
+          "stripe_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stripe Status"
+          },
+          "local_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "organization_id",
+          "subscription_id",
+          "stripe_status",
+          "local_status"
+        ],
+        "title": "DriftData"
+      },
       "EnrollmentData": {
         "properties": {
           "secret": {
@@ -14251,6 +14791,24 @@
         ],
         "title": "OrganizationSummary"
       },
+      "OrganizationsOverview": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "new_this_month": {
+            "type": "integer",
+            "title": "New This Month"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "new_this_month"
+        ],
+        "title": "OrganizationsOverview"
+      },
       "OrganizationsPage": {
         "properties": {
           "organizations": {
@@ -14300,6 +14858,48 @@
           "data"
         ],
         "title": "OrganizationsPageResponse"
+      },
+      "OverviewData": {
+        "properties": {
+          "users": {
+            "$ref": "#/components/schemas/UsersOverview"
+          },
+          "organizations": {
+            "$ref": "#/components/schemas/OrganizationsOverview"
+          },
+          "stores_by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Stores By Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "users",
+          "organizations",
+          "stores_by_status"
+        ],
+        "title": "OverviewData"
+      },
+      "OverviewResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true,
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/OverviewData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "OverviewResponse"
       },
       "PasswordChangedResponse": {
         "properties": {
@@ -14586,6 +15186,28 @@
           "data"
         ],
         "title": "PlanPricesResponse"
+      },
+      "PlanRevenueData": {
+        "properties": {
+          "plan": {
+            "$ref": "#/components/schemas/PlanKey"
+          },
+          "organizations": {
+            "type": "integer",
+            "title": "Organizations"
+          },
+          "mrr_minor": {
+            "type": "integer",
+            "title": "Mrr Minor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "plan",
+          "organizations",
+          "mrr_minor"
+        ],
+        "title": "PlanRevenueData"
       },
       "PortalRequest": {
         "properties": {
@@ -15130,6 +15752,96 @@
           "data"
         ],
         "title": "RefundResponse"
+      },
+      "RevenueData": {
+        "properties": {
+          "currency": {
+            "type": "string",
+            "title": "Currency"
+          },
+          "mrr_minor": {
+            "type": "integer",
+            "title": "Mrr Minor"
+          },
+          "arr_minor": {
+            "type": "integer",
+            "title": "Arr Minor"
+          },
+          "billed_organizations": {
+            "type": "integer",
+            "title": "Billed Organizations"
+          },
+          "unpriced_organizations": {
+            "type": "integer",
+            "title": "Unpriced Organizations"
+          },
+          "complete": {
+            "type": "boolean",
+            "title": "Complete"
+          },
+          "by_plan": {
+            "items": {
+              "$ref": "#/components/schemas/PlanRevenueData"
+            },
+            "type": "array",
+            "title": "By Plan"
+          },
+          "organizations_by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Organizations By Status"
+          },
+          "organizations_by_tier": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Organizations By Tier"
+          },
+          "cancelling_at_period_end": {
+            "type": "integer",
+            "title": "Cancelling At Period End"
+          },
+          "active_grants": {
+            "type": "integer",
+            "title": "Active Grants"
+          }
+        },
+        "type": "object",
+        "required": [
+          "currency",
+          "mrr_minor",
+          "arr_minor",
+          "billed_organizations",
+          "unpriced_organizations",
+          "complete",
+          "by_plan",
+          "organizations_by_status",
+          "organizations_by_tier",
+          "cancelling_at_period_end",
+          "active_grants"
+        ],
+        "title": "RevenueData"
+      },
+      "RevenueResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true,
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/RevenueData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "RevenueResponse"
       },
       "RevokeData": {
         "properties": {
@@ -15932,6 +16644,136 @@
         ],
         "title": "SubscriptionsPageResponse"
       },
+      "SyncData": {
+        "properties": {
+          "stripe_subscriptions": {
+            "type": "integer",
+            "title": "Stripe Subscriptions"
+          },
+          "in_sync": {
+            "type": "integer",
+            "title": "In Sync"
+          },
+          "drift_count": {
+            "type": "integer",
+            "title": "Drift Count"
+          },
+          "historical_ignored": {
+            "type": "integer",
+            "title": "Historical Ignored"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated"
+          },
+          "skipped_rows": {
+            "type": "integer",
+            "title": "Skipped Rows"
+          },
+          "drifts": {
+            "items": {
+              "$ref": "#/components/schemas/DriftData"
+            },
+            "type": "array",
+            "title": "Drifts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "stripe_subscriptions",
+          "in_sync",
+          "drift_count",
+          "historical_ignored",
+          "truncated",
+          "skipped_rows",
+          "drifts"
+        ],
+        "title": "SyncData"
+      },
+      "SyncResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true,
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/SyncData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "SyncResponse"
+      },
+      "SystemData": {
+        "properties": {
+          "app_settings": {
+            "type": "integer",
+            "title": "App Settings"
+          },
+          "feature_flags": {
+            "type": "integer",
+            "title": "Feature Flags"
+          },
+          "email_templates": {
+            "type": "integer",
+            "title": "Email Templates"
+          },
+          "seo_entries": {
+            "type": "integer",
+            "title": "Seo Entries"
+          },
+          "redirects": {
+            "type": "integer",
+            "title": "Redirects"
+          },
+          "audit_logs": {
+            "type": "integer",
+            "title": "Audit Logs"
+          },
+          "stripe_events": {
+            "type": "integer",
+            "title": "Stripe Events"
+          },
+          "admin_users": {
+            "type": "integer",
+            "title": "Admin Users"
+          }
+        },
+        "type": "object",
+        "required": [
+          "app_settings",
+          "feature_flags",
+          "email_templates",
+          "seo_entries",
+          "redirects",
+          "audit_logs",
+          "stripe_events",
+          "admin_users"
+        ],
+        "title": "SystemData"
+      },
+      "SystemResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true,
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/SystemData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "SystemResponse"
+      },
       "TierPricesData": {
         "properties": {
           "monthly": {
@@ -16272,6 +17114,39 @@
           "data"
         ],
         "title": "UserDetailResponse"
+      },
+      "UsersOverview": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "verified": {
+            "type": "integer",
+            "title": "Verified"
+          },
+          "new_this_month": {
+            "type": "integer",
+            "title": "New This Month"
+          },
+          "active_last_30_days": {
+            "type": "integer",
+            "title": "Active Last 30 Days"
+          },
+          "admins": {
+            "type": "integer",
+            "title": "Admins"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "verified",
+          "new_this_month",
+          "active_last_30_days",
+          "admins"
+        ],
+        "title": "UsersOverview"
       },
       "UsersPage": {
         "properties": {
