@@ -290,6 +290,8 @@ def _summary_data(row: ProductSummaryRow) -> ProductSummaryData:
     )
 
 
+# Room for whitespace around a 100 character search; the service trims, then enforces 100.
+MAX_SEARCH_QUERY_LENGTH = 200
 NO_STORE = {"Cache-Control": "no-store"}
 
 
@@ -341,14 +343,25 @@ async def list_products(
     currency: CurrencyDep,
     status: Literal["draft", "active"] | None = None,
     category_id: Annotated[str | None, Query(max_length=MAX_ID_LENGTH)] = None,
+    q: Annotated[
+        str | None,
+        Query(
+            max_length=MAX_SEARCH_QUERY_LENGTH,
+            description="Title or SKU contains this text, ignoring case; trimmed, at most 100 characters.",
+        ),
+    ] = None,
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
     offset: Annotated[int, Query(ge=0, le=MAX_OFFSET)] = 0,
 ) -> ProductListResponse:
-    """Newest first, filtered by ``status`` and ``category_id``; ``total`` ignores paging."""
+    """Newest first, filtered by ``status``, ``category_id`` and ``q`` (all combine)."""
     no_store(response)
     try:
         page = await service.list_products(
-            status=status, category_id=category_id, limit=limit, offset=offset
+            status=status,
+            category_id=category_id,
+            query=q,
+            limit=limit,
+            offset=offset,
         )
     except CatalogueError as error:
         raise http_error(error) from None

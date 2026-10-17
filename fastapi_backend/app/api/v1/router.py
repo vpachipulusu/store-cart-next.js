@@ -6,6 +6,7 @@ from app.api.v1 import (
     admin_subscriptions,
     admin_users,
     auth,
+    categories,
     health,
     internal_provisioning,
     me,
@@ -43,5 +44,6 @@ api_router.include_router(stores.router)
 api_router.include_router(store_retry.router)
 api_router.include_router(media.router)
 api_router.include_router(products.router)
+api_router.include_router(categories.router)
 api_router.include_router(storefront.router)
 api_router.include_router(settings.router)

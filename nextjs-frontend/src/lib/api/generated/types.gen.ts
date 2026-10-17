@@ -379,6 +379,52 @@ export type CancelResponse = {
 };
 
 /**
+ * CategoryData
+ */
+export type CategoryData = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Slug
+     */
+    slug: string;
+    /**
+     * Parent Id
+     *
+     * Null for a root category.
+     */
+    parent_id: string | null;
+    /**
+     * Position
+     *
+     * Order among siblings, ascending.
+     */
+    position: number;
+};
+
+/**
+ * CategoryListResponse
+ */
+export type CategoryListResponse = {
+    /**
+     * Data
+     */
+    data: Array<CategoryData>;
+    /**
+     * Truncated
+     *
+     * True when the store has more than 1000 categories.
+     */
+    truncated: boolean;
+};
+
+/**
  * ChangePlanRequest
  */
 export type ChangePlanRequest = {
@@ -7036,6 +7082,12 @@ export type ListProductsData = {
          */
         category_id?: string | null;
         /**
+         * Q
+         *
+         * Title or SKU contains this text, ignoring case; trimmed, at most 100 characters.
+         */
+        q?: string | null;
+        /**
          * Limit
          */
         limit?: number;
@@ -7748,6 +7800,70 @@ export type DeleteImageResponses = {
 };
 
 export type DeleteImageResponse = DeleteImageResponses[keyof DeleteImageResponses];
+
+export type ListCategoriesData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/stores/{store_id}/categories';
+};
+
+export type ListCategoriesErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ListCategoriesError = ListCategoriesErrors[keyof ListCategoriesErrors];
+
+export type ListCategoriesResponses = {
+    /**
+     * Successful Response
+     */
+    200: CategoryListResponse;
+};
+
+export type ListCategoriesResponse = ListCategoriesResponses[keyof ListCategoriesResponses];
 
 export type ReadStorefrontData = {
     body?: never;
