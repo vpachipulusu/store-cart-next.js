@@ -14,16 +14,18 @@ A skipped build shows as skipped/neutral on the PR and does not count toward the
 
 ## How it works
 
-`vercel.json` sets `"ignoreCommand": "bash scripts/vercel-ignore-build.sh"`. The script exits `1` (build) for `main`, for a commit message containing `[deploy preview]` (case-insensitive), or when no git branch info is available; otherwise it exits `0` (skip). It reads only `VERCEL_GIT_COMMIT_REF` and `VERCEL_GIT_COMMIT_MESSAGE` and never prints the message or any secret.
+The ignore command is `bash scripts/vercel-ignore-build.sh`. The script exits `1` (build) for `main`, for a commit message containing `[deploy preview]` (case-insensitive), or when no git branch info is available; otherwise it exits `0` (skip). It reads only `VERCEL_GIT_COMMIT_REF` and `VERCEL_GIT_COMMIT_MESSAGE` and never prints the message or any secret.
 
 There are two Vercel projects, and each reads its own config file (the one in its Root Directory):
 
 | Project | Root Directory | Config file | `ignoreCommand` |
 |---|---|---|---|
-| Frontend (`store-cart-next-js`) | repo root | `vercel.json` | `bash scripts/vercel-ignore-build.sh` |
+| Root project with services (`store-cart-next.js`) | repo root | `vercel.json` (no `ignoreCommand`, see below) | Dashboard Ignored Build Step: `bash scripts/vercel-ignore-build.sh` |
 | Backend (`store-cart-backend`) | `fastapi_backend` | `fastapi_backend/vercel.json` | `bash ../scripts/vercel-ignore-build.sh` |
 
 The backend project's script lives outside its Root Directory, so that project needs Settings > Build and Deployment > **Include source files outside of the Root Directory in the Build Step** turned on. Without it the script is missing, the command fails, and Vercel builds (fail open: the backend keeps building every branch, but nothing is ever wrongly skipped). The script never skips `main`.
+
+A `vercel.json` that defines `services` cannot carry a top-level `ignoreCommand`: Vercel rejects the deploy with "cannot be used with `services` because the owning service is ambiguous" (the cause of the "Deployment failed." status with no deployment). An `ignoreCommand` set inside a service is accepted but was not applied in testing (a non-main branch push still built), so the root project uses the dashboard setting instead.
 
 (ADR-011 describes a single project with services; if the backend is ever folded into the root project, `fastapi_backend/vercel.json` can be deleted.)
 
@@ -52,7 +54,7 @@ It runs the script under main, feature-branch, marker, case, empty-env and hosti
 
 Settings that only the project owner can verify or change:
 
-1. Both projects, Settings > Build and Deployment > Ignored Build Step: leave on **Automatic**. The `vercel.json` files override it.
+1. Backend project: Settings > Build and Deployment > Ignored Build Step: leave on **Automatic** (`fastapi_backend/vercel.json` sets it). Root services project (`store-cart-next.js`): set Ignored Build Step to **Custom** `bash scripts/vercel-ignore-build.sh` and save.
 2. Backend project (`store-cart-backend`) only: turn on **Include source files outside of the Root Directory in the Build Step**.
 3. Both projects, Settings > Git: confirm the production branch is `main`.
 4. After the first merge, on each project confirm a push to a throwaway branch creates no deployment, a push to `main` still deploys, and a throwaway branch with `[deploy preview]` does create one.
