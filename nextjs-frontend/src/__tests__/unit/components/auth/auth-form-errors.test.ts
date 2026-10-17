@@ -1,6 +1,7 @@
 /** KAN-227: auth errors are classified into copy that never reveals whether an account exists. */
 import { describe, expect, it } from 'vitest';
 import { getFirebaseErrorMessage } from '@/lib/utils/firebase-errors';
+import { SIGN_IN_SERVICE_UNAVAILABLE_ERROR } from '@/lib/auth/auth-error-messages';
 import { classifyAuthError, classifyThrownAuthError } from '@/components/auth/auth-form-errors';
 
 const fromCode = (code: string) => getFirebaseErrorMessage({ code });
@@ -59,6 +60,19 @@ describe('classifyAuthError', () => {
 
     expect(result.kind).toBe('unknown');
     expect(`${result.title} ${result.message}`).not.toMatch(/token/i);
+  });
+
+  it('names a sign-in service outage, per flow, without technical detail (KAN-240)', () => {
+    const signIn = classifyAuthError(SIGN_IN_SERVICE_UNAVAILABLE_ERROR, 'sign-in');
+    const signUp = classifyAuthError(SIGN_IN_SERVICE_UNAVAILABLE_ERROR, 'sign-up');
+
+    expect(signIn.kind).toBe('service-unavailable');
+    expect(signIn.title).toBe('Sign-in is unavailable right now');
+    expect(signUp.kind).toBe('service-unavailable');
+    expect(signUp.message).toMatch(/if your account was created, sign in/i);
+    expect(`${signIn.title} ${signIn.message} ${signUp.message}`).not.toMatch(
+      /token|500|backend|server error/i
+    );
   });
 
   it('asks for a stronger password instead of blaming the server', () => {

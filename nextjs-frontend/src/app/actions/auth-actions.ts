@@ -7,6 +7,10 @@ import { applyActionCode } from 'firebase/auth';
 import { emailSchema, passwordSchema } from '@/lib/utils/validation';
 import { logger } from '@/lib/logger';
 import {
+  SIGN_IN_SERVICE_UNAVAILABLE_ERROR,
+  isServiceUnavailable,
+} from '@/lib/auth/auth-error-messages';
+import {
   isEmailNotVerifiedError,
   readSessionStatus,
   verifyVerifiedSessionCookie,
@@ -218,7 +222,12 @@ async function establishSession(
         status: verified.status,
         error: verified.error,
       });
-      return { success: false, error: GENERIC_SIGN_IN_ERROR };
+      return {
+        success: false,
+        error: isServiceUnavailable(verified.status)
+          ? SIGN_IN_SERVICE_UNAVAILABLE_ERROR
+          : GENERIC_SIGN_IN_ERROR,
+      };
     }
     const { uid, email, email_verified } = verified.data;
     const isExplicitSignIn = requestedExplicit || !(await hasMatchingActiveSession(uid));
@@ -248,7 +257,12 @@ async function establishSession(
         return { success: false, error: GENERIC_SIGN_IN_ERROR, data: { signInRequired: true } };
       }
       // Outage, rate limit or server error: keep the current cookie; the next refresh retries.
-      return { success: false, error: GENERIC_SIGN_IN_ERROR };
+      return {
+        success: false,
+        error: isServiceUnavailable(session.status)
+          ? SIGN_IN_SERVICE_UNAVAILABLE_ERROR
+          : GENERIC_SIGN_IN_ERROR,
+      };
     }
     const maxAge = Number.isFinite(session.data.expires_in)
       ? Math.min(Math.max(Math.trunc(session.data.expires_in), 1), SESSION_MAX_AGE_SECONDS)

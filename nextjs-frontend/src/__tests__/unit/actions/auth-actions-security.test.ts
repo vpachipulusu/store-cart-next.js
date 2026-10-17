@@ -6,6 +6,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { SIGN_IN_SERVICE_UNAVAILABLE_ERROR } from '@/lib/auth/auth-error-messages';
 
 const mocks = vi.hoisted(() => ({
   verifyBackendIdToken: vi.fn(),
@@ -110,7 +111,7 @@ describe('KAN-122: auth server actions', () => {
       );
     });
 
-    it.each([401, 409, 429, 503, undefined])(
+    it.each([401, 409, 429])(
       'returns the generic error and sets no cookie when the API answers %s',
       async (status) => {
         mocks.createBackendSession.mockResolvedValue({
@@ -122,6 +123,23 @@ describe('KAN-122: auth server actions', () => {
         const result = await authActions.verifyTokenAction('id-token');
 
         expect(result).toEqual({ success: false, error: 'Token verification failed' });
+        expect(mocks.cookieSet).not.toHaveBeenCalled();
+      }
+    );
+
+    // KAN-240: an outage is reported as such, not as a bad token.
+    it.each([503, undefined])(
+      'reports the service as unavailable and sets no cookie when the API answers %s',
+      async (status) => {
+        mocks.createBackendSession.mockResolvedValue({
+          success: false,
+          error: 'Backend unavailable',
+          status,
+        });
+
+        const result = await authActions.verifyTokenAction('id-token');
+
+        expect(result).toEqual({ success: false, error: SIGN_IN_SERVICE_UNAVAILABLE_ERROR });
         expect(mocks.cookieSet).not.toHaveBeenCalled();
       }
     );
@@ -175,9 +193,13 @@ describe('KAN-122: auth server actions', () => {
         }
       );
 
-      it.each([429, 503, undefined])(
+      it.each([
+        [429, 'Token verification failed'],
+        [503, SIGN_IN_SERVICE_UNAVAILABLE_ERROR],
+        [undefined, SIGN_IN_SERVICE_UNAVAILABLE_ERROR],
+      ])(
         'fails without ending the session when the API answers %s',
-        async (status) => {
+        async (status, expectedError) => {
           mocks.refreshBackendSession.mockResolvedValue({
             success: false,
             error: 'Backend unavailable',
@@ -186,7 +208,7 @@ describe('KAN-122: auth server actions', () => {
 
           const result = await authActions.refreshSessionAction('id-token');
 
-          expect(result).toEqual({ success: false, error: 'Token verification failed' });
+          expect(result).toEqual({ success: false, error: expectedError });
           expect(mocks.cookieDelete).not.toHaveBeenCalled();
           expect(mocks.cookieSet).not.toHaveBeenCalled();
         }
