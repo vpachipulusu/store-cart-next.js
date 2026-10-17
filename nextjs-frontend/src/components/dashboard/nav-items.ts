@@ -1,4 +1,12 @@
-import { CreditCard, LayoutDashboard, Settings, Shield, User, type LucideIcon } from 'lucide-react';
+import {
+  CreditCard,
+  LayoutDashboard,
+  Package,
+  Settings,
+  Shield,
+  User,
+  type LucideIcon,
+} from 'lucide-react';
 
 export interface NavItem {
   href: string;
@@ -7,12 +15,13 @@ export interface NavItem {
 }
 
 /**
- * The merchant dashboard nav (KAN-217). Only routes that exist have an entry; planned sections (Orders, Products,
- * Customers, Domains) are added with their pages. Order is the sidebar order; the first TAB_COUNT items are the
+ * The merchant dashboard nav (KAN-217). Only routes that exist have an entry; planned sections (Orders, Customers,
+ * Domains) are added with their pages. Order is the sidebar order; the first TAB_COUNT items are the
  * phone tab bar and the rest go behind More.
  */
 export const NAV_ITEMS: ReadonlyArray<NavItem> = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
+  { href: '/dashboard/products', label: 'Products', icon: Package },
   { href: '/dashboard/settings/billing', label: 'Billing', icon: CreditCard },
   { href: '/dashboard/settings', label: 'Settings', icon: Settings },
   { href: '/dashboard/profile', label: 'Profile', icon: User },

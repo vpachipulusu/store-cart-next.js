@@ -29,6 +29,9 @@ describe('nav items', () => {
 describe('activeNavHref', () => {
   it.each([
     ['/dashboard', '/dashboard'],
+    ['/dashboard/products', '/dashboard/products'],
+    ['/dashboard/products/new', '/dashboard/products'],
+    ['/dashboard/products/abc123', '/dashboard/products'],
     ['/dashboard/profile', '/dashboard/profile'],
     ['/dashboard/settings', '/dashboard/settings'],
     ['/dashboard/settings/billing', '/dashboard/settings/billing'],
