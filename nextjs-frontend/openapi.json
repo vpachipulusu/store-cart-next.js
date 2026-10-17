@@ -6570,14 +6570,14 @@
             }
           },
           "503": {
+            "description": "Rate limiter unavailable",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Service Unavailable"
+            }
           },
           "401": {
             "content": {
@@ -6598,16 +6598,6 @@
               }
             },
             "description": "Forbidden"
-          },
-          "502": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad Gateway"
           }
         }
       }
@@ -6695,14 +6685,14 @@
             }
           },
           "503": {
+            "description": "Rate limiter unavailable",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Service Unavailable"
+            }
           },
           "401": {
             "content": {
@@ -6723,16 +6713,6 @@
               }
             },
             "description": "Forbidden"
-          },
-          "502": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad Gateway"
           }
         }
       }
@@ -6820,14 +6800,14 @@
             }
           },
           "503": {
+            "description": "Rate limiter unavailable",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Service Unavailable"
+            }
           },
           "401": {
             "content": {
@@ -6848,16 +6828,6 @@
               }
             },
             "description": "Forbidden"
-          },
-          "502": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad Gateway"
           }
         }
       }
@@ -6867,7 +6837,8 @@
         "tags": [
           "admin-analytics"
         ],
-        "summary": "Admin Sync Subscriptions",
+        "summary": "Compare Stripe subscriptions with stored billing state",
+        "description": "Reads every Stripe subscription and reports where it differs from the organisations' stored state. Changes no subscription; writes one audit row. Limited to 3 runs a minute.",
         "operationId": "admin_sync_subscriptions",
         "parameters": [
           {

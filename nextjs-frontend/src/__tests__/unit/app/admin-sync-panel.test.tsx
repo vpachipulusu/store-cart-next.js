@@ -85,4 +85,30 @@ describe('SyncPanel', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong');
     expect(screen.queryByText(/Stripe subscriptions:/)).not.toBeInTheDocument();
   });
+
+  it('shows a generic alert when the action itself throws', async () => {
+    mocks.sync.mockRejectedValue(new Error('network'));
+    render(<SyncPanel />);
+
+    await userEvent.setup().click(screen.getByRole('button', { name: /check against stripe/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('could not be completed');
+  });
+
+  it('disables the button while checking and drops an old report after a failed rerun', async () => {
+    let finish: (value: unknown) => void = () => {};
+    mocks.sync.mockResolvedValueOnce({ success: true, data: REPORT });
+    mocks.sync.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+    render(<SyncPanel />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /check against stripe/i }));
+    await screen.findByText(/Read 5 Stripe subscriptions/);
+
+    await user.click(screen.getByRole('button', { name: /check against stripe/i }));
+
+    expect(screen.getByRole('button', { name: /checking/i })).toBeDisabled();
+    finish({ success: false, error: 'Something went wrong.' });
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByText(/Read 5 Stripe subscriptions/)).not.toBeInTheDocument();
+  });
 });

@@ -37,7 +37,11 @@ BREAKDOWN = SubscriptionBreakdown({"active": 3}, {"pro": 3}, 1, 2)
 class FakeAnalyticsStore:
     def __init__(self, groups: list[PriceGroup]) -> None:
         self.groups = groups
+        self.released = 0
         self.windows: list[tuple[datetime, datetime]] = []
+
+    async def release(self) -> None:
+        self.released += 1
 
     async def overview(self, since: datetime, active_since: datetime) -> OverviewCounts:
         self.windows.append((since, active_since))
@@ -64,7 +68,9 @@ def analytics(
 ) -> tuple[AdminAnalyticsService, FakeAnalyticsStore]:
     store = FakeAnalyticsStore(groups)
     return (
-        AdminAnalyticsService(store, prices, CATALOGUE, Currency(), lambda: NOW),
+        AdminAnalyticsService(
+            store, prices, CATALOGUE, Currency(), store.release, lambda: NOW
+        ),
         store,
     )
 
@@ -103,6 +109,36 @@ async def test_revenue_prices_each_price_id_once_not_once_per_customer():
         (PlanKey.ENTERPRISE, 2),
     ]
     assert report.breakdown is BREAKDOWN
+
+
+async def test_the_transaction_is_released_before_stripe_is_read():
+    seen: list[int] = []
+    store = FakeAnalyticsStore([PriceGroup("price_pro_m", 1)])
+
+    class Prices(FakePrices):
+        async def get_unit_amount(self, price_id: str) -> int | None:
+            seen.append(store.released)
+            return await super().get_unit_amount(price_id)
+
+    service = AdminAnalyticsService(
+        store, Prices({"price_pro_m": 100}), CATALOGUE, Currency(), store.release
+    )
+
+    await service.revenue()
+
+    assert seen == [1]
+
+
+async def test_monthly_and_inexact_yearly_prices_are_rounded_once_per_plan():
+    groups = [PriceGroup("price_pro_m", 1), PriceGroup("price_pro_y", 2)]
+    service, _ = analytics(
+        groups, FakePrices({"price_pro_m": 1000, "price_pro_y": 24001})
+    )
+
+    report = await service.revenue()
+
+    # 2 * 24001 / 12 = 4000.17 -> 4000, added to 1000 monthly
+    assert report.mrr_minor == 5000
 
 
 async def test_yearly_prices_count_as_one_twelfth_per_month():
@@ -168,6 +204,10 @@ class FakeSyncStore:
 class Session:
     def __init__(self) -> None:
         self.commits = 0
+        self.rollbacks = 0
+
+    async def rollback(self) -> None:
+        self.rollbacks += 1
 
     async def commit(self) -> None:
         self.commits += 1
@@ -213,6 +253,7 @@ async def test_matching_state_is_in_sync_and_one_audit_row_is_written():
     assert len(auditor.rows) == 1
     assert auditor.rows[0]["action"] == "admin.subscriptions.sync"
     assert auditor.rows[0]["details"]["in_sync"] == 1
+    assert auditor.rows[0]["details"]["outcome"] == "completed"
 
 
 @pytest.mark.parametrize(
@@ -325,7 +366,36 @@ async def test_stripe_failure_is_unavailable_and_nothing_is_audited():
     with pytest.raises(SyncUnavailable):
         await service.reconcile(ADMIN)
 
-    assert auditor.rows == [] and session.commits == 0
+    assert [r["details"] for r in auditor.rows] == [{"outcome": "unavailable"}]
+    assert session.commits == 1
+
+
+async def test_a_billed_lookup_over_the_cap_marks_the_report_partial(monkeypatch):
+    monkeypatch.setattr("app.services.admin_subscription_sync.MAX_BILLED_LOOKUP", 1)
+    local = [org(id=f"o{n}", stripe_subscription_id=f"sub_x{n}") for n in range(2)]
+    service, _, _ = syncer(FakeLister([]), *local)
+
+    report = await service.reconcile(ADMIN)
+
+    assert report.truncated and report.drift_count == 1
+
+
+async def test_the_read_transaction_is_ended_before_stripe_is_called():
+    lister = FakeLister([snapshot()])
+    service, session, _ = syncer(lister, org())
+    session.rollbacks = 0
+    original = lister.list_subscriptions
+    order: list[int] = []
+
+    async def spy(cursor):
+        order.append(session.rollbacks)
+        return await original(cursor)
+
+    lister.list_subscriptions = spy  # type: ignore[method-assign]
+
+    await service.reconcile(ADMIN)
+
+    assert order == [1]
 
 
 async def test_without_stripe_the_sync_is_not_configured():

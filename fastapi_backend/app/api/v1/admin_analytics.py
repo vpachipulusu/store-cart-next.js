@@ -22,7 +22,7 @@ from app.core.config import settings
 from app.core.errors import ErrorResponse
 from app.core.permissions import AdminContext
 from app.core.plans import PlanKey
-from app.core.rate_limit import API_POLICY
+from app.core.rate_limit import ADMIN_SYNC_POLICY, API_POLICY
 from app.core.stripe_prices import StripePriceReader, get_stripe_prices
 from app.core.stripe_sync import (
     StripeSubscriptionLister,
@@ -49,8 +49,6 @@ router = APIRouter(
         **RATE_LIMIT_FAIL_CLOSED_RESPONSES,
         401: {"model": ErrorResponse},
         403: {"model": ErrorResponse},
-        502: {"model": ErrorResponse},
-        503: {"model": ErrorResponse},
     },
 )
 
@@ -190,6 +188,7 @@ def get_analytics_service(
         prices,
         price_entries(),
         PublicSettingsService(AppSettingsRepository(session)),
+        session.rollback,
     )
 
 
@@ -279,7 +278,17 @@ async def admin_system_stats(
     return SystemResponse(data=SystemData(**vars(counts)))
 
 
-@router.post("/subscription-sync", response_model=SyncResponse)
+@router.post(
+    "/subscription-sync",
+    response_model=SyncResponse,
+    summary="Compare Stripe subscriptions with stored billing state",
+    description=(
+        "Reads every Stripe subscription and reports where it differs from the organisations' "
+        "stored state. Changes no subscription; writes one audit row. Limited to 3 runs a minute."
+    ),
+    dependencies=[Depends(limit_by_subject(ADMIN_SYNC_POLICY, current_subject))],
+    responses={502: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
+)
 async def admin_sync_subscriptions(
     response: Response, admin: SyncAdmin, service: SyncDep
 ) -> SyncResponse:
@@ -297,6 +306,15 @@ async def admin_sync_subscriptions(
             drift_count=report.drift_count,
             historical_ignored=report.historical_ignored,
             truncated=report.truncated,
-            drifts=[DriftData(**vars(item)) for item in report.drifts],
+            drifts=[
+                DriftData(
+                    kind=item.kind,
+                    organization_id=item.organization_id,
+                    subscription_id=item.subscription_id,
+                    stripe_status=item.stripe_status,
+                    local_status=item.local_status,
+                )
+                for item in report.drifts
+            ],
         )
     )

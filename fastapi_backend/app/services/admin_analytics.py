@@ -2,12 +2,12 @@
 
 Everything is derived from the platform database. Revenue is the monthly recurring
 revenue of billed organisations (``active`` and ``past_due``; a trial pays nothing yet),
-priced from the Stripe price catalogue: at most one read per configured price id, never
+priced at the Stripe list price (quantity, coupons and tax are not modelled): at most one read per configured price id, never
 one per customer. A billed organisation whose price id is unknown or unreadable is
 counted as ``unpriced`` and the report says it is incomplete, rather than guessing.
 """
 
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal, Protocol
@@ -83,10 +83,11 @@ class AdminAnalyticsService:
         prices: StripePriceReader | None,
         catalogue: Mapping[str, PriceEntry],
         currency: CurrencySource,
+        release: Callable[[], Awaitable[None]],
         clock: Callable[[], datetime] = _utc_now,
     ) -> None:
         self.store, self.prices, self.catalogue = store, prices, catalogue
-        self.currency, self.clock = currency, clock
+        self.currency, self.release, self.clock = currency, release, clock
 
     async def overview(self) -> OverviewCounts:
         now = self.clock()
@@ -101,6 +102,9 @@ class AdminAnalyticsService:
     async def revenue(self) -> RevenueReport:
         groups = await self.store.billed_price_groups(REVENUE_STATUSES)
         breakdown = await self.store.subscription_breakdown(self.clock())
+        currency = await self.currency.currency()
+        # End the read transaction: no connection is held while Stripe is called.
+        await self.release()
         amounts = await self._amounts({g.price_id for g in groups if g.price_id})
         monthly: dict[PlanKey, int] = {}
         yearly: dict[PlanKey, int] = {}
@@ -126,7 +130,7 @@ class AdminAnalyticsService:
         ]
         mrr = sum(item.mrr_minor for item in by_plan)
         return RevenueReport(
-            currency=await self.currency.currency(),
+            currency=currency,
             mrr_minor=mrr,
             arr_minor=mrr * MONTHS_PER_YEAR,
             billed_organizations=sum(g.count for g in groups),

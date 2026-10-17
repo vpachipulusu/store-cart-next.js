@@ -5864,11 +5864,7 @@ export type AdminOverviewErrors = {
      */
     500: ErrorResponse;
     /**
-     * Bad Gateway
-     */
-    502: ErrorResponse;
-    /**
-     * Service Unavailable
+     * Rate limiter unavailable
      */
     503: ErrorResponse;
 };
@@ -5923,11 +5919,7 @@ export type AdminRevenueErrors = {
      */
     500: ErrorResponse;
     /**
-     * Bad Gateway
-     */
-    502: ErrorResponse;
-    /**
-     * Service Unavailable
+     * Rate limiter unavailable
      */
     503: ErrorResponse;
 };
@@ -5982,11 +5974,7 @@ export type AdminSystemStatsErrors = {
      */
     500: ErrorResponse;
     /**
-     * Bad Gateway
-     */
-    502: ErrorResponse;
-    /**
-     * Service Unavailable
+     * Rate limiter unavailable
      */
     503: ErrorResponse;
 };

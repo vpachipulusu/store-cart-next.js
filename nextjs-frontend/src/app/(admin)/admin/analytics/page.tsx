@@ -102,7 +102,7 @@ export default async function AdminAnalyticsPage() {
             <Panel title="Stores by status" titleId="admin-stores-by-status">
               {countRows(overview.data.stores_by_status)}
             </Panel>
-            <Panel title="Users" titleId="admin-users-summary">
+            <Panel title="User summary" titleId="admin-users-summary">
               {countRows({
                 verified: overview.data.users.verified,
                 admins: overview.data.users.admins,

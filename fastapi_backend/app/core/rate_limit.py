@@ -49,6 +49,11 @@ PUBLIC_SETTINGS_POLICY = RateLimitPolicy(
 RETRY_PROVISIONING_POLICY = RateLimitPolicy(
     "retry_provisioning", limit=5, window_seconds=10 * 60, fail_closed=True
 )
+# Bulk Stripe subscription reconciliation (KAN-119): up to 20 Stripe calls per run, so a
+# few runs a minute per admin are plenty. Fail closed: an outage must not lift the limit.
+ADMIN_SYNC_POLICY = RateLimitPolicy(
+    "admin_sync", limit=3, window_seconds=60, fail_closed=True
+)
 
 
 @dataclass(frozen=True)

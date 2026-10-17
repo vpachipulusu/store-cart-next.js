@@ -6,7 +6,10 @@ import { RefreshCw } from 'lucide-react';
 import { syncStripeSubscriptionsAction } from '@/app/actions/admin/analytics-actions';
 import { Button } from '@/components/ui/button';
 import { Panel } from '@/components/dashboard/overview/panel';
+// Type-only: the module is server-only, so this import must stay erased.
 import type { SyncData } from '@/lib/api/admin-analytics';
+
+const SYNC_FAILED_MESSAGE = 'The check could not be completed. Please try again.';
 
 const DRIFT_LABELS: Record<SyncData['drifts'][number]['kind'], string> = {
   unmatched: 'No matching organisation',
@@ -25,9 +28,14 @@ export function SyncPanel() {
 
   const run = () =>
     startTransition(async () => {
-      const result = await syncStripeSubscriptionsAction();
-      setError(result.success ? null : result.error);
-      if (result.success) setReport(result.data);
+      try {
+        const result = await syncStripeSubscriptionsAction();
+        setError(result.success ? null : result.error);
+        setReport(result.success ? result.data : null);
+      } catch {
+        setError(SYNC_FAILED_MESSAGE);
+        setReport(null);
+      }
     });
 
   return (
@@ -49,14 +57,12 @@ export function SyncPanel() {
         Compares every Stripe subscription with the stored organisation billing state. It reports
         differences only; Stripe webhooks remain the only thing that changes a subscription.
       </p>
-      <div aria-live="polite">
-        {error ? (
-          <p role="alert" className="mt-3 text-sm text-destructive">
-            {error}
-          </p>
-        ) : null}
-        {report ? <SyncReport report={report} /> : null}
-      </div>
+      {error ? (
+        <p role="alert" className="mt-3 text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
+      <div aria-live="polite">{report ? <SyncReport report={report} /> : null}</div>
     </Panel>
   );
 }
@@ -76,9 +82,9 @@ function SyncReport({ report }: { report: SyncData }) {
       ) : null}
       {report.drifts.length > 0 ? (
         <ul className="divide-y divide-border rounded-lg border border-border">
-          {report.drifts.map((drift) => (
+          {report.drifts.map((drift, index) => (
             <li
-              key={`${drift.kind}:${drift.subscription_id ?? drift.organization_id}`}
+              key={`${index}:${drift.kind}:${drift.subscription_id ?? drift.organization_id}`}
               className="flex flex-wrap justify-between gap-2 px-3 py-2"
             >
               <span>{DRIFT_LABELS[drift.kind]}</span>

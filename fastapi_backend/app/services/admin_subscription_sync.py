@@ -6,8 +6,8 @@ drift and writes nothing but one audit row: the Stripe webhook (KAN-44) stays th
 writer of subscription state, so a sync can never overwrite newer webhook data with an
 older read. An admin fixes a reported organisation by replaying the Stripe event.
 
-Stripe is read first and the database afterwards, so no connection is held during the
-Stripe calls. Report size is bounded: at most ``MAX_PAGES`` Stripe pages, and at most
+The read transaction opened by the admin check is ended before Stripe is called, so no
+connection is held during the Stripe calls. Report size is bounded: at most ``MAX_PAGES`` Stripe pages, and at most
 ``MAX_DRIFTS`` drift items in the response (the counts are always complete for what
 was read; ``truncated`` says the read stopped at the page cap).
 """
@@ -149,21 +149,30 @@ class SubscriptionSyncService:
     async def reconcile(self, actor: AdminContext) -> SyncReport:
         if self.lister is None:
             raise SyncNotConfigured
-        snapshots, truncated = await self._read_stripe(self.lister)
+        await self.session.rollback()
+        try:
+            snapshots, truncated = await self._read_stripe(self.lister)
+        except SyncUnavailable:
+            await self._audit(actor, {"outcome": "unavailable"})
+            raise
         report = await self._compare(snapshots, truncated)
-        await self.auditor.record(
+        await self._audit(
             actor,
-            action=SYNC_ACTION,
-            resource="subscriptions",
-            details={
+            {
+                "outcome": "completed",
                 "stripe_subscriptions": report.stripe_subscriptions,
                 "in_sync": report.in_sync,
                 "drift_count": report.drift_count,
                 "truncated": report.truncated,
             },
         )
-        await self.session.commit()
         return report
+
+    async def _audit(self, actor: AdminContext, details: dict[str, object]) -> None:
+        await self.auditor.record(
+            actor, action=SYNC_ACTION, resource="subscriptions", details=details
+        )
+        await self.session.commit()
 
     @staticmethod
     async def _read_stripe(
@@ -218,13 +227,13 @@ class SubscriptionSyncService:
                 )
         if not truncated:
             seen = {s.id for s in snapshots}
-            missing = [
-                o
-                for o in await self.store.billed_subscriptions(
-                    BILLED, MAX_BILLED_LOOKUP
-                )
-                if o.stripe_subscription_id not in seen
-            ]
+            billed = await self.store.billed_subscriptions(
+                BILLED, MAX_BILLED_LOOKUP + 1
+            )
+            if len(billed) > MAX_BILLED_LOOKUP:
+                truncated = True  # too many local subscriptions to check them all
+                billed = billed[:MAX_BILLED_LOOKUP]
+            missing = [o for o in billed if o.stripe_subscription_id not in seen]
             drift_count += len(missing)
             for org in missing[: max(MAX_DRIFTS - len(drifts), 0)]:
                 drifts.append(

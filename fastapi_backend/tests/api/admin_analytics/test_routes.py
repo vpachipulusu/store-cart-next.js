@@ -231,7 +231,7 @@ async def test_sync_reports_drift_and_writes_one_audit_row_without_changing_data
     assert statuses == "active"
 
 
-async def test_sync_is_502_when_stripe_fails_and_writes_no_audit(
+async def test_sync_is_502_when_stripe_fails_and_audits_the_failure(
     client, engine, lister
 ):
     await seed_user(engine, "boss", "super_admin", ["*"])
@@ -244,7 +244,9 @@ async def test_sync_is_502_when_stripe_fails_and_writes_no_audit(
         "success": False,
         "error": "Billing provider unavailable",
     }
-    assert await audit_rows(engine) == []
+    audit = await audit_rows(engine, "admin.subscriptions.sync")
+    assert len(audit) == 1
+    assert audit[0].metadata["details"] == {"outcome": "unavailable"}
 
 
 async def test_sync_is_503_when_stripe_is_not_configured(client, engine):

@@ -1,4 +1,4 @@
-// en-US so USD reads $, GBP � and EUR �; en-GB would write US$.
+// en-US so USD reads as a dollar sign, GBP as a pound sign and EUR as a euro sign (en-GB writes US$).
 const LOCALE = 'en-US';
 
 /** Formats an amount in minor units (cents) using the currency's own number of decimals (JPY has none). */

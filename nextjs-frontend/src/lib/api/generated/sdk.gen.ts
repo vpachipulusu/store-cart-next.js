@@ -409,7 +409,9 @@ export const adminRevenue = <ThrowOnError extends boolean = false>(options?: Opt
 export const adminSystemStats = <ThrowOnError extends boolean = false>(options?: Options<AdminSystemStatsData, ThrowOnError>) => (options?.client ?? client).get<AdminSystemStatsResponses, AdminSystemStatsErrors, ThrowOnError>({ url: '/v1/admin/analytics/system', ...options });
 
 /**
- * Admin Sync Subscriptions
+ * Compare Stripe subscriptions with stored billing state
+ *
+ * Reads every Stripe subscription and reports where it differs from the organisations' stored state. Changes no subscription; writes one audit row. Limited to 3 runs a minute.
  */
 export const adminSyncSubscriptions = <ThrowOnError extends boolean = false>(options?: Options<AdminSyncSubscriptionsData, ThrowOnError>) => (options?.client ?? client).post<AdminSyncSubscriptionsResponses, AdminSyncSubscriptionsErrors, ThrowOnError>({ url: '/v1/admin/analytics/subscription-sync', ...options });
 
