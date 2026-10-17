@@ -150,6 +150,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
       - name: Compose up, then assert /api/health and /health
         run: scripts/compose-smoke.sh all
 
@@ -177,3 +178,27 @@ jobs:
             exit 1
           fi
           echo "CI gate passed."
+
+  timing:
+    # KAN-239: per-job and per-step durations of this run in the run summary. It runs after the
+    # gate and is not in its needs, so it can neither delay nor fail the required check.
+    name: Timing summary
+    needs: gate
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read # lists this run's jobs through the API
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Script tests
+        run: python3 -m unittest discover -s .github/scripts
+      - name: Write job and step timings
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+        run: python3 .github/scripts/ci_stats.py job-timing "$RUN_ID" >> "$GITHUB_STEP_SUMMARY"

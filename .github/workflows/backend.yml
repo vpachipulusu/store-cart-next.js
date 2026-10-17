@@ -9,34 +9,17 @@ permissions:
   contents: read
 
 jobs:
-  checks:
-    name: Ruff, mypy, pytest
+  lint:
+    # KAN-239: static checks run beside pytest instead of in front of it.
+    name: Ruff, mypy
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: fastapi_backend
-    # Throwaway database for the real-route end-to-end tests (KAN-44); the unit
-    # tests use fake database sessions and never connect (KAN-30). Each xdist
-    # worker creates its own database on this server (KAN-207).
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: storecart_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     env:
-      # CI-only values, not secrets: app.core.config requires them at import time.
+      # CI-only value, not a secret: app.core.config requires it at import time.
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/unused
-      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/storecart_test
       ENVIRONMENT: test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -63,17 +46,79 @@ jobs:
       - name: mypy
         run: uv run mypy
 
+  checks:
+    name: pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: fastapi_backend
+    env:
+      # CI-only values, not secrets: app.core.config requires them at import time.
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/unused
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/storecart_test
+      ENVIRONMENT: test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Throwaway database for the real-route end-to-end tests (KAN-44); the unit
+      # tests use fake database sessions and never connect (KAN-30). Each xdist
+      # worker creates its own database on this server (KAN-207). KAN-239: started
+      # by hand instead of as a service container so it can run with durability
+      # off and its data in memory (fsync, WAL flushes and disk writes dominate
+      # CREATE DATABASE and the migrations). The data is disposable by design.
+      - name: Start throwaway Postgres (durability off, data in memory)
+        working-directory: .
+        run: |
+          docker run --detach --name ci-postgres \
+            --env POSTGRES_USER=postgres --env POSTGRES_PASSWORD=postgres --env POSTGRES_DB=storecart_test \
+            --publish 127.0.0.1:5432:5432 --tmpfs /var/lib/postgresql/data:rw \
+            postgres:17 \
+            -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=200
+          for _ in $(seq 1 40); do
+            docker exec ci-postgres pg_isready -h 127.0.0.1 -U postgres -d storecart_test && exit 0
+            sleep 1
+          done
+          docker logs ci-postgres
+          echo '::error::throwaway Postgres did not become ready'
+          exit 1
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: '0.8.12'
+          enable-cache: true
+          cache-dependency-glob: fastapi_backend/uv.lock
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
       # fail_under in pyproject.toml ([tool.coverage.report]) is the coverage
       # ratchet: this step fails if coverage drops below it.
+      # KAN-239: --durations lists the 25 slowest tests in the log; the JUnit file
+      # feeds the slowest-files table in the run summary.
+      # COVERAGE_CORE=sysmon: coverage.py measures line coverage through Python 3.12's
+      # sys.monitoring instead of the settrace tracer (same numbers, less overhead per test).
       - name: pytest with coverage
-        run: uv run pytest -n auto --dist loadfile --cov --cov-report=term-missing:skip-covered --cov-report=xml
+        env:
+          COVERAGE_CORE: sysmon
+        run: >-
+          uv run pytest -n auto --dist loadfile
+          --cov --cov-report=term-missing:skip-covered --cov-report=xml
+          --durations=25 --durations-min=1.0
+          -o junit_family=xunit1 --junitxml=pytest-junit.xml
 
-      - name: Coverage summary
+      - name: Coverage and slowest-test summary
         if: always()
+        working-directory: .
         run: |
-          if [ -f coverage.xml ]; then
-            rate=$(grep -o 'line-rate="[0-9.]*"' coverage.xml | head -1 | grep -o '[0-9.]*')
+          if [ -f fastapi_backend/coverage.xml ]; then
+            rate=$(grep -o 'line-rate="[0-9.]*"' fastapi_backend/coverage.xml | head -1 | grep -o '[0-9.]*')
             echo "### Backend coverage: $(awk "BEGIN { printf \"%.2f\", ${rate} * 100 }")% lines" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f fastapi_backend/pytest-junit.xml ]; then
+            python3 .github/scripts/ci_stats.py slowest-junit fastapi_backend/pytest-junit.xml 15 >> "$GITHUB_STEP_SUMMARY"
           fi
 
   migrations:

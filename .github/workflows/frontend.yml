@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   checks:
-    name: Lint, typecheck, unit tests, build
+    name: Lint, typecheck, unit tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -28,14 +28,6 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: nextjs-frontend/package-lock.json
-
-      - name: Cache Next.js build cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: nextjs-frontend/.next/cache
-          key: nextjs-${{ runner.os }}-${{ hashFiles('nextjs-frontend/package-lock.json') }}-${{ hashFiles('nextjs-frontend/src/**', 'nextjs-frontend/next.config.ts') }}
-          restore-keys: |
-            nextjs-${{ runner.os }}-${{ hashFiles('nextjs-frontend/package-lock.json') }}-
 
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
@@ -72,11 +64,16 @@ jobs:
       # Runs unit and integration tests. The thresholds in vitest.config.ts are the
       # coverage ratchet: this step fails if coverage drops below them.
       - name: Unit and integration tests with coverage
-        run: npx vitest run --coverage --coverage.reporter=text --coverage.reporter=json-summary
+        run: >-
+          npx vitest run --coverage --coverage.reporter=text --coverage.reporter=json-summary
+          --reporter=default --reporter=junit --outputFile.junit=vitest-junit.xml
 
-      - name: Coverage summary
+      - name: Coverage and slowest-test summary
         if: always()
         run: |
+          if [ -f vitest-junit.xml ]; then
+            python3 ../.github/scripts/ci_stats.py slowest-junit vitest-junit.xml 15 >> "$GITHUB_STEP_SUMMARY"
+          fi
           if [ -f coverage/coverage-summary.json ]; then
             {
               echo '### Frontend coverage'
@@ -86,6 +83,38 @@ jobs:
               jq -r '.total | to_entries[] | select(.key != "branchesTrue") | "| \(.key) | \(.value.pct)% |"' coverage/coverage-summary.json
             } >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  build:
+    # KAN-239: the production build runs beside lint, typecheck and unit tests instead of after them.
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: nextjs-frontend
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: nextjs-frontend/package-lock.json
+
+      - name: Cache Next.js build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: nextjs-frontend/.next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('nextjs-frontend/package-lock.json') }}-${{ hashFiles('nextjs-frontend/src/**', 'nextjs-frontend/next.config.ts') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('nextjs-frontend/package-lock.json') }}-
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
 
       # Production build with public placeholders only: no
       # server secrets (KAN-140 made this work). These values are not secrets.

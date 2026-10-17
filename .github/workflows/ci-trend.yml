@@ -1,0 +1,31 @@
+# Weekly CI duration trend (KAN-239): p50 and p90 of successful run durations per workflow,
+# written to the run summary. Read-only: GITHUB_TOKEN with `actions: read`, no secrets.
+name: CI trend
+
+on:
+  schedule:
+    - cron: '17 6 * * 1' # Mondays 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trend:
+    name: Duration p50 and p90 per workflow
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read # lists workflow runs through the API
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Script tests
+        run: python3 -m unittest discover -s .github/scripts
+      - name: Write p50 and p90 per workflow (last 100 successful runs)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/ci_stats.py trend >> "$GITHUB_STEP_SUMMARY"
