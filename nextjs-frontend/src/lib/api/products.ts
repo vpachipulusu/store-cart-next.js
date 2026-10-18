@@ -4,7 +4,9 @@ import { logger } from '@/lib/logger';
 import { BACKEND_ERROR_MESSAGE, callBackend, type ApiResult } from './server';
 import type { Client } from './generated/client';
 import type { CategoryList } from '@/lib/products/categories';
+import type { ImageContentType } from '@/lib/products/image-upload';
 import {
+  addImage,
   addVariant,
   createProduct,
   deleteImage,
@@ -12,11 +14,14 @@ import {
   deleteVariant,
   listCategories,
   listProducts,
+  presignImageUpload,
   readProduct,
   updateProduct,
   updateVariant,
+  type AddImageRequest,
   type CategoryListResponse,
   type CreateProductRequest,
+  type ImageUploadData,
   type ProductData,
   type ProductListResponse,
   type UpdateProductRequest,
@@ -212,6 +217,57 @@ export async function deleteProductImage(
       client,
       path: { store_id: storeId, product_id: productId, image_id: imageId },
     })
+  );
+}
+
+/** What the browser needs for one direct upload. The URL's query string is a credential: never log it. */
+export type PresignedImageUpload = {
+  uploadUrl: string;
+  headers: Record<string, string>;
+  key: string;
+};
+
+/** Asks the backend to presign one PUT under this store's `stores/{id}/` prefix (KAN-66). */
+export async function presignProductImage(
+  storeId: string,
+  body: { contentType: ImageContentType; sizeBytes: number }
+): Promise<ApiResult<PresignedImageUpload>> {
+  const result = await callBackend((client) =>
+    presignImageUpload({
+      client,
+      path: { store_id: storeId },
+      body: { content_type: body.contentType, size_bytes: body.sizeBytes },
+    })
+  );
+  if (!result.success) return result;
+  // The body is `{ data: {...} }` without a `success` flag; accept an already unwrapped payload too.
+  const raw: unknown = result.data;
+  const payload = (
+    raw && typeof raw === 'object' && 'data' in raw ? (raw as { data: unknown }).data : raw
+  ) as Partial<ImageUploadData> | null;
+  if (
+    !payload ||
+    typeof payload.upload_url !== 'string' ||
+    typeof payload.key !== 'string' ||
+    payload.method !== 'PUT' ||
+    !payload.headers
+  ) {
+    return { success: false, error: PRODUCT_REQUEST_FAILED_MESSAGE, status: 502 };
+  }
+  return {
+    success: true,
+    data: { uploadUrl: payload.upload_url, headers: payload.headers, key: payload.key },
+  };
+}
+
+/** Registers an object already uploaded to the store's prefix as the product's next image. */
+export async function addProductImage(
+  storeId: string,
+  productId: string,
+  body: AddImageRequest
+): Promise<ApiResult<ProductData>> {
+  return callProduct((client) =>
+    addImage({ client, path: { store_id: storeId, product_id: productId }, body })
   );
 }
 
