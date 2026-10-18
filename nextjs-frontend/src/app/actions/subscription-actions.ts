@@ -129,6 +129,7 @@ type CheckoutFailureCode =
   | 'provider_unavailable'
   | 'not_allowed'
   | 'forbidden'
+  | 'session_expired'
   | 'backend_unavailable'
   | 'unknown';
 
@@ -142,7 +143,9 @@ const CHECKOUT_FAILURE_MESSAGES: Record<CheckoutFailureCode, string> = {
   provider_unavailable:
     'We could not reach our payment provider. Please try again in a few minutes.',
   not_allowed: 'Your organisation already has a subscription. Manage it from Billing settings.',
-  forbidden: 'Only an organisation owner or admin can change the plan.',
+  forbidden:
+    'We could not find a billing organisation you manage. Only an organisation owner or admin can change the plan.',
+  session_expired: 'Your session has expired. Please sign in again.',
   backend_unavailable: 'We could not reach the billing service. Please try again.',
   unknown: 'We could not start checkout. Please try again.',
 };
@@ -161,6 +164,8 @@ function classifyCheckoutFailure(error: string, status?: number): CheckoutFailur
       return 'provider_unavailable';
     case 409:
       return 'not_allowed';
+    case 401:
+      return 'session_expired';
     case 403:
     case 404:
       return 'forbidden';

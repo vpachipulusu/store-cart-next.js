@@ -285,6 +285,9 @@ async def test_failure_log_names_the_stripe_error_type_and_code_only(caplog):
     [
         {"code": "has space and 4242", "type": "x" * 80},
         {"code": ["list"], "type": 5},
+        {"code": "card_declined\nFAKE LINE", "type": "Bad Type"},
+        {"code": "Card_Declined", "type": ""},
+        {"code": "x" * 65, "type": "Bad Type"},
         "not-a-dict",
     ],
 )
@@ -299,6 +302,30 @@ async def test_failure_log_drops_unsafe_stripe_error_fields(caplog, error):
     assert "4242" not in logged
     assert "code=" not in logged
     assert "type=" not in logged
+
+
+async def test_failure_log_survives_a_non_json_error_body(caplog):
+    stripe = client_for(
+        lambda r: httpx.Response(502, content=b"<html>Bad gateway cus_1</html>")
+    )
+
+    with caplog.at_level("DEBUG"), pytest.raises(StripeError):
+        await stripe.get_subscription("sub_1")
+
+    logged = " ".join(record.getMessage() for record in caplog.records)
+    assert "status=502" in logged
+    assert "type=" not in logged
+    assert "cus_1" not in logged
+
+
+async def test_failure_log_keeps_a_64_character_token(caplog):
+    token = "a" * 64
+    stripe = client_for(lambda r: json_response({"error": {"code": token}}, 400))
+
+    with caplog.at_level("DEBUG"), pytest.raises(StripeError):
+        await stripe.get_subscription("sub_1")
+
+    assert f"code={token}" in " ".join(r.getMessage() for r in caplog.records)
 
 
 async def test_client_without_injected_transport_opens_its_own(monkeypatch):

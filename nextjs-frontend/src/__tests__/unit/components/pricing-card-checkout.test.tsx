@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -42,6 +42,11 @@ describe('PricingCard checkout', () => {
     vi.spyOn(window, 'alert').mockImplementation(() => undefined);
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
   it('shows the action message inline, never window.alert, and re-enables the button', async () => {
     mocks.createCheckoutSessionAction.mockResolvedValue({
       success: false,
@@ -81,6 +86,7 @@ describe('PricingCard checkout', () => {
     await userEvent.click(screen.getByRole('button', { name: /upgrade to pro/i }));
 
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /processing/i })).toBeDisabled();
   });
 
   it.each(['monthly', 'yearly'] as const)(
@@ -94,4 +100,77 @@ describe('PricingCard checkout', () => {
       expect(mocks.createCheckoutSessionAction).toHaveBeenCalledWith('pro', period);
     }
   );
+
+  it('uses a generic inline message when the action returns no error text', async () => {
+    mocks.createCheckoutSessionAction.mockResolvedValue({ success: false });
+    const button = renderPro();
+
+    await userEvent.click(button);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not start checkout/i);
+  });
+
+  it('redirects to Stripe and stays busy while the browser navigates', async () => {
+    const location = { href: 'https://app.test/pricing' };
+    vi.stubGlobal('location', location);
+    mocks.createCheckoutSessionAction.mockResolvedValue({
+      success: true,
+      data: { url: 'https://checkout.stripe.com/c/pay/cs_test' },
+    });
+    const button = renderPro();
+
+    await userEvent.click(button);
+
+    await waitFor(() => expect(location.href).toBe('https://checkout.stripe.com/c/pay/cs_test'));
+    expect(screen.getByRole('button', { name: /processing/i })).toBeDisabled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  describe('cards that never start a checkout', () => {
+    const FREE = { ...PRO, name: 'Free', price: 0, cta: 'Get started', href: '/signup' };
+    const ENTERPRISE = {
+      ...PRO,
+      name: 'Enterprise',
+      price: 90,
+      cta: 'Contact Sales',
+      href: '/contact',
+    };
+
+    it.each([
+      ['free card, signed in', FREE, true, 'pro'],
+      ['free card, signed out', FREE, false, undefined],
+      ['enterprise card, signed in', ENTERPRISE, true, 'free'],
+      ['enterprise card, signed out', ENTERPRISE, false, undefined],
+      ['pro card, signed out', PRO, false, undefined],
+    ])(
+      '%s does not call the checkout action or show an error',
+      async (_name, tier, isAuthenticated, userTier) => {
+        render(
+          <PricingCard
+            tier={tier}
+            currencySymbol="$"
+            isAuthenticated={isAuthenticated}
+            userTier={userTier}
+          />
+        );
+
+        const target = screen.getByRole('link');
+        target.addEventListener('click', (event) => event.preventDefault());
+        await userEvent.click(target);
+
+        expect(mocks.createCheckoutSessionAction).not.toHaveBeenCalled();
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      }
+    );
+
+    it.each(['pro', 'enterprise'])('pro card for a %s subscriber is disabled', async (userTier) => {
+      render(<PricingCard tier={PRO} currencySymbol="$" isAuthenticated userTier={userTier} />);
+
+      const button = screen.getByRole('button');
+      await userEvent.click(button);
+
+      expect(button).toBeDisabled();
+      expect(mocks.createCheckoutSessionAction).not.toHaveBeenCalled();
+    });
+  });
 });

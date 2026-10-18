@@ -148,9 +148,7 @@ def validate_return_url(url: str, origins: frozenset[str]) -> str:
 async def _stripe_call[T](call: Awaitable[T]) -> T:
     try:
         return await call
-    except StripeError as exc:
-        # Only the class (StripeRejected, StripeNotFound, ...): the message is generic by design.
-        logger.warning("billing stripe call failed: %s", type(exc).__name__)
+    except StripeError:
         raise BillingUnavailable from None
 
 

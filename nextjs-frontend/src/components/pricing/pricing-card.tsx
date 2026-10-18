@@ -53,9 +53,8 @@ export function PricingCard({
     // Pro tier with authenticated user
     if (isAuthenticated && tier.name === 'Pro') {
       e.preventDefault();
-      setIsLoading(true);
-
       setCheckoutError(null);
+      setIsLoading(true);
 
       try {
         // Create checkout session - price ID is resolved server-side

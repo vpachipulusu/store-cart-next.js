@@ -241,7 +241,9 @@ HANDLED = (
 def _http_error(exc: Exception) -> HTTPException:
     error = _mapped_error(exc)
     # The class and status name the cause for operators; the message and ids never reach the log.
-    logger.warning(
+    # Expected 4xx outcomes any signed-in user can trigger stay at INFO; 5xx are the operator signals.
+    logger.log(
+        logging.WARNING if error.status_code >= 500 else logging.INFO,
         "org billing request failed: cause=%s status=%s",
         type(exc).__name__,
         error.status_code,

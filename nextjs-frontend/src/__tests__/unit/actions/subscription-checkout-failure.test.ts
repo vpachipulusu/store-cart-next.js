@@ -98,9 +98,10 @@ describe('createCheckoutSessionAction failure causes', () => {
       /already/i,
     ],
     [{ error: 'Forbidden', status: 403 }, 'forbidden', /owner or admin/i],
+    [{ error: 'Invalid authentication', status: 401 }, 'session_expired', /sign in again/i],
     [{ error: 'Organization not found', status: 404 }, 'forbidden', /owner or admin/i],
-    [{ error: 'Backend unavailable' }, 'backend_unavailable', /try again/i],
-    [{ error: 'Request failed', status: 500 }, 'unknown', /try again/i],
+    [{ error: 'Backend unavailable' }, 'backend_unavailable', /reach the billing service/i],
+    [{ error: 'Request failed', status: 500 }, 'unknown', /could not start checkout/i],
   ])('maps %j to %s with a curated message and a cause log', async (failure, code, message) => {
     mocks.startBillingCheckout.mockResolvedValue({ success: false, ...failure });
 
@@ -108,11 +109,21 @@ describe('createCheckoutSessionAction failure causes', () => {
 
     expect(result).toMatchObject({ success: false, code });
     expect(result.error).toMatch(message);
+    expect(result.error).not.toContain((failure as { error: string }).error);
     expect(mocks.loggerError).toHaveBeenCalledWith(
       'Create checkout session failed:',
       expect.objectContaining({ code, status: (failure as { status?: number }).status })
     );
     expect(mocks.cookieSet).not.toHaveBeenCalled();
+  });
+
+  it('passes the enterprise plan through and classifies its failures the same way', async () => {
+    mocks.startBillingCheckout.mockResolvedValue({ success: false, error: 'x', status: 502 });
+
+    const result = await createCheckoutSessionAction('enterprise', 'yearly');
+
+    expect(mocks.startBillingCheckout.mock.calls[0].slice(0, 2)).toEqual(['enterprise', 'yearly']);
+    expect(result).toMatchObject({ success: false, code: 'provider_unavailable' });
   });
 
   it('reports a missing return-url setting with its own code', async () => {

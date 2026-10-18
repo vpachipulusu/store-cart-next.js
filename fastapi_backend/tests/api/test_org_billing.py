@@ -415,32 +415,42 @@ async def test_malformed_payment_method_id_is_422(harness):
     assert result.status_code == 422
 
 
-async def test_checkout_failures_log_the_cause_class_and_status(harness, caplog):
+def billing_records(caplog) -> list[logging.LogRecord]:
+    return [r for r in caplog.records if r.name == "app.api.v1.org_billing"]
+
+
+async def test_expected_checkout_rejections_log_cause_and_status_at_info(
+    harness, caplog
+):
     harness.store.orgs["org1"] = org_record(stripe_customer_id="cus_1")
 
-    with caplog.at_level(logging.WARNING, logger="app.api.v1.org_billing"):
+    with caplog.at_level(logging.INFO, logger="app.api.v1.org_billing"):
         async with client(harness) as http:
             await http.post(
                 f"{BASE}/checkout",
                 json={**CHECKOUT_BODY, "success_url": "https://evil.example.com/x"},
             )
 
-    assert "InvalidReturnUrl" in caplog.text
-    assert "status=422" in caplog.text
-    assert "evil.example.com" not in caplog.text
+    (record,) = billing_records(caplog)
+    assert record.levelno == logging.INFO
+    assert record.getMessage() == (
+        "org billing request failed: cause=InvalidReturnUrl status=422"
+    )
     assert "cus_1" not in caplog.text
 
 
-async def test_stripe_failure_log_names_the_stripe_error_class(harness, caplog):
+async def test_stripe_failure_logs_cause_and_status_at_warning(harness, caplog):
     harness.store.orgs["org1"] = org_record(stripe_customer_id="cus_1")
     harness.stripe.fail = True
 
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.INFO, logger="app.api.v1.org_billing"):
         async with client(harness) as http:
             result = await http.post(f"{BASE}/checkout", json=CHECKOUT_BODY)
 
     assert result.status_code == 502
-    assert "BillingUnavailable" in caplog.text
-    assert "status=502" in caplog.text
-    assert "StripeError" in caplog.text
+    (record,) = billing_records(caplog)
+    assert record.levelno == logging.WARNING
+    assert record.getMessage() == (
+        "org billing request failed: cause=BillingUnavailable status=502"
+    )
     assert "cus_1" not in caplog.text
