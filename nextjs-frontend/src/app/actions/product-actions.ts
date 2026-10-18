@@ -3,11 +3,14 @@
 import { revalidatePath } from 'next/cache';
 import type { ZodType, ZodTypeDef } from 'zod';
 import {
+  addProductImage,
   addProductVariant,
   createStoreProduct,
   deleteProductImage,
   deleteProductVariant,
   deleteStoreProduct,
+  PRODUCT_REQUEST_FAILED_MESSAGE,
+  presignProductImage,
   productErrorMessage,
   updateProductVariant,
   updateStoreProduct,
@@ -16,6 +19,7 @@ import {
 import { logger } from '@/lib/logger';
 import { getCurrentStoreSelection } from '@/lib/stores/current';
 import { STORES_UNAVAILABLE_MESSAGE } from '@/lib/stores/selection';
+import { altTextSchema, isStoreImageKey, presignRequestSchema } from '@/lib/products/image-upload';
 import {
   createProductSchema,
   fieldErrors,
@@ -45,6 +49,8 @@ export type ProductActionResponse<T = ProductData> =
 const NO_STORE_MESSAGE = 'Select a store before managing products.';
 const INVALID_INPUT_MESSAGE = 'Check the highlighted fields and try again.';
 const INVALID_ID_MESSAGE = 'That item could not be found.';
+const INVALID_IMAGE_KEY_MESSAGE =
+  'That upload does not belong to this store. Choose the image again.';
 
 type Resolved = { ok: true; storeId: string } | { ok: false; error: string };
 
@@ -202,6 +208,67 @@ export async function deleteVariantAction(
 
   const result = await deleteProductVariant(store.storeId, productId, variantId);
   if (!result.success) return backendFailure('delete-variant', result);
+  refresh(productId);
+  return { success: true, data: result.data };
+}
+
+export type ImageUploadTicket = { uploadUrl: string; headers: Record<string, string>; key: string };
+
+/** The presigned URL must be https (plain http only for a local test endpoint). */
+function isSafeUploadUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if (url.protocol === 'https:') return true;
+    return url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Step 1 of an image upload: validates type and size, then asks the backend for a presigned PUT under the
+ * selected store's prefix. The browser sends the file straight to storage; the file never passes through here.
+ * The returned URL is a credential: it is handed to the caller and never logged.
+ */
+export async function presignImageUploadAction(
+  productId: string,
+  input: { contentType: string; sizeBytes: number }
+): Promise<ProductActionResponse<ImageUploadTicket>> {
+  if (!isEntityId(productId)) return fail(INVALID_ID_MESSAGE);
+  const parsed = presignRequestSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? INVALID_INPUT_MESSAGE);
+  const store = await resolveStore();
+  if (!store.ok) return fail(store.error);
+
+  const result = await presignProductImage(store.storeId, parsed.data);
+  if (!result.success) return backendFailure('presign-image', result);
+  const ticket = result.data;
+  if (!isStoreImageKey(store.storeId, ticket.key) || !isSafeUploadUrl(ticket.uploadUrl)) {
+    logger.warn('Product action failed', { action: 'presign-image', status: 502 });
+    return fail(PRODUCT_REQUEST_FAILED_MESSAGE);
+  }
+  return { success: true, data: ticket };
+}
+
+/** Step 3: registers the uploaded object on the product. The key must sit under the selected store's prefix. */
+export async function addImageAction(
+  productId: string,
+  input: { storageKey: string; altText?: string | null }
+): Promise<ProductActionResponse> {
+  if (!isEntityId(productId)) return fail(INVALID_ID_MESSAGE);
+  const alt = altTextSchema.safeParse(input.altText);
+  if (!alt.success) {
+    return fail(INVALID_INPUT_MESSAGE, { altText: alt.error.issues[0]?.message ?? '' });
+  }
+  const store = await resolveStore();
+  if (!store.ok) return fail(store.error);
+  if (!isStoreImageKey(store.storeId, input.storageKey)) return fail(INVALID_IMAGE_KEY_MESSAGE);
+
+  const result = await addProductImage(store.storeId, productId, {
+    storage_key: input.storageKey,
+    alt_text: alt.data as string | null,
+  });
+  if (!result.success) return backendFailure('add-image', result);
   refresh(productId);
   return { success: true, data: result.data };
 }

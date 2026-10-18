@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   updateVariantAction: vi.fn(),
   deleteVariantAction: vi.fn(),
   deleteImageAction: vi.fn(),
+  addImageAction: vi.fn(),
+  presignImageUploadAction: vi.fn(),
 }));
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }));
@@ -30,6 +32,8 @@ vi.mock('@/app/actions/product-actions', () => ({
   updateVariantAction: mocks.updateVariantAction,
   deleteVariantAction: mocks.deleteVariantAction,
   deleteImageAction: mocks.deleteImageAction,
+  addImageAction: mocks.addImageAction,
+  presignImageUploadAction: mocks.presignImageUploadAction,
 }));
 
 import { CategoriesField } from '@/components/dashboard/products/categories-field';
@@ -341,7 +345,7 @@ describe('ProductEditor', () => {
     expect(mocks.addVariantAction).not.toHaveBeenCalled();
   });
 
-  it('lists images with a remove action and no upload control', async () => {
+  it('lists images with a remove action and an add image form', async () => {
     const user = userEvent.setup();
     mocks.deleteImageAction.mockResolvedValue({
       success: true,
@@ -350,8 +354,7 @@ describe('ProductEditor', () => {
     render(<ProductEditor initial={makeProduct()} categories={null} />);
 
     expect(screen.getByText('stores/s1/img.png')).toBeInTheDocument();
-    expect(screen.getByText(/uploading new images .* is not available yet/i)).toBeInTheDocument();
-    expect(screen.queryByLabelText(/upload/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('form', { name: 'Add image' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Remove image 1' }));
     await user.click(screen.getByRole('button', { name: 'Remove image' }));

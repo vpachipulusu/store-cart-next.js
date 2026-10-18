@@ -5,11 +5,11 @@ import { deleteImageAction } from '@/app/actions/product-actions';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import type { ProductData } from '@/lib/api/products';
 import { ConfirmButton } from './confirm-button';
+import { ImageUploadForm } from './image-upload-form';
 
 /**
- * Images already attached to the product. Adding is not offered: it needs a browser upload to storage, which is
- * not decided yet, so only removal is available. The public image address is not known to the dashboard, so
- * each image shows by its alt text and storage key.
+ * Images attached to the product, with "Add image" (browser upload, KAN-249) and removal. The public image
+ * address is not known to the dashboard, so each image shows by its alt text and storage key.
  */
 export function ImagesPanel({
   product,
@@ -37,10 +37,7 @@ export function ImagesPanel({
 
   return (
     <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">
-        Uploading new images from the dashboard is not available yet. You can remove images that are
-        already attached.
-      </p>
+      <ImageUploadForm product={product} onUpdated={onUpdated} />
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
