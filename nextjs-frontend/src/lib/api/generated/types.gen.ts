@@ -2483,6 +2483,12 @@ export type StuckStoresPage = {
      * Stuck After Minutes
      */
     stuck_after_minutes: number;
+    /**
+     * Truncated
+     *
+     * True when more stuck stores exist than the page holds.
+     */
+    truncated: boolean;
 };
 
 /**

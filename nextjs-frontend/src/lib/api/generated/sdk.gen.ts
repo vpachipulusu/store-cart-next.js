@@ -331,7 +331,7 @@ export const adminListStores = <ThrowOnError extends boolean = false>(options?: 
 /**
  * List stores stuck in PROVISIONING
  *
- * Stores PROVISIONING for over 15 minutes with no change (KAN-248), oldest first.
+ * Stores PROVISIONING for over `stuck_after_minutes` with no change (KAN-248), oldest first.
  *
  * Mark one FAILED with `fail-stuck`, then re-run it with `reprovision` (or the
  * merchant's own retry).

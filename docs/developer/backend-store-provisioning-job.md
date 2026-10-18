@@ -62,9 +62,9 @@ service. In production check, in this order:
    origin QStash calls, for example `https://<production domain>`, https, no path, no trailing slash, identical to the
    domain the rewrite is served on), `STORE_DB_PROVIDER=neon`, `NEON_API_KEY`, `NEON_PROJECT_ID`, `NEON_BRANCH_ID`,
    `NEON_ROLE_NAME`, `STORE_DB_ENCRYPTION_KEY`.
-3. **Deployment Protection.** QStash sends no Vercel bypass header. The production domain must not be behind
-   Vercel Authentication or a password; if it is, add a protection-bypass exception for `/internal/provisioning/*` or
-   turn protection off for Production.
+3. **Deployment Protection.** QStash sends no Vercel bypass header. If the production domain is behind Vercel
+   Authentication or a password, add a protection-bypass exception for `/internal/provisioning/*` only; do not turn
+   protection off. (The routes are safe to expose: every request must carry a valid QStash signature.)
 4. **Readiness.** `GET /health/ready` (header `X-Internal-Key`) returns `provisioning: {ready, missing}`; `missing` lists
    variable NAMES only. The backend also logs `store provisioning is not configured; missing: ...` at start. Neither
    can see the routing or protection problems above.
@@ -98,11 +98,14 @@ The threshold must stay above the longest single step (`updated_at` moves only w
 failing a store whose old QStash retries are still pending can let that run's late failure callback fail the re-run
 (callbacks do not carry the attempt). Both are accepted for now; the 15-minute margin is large against seconds-long steps.
 
-- `GET /v1/admin/stores/stuck` (`stores.read`) lists them, oldest first, with `minutes_stuck`.
+- `GET /v1/admin/stores/stuck` (`stores.read`) lists them, oldest first, with `minutes_stuck` and `truncated` (more than 100 stuck stores). Ages use the app clock against the database
+  `updated_at`; a skew of a minute or two is absorbed by the 15-minute margin.
 - `POST /v1/admin/stores/{id}/fail-stuck` (`stores.reprovision`) marks one `FAILED` (audit row
   `admin.stores.fail_stuck`); 409 when it is not `PROVISIONING` or changed within 15 minutes.
 - `POST /v1/admin/stores/{id}/reprovision` and the merchant's `POST /v1/stores/{id}/retry-provisioning` accept a stuck
-  store: they fail it first, then re-run it (counted in the attempt cap). The onboarding status page offers "Retry setup"
+  store: they fail it first, then re-run it. The fail commits on its own (not counted in the cap of 3; the re-run is), so
+  when the cap is reached or the enqueue fails the store stays `FAILED` and the caller gets 409/502. The merchant route
+  keeps its OWNER/ADMIN check. The onboarding status page offers "Retry setup"
   once it stops polling.
 
 ## Local development

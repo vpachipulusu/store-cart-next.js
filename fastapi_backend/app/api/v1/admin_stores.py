@@ -66,6 +66,7 @@ router = APIRouter(
     },
 )
 
+STUCK_AFTER_MINUTES = int(STUCK_AFTER.total_seconds() // 60)
 IDENTIFIER_PATTERN = r"^[A-Za-z0-9_-]+$"
 IDENTIFIER_MAX_LENGTH = 128
 DEFAULT_PAGE_SIZE = 20
@@ -104,7 +105,8 @@ _REPROVISION_RESPONSES: dict[int | str, dict[str, Any]] = {
     **_NOT_FOUND,
     409: {
         "model": ErrorResponse,
-        "description": "The store is not FAILED (or not yet stuck for 15 minutes), or it was already re-run the "
+        "description": "The store is not FAILED (or not yet stuck for "
+        f"{STUCK_AFTER_MINUTES} minutes), or it was already re-run the "
         "maximum number of times (`MAX_REPROVISION_ATTEMPTS`).",
     },
     502: {
@@ -199,6 +201,9 @@ class StuckStore(StoreSummary):
 class StuckStoresPage(BaseModel):
     stores: list[StuckStore]
     stuck_after_minutes: int
+    truncated: bool = Field(
+        description="True when more stuck stores exist than the page holds."
+    )
 
 
 class StuckStoresResponse(BaseModel):
@@ -429,13 +434,13 @@ async def admin_list_stores(
 async def admin_list_stuck_stores(
     response: Response, _admin: ReadAdmin, service: ServiceDep
 ) -> StuckStoresResponse:
-    """Stores PROVISIONING for over 15 minutes with no change (KAN-248), oldest first.
+    """Stores PROVISIONING for over `stuck_after_minutes` with no change (KAN-248), oldest first.
 
     Mark one FAILED with `fail-stuck`, then re-run it with `reprovision` (or the
     merchant's own retry).
     """
     _no_store(response)
-    records = await service.list_stuck()
+    stuck = await service.list_stuck()
     return StuckStoresResponse(
         data=StuckStoresPage(
             stores=[
@@ -443,9 +448,10 @@ async def admin_list_stuck_stores(
                     **_store(item.store).model_dump(),
                     minutes_stuck=item.minutes_stuck,
                 )
-                for item in records
+                for item in stuck.items
             ],
-            stuck_after_minutes=int(STUCK_AFTER.total_seconds() // 60),
+            stuck_after_minutes=STUCK_AFTER_MINUTES,
+            truncated=stuck.truncated,
         )
     )
 

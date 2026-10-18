@@ -14,6 +14,9 @@ import pytest
 from app.services.store_provisioning_job import FAILED_PATH, STEP_PATH
 
 VERCEL_JSON = Path(__file__).resolve().parents[3] / "vercel.json"
+pytestmark = pytest.mark.skipif(
+    not VERCEL_JSON.exists(), reason="root vercel.json is not in this checkout"
+)
 BACKEND_SERVICE = "fastapi_backend"
 
 
@@ -25,7 +28,7 @@ def _destination_service(path: str) -> str | None:
     """The service of the first rewrite whose source matches ``path``."""
     for rule in _rewrites():
         source = str(rule["source"])
-        if re.fullmatch(source.replace("(.*)", ".*"), path):
+        if re.fullmatch(re.escape(source).replace(re.escape("(.*)"), ".*"), path):
             destination = rule["destination"]
             assert isinstance(destination, dict)
             return str(destination["service"])
@@ -56,3 +59,13 @@ def test_the_rewrite_exposes_only_the_two_qstash_routes() -> None:
         STEP_PATH,
         FAILED_PATH,
     }
+
+
+def test_every_exposed_route_verifies_the_qstash_signature() -> None:
+    import inspect
+
+    from app.api.v1.internal_provisioning import router
+
+    for route in router.routes:
+        source = inspect.getsource(route.endpoint)  # type: ignore[attr-defined]
+        assert "_verified_body(" in source, route.path

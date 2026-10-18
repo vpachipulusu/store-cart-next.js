@@ -4835,7 +4835,7 @@
           "admin-stores"
         ],
         "summary": "List stores stuck in PROVISIONING",
-        "description": "Stores PROVISIONING for over 15 minutes with no change (KAN-248), oldest first.\n\nMark one FAILED with `fail-stuck`, then re-run it with `reprovision` (or the\nmerchant's own retry).",
+        "description": "Stores PROVISIONING for over `stuck_after_minutes` with no change (KAN-248), oldest first.\n\nMark one FAILED with `fail-stuck`, then re-run it with `reprovision` (or the\nmerchant's own retry).",
         "operationId": "admin_list_stuck_stores",
         "parameters": [
           {
@@ -16744,12 +16744,18 @@
           "stuck_after_minutes": {
             "type": "integer",
             "title": "Stuck After Minutes"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated",
+            "description": "True when more stuck stores exist than the page holds."
           }
         },
         "type": "object",
         "required": [
           "stores",
-          "stuck_after_minutes"
+          "stuck_after_minutes",
+          "truncated"
         ],
         "title": "StuckStoresPage"
       },

@@ -186,6 +186,12 @@ class StuckStoreRecord:
 
 
 @dataclass(frozen=True)
+class StuckStores:
+    items: list[StuckStoreRecord]
+    truncated: bool
+
+
+@dataclass(frozen=True)
 class MigrateResult:
     previous_version: int
     schema_version: int
@@ -229,14 +235,25 @@ class AdminStoresService:
             filters, min(max(limit, 1), MAX_PAGE_SIZE), max(offset, 0)
         )
 
-    async def list_stuck(self) -> list[StuckStoreRecord]:
-        """Stores PROVISIONING for longer than ``STUCK_AFTER`` without any change."""
+    async def list_stuck(self) -> StuckStores:
+        """Stores PROVISIONING for longer than ``STUCK_AFTER`` without any change.
+
+        The age is the app clock against the database's ``updated_at``: a skew of a
+        minute or two moves the cutoff by that much, which the 15-minute margin absorbs.
+        """
         now = self._clock()
-        records = await self.repository.list_stuck(now - STUCK_AFTER, MAX_STUCK_LISTED)
-        return [
-            StuckStoreRecord(r, max(0, int((now - r.updated_at).total_seconds() // 60)))
-            for r in records
-        ]
+        records = await self.repository.list_stuck(
+            now - STUCK_AFTER, MAX_STUCK_LISTED + 1
+        )
+        return StuckStores(
+            [
+                StuckStoreRecord(
+                    r, max(0, int((now - r.updated_at).total_seconds() // 60))
+                )
+                for r in records[:MAX_STUCK_LISTED]
+            ],
+            truncated=len(records) > MAX_STUCK_LISTED,
+        )
 
     async def fail_stuck(self, actor: AdminContext, store_id: str) -> StatusResult:
         """PROVISIONING for over ``STUCK_AFTER`` becomes FAILED (audited).
@@ -292,9 +309,17 @@ class AdminStoresService:
         """Re-run provisioning of a FAILED store: the one cap-and-requeue path.
 
         Used by the admin route and by the merchant retry (KAN-242; ``kind`` only names
-        the audit actions). A store stuck in PROVISIONING is failed first (KAN-248). The cap counts both kinds of audit row. FAILED to
+        the audit actions). The cap counts both kinds of audit row. FAILED to
         PROVISIONING is a single conditional UPDATE, so of two concurrent callers only
         one queues a chain.
+
+        A store stuck in PROVISIONING (``STUCK_AFTER``) is failed first (KAN-248): that
+        commits on its own (audit row ``admin.stores.fail_stuck``, not counted in the
+        cap) and releases the row lock, which is taken again for the re-run. If the cap
+        is then reached, or the enqueue fails, the store stays FAILED and the caller
+        gets the 409/502: the honest state of a store that made no progress. The
+        merchant route keeps its OWNER/ADMIN check; only the identity in the audit rows
+        is shared.
         """
         record = await self.repository.get_store(store_id, lock=True)
         if record is None:

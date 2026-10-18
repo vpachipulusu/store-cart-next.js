@@ -13,6 +13,8 @@ from app.services.store_sessions import (
     StoreNotFound,
 )
 
+SENTINEL_DSN = "postgresql://sentinel-user:sentinel-pw@db.invalid/secret"
+
 
 async def _open(monkeypatch: pytest.MonkeyPatch, error: Exception) -> HTTPException:
     @asynccontextmanager
@@ -43,9 +45,14 @@ async def test_log_message_names_the_cause_and_the_body_stays_generic(
     caplog: pytest.LogCaptureFixture,
     error: Exception,
 ) -> None:
+    error.args = (
+        *error.args,
+        SENTINEL_DSN,
+    )  # a message that echoes a DSN must not be logged
     raised = await _open(monkeypatch, error)
 
     out = caplog.text
     assert raised.status_code == 503 and raised.detail == STORE_UNAVAILABLE
+    assert SENTINEL_DSN not in str(raised.detail)
     assert f"store database unavailable: {type(error).__name__}" in out
-    assert "postgres" not in out
+    assert SENTINEL_DSN not in out and "sentinel-pw" not in out

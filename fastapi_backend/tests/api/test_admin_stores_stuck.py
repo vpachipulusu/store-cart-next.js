@@ -8,7 +8,7 @@ from app.api.v1.admin_stores import get_admin_stores_service
 from app.models.platform.store import StoreStatus
 from app.services.admin_stores import STUCK_AFTER, AdminStoresService
 from tests.api.test_admin_stores import Harness
-from tests.fakes_admin_stores import NOW, no_start
+from tests.fakes_admin_stores import NOW, no_start, store
 
 
 class StuckHarness(Harness):
@@ -50,6 +50,7 @@ async def test_lists_stores_provisioning_longer_than_the_threshold(stuck):
     body = result.json()["data"]
     assert [s["id"] for s in body["stores"]] == ["new"]
     assert body["stuck_after_minutes"] == 15
+    assert body["truncated"] is False
     assert body["stores"][0]["minutes_stuck"] == 16
     assert "database_ref" not in str(body)
 
@@ -116,3 +117,16 @@ async def test_fail_stuck_needs_stores_reprovision(stuck, actor):
 
     assert result.status_code == 403
     assert stuck.repository.stores["new"].status is StoreStatus.PROVISIONING
+
+
+async def test_reports_when_more_stores_are_stuck_than_the_page_holds(
+    stuck, monkeypatch
+):
+    monkeypatch.setattr("app.services.admin_stores.MAX_STUCK_LISTED", 1)
+    stuck.repository.stores["new2"] = store("new2", status=StoreStatus.PROVISIONING)
+    async with stuck.client("reader") as client:
+        result = await client.get("/v1/admin/stores/stuck")
+
+    body = result.json()["data"]
+    assert len(body["stores"]) == 1
+    assert body["truncated"] is True
