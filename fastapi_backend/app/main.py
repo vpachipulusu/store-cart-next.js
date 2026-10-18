@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import FastAPI
 
 from app.api.ids import simple_generate_unique_route_id
@@ -7,12 +9,23 @@ from app.core.errors import ERROR_RESPONSES, register_error_handlers
 from app.core.logging import configure_logging
 from app.core.request_id import RequestIdMiddleware
 from app.core.sentry import init_sentry
+from app.services.provisioning_readiness import check_provisioning_settings
+
+logger = logging.getLogger("storecart.startup")
 
 
 def create_app() -> FastAPI:
     configure_logging(settings.LOG_LEVEL)
     # Before the app is built so the SDK can instrument Starlette. No-op without a DSN.
     init_sentry(settings)
+
+    # New stores stay PROVISIONING when these are missing (KAN-248): names only.
+    readiness = check_provisioning_settings(settings)
+    if not readiness.ready:
+        logger.warning(
+            "store provisioning is not configured; missing: %s",
+            ", ".join(readiness.missing),
+        )
 
     # The backend URL is public, so production serves no schema or docs UI
     # (ADR-003). `app.openapi()` still works for the schema generation command.
