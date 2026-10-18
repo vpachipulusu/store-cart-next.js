@@ -27,6 +27,8 @@ export function nextPollDelay(attempt: number): number {
 const UNAVAILABLE_MESSAGE = 'This store is not available right now.';
 const SLOW_MESSAGE = 'Setting up your store is taking longer than expected.';
 const CHECK_FAILED_MESSAGE = 'We could not check your store. Please try again.';
+const TOO_SOON_MESSAGE =
+  'Your store is still being set up. Please wait a few minutes, then try again.';
 const RETRY_LIMIT_MESSAGE = 'We have already tried the maximum number of times.';
 const RETRY_MESSAGES = {
   rate_limited: 'Too many attempts. Wait a few minutes and try again.',
@@ -145,6 +147,8 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
   };
 
   const focusStatusRegion = () => statusRegionRef.current?.focus();
+  /** Polling gave up while the store was still PROVISIONING: the job may have stopped (KAN-248). */
+  const stalled = status === 'PROVISIONING' && problem === SLOW_MESSAGE;
 
   /** Re-runs the job (KAN-242). Success shows the normal setting-up progress and polls until it settles. */
   const handleSetupRetry = async () => {
@@ -170,6 +174,9 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
         setRetryProblem(RETRY_MESSAGES.forbidden);
         setRetryForbidden(true);
         focusStatusRegion();
+      } else if (stalled && result.reason === 'not_failed') {
+        // Setup is slow but not given up on yet: the backend only re-runs a store after a quiet spell.
+        setRetryProblem(TOO_SOON_MESSAGE);
       } else if (result.reason === 'not_failed' || result.reason === 'not_found') {
         // The store changed under us: show what it is now instead of guessing.
         checkedFromFailedRef.current = false;
@@ -237,6 +244,13 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
               Needs attention
             </StatusPill>
             <p className="font-medium">{message}</p>
+            {stalled && (
+              <p className="text-sm text-muted-foreground">
+                You can retry the setup below. Nothing you entered has been lost.
+              </p>
+            )}
+            {stalled && retryProblem !== null && <p className="text-sm">{retryProblem}</p>}
+            {stalled && retryLimitReached && <p className="text-sm">{RETRY_LIMIT_MESSAGE}</p>}
           </>
         ) : ready ? (
           <>
@@ -279,7 +293,7 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
       )}
       {needsAttention && (
         <div className="flex flex-wrap items-center gap-3">
-          {provisioningFailed && !retryLimitReached && !retryForbidden && (
+          {(provisioningFailed || stalled) && !retryLimitReached && !retryForbidden && (
             <Button
               type="button"
               onClick={() => void handleSetupRetry()}

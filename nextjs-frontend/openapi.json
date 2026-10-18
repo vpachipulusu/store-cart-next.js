@@ -53,7 +53,7 @@
           "health"
         ],
         "summary": "Readiness Check",
-        "description": "Readiness check: 200 when the database answers, 503 otherwise.\n\nNeeds the service key (KAN-247): it queries the database, so it must not be an\nopen probe on a public URL. Liveness (`/health`) stays open.\n\nRedis is deliberately not checked: rate limiting fails open, so a Redis blip\nmust not take the service out of rotation.",
+        "description": "Readiness check: 200 when the database answers, 503 otherwise.\n\nNeeds the service key (KAN-247): it queries the database, so it must not be an\nopen probe on a public URL. Liveness (`/health`) stays open.\n\n``provisioning`` names the store provisioning settings that are missing (KAN-248),\nnever their values. It is a diagnostic: it does not change the status code.\n\nRedis is deliberately not checked: rate limiting fails open, so a Redis blip\nmust not take the service out of rotation.",
         "operationId": "readiness_check",
         "parameters": [
           {
@@ -79,7 +79,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HealthResponse"
+                  "$ref": "#/components/schemas/ReadyResponse"
                 }
               }
             }
@@ -4829,6 +4829,269 @@
         }
       }
     },
+    "/v1/admin/stores/stuck": {
+      "get": {
+        "tags": [
+          "admin-stores"
+        ],
+        "summary": "List stores stuck in PROVISIONING",
+        "description": "Stores PROVISIONING for over 15 minutes with no change (KAN-248), oldest first.\n\nMark one FAILED with `fail-stuck`, then re-run it with `reprovision` (or the\nmerchant's own retry).",
+        "operationId": "admin_list_stuck_stores",
+        "parameters": [
+          {
+            "name": "X-Internal-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Key"
+            }
+          },
+          {
+            "name": "X-Session-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StuckStoresResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Rate limiter unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/v1/admin/stores/{store_id}/fail-stuck": {
+      "post": {
+        "tags": [
+          "admin-stores"
+        ],
+        "summary": "Mark a store stuck in PROVISIONING as FAILED",
+        "operationId": "admin_fail_stuck_store",
+        "parameters": [
+          {
+            "name": "store_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "title": "Store Id"
+            }
+          },
+          {
+            "name": "X-Internal-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Key"
+            }
+          },
+          {
+            "name": "X-Session-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoreStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The change or its audit row could not be recorded and was rolled back. Retry after `Retry-After` seconds (5). Also returned when the rate limiter is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "No such store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The store's status does not allow this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/admin/stores/{store_id}/suspend": {
       "post": {
         "tags": [
@@ -5415,7 +5678,7 @@
             }
           },
           "409": {
-            "description": "The store is not FAILED, or it was already re-run the maximum number of times (`MAX_REPROVISION_ATTEMPTS`).",
+            "description": "The store is not FAILED (or not yet stuck for 15 minutes), or it was already re-run the maximum number of times (`MAX_REPROVISION_ATTEMPTS`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -15665,6 +15928,44 @@
         ],
         "title": "ProfileResponse"
       },
+      "ProvisioningSettingsStatus": {
+        "properties": {
+          "ready": {
+            "type": "boolean",
+            "title": "Ready"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ready",
+          "missing"
+        ],
+        "title": "ProvisioningSettingsStatus"
+      },
+      "ReadyResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "provisioning": {
+            "$ref": "#/components/schemas/ProvisioningSettingsStatus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "provisioning"
+        ],
+        "title": "ReadyResponse"
+      },
       "RefundData": {
         "properties": {
           "organization_id": {
@@ -16369,6 +16670,106 @@
           "data"
         ],
         "title": "StorefrontResponse"
+      },
+      "StuckStore": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "organization_id": {
+            "type": "string",
+            "title": "Organization Id"
+          },
+          "organization_name": {
+            "type": "string",
+            "title": "Organization Name"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "status": {
+            "$ref": "#/components/schemas/StoreStatus"
+          },
+          "schema_version": {
+            "type": "integer",
+            "title": "Schema Version",
+            "description": "Store migrations applied."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "minutes_stuck": {
+            "type": "integer",
+            "title": "Minutes Stuck",
+            "description": "Whole minutes since the last change."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "organization_id",
+          "organization_name",
+          "name",
+          "slug",
+          "status",
+          "schema_version",
+          "created_at",
+          "updated_at",
+          "minutes_stuck"
+        ],
+        "title": "StuckStore"
+      },
+      "StuckStoresPage": {
+        "properties": {
+          "stores": {
+            "items": {
+              "$ref": "#/components/schemas/StuckStore"
+            },
+            "type": "array",
+            "title": "Stores"
+          },
+          "stuck_after_minutes": {
+            "type": "integer",
+            "title": "Stuck After Minutes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "stores",
+          "stuck_after_minutes"
+        ],
+        "title": "StuckStoresPage"
+      },
+      "StuckStoresResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true,
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/StuckStoresPage"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "StuckStoresResponse"
       },
       "SubscriptionDetailData": {
         "properties": {

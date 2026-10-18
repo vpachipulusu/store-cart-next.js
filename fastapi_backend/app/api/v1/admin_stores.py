@@ -104,7 +104,7 @@ _REPROVISION_RESPONSES: dict[int | str, dict[str, Any]] = {
     **_NOT_FOUND,
     409: {
         "model": ErrorResponse,
-        "description": "The store is not FAILED, or it was already re-run the "
+        "description": "The store is not FAILED (or not yet stuck for 15 minutes), or it was already re-run the "
         "maximum number of times (`MAX_REPROVISION_ATTEMPTS`).",
     },
     502: {
