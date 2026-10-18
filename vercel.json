@@ -34,6 +34,12 @@
       }
     },
     {
+      "source": "/webhooks/stripe",
+      "destination": {
+        "service": "fastapi_backend"
+      }
+    },
+    {
       "source": "/(.*)",
       "destination": {
         "service": "nextjs-frontend"
