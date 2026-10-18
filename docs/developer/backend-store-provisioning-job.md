@@ -79,6 +79,17 @@ Where to look when a store is stuck (backend function logs, filter on `/internal
 | 503 `Service temporarily unavailable` | `PROVISIONING_BASE_URL` or both signing keys are unset |
 | 500 `Provisioning step failed`, plus `provisioning step failed: <ExceptionClass>` | A step raised: Neon (`ProvisionerNotConfigured`, an API error), the store database, or migrations. Retried by QStash up to `PROVISIONING_STEP_RETRIES`, then the failure callback marks the store `FAILED` |
 
+A store-scoped read (for example `GET /v1/stores/{id}/categories`) of a store whose database is not usable answers 503
+`Store database is not available` and logs `store database unavailable: <Reason>` (logger `app.api.store_db`):
+
+| Reason | Meaning |
+|---|---|
+| `StoreDatabaseNotConfigured` | The store has no connection string yet: `create_database` never ran or never finished. For a `PROVISIONING` store this means the job never reached the backend (routing, signing, QStash) or `create_database` failed |
+| `StoreDatabaseUnavailable` | A connection string is stored but cannot be decrypted (`STORE_DB_ENCRYPTION_KEY` missing or rotated without `_PREVIOUS`) or is malformed |
+| `StoreNotFound` | No such store row |
+
+A Neon connect failure is not a `StoreSessionError`: it surfaces as a 500 on the first query, not as this 503.
+
 ## Stuck stores (KAN-248)
 
 A store `PROVISIONING` with no change for 15 minutes (`STUCK_AFTER`; `updated_at` moves with every step) is stuck.
