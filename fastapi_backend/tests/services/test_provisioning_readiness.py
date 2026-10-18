@@ -66,9 +66,7 @@ def test_needs_at_least_one_signing_key() -> None:
 
 
 def test_one_signing_key_is_enough() -> None:
-    assert check_provisioning_settings(
-        production(QSTASH_NEXT_SIGNING_KEY=None)
-    ).ready
+    assert check_provisioning_settings(production(QSTASH_NEXT_SIGNING_KEY=None)).ready
 
 
 def test_neon_variables_are_not_required_for_the_local_provider_in_development() -> (

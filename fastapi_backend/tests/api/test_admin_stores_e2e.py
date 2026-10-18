@@ -615,3 +615,39 @@ async def test_reprovision_refuses_stores_that_are_not_failed_or_unknown(
 
     assert [r.status_code for r in results] == [409, 409, 404]
     assert await rows(engine, "SELECT 1 FROM audit_logs") == []
+
+
+async def test_stuck_provisioning_store_is_listed_failed_and_audited(client, engine):
+    await seed_admin(engine, "ops", ["stores.read", "stores.reprovision"])
+    stuck_id = await seed_store(engine, "orgA", "stuck", status="PROVISIONING")
+    fresh_id = await seed_store(engine, "orgA", "fresh", status="PROVISIONING")
+    await seed_store(engine, "orgA", "active")
+    async with engine.begin() as connection:
+        await connection.execute(
+            text(
+                "UPDATE stores SET updated_at = now() - interval '20 minutes' "
+                "WHERE id = :id"
+            ),
+            {"id": stuck_id},
+        )
+
+    listed = await client.get("/v1/admin/stores/stuck", headers=as_user("ops"))
+    too_early = await client.post(
+        f"/v1/admin/stores/{fresh_id}/fail-stuck", headers=as_user("ops")
+    )
+    failed = await client.post(
+        f"/v1/admin/stores/{stuck_id}/fail-stuck", headers=as_user("ops")
+    )
+
+    assert [s["id"] for s in listed.json()["data"]["stores"]] == [stuck_id]
+    assert too_early.status_code == 409
+    assert failed.status_code == 200
+    assert await rows(engine, "SELECT status FROM stores WHERE id = :i", i=stuck_id) == [
+        ("FAILED",)
+    ]
+    assert await rows(engine, "SELECT status FROM stores WHERE id = :i", i=fresh_id) == [
+        ("PROVISIONING",)
+    ]
+    assert await rows(engine, "SELECT action FROM audit_logs") == [
+        ("admin.stores.fail_stuck",)
+    ]

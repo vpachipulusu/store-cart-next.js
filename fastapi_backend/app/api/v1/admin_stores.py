@@ -37,6 +37,7 @@ from app.services.admin_stores import (
     MAX_PAGE_SIZE,
     MAX_REPROVISION_ATTEMPTS,
     RETRY_LIMIT_MESSAGE,
+    STUCK_AFTER,
     AdminStoreNotFound,
     AdminStoresService,
     CommitFailed,
@@ -189,6 +190,20 @@ class AdminStoresPage(BaseModel):
 class AdminStoresPageResponse(BaseModel):
     success: Literal[True] = True
     data: AdminStoresPage
+
+
+class StuckStore(StoreSummary):
+    minutes_stuck: int = Field(description="Whole minutes since the last change.")
+
+
+class StuckStoresPage(BaseModel):
+    stores: list[StuckStore]
+    stuck_after_minutes: int
+
+
+class StuckStoresResponse(BaseModel):
+    success: Literal[True] = True
+    data: StuckStoresPage
 
 
 class StoreStatusData(BaseModel):
@@ -404,6 +419,50 @@ async def admin_list_stores(
             offset=offset,
         )
     )
+
+
+@router.get(
+    "/stores/stuck",
+    response_model=StuckStoresResponse,
+    summary="List stores stuck in PROVISIONING",
+)
+async def admin_list_stuck_stores(
+    response: Response, _admin: ReadAdmin, service: ServiceDep
+) -> StuckStoresResponse:
+    """Stores PROVISIONING for over 15 minutes with no change (KAN-248), oldest first.
+
+    Mark one FAILED with `fail-stuck`, then re-run it with `reprovision` (or the
+    merchant's own retry).
+    """
+    _no_store(response)
+    records = await service.list_stuck()
+    return StuckStoresResponse(
+        data=StuckStoresPage(
+            stores=[
+                StuckStore(
+                    **_store(item.store).model_dump(),
+                    minutes_stuck=item.minutes_stuck,
+                )
+                for item in records
+            ],
+            stuck_after_minutes=int(STUCK_AFTER.total_seconds() // 60),
+        )
+    )
+
+
+@router.post(
+    "/stores/{store_id}/fail-stuck",
+    summary="Mark a store stuck in PROVISIONING as FAILED",
+    response_model=StoreStatusResponse,
+    responses=_STATUS_RESPONSES,
+)
+async def admin_fail_stuck_store(
+    store_id: Identifier,
+    response: Response,
+    admin: ReprovisionAdmin,
+    service: ServiceDep,
+) -> StoreStatusResponse:
+    return await _change_status(service.fail_stuck(admin, store_id), store_id, response)
 
 
 @router.post(

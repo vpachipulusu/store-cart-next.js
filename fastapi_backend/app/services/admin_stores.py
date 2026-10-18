@@ -37,6 +37,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import NoReturn, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -68,6 +69,12 @@ SUSPEND_ACTION = "admin.stores.suspend"
 UNSUSPEND_ACTION = "admin.stores.unsuspend"
 MIGRATE_ACTION = "admin.stores.migrate"
 MIGRATE_FAILED_ACTION = "admin.stores.migrate_failed"
+FAIL_STUCK_ACTION = "admin.stores.fail_stuck"
+# A store PROVISIONING without any change for this long is stuck (KAN-248). The whole
+# chain takes seconds, and QStash retries within minutes.
+STUCK_AFTER = timedelta(minutes=15)
+MAX_STUCK_LISTED = 100
+STUCK_REASON = "no progress while PROVISIONING"
 # Re-runs allowed per store. Not confirmed by the owner (KAN-200): raise or lower here.
 MAX_REPROVISION_ATTEMPTS = 3
 TIMEOUT_REASON = "timeout (outcome unknown; re-run to repair)"
@@ -122,6 +129,7 @@ class StoresStore(Protocol):
     async def get_store(
         self, store_id: str, *, lock: bool = False
     ) -> StoreRecord | None: ...
+    async def list_stuck(self, cutoff: datetime, limit: int) -> list[StoreRecord]: ...
     async def set_status(self, store_id: str, status: StoreStatus) -> None: ...
     async def claim_failed(self, store_id: str) -> bool: ...
     async def release_provisioning(self, store_id: str) -> StoreStatus | None: ...
@@ -172,6 +180,12 @@ MERCHANT_RETRY = ReprovisionKind(
 
 
 @dataclass(frozen=True)
+class StuckStoreRecord:
+    store: StoreRecord
+    minutes_stuck: int
+
+
+@dataclass(frozen=True)
 class MigrateResult:
     previous_version: int
     schema_version: int
@@ -194,10 +208,12 @@ class AdminStoresService:
         timeout: float = MIGRATE_TIMEOUT_SECONDS,
         *,
         start_provisioning: Callable[[str, int], Awaitable[bool]],
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self.repository, self.session, self.auditor = repository, session, auditor
         self._migrate, self.timeout = migrate, timeout
         self._start_provisioning = start_provisioning
+        self._clock = clock
 
     async def list_organizations(
         self, search: str | None, limit: int, offset: int
@@ -212,6 +228,40 @@ class AdminStoresService:
         return await self.repository.list_stores(
             filters, min(max(limit, 1), MAX_PAGE_SIZE), max(offset, 0)
         )
+
+    async def list_stuck(self) -> list[StuckStoreRecord]:
+        """Stores PROVISIONING for longer than ``STUCK_AFTER`` without any change."""
+        now = self._clock()
+        records = await self.repository.list_stuck(now - STUCK_AFTER, MAX_STUCK_LISTED)
+        return [
+            StuckStoreRecord(r, int((now - r.updated_at).total_seconds() // 60))
+            for r in records
+        ]
+
+    async def fail_stuck(self, actor: AdminContext, store_id: str) -> StatusResult:
+        """PROVISIONING for over ``STUCK_AFTER`` becomes FAILED (audited).
+
+        FAILED is what the merchant retry and the admin re-run act on. A store that
+        is not PROVISIONING, or changed recently, is a conflict: the job may be alive.
+        """
+        record = await self.repository.get_store(store_id, lock=True)
+        if record is None:
+            await self._abort(AdminStoreNotFound(), store_id)
+        if (
+            record.status is not StoreStatus.PROVISIONING
+            or record.updated_at > self._clock() - STUCK_AFTER
+        ):
+            await self._abort(StoreConflict(), store_id)
+        await self._record(
+            actor,
+            record,
+            FAIL_STUCK_ACTION,
+            before={"status": StoreStatus.PROVISIONING.value},
+            after={"status": StoreStatus.FAILED.value},
+            reason=STUCK_REASON,
+            new_status=StoreStatus.FAILED,
+        )
+        return StatusResult(StoreStatus.FAILED, changed=True)
 
     async def suspend(self, actor: AdminContext, store_id: str) -> StatusResult:
         return await self._transition(
