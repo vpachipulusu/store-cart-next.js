@@ -27,6 +27,10 @@ export function nextPollDelay(attempt: number): number {
 const UNAVAILABLE_MESSAGE = 'This store is not available right now.';
 const SLOW_MESSAGE = 'Setting up your store is taking longer than expected.';
 const CHECK_FAILED_MESSAGE = 'We could not check your store. Please try again.';
+/** Mirrors STUCK_AFTER in fastapi_backend/app/services/admin_stores.py: the backend re-runs a quiet store only after this long. */
+const RETRY_AVAILABLE_AFTER_MINUTES = 15;
+const TOO_SOON_MESSAGE =
+  'Your store is still being set up. Please wait a few minutes, then check again.';
 const RETRY_LIMIT_MESSAGE = 'We have already tried the maximum number of times.';
 const RETRY_MESSAGES = {
   rate_limited: 'Too many attempts. Wait a few minutes and try again.',
@@ -52,6 +56,8 @@ type ProvisioningStatusProps = {
 export function ProvisioningStatus({ storeId, storeName, initialStatus }: ProvisioningStatusProps) {
   const [status, setStatus] = useState<StoreStatus | 'UNKNOWN'>(initialStatus);
   const [problem, setProblem] = useState<string | null>(null);
+  /** Polling used up its attempts while the store was still PROVISIONING: the job may have stopped (KAN-248). */
+  const [gaveUp, setGaveUp] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [coolingDown, setCoolingDown] = useState(false);
   /** True once a manual check came back FAILED again, so the unchanged screen still gives feedback. */
@@ -67,6 +73,8 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
   /** Whether the store was FAILED when the user pressed the button; only then is "still" accurate. */
   const checkedFromFailedRef = useRef(false);
   const dashboardLinkRef = useRef<HTMLAnchorElement>(null);
+  /** Set when a stalled-state re-read turns the store ACTIVE, so focus follows the button that unmounts. */
+  const focusDashboardRef = useRef(false);
   /** The focused "Retry setup" button unmounts on success or at the cap; focus moves here so it is not lost. */
   const statusRegionRef = useRef<HTMLDivElement>(null);
 
@@ -81,6 +89,7 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
     const schedule = () => {
       if (attempt >= POLL_MAX_ATTEMPTS) {
         setProblem(SLOW_MESSAGE);
+        setGaveUp(true);
         return;
       }
       timer = setTimeout(poll, nextPollDelay(attempt));
@@ -139,12 +148,34 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
     checkedFromFailedRef.current = status === 'FAILED';
     setCoolingDown(true);
     setProblem(null);
+    setGaveUp(false);
     setRetryProblem(null);
     setStillFailed(false);
     setRetryCount((count) => count + 1);
   };
 
   const focusStatusRegion = () => statusRegionRef.current?.focus();
+  const stalled = status === 'PROVISIONING' && gaveUp;
+
+  /**
+   * The backend only re-runs a store that has made no progress for a while, so a retry can come too early. Read the
+   * status once: a store that has since finished or failed shows that; one still PROVISIONING is told to wait.
+   */
+  const recheckStalled = async () => {
+    const check = await getStoreStatusAction(storeId);
+    if (!check.success) {
+      setRetryProblem(RETRY_MESSAGES.unavailable);
+      return;
+    }
+    setStatus(check.data.status);
+    if (check.data.status === 'PROVISIONING') {
+      setRetryProblem(TOO_SOON_MESSAGE);
+    } else {
+      setProblem(null);
+      setGaveUp(false);
+      focusDashboardRef.current = check.data.status === 'ACTIVE';
+    }
+  };
 
   /** Re-runs the job (KAN-242). Success shows the normal setting-up progress and polls until it settles. */
   const handleSetupRetry = async () => {
@@ -158,6 +189,7 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
         checkedFromFailedRef.current = false;
         setStatus('PROVISIONING');
         setProblem(null);
+        setGaveUp(false);
         setStillFailed(false);
         setRetryCount((count) => count + 1);
         focusStatusRegion(); // the button unmounts: the setting-up text is announced from here
@@ -170,9 +202,12 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
         setRetryProblem(RETRY_MESSAGES.forbidden);
         setRetryForbidden(true);
         focusStatusRegion();
+      } else if (stalled && result.reason === 'not_failed') {
+        await recheckStalled();
       } else if (result.reason === 'not_failed' || result.reason === 'not_found') {
         // The store changed under us: show what it is now instead of guessing.
         checkedFromFailedRef.current = false;
+        setGaveUp(false);
         setRetryCount((count) => count + 1);
       } else {
         setRetryProblem(RETRY_MESSAGES[result.reason ?? 'unavailable']);
@@ -203,7 +238,7 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
 
   // The button that was focused unmounts when a check turns the store ACTIVE, so focus moves to the new link.
   useEffect(() => {
-    if (ready && retryCount > 0) dashboardLinkRef.current?.focus();
+    if (ready && (retryCount > 0 || focusDashboardRef.current)) dashboardLinkRef.current?.focus();
   }, [ready, retryCount]);
 
   return (
@@ -237,6 +272,22 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
               Needs attention
             </StatusPill>
             <p className="font-medium">{message}</p>
+            {stalled && !retryLimitReached && !retryForbidden && (
+              <p className="text-sm text-muted-foreground">
+                If your store is still not ready about {RETRY_AVAILABLE_AFTER_MINUTES} minutes after
+                you created it, use Retry setup below.
+              </p>
+            )}
+            {stalled && retryProblem !== null && <p className="text-sm">{retryProblem}</p>}
+            {stalled && retryLimitReached && (
+              <>
+                <p className="text-sm">{RETRY_LIMIT_MESSAGE}</p>
+                <p className="text-sm">
+                  Please contact support and include this reference:{' '}
+                  <span className="font-mono">{storeId}</span>
+                </p>
+              </>
+            )}
           </>
         ) : ready ? (
           <>
@@ -279,7 +330,7 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
       )}
       {needsAttention && (
         <div className="flex flex-wrap items-center gap-3">
-          {provisioningFailed && !retryLimitReached && !retryForbidden && (
+          {(provisioningFailed || stalled) && !retryLimitReached && !retryForbidden && (
             <Button
               type="button"
               onClick={() => void handleSetupRetry()}
@@ -296,7 +347,7 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
             aria-disabled={coolingDown}
             className="min-h-11 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
           >
-            {provisioningFailed ? 'Check again' : 'Try again'}
+            {provisioningFailed || stalled ? 'Check again' : 'Try again'}
           </Button>
         </div>
       )}

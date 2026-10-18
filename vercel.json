@@ -28,6 +28,12 @@
   },
   "rewrites": [
     {
+      "source": "/internal/provisioning/(.*)",
+      "destination": {
+        "service": "fastapi_backend"
+      }
+    },
+    {
       "source": "/(.*)",
       "destination": {
         "service": "nextjs-frontend"

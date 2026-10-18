@@ -184,6 +184,25 @@ class AdminStoresRepository(BaseRepository):
         ).one_or_none()
         return StoreRecord(*row) if row is not None else None
 
+    async def list_stuck(self, cutoff: datetime, limit: int) -> list[StoreRecord]:
+        """PROVISIONING stores with no change since ``cutoff``, oldest first.
+
+        ``updated_at`` moves with every step of the job, so a store that is slowly
+        progressing is not listed.
+        """
+        rows = (
+            await self._session.execute(
+                _select_stores()
+                .where(
+                    Store.status == StoreStatus.PROVISIONING,
+                    Store.updated_at < cutoff,
+                )
+                .order_by(Store.updated_at, Store.id)
+                .limit(limit)
+            )
+        ).all()
+        return [StoreRecord(*row) for row in rows]
+
     async def set_status(self, store_id: str, status: StoreStatus) -> None:
         await self._session.execute(
             update(Store).where(Store.id == store_id).values(status=status)

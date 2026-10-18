@@ -72,4 +72,6 @@ def test_admin_store_routes_use_their_own_operation_ids():
         "admin_unsuspend_store",
         "admin_migrate_store",
         "admin_reprovision_store",
+        "admin_list_stuck_stores",
+        "admin_fail_stuck_store",
     }
