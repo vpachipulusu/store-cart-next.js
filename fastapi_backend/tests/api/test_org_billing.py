@@ -1,5 +1,6 @@
 """Organisation billing routes with fakes behind the real router, dependencies and error mapping."""
 
+import logging
 from collections.abc import AsyncIterator
 from typing import Annotated, Any
 
@@ -412,3 +413,34 @@ async def test_malformed_payment_method_id_is_422(harness):
         result = await http.delete(f"{PM}/not-a-pm", headers=IDEMPOTENT)
 
     assert result.status_code == 422
+
+
+async def test_checkout_failures_log_the_cause_class_and_status(harness, caplog):
+    harness.store.orgs["org1"] = org_record(stripe_customer_id="cus_1")
+
+    with caplog.at_level(logging.WARNING, logger="app.api.v1.org_billing"):
+        async with client(harness) as http:
+            await http.post(
+                f"{BASE}/checkout",
+                json={**CHECKOUT_BODY, "success_url": "https://evil.example.com/x"},
+            )
+
+    assert "InvalidReturnUrl" in caplog.text
+    assert "status=422" in caplog.text
+    assert "evil.example.com" not in caplog.text
+    assert "cus_1" not in caplog.text
+
+
+async def test_stripe_failure_log_names_the_stripe_error_class(harness, caplog):
+    harness.store.orgs["org1"] = org_record(stripe_customer_id="cus_1")
+    harness.stripe.fail = True
+
+    with caplog.at_level(logging.WARNING):
+        async with client(harness) as http:
+            result = await http.post(f"{BASE}/checkout", json=CHECKOUT_BODY)
+
+    assert result.status_code == 502
+    assert "BillingUnavailable" in caplog.text
+    assert "status=502" in caplog.text
+    assert "StripeError" in caplog.text
+    assert "cus_1" not in caplog.text

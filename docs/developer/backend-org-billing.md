@@ -113,6 +113,25 @@ dependency (it was already installed through `fastapi[standard]`).
 The existing `STRIPE_PRICE_ID_{PRO,ENTERPRISE}_{MONTHLY,YEARLY}` settings choose the price. Add both new variables
 to `.env.example` and Vercel (the coordinator owns `.env.example`).
 
+## Checkout troubleshooting (KAN-250)
+
+The pricing page's Upgrade button used to show one alert for every failure. It now shows an inline message chosen
+from the cause, and the cause is logged. Match the log line to the setting to fix:
+
+| Frontend log (`Create checkout session failed:`) | Backend log (`org billing request failed:`) | What to check (names only) |
+| --- | --- | --- |
+| `code: no_organization` | none (the frontend never calls billing) | The user has no organisation: it is created during onboarding, so create a store first |
+| `code: return_url_config` | none | Frontend `NEXT_PUBLIC_APP_URL` (required in production, a full `https://` URL, set at build time) |
+| `code: invalid_return_url`, `status: 422` | `cause=InvalidReturnUrl status=422` | Backend `BILLING_RETURN_URL_ORIGINS` must contain the app origin, e.g. `https://store-cart-nextjs.vercel.app`, with no path and no trailing slash |
+| `code: not_configured`, `status: 503` | `cause=BillingNotConfigured status=503`, or no line when `STRIPE_SECRET_KEY` is unset | Backend `STRIPE_SECRET_KEY` and the `STRIPE_PRICE_ID_PRO_MONTHLY` / `STRIPE_PRICE_ID_PRO_YEARLY` (Enterprise: `_ENTERPRISE_MONTHLY` / `_ENTERPRISE_YEARLY`) names |
+| `code: provider_unavailable`, `status: 502` | `billing stripe call failed: <class>` and `stripe call failed: status=... type=... code=...` | Stripe rejected the call: `resource_missing` is a price id that does not exist in the account the key belongs to (test vs live mix-up) |
+| `code: backend_unavailable` | none | Frontend `BACKEND_API_URL`, `BACKEND_INTERNAL_KEY` (must equal the backend's) |
+| `code: forbidden` / `not_allowed` | `cause=BillingForbidden` / `BillingConflict` | Caller is not OWNER or ADMIN, or the organisation already has a live subscription |
+
+The price ids are backend settings: the pricing page asks the backend for the plan, and only the backend reads
+`STRIPE_PRICE_ID_*` for checkout. Logs carry the exception class, the HTTP status and Stripe's own enum `type` and
+`code` only; never Stripe text, ids, URLs or keys.
+
 ## Tests
 
 - `tests/services/test_org_billing.py`, `tests/core/test_stripe_billing.py`, `tests/api/test_org_billing.py`: fakes,

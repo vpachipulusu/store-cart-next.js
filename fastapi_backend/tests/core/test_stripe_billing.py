@@ -247,6 +247,60 @@ async def test_failures_are_logged_without_bodies_or_secrets(caplog):
     assert "cus_1" not in logged
 
 
+async def test_failure_log_names_the_stripe_error_type_and_code_only(caplog):
+    stripe = client_for(
+        lambda r: json_response(
+            {
+                "error": {
+                    "type": "invalid_request_error",
+                    "code": "resource_missing",
+                    "param": "line_items[0][price]",
+                    "message": "No such price: 'price_live_123'",
+                }
+            },
+            400,
+        )
+    )
+
+    with caplog.at_level("DEBUG"), pytest.raises(StripeError):
+        await stripe.create_checkout_session(
+            customer_id="cus_1",
+            price_id="price_live_123",
+            organization_id="org_1",
+            success_url="https://app.example.com/ok",
+            cancel_url="https://app.example.com/no",
+            idempotency_key="k-1",
+        )
+
+    logged = " ".join(record.getMessage() for record in caplog.records)
+    assert "status=400" in logged
+    assert "type=invalid_request_error" in logged
+    assert "code=resource_missing" in logged
+    assert "price_live_123" not in logged
+    assert "cus_1" not in logged
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        {"code": "has space and 4242", "type": "x" * 80},
+        {"code": ["list"], "type": 5},
+        "not-a-dict",
+    ],
+)
+async def test_failure_log_drops_unsafe_stripe_error_fields(caplog, error):
+    stripe = client_for(lambda r: json_response({"error": error}, 400))
+
+    with caplog.at_level("DEBUG"), pytest.raises(StripeError):
+        await stripe.get_subscription("sub_1")
+
+    logged = " ".join(record.getMessage() for record in caplog.records)
+    assert "status=400" in logged
+    assert "4242" not in logged
+    assert "code=" not in logged
+    assert "type=" not in logged
+
+
 async def test_client_without_injected_transport_opens_its_own(monkeypatch):
     class Mocked(httpx.AsyncClient):
         def __init__(self, *args: Any, **kwargs: Any) -> None:

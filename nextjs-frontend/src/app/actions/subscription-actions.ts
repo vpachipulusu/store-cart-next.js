@@ -121,10 +121,71 @@ export async function getSubscriptionStatusAction(): Promise<SubscriptionActionR
   }
 }
 
+type CheckoutFailureCode =
+  | 'no_organization'
+  | 'return_url_config'
+  | 'invalid_return_url'
+  | 'not_configured'
+  | 'provider_unavailable'
+  | 'not_allowed'
+  | 'forbidden'
+  | 'backend_unavailable'
+  | 'unknown';
+
+/** What the pricing page shows for each cause. Curated here, so no backend or Stripe text reaches the browser. */
+const CHECKOUT_FAILURE_MESSAGES: Record<CheckoutFailureCode, string> = {
+  no_organization:
+    'Create a store first to subscribe. Billing is tied to your organisation, which is set up when you create a store.',
+  return_url_config: 'Checkout is not available right now. Please try again later.',
+  invalid_return_url: 'Checkout is not available right now. Please try again later.',
+  not_configured: 'Checkout is not available right now. Please try again later.',
+  provider_unavailable:
+    'We could not reach our payment provider. Please try again in a few minutes.',
+  not_allowed: 'Your organisation already has a subscription. Manage it from Billing settings.',
+  forbidden: 'Only an organisation owner or admin can change the plan.',
+  backend_unavailable: 'We could not reach the billing service. Please try again.',
+  unknown: 'We could not start checkout. Please try again.',
+};
+
+/** The cause of a failed checkout call, from the backend status (see the HTTP mapping in org_billing.py). */
+function classifyCheckoutFailure(error: string, status?: number): CheckoutFailureCode {
+  if (error === NO_BILLING_ORGANIZATION_MESSAGE) return 'no_organization';
+  // No status means the backend never answered (unreachable or timed out).
+  if (status === undefined) return 'backend_unavailable';
+  switch (status) {
+    case 422:
+      return 'invalid_return_url';
+    case 503:
+      return 'not_configured';
+    case 502:
+      return 'provider_unavailable';
+    case 409:
+      return 'not_allowed';
+    case 403:
+    case 404:
+      return 'forbidden';
+    default:
+      return 'unknown';
+  }
+}
+
+/** Logs the cause (class, status, code; never secrets, ids or backend text) and returns the curated response. */
+function checkoutFailure(
+  code: CheckoutFailureCode,
+  details: { status?: number; cause?: string }
+): SubscriptionActionResponse & { code: CheckoutFailureCode } {
+  logger.error('Create checkout session failed:', { code, ...details });
+  return { success: false, error: CHECKOUT_FAILURE_MESSAGES[code], code };
+}
+
+function errorClass(error: unknown): string {
+  return error instanceof Error ? error.constructor.name : typeof error;
+}
+
 export async function createCheckoutSessionAction(
   tier: 'pro' | 'enterprise',
   billingPeriod: 'monthly' | 'yearly'
-): Promise<SubscriptionActionResponse> {
+): Promise<SubscriptionActionResponse & { code?: CheckoutFailureCode }> {
   try {
     if (!(await getVerifiedUserId())) return UNAUTHORIZED;
 
@@ -135,9 +196,18 @@ export async function createCheckoutSessionAction(
 
     // Return URLs are built on the server; clients cannot supply them (KAN-127). The backend also checks them
     // against BILLING_RETURN_URL_ORIGINS.
-    const { successUrl, cancelUrl } = buildCheckoutReturnUrls();
-    const result = await startBillingCheckout(tier, billingPeriod, successUrl, cancelUrl);
-    if (!result.success) return failure('Create checkout session error:', result.error);
+    let urls: ReturnType<typeof buildCheckoutReturnUrls>;
+    try {
+      urls = buildCheckoutReturnUrls();
+    } catch (error: unknown) {
+      return checkoutFailure('return_url_config', { cause: errorClass(error) });
+    }
+
+    const result = await startBillingCheckout(tier, billingPeriod, urls.successUrl, urls.cancelUrl);
+    if (!result.success) {
+      const status = 'status' in result ? result.status : undefined;
+      return checkoutFailure(classifyCheckoutFailure(result.error, status), { status });
+    }
 
     // httpOnly token proving this browser started a checkout, so ?upgrade=success cannot be forged by hand.
     const cookieStore = await cookies();

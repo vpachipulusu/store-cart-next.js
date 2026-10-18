@@ -7,6 +7,7 @@ text, so nothing from Stripe can reach a log line or a response body.
 """
 
 import logging
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -24,6 +25,8 @@ STRIPE_API = "https://api.stripe.com/v1"
 REQUEST_TIMEOUT_SECONDS = 10.0
 LIST_LIMIT = 12
 REJECTED_STATUSES = frozenset({400, 402, 409})
+# Stripe's error `type` and `code` are fixed snake_case enums; anything else is dropped, never logged.
+ERROR_TOKEN = re.compile(r"[a-z0-9_]{1,64}")
 
 
 class StripeError(Exception):
@@ -151,6 +154,21 @@ def as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _error_detail(response: httpx.Response) -> str:
+    """` type=... code=...` from Stripe's error body when both are plain enum tokens; else empty."""
+    try:
+        error = as_dict(response.json()).get("error")
+    except ValueError:
+        return ""
+    fields = as_dict(error)
+    parts = []
+    for name in ("type", "code"):
+        value = fields.get(name)
+        if isinstance(value, str) and ERROR_TOKEN.fullmatch(value):
+            parts.append(f" {name}={value}")
+    return "".join(parts)
+
+
 class HttpStripeBilling:
     def __init__(self, secret_key: str, client: httpx.AsyncClient | None = None):
         self._key = secret_key
@@ -197,7 +215,11 @@ class HttpStripeBilling:
                         client, method, path, data, params, headers
                     )
             if response.status_code >= 400:
-                logger.warning("stripe call failed: status=%s", response.status_code)
+                logger.warning(
+                    "stripe call failed: status=%s%s",
+                    response.status_code,
+                    _error_detail(response),
+                )
                 if response.status_code == 404:
                     raise StripeNotFound("Stripe request failed")
                 if response.status_code in REJECTED_STATUSES:
