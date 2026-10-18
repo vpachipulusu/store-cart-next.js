@@ -7,7 +7,9 @@ import { Badge } from '@/components/ui/badge';
 import { Check, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { createCheckoutSessionAction } from '@/app/actions/subscription-actions';
-import { useState } from 'react';
+import { useId, useState } from 'react';
+
+const CHECKOUT_FALLBACK_ERROR = 'We could not start checkout. Please try again.';
 
 interface PricingCardProps {
   tier: {
@@ -35,6 +37,8 @@ export function PricingCard({
 }: PricingCardProps) {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const errorId = useId();
 
   const handleCTAClick = async (e: React.MouseEvent) => {
     // Enterprise - always go to contact
@@ -50,6 +54,7 @@ export function PricingCard({
     // Pro tier with authenticated user
     if (isAuthenticated && tier.name === 'Pro') {
       e.preventDefault();
+      setCheckoutError(null);
       setIsLoading(true);
 
       try {
@@ -57,16 +62,16 @@ export function PricingCard({
         const result = await createCheckoutSessionAction('pro', billingPeriod);
 
         if (result.success && result.data?.url) {
-          // Redirect to Stripe Checkout
+          // Redirect to Stripe Checkout; the button stays busy while the browser navigates away.
           window.location.href = result.data.url;
-        } else {
-          throw new Error(result.error || 'Failed to create checkout session');
+          return;
         }
-      } catch (error) {
-        console.error('Checkout error:', error);
-        alert('Failed to start checkout. Please try again or contact support.');
-        setIsLoading(false);
+        setCheckoutError(result.error || CHECKOUT_FALLBACK_ERROR);
+      } catch {
+        // The cause is logged server-side by the action; the browser only needs a retryable message.
+        setCheckoutError(CHECKOUT_FALLBACK_ERROR);
       }
+      setIsLoading(false);
     }
   };
 
@@ -175,6 +180,7 @@ export function PricingCard({
           variant={tier.popular ? 'accent' : 'outline'}
           size="lg"
           disabled={ctaConfig.disabled || isLoading}
+          aria-describedby={checkoutError ? errorId : undefined}
           onClick={tier.name === 'Pro' && isAuthenticated ? handleCTAClick : undefined}
         >
           {tier.name !== 'Pro' || !isAuthenticated ? (
@@ -183,6 +189,14 @@ export function PricingCard({
             <span>{isLoading ? 'Processing...' : ctaConfig.text}</span>
           )}
         </Button>
+        {/* The live region is always mounted so screen readers announce text added to it later. */}
+        <div aria-live="assertive" aria-atomic="true">
+          {checkoutError && (
+            <p id={errorId} role="alert" className="text-sm text-destructive">
+              {checkoutError}
+            </p>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

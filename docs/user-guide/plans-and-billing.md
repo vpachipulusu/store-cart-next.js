@@ -126,6 +126,7 @@ If you see "No invoices yet", you haven't been charged yet.
 
 ## If something goes wrong
 
-- **"Failed to start checkout"**: try again. If it keeps happening, try again later.
+- **A red message under "Upgrade to Pro"** (for example "We could not start checkout"): try again. If it keeps
+  happening, try again later. "Create a store first" means billing starts once you have created a store.
 - **Plan still shows Free after paying**: wait a minute and refresh the dashboard. Payments can
   take a few seconds to confirm.

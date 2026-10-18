@@ -6,6 +6,7 @@ Stripe to act and return; subscription state is written only by the Stripe webho
 Errors are generic: no Stripe text, ids or customer data reach a response or a log.
 """
 
+import logging
 from datetime import datetime
 from typing import Annotated, Literal, cast
 
@@ -44,6 +45,8 @@ from app.services.org_billing import (
     RequestOrigin,
     allowed_origins,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/v1/organizations/{organization_id}/billing",
@@ -236,6 +239,19 @@ HANDLED = (
 
 
 def _http_error(exc: Exception) -> HTTPException:
+    error = _mapped_error(exc)
+    # The class and status name the cause for operators; the message and ids never reach the log.
+    # Expected 4xx outcomes any signed-in user can trigger stay at INFO; 5xx are the operator signals.
+    logger.log(
+        logging.WARNING if error.status_code >= 500 else logging.INFO,
+        "org billing request failed: cause=%s status=%s",
+        type(exc).__name__,
+        error.status_code,
+    )
+    return error
+
+
+def _mapped_error(exc: Exception) -> HTTPException:
     if isinstance(exc, OrganizationNotFound):
         return HTTPException(404, "Organization not found")
     if isinstance(exc, PaymentMethodNotFound):
