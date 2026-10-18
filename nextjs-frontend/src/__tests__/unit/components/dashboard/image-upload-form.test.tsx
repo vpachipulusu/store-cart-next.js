@@ -1,4 +1,5 @@
 /** KAN-249: the Add image form validates, uploads with progress, registers, and reports failures. */
+import { StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -46,11 +47,12 @@ function pngFile(size = 100) {
   return file;
 }
 
-function setup() {
+function setup(strict = false) {
   const onUpdated = vi.fn();
   const user = userEvent.setup({ applyAccept: false });
-  render(<ImageUploadForm product={product} onUpdated={onUpdated} />);
-  return { onUpdated, user };
+  const form = <ImageUploadForm product={product} onUpdated={onUpdated} />;
+  const view = render(strict ? <StrictMode>{form}</StrictMode> : form);
+  return { onUpdated, user, view };
 }
 
 async function chooseAndSubmit(user: ReturnType<typeof userEvent.setup>, file = pngFile()) {
@@ -213,6 +215,62 @@ describe('ImageUploadForm', () => {
     await chooseAndSubmit(user);
     expect(await screen.findByText('Image added.')).toBeInTheDocument();
     expect((screen.getByLabelText('Image file') as HTMLInputElement).value).toBe('');
+  });
+
+  it('uploads under StrictMode (mount, cleanup, mount) instead of silently aborting', async () => {
+    const { user, onUpdated } = setup(true);
+    await chooseAndSubmit(user);
+
+    await waitFor(() => expect(onUpdated).toHaveBeenCalledWith(updated));
+    const signal = mocks.putFile.mock.calls[0][4] as AbortSignal;
+    expect(signal.aborted).toBe(false);
+  });
+
+  it('aborts the transfer on unmount and does not register or update', async () => {
+    let finish: (value: unknown) => void = () => {};
+    mocks.putFile.mockImplementation(
+      (_u: string, _h: unknown, _f: unknown, _p: unknown, signal: AbortSignal) =>
+        new Promise((resolve) => {
+          finish = resolve;
+          signal.addEventListener('abort', () => resolve({ ok: false, reason: 'aborted' }));
+        })
+    );
+    const { user, onUpdated, view } = setup();
+    await chooseAndSubmit(user);
+    await screen.findByTestId('upload-progress');
+    const signal = mocks.putFile.mock.calls[0][4] as AbortSignal;
+
+    view.unmount();
+    expect(signal.aborted).toBe(true);
+    finish({ ok: true });
+    await Promise.resolve();
+    expect(mocks.addImageAction).not.toHaveBeenCalled();
+    expect(onUpdated).not.toHaveBeenCalled();
+  });
+
+  it('does not upload when closed while the link is being requested', async () => {
+    let resolveTicket: (value: unknown) => void = () => {};
+    mocks.presignImageUploadAction.mockReturnValue(new Promise((r) => (resolveTicket = r)));
+    const { user, view } = setup();
+    await chooseAndSubmit(user);
+
+    view.unmount();
+    resolveTicket(ticket);
+    await Promise.resolve();
+    expect(mocks.putFile).not.toHaveBeenCalled();
+  });
+
+  it('does not call onUpdated when closed while the image is being registered', async () => {
+    let resolveAdd: (value: unknown) => void = () => {};
+    mocks.addImageAction.mockReturnValue(new Promise((r) => (resolveAdd = r)));
+    const { user, onUpdated, view } = setup();
+    await chooseAndSubmit(user);
+    await waitFor(() => expect(mocks.addImageAction).toHaveBeenCalled());
+
+    view.unmount();
+    resolveAdd({ success: true, data: updated });
+    await Promise.resolve();
+    expect(onUpdated).not.toHaveBeenCalled();
   });
 
   it('shows an over-long alt text error next to the field', async () => {

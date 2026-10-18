@@ -41,7 +41,7 @@ export const presignRequestSchema = z.object({
 export type PresignRequest = z.infer<typeof presignRequestSchema>;
 
 /** Empty alt text means "none" (null); anything else is trimmed and must stay printable. */
-export const altTextSchema = z.preprocess(
+export const altTextSchema: z.ZodType<string | null, z.ZodTypeDef, unknown> = z.preprocess(
   (value) => value ?? '',
   z
     .string()

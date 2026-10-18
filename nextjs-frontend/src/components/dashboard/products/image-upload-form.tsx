@@ -45,16 +45,21 @@ export function ImageUploadForm({
   const [added, setAdded] = useState(false);
   const [uploadedKey, setUploadedKey] = useState<string | null>(null);
   const [inputKey, setInputKey] = useState(0);
-  const abortRef = useRef<AbortController>(new AbortController());
+  const abortRef = useRef<AbortController | null>(null);
+  const mounted = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const wasBusy = useRef(false);
   const refocus = useRef<'file' | 'button'>('button');
   const busy = stage !== 'idle';
 
+  // Set on mount, not at creation: StrictMode runs mount, cleanup, mount, so state must be rebuilt by the effect.
   useEffect(() => {
-    const controller = abortRef.current;
-    return () => controller.abort();
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      abortRef.current?.abort();
+    };
   }, []);
 
   // A disabled control drops keyboard focus, so put it back when the work ends.
@@ -91,10 +96,12 @@ export function ImageUploadForm({
     try {
       response = await addImageAction(product.id, { storageKey, altText });
     } catch {
+      if (!mounted.current) return;
       setUploadedKey(storageKey);
       setError(`${REQUEST_FAILED} ${RETRY_HINT}`);
       return;
     }
+    if (!mounted.current) return;
     if (response.success) {
       reset();
       setAdded(true);
@@ -118,23 +125,26 @@ export function ImageUploadForm({
         sizeBytes: chosen.size,
       });
     } catch {
-      setError(REQUEST_FAILED);
+      if (mounted.current) setError(REQUEST_FAILED);
       return;
     }
+    if (!mounted.current) return; // the editor was closed while the link was being requested
     if (!ticket.success) {
       setError(ticket.error);
       return;
     }
-    const { signal } = abortRef.current;
-    if (signal.aborted) return; // the editor was closed while the link was being requested
+    const controller = new AbortController();
+    abortRef.current = controller;
     setStage('uploading');
     const result = await putFile(
       ticket.data.uploadUrl,
       ticket.data.headers,
       chosen,
       setPercent,
-      signal
+      controller.signal
     );
+    abortRef.current = null;
+    if (!mounted.current) return;
     if (!result.ok) {
       if (result.reason !== 'aborted') setError(uploadFailureMessage(result.reason));
       return;
@@ -161,7 +171,7 @@ export function ImageUploadForm({
       if (uploadedKey) await register(uploadedKey);
       else await upload(file);
     } finally {
-      setStage('idle');
+      if (mounted.current) setStage('idle');
     }
   }
 

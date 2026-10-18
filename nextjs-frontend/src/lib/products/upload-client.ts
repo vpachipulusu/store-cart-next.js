@@ -17,6 +17,9 @@ export function uploadFailureMessage(reason: UploadFailure): string {
   return reason === 'network' ? NETWORK_UPLOAD_MESSAGE : REJECTED_UPLOAD_MESSAGE;
 }
 
+/** A stalled transfer ends as a network failure after this long (a 10 MB file on a slow link fits). */
+export const UPLOAD_TIMEOUT_MS = 10 * 60 * 1000;
+
 export function putFile(
   url: string,
   headers: Readonly<Record<string, string>>,
@@ -34,6 +37,7 @@ export function putFile(
 
     try {
       xhr.open('PUT', url);
+      xhr.timeout = UPLOAD_TIMEOUT_MS;
       for (const [name, value] of Object.entries(headers)) xhr.setRequestHeader(name, value);
     } catch {
       // A malformed URL or header from the ticket: fail with a message instead of rejecting.

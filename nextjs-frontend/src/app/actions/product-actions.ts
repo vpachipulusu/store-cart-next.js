@@ -267,7 +267,7 @@ export async function addImageAction(
 
   const result = await addProductImage(store.storeId, productId, {
     storage_key: input.storageKey,
-    alt_text: alt.data as string | null,
+    alt_text: alt.data,
   });
   if (!result.success) return backendFailure('add-image', result);
   refresh(productId);

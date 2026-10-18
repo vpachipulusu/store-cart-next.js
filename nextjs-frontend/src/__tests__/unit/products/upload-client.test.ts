@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   NETWORK_UPLOAD_MESSAGE,
+  UPLOAD_TIMEOUT_MS,
   putFile,
   REJECTED_UPLOAD_MESSAGE,
   uploadFailureMessage,
@@ -14,6 +15,7 @@ class FakeXhr {
   headers: Record<string, string> = {};
   body: unknown;
   status = 0;
+  timeout = 0;
   upload: { onprogress: ((event: unknown) => void) | null } = { onprogress: null };
   onload: (() => void) | null = null;
   onerror: (() => void) | null = null;
@@ -59,6 +61,7 @@ describe('putFile', () => {
     expect(xhr.url).toBe(URL_WITH_SECRET);
     expect(xhr.headers).toEqual({ 'Content-Type': 'image/png' });
     expect(xhr.body).toBe(file);
+    expect(xhr.timeout).toBe(UPLOAD_TIMEOUT_MS);
     expect(progress).toHaveBeenCalledTimes(1);
     expect(progress).toHaveBeenCalledWith(25);
   });
