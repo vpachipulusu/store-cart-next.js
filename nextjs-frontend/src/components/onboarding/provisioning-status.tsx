@@ -28,7 +28,7 @@ const UNAVAILABLE_MESSAGE = 'This store is not available right now.';
 const SLOW_MESSAGE = 'Setting up your store is taking longer than expected.';
 const CHECK_FAILED_MESSAGE = 'We could not check your store. Please try again.';
 const TOO_SOON_MESSAGE =
-  'Your store is still being set up. Please wait a few minutes, then try again.';
+  'Your store is still being set up. Please wait a few minutes, then check again.';
 const RETRY_LIMIT_MESSAGE = 'We have already tried the maximum number of times.';
 const RETRY_MESSAGES = {
   rate_limited: 'Too many attempts. Wait a few minutes and try again.',
@@ -245,12 +245,18 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
             </StatusPill>
             <p className="font-medium">{message}</p>
             {stalled && (
-              <p className="text-sm text-muted-foreground">
-                You can retry the setup below. Nothing you entered has been lost.
-              </p>
+              <p className="text-sm text-muted-foreground">You can retry the setup below.</p>
             )}
             {stalled && retryProblem !== null && <p className="text-sm">{retryProblem}</p>}
-            {stalled && retryLimitReached && <p className="text-sm">{RETRY_LIMIT_MESSAGE}</p>}
+            {stalled && retryLimitReached && (
+              <>
+                <p className="text-sm">{RETRY_LIMIT_MESSAGE}</p>
+                <p className="text-sm">
+                  Please contact support and include this reference:{' '}
+                  <span className="font-mono">{storeId}</span>
+                </p>
+              </>
+            )}
           </>
         ) : ready ? (
           <>
@@ -310,7 +316,7 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
             aria-disabled={coolingDown}
             className="min-h-11 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
           >
-            {provisioningFailed ? 'Check again' : 'Try again'}
+            {provisioningFailed || stalled ? 'Check again' : 'Try again'}
           </Button>
         </div>
       )}

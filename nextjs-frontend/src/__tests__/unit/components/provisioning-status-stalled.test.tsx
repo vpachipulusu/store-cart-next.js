@@ -28,7 +28,9 @@ async function advance(ms: number) {
 
 async function renderStalled() {
   mocks.getStoreStatusAction.mockResolvedValue(ok('PROVISIONING'));
-  render(<ProvisioningStatus storeId={STORE_ID} storeName="Acme Shop" initialStatus="PROVISIONING" />);
+  render(
+    <ProvisioningStatus storeId={STORE_ID} storeName="Acme Shop" initialStatus="PROVISIONING" />
+  );
   await advance(POLL_MAX_MS * (POLL_MAX_ATTEMPTS + 2));
 }
 

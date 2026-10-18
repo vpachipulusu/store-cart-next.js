@@ -234,7 +234,7 @@ class AdminStoresService:
         now = self._clock()
         records = await self.repository.list_stuck(now - STUCK_AFTER, MAX_STUCK_LISTED)
         return [
-            StuckStoreRecord(r, int((now - r.updated_at).total_seconds() // 60))
+            StuckStoreRecord(r, max(0, int((now - r.updated_at).total_seconds() // 60)))
             for r in records
         ]
 
@@ -255,7 +255,7 @@ class AdminStoresService:
     def _is_stuck(self, record: StoreRecord) -> bool:
         return (
             record.status is StoreStatus.PROVISIONING
-            and record.updated_at <= self._clock() - STUCK_AFTER
+            and record.updated_at < self._clock() - STUCK_AFTER
         )
 
     async def _fail_stuck(self, actor: AdminContext, record: StoreRecord) -> None:

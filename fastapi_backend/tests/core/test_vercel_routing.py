@@ -47,3 +47,12 @@ def test_only_the_provisioning_callbacks_are_public() -> None:
         r for r in _rewrites() if r["destination"] == {"service": BACKEND_SERVICE}
     ]
     assert [r["source"] for r in backend_rules] == ["/internal/provisioning/(.*)"]
+
+
+def test_the_rewrite_exposes_only_the_two_qstash_routes() -> None:
+    from app.api.v1.internal_provisioning import router
+
+    assert {route.path for route in router.routes} == {  # type: ignore[attr-defined]
+        STEP_PATH,
+        FAILED_PATH,
+    }

@@ -83,6 +83,10 @@ Where to look when a store is stuck (backend function logs, filter on `/internal
 
 A store `PROVISIONING` with no change for 15 minutes (`STUCK_AFTER`; `updated_at` moves with every step) is stuck.
 
+The threshold must stay above the longest single step (`updated_at` moves only when a step writes the store row), and
+failing a store whose old QStash retries are still pending can let that run's late failure callback fail the re-run
+(callbacks do not carry the attempt). Both are accepted for now; the 15-minute margin is large against seconds-long steps.
+
 - `GET /v1/admin/stores/stuck` (`stores.read`) lists them, oldest first, with `minutes_stuck`.
 - `POST /v1/admin/stores/{id}/fail-stuck` (`stores.reprovision`) marks one `FAILED` (audit row
   `admin.stores.fail_stuck`); 409 when it is not `PROVISIONING` or changed within 15 minutes.
