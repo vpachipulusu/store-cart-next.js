@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Check, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { createCheckoutSessionAction } from '@/app/actions/subscription-actions';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 
 const CHECKOUT_FALLBACK_ERROR = 'We could not start checkout. Please try again.';
 
@@ -38,6 +38,7 @@ export function PricingCard({
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const errorId = useId();
 
   const handleCTAClick = async (e: React.MouseEvent) => {
     // Enterprise - always go to contact
@@ -179,6 +180,7 @@ export function PricingCard({
           variant={tier.popular ? 'accent' : 'outline'}
           size="lg"
           disabled={ctaConfig.disabled || isLoading}
+          aria-describedby={checkoutError ? errorId : undefined}
           onClick={tier.name === 'Pro' && isAuthenticated ? handleCTAClick : undefined}
         >
           {tier.name !== 'Pro' || !isAuthenticated ? (
@@ -187,11 +189,14 @@ export function PricingCard({
             <span>{isLoading ? 'Processing...' : ctaConfig.text}</span>
           )}
         </Button>
-        {checkoutError && (
-          <p role="alert" className="text-sm text-destructive">
-            {checkoutError}
-          </p>
-        )}
+        {/* The live region is always mounted so screen readers announce text added to it later. */}
+        <div aria-live="assertive" aria-atomic="true">
+          {checkoutError && (
+            <p id={errorId} role="alert" className="text-sm text-destructive">
+              {checkoutError}
+            </p>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

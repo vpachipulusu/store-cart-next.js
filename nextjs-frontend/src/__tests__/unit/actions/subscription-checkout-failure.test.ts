@@ -95,7 +95,7 @@ describe('createCheckoutSessionAction failure causes', () => {
     [
       { error: 'Operation not allowed in the current state', status: 409 },
       'not_allowed',
-      /already/i,
+      /not available for your organisation/i,
     ],
     [{ error: 'Forbidden', status: 403 }, 'forbidden', /owner or admin/i],
     [{ error: 'Invalid authentication', status: 401 }, 'session_expired', /sign in again/i],
@@ -156,7 +156,8 @@ describe('createCheckoutSessionAction failure causes', () => {
 
     const result = await createCheckoutSessionAction('pro', 'monthly');
 
-    expect(result).toEqual({ success: false, error: 'Unauthorized' });
+    expect(result).toMatchObject({ success: false, code: 'session_expired' });
+    expect(result.error).toMatch(/sign in again/i);
     expect(mocks.startBillingCheckout).not.toHaveBeenCalled();
   });
 });

@@ -76,11 +76,15 @@ describe('subscription actions on the billing API', () => {
       actions.getSubscriptionDetailsAction(),
       actions.getPaymentMethodsAction(),
       actions.getSubscriptionInvoicesAction(),
-      actions.createCheckoutSessionAction('pro', 'monthly'),
       actions.createBillingPortalSessionAction(),
     ]);
 
     for (const result of results) expect(result).toEqual({ success: false, error: 'Unauthorized' });
+    // Checkout is user-facing on the pricing card, so it asks the user to sign in again instead.
+    expect(await actions.createCheckoutSessionAction('pro', 'monthly')).toMatchObject({
+      success: false,
+      code: 'session_expired',
+    });
     expect(mocks.fetchBillingSummary).not.toHaveBeenCalled();
     expect(mocks.startBillingCheckout).not.toHaveBeenCalled();
   });
@@ -311,7 +315,7 @@ describe('subscription actions on the billing API', () => {
       const result = await actions.createCheckoutSessionAction('pro', 'monthly');
 
       expect(result).toMatchObject({ success: false, code: 'not_allowed' });
-      expect(result.error).toMatch(/already has a subscription/i);
+      expect(result.error).toMatch(/not available for your organisation/i);
       expect(mocks.cookieSet).not.toHaveBeenCalled();
     });
   });

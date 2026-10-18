@@ -61,7 +61,18 @@ describe('PricingCard checkout', () => {
       'Create a store first to subscribe.'
     );
     expect(window.alert).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: /upgrade to pro/i })).toBeEnabled();
+    const retry = screen.getByRole('button', { name: /upgrade to pro/i });
+    expect(retry).toBeEnabled();
+    expect(retry).toHaveAttribute('aria-describedby', screen.getByRole('alert').id);
+  });
+
+  it('keeps the live region mounted before any error', () => {
+    const { container } = render(
+      <PricingCard tier={PRO} currencySymbol="$" isAuthenticated userTier="free" />
+    );
+
+    expect(container.querySelector('[aria-live="assertive"]')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('falls back to a generic inline message when the action throws', async () => {

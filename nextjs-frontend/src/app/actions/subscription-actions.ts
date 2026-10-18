@@ -142,7 +142,8 @@ const CHECKOUT_FAILURE_MESSAGES: Record<CheckoutFailureCode, string> = {
   not_configured: 'Checkout is not available right now. Please try again later.',
   provider_unavailable:
     'We could not reach our payment provider. Please try again in a few minutes.',
-  not_allowed: 'Your organisation already has a subscription. Manage it from Billing settings.',
+  not_allowed:
+    'Checkout is not available for your organisation right now. If it already has a subscription, manage it from Billing settings.',
   forbidden:
     'We could not find a billing organisation you manage. Only an organisation owner or admin can change the plan.',
   session_expired: 'Your session has expired. Please sign in again.',
@@ -192,7 +193,13 @@ export async function createCheckoutSessionAction(
   billingPeriod: 'monthly' | 'yearly'
 ): Promise<SubscriptionActionResponse & { code?: CheckoutFailureCode }> {
   try {
-    if (!(await getVerifiedUserId())) return UNAUTHORIZED;
+    if (!(await getVerifiedUserId())) {
+      return {
+        success: false,
+        error: CHECKOUT_FAILURE_MESSAGES.session_expired,
+        code: 'session_expired',
+      };
+    }
 
     const validation = planChoiceSchema.safeParse({ tier, billingPeriod });
     if (!validation.success) {

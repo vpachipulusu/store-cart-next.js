@@ -426,11 +426,12 @@ async def test_expected_checkout_rejections_log_cause_and_status_at_info(
 
     with caplog.at_level(logging.INFO, logger="app.api.v1.org_billing"):
         async with client(harness) as http:
-            await http.post(
+            result = await http.post(
                 f"{BASE}/checkout",
                 json={**CHECKOUT_BODY, "success_url": "https://evil.example.com/x"},
             )
 
+    assert result.status_code == 422
     (record,) = billing_records(caplog)
     assert record.levelno == logging.INFO
     assert record.getMessage() == (
