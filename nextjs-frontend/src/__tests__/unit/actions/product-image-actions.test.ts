@@ -103,11 +103,47 @@ describe('presignImageUploadAction', () => {
     ['a foreign store prefix', { ...ticket, key: 'stores/other/img1.png' }],
     ['a non-https URL', { ...ticket, uploadUrl: 'http://evil.example/x.png?sig=1' }],
     ['a malformed URL', { ...ticket, uploadUrl: 'not a url' }],
+    ['credentials in the URL', { ...ticket, uploadUrl: 'https://user:pw@r2.example/x.png?sig=1' }],
   ])('refuses a backend ticket with %s and logs no URL', async (_name, bad) => {
     mocks.presignProductImage.mockResolvedValue({ success: true, data: bad });
     const result = await presignImageUploadAction(PRODUCT, png);
-    expect(result.success).toBe(false);
-    expect(JSON.stringify(mocks.warn.mock.calls)).not.toContain('evil.example');
+    expect(result).toEqual({ success: false, error: 'The request failed. Please try again.' });
+    expect(mocks.warn).toHaveBeenCalledWith('Product action failed', {
+      action: 'presign-image',
+      status: 502,
+    });
+    expect(JSON.stringify(mocks.warn.mock.calls)).not.toMatch(/evil|X-Amz|sig=|user:pw/);
+  });
+
+  it.each([
+    'http://localhost.evil.com/x.png?sig=1',
+    'http://localhost@evil.com/x.png?sig=1',
+    'http://127.0.0.1.evil.com/x.png?sig=1',
+    'ftp://r2.example/x.png',
+    'javascript:alert(1)',
+  ])('refuses the look-alike or non-http URL %s', async (uploadUrl) => {
+    mocks.presignProductImage.mockResolvedValue({ success: true, data: { ...ticket, uploadUrl } });
+    expect((await presignImageUploadAction(PRODUCT, png)).success).toBe(false);
+  });
+
+  it.each(['http://127.0.0.1:9000/x.png?sig=1', 'http://[::1]:9000/x.png?sig=1'])(
+    'allows the loopback test endpoint %s',
+    async (uploadUrl) => {
+      mocks.presignProductImage.mockResolvedValue({
+        success: true,
+        data: { ...ticket, uploadUrl },
+      });
+      expect((await presignImageUploadAction(PRODUCT, png)).success).toBe(true);
+    }
+  );
+
+  it('strips extra client fields before presigning and does not log a failed presign URL', async () => {
+    await presignImageUploadAction(PRODUCT, { ...png, storeId: 'other' } as typeof png);
+    expect(mocks.presignProductImage).toHaveBeenCalledWith(STORE, png);
+
+    mocks.presignProductImage.mockResolvedValueOnce({ success: false, error: 'x', status: 500 });
+    await presignImageUploadAction(PRODUCT, png);
+    expect(JSON.stringify(mocks.warn.mock.calls)).not.toContain('X-Amz');
   });
 
   it('allows plain http only for localhost', async () => {
@@ -156,6 +192,38 @@ describe('addImageAction', () => {
     expect(result.success).toBe(false);
     expect(result.fieldErrors?.altText).toMatch(/500/);
     expect(mocks.addProductImage).not.toHaveBeenCalled();
+  });
+
+  it('rejects a bad product id and an unavailable or missing store', async () => {
+    expect((await addImageAction('../x', { storageKey: KEY })).success).toBe(false);
+
+    mocks.getCurrentStoreSelection.mockResolvedValue({
+      available: false,
+      stores: [],
+      selected: null,
+    });
+    expect((await addImageAction(PRODUCT, { storageKey: KEY })).success).toBe(false);
+    mocks.getCurrentStoreSelection.mockResolvedValue({
+      available: true,
+      stores: [],
+      selected: null,
+    });
+    expect((await addImageAction(PRODUCT, { storageKey: KEY })).error).toMatch(/select a store/i);
+    expect(mocks.addProductImage).not.toHaveBeenCalled();
+  });
+
+  it('rejects control characters in alt text and a non-string key', async () => {
+    const alt = await addImageAction(PRODUCT, { storageKey: KEY, altText: 'bad' });
+    expect(alt.fieldErrors?.altText).toBeTruthy();
+    const key = await addImageAction(PRODUCT, { storageKey: 42 as unknown as string });
+    expect(key.success).toBe(false);
+    expect(mocks.addProductImage).not.toHaveBeenCalled();
+  });
+
+  it('does not revalidate when registration fails', async () => {
+    mocks.addProductImage.mockResolvedValue({ success: false, error: 'x', status: 500 });
+    await addImageAction(PRODUCT, { storageKey: KEY });
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 
   it('curates backend failures', async () => {

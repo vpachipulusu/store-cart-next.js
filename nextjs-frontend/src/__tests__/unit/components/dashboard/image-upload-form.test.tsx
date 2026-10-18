@@ -1,6 +1,6 @@
 /** KAN-249: the Add image form validates, uploads with progress, registers, and reports failures. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mocks = vi.hoisted(() => ({
@@ -162,6 +162,57 @@ describe('ImageUploadForm', () => {
     expect(mocks.presignImageUploadAction).toHaveBeenCalledTimes(1);
     expect(mocks.putFile).toHaveBeenCalledTimes(1);
     expect(mocks.addImageAction).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows a request failed message when presigning throws', async () => {
+    mocks.presignImageUploadAction.mockRejectedValue(new Error('boom'));
+    const { user } = setup();
+    await chooseAndSubmit(user);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The request failed. Please try again.'
+    );
+    expect(mocks.putFile).not.toHaveBeenCalled();
+  });
+
+  it('offers Retry when registration throws, and retries with the same key and alt text', async () => {
+    mocks.addImageAction.mockRejectedValueOnce(new Error('boom'));
+    const { user, onUpdated } = setup();
+    await user.type(screen.getByLabelText('Alt text (optional)'), 'Front');
+    await chooseAndSubmit(user);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Retry to add it/);
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(onUpdated).toHaveBeenCalled());
+    expect(mocks.addImageAction).toHaveBeenLastCalledWith('p1', {
+      storageKey: 'stores/s1/a.png',
+      altText: 'Front',
+    });
+  });
+
+  it('shows no error when the upload was aborted', async () => {
+    mocks.putFile.mockResolvedValue({ ok: false, reason: 'aborted' });
+    const { user } = setup();
+    await chooseAndSubmit(user);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Add image' })).toBeEnabled());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(mocks.addImageAction).not.toHaveBeenCalled();
+  });
+
+  it('keeps the retry state when the file picker is cancelled', async () => {
+    mocks.addImageAction.mockResolvedValueOnce({ success: false, error: 'Nope' });
+    const { user } = setup();
+    await chooseAndSubmit(user);
+    await screen.findByRole('button', { name: 'Retry' });
+
+    fireEvent.change(screen.getByLabelText('Image file'), { target: { files: [] } });
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  it('announces success and clears the file input', async () => {
+    const { user } = setup();
+    await chooseAndSubmit(user);
+    expect(await screen.findByText('Image added.')).toBeInTheDocument();
+    expect((screen.getByLabelText('Image file') as HTMLInputElement).value).toBe('');
   });
 
   it('shows an over-long alt text error next to the field', async () => {

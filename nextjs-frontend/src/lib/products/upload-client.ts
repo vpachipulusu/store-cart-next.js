@@ -9,7 +9,7 @@ export type UploadFailure = 'network' | 'rejected' | 'aborted';
 export type UploadResult = { ok: true } | { ok: false; reason: UploadFailure; status?: number };
 
 export const NETWORK_UPLOAD_MESSAGE =
-  'The upload could not reach storage. Check your connection and try again. If it keeps failing, storage may not allow uploads from this site yet (CORS).';
+  'The upload could not reach storage. Check your connection and try again. If it keeps failing, storage may not allow uploads from this site (CORS) or the upload link may have expired.';
 export const REJECTED_UPLOAD_MESSAGE =
   'Storage rejected the upload. The link may have expired, so choose the image again.';
 
@@ -32,8 +32,13 @@ export function putFile(
     };
     const onAbort = () => xhr.abort();
 
-    xhr.open('PUT', url);
-    for (const [name, value] of Object.entries(headers)) xhr.setRequestHeader(name, value);
+    try {
+      xhr.open('PUT', url);
+      for (const [name, value] of Object.entries(headers)) xhr.setRequestHeader(name, value);
+    } catch {
+      // A malformed URL or header from the ticket: fail with a message instead of rejecting.
+      return finish({ ok: false, reason: 'network' });
+    }
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable && event.total > 0) {
         onProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)));

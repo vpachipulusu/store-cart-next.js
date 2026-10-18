@@ -41,27 +41,48 @@ export function ImageUploadForm({
   const [altError, setAltError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<Stage>('idle');
-  const [percent, setPercent] = useState(0);
+  const [percent, setPercent] = useState<number | null>(null);
+  const [added, setAdded] = useState(false);
   const [uploadedKey, setUploadedKey] = useState<string | null>(null);
   const [inputKey, setInputKey] = useState(0);
-  const abortRef = useRef<AbortController | null>(null);
+  const abortRef = useRef<AbortController>(new AbortController());
+  const fileRef = useRef<HTMLInputElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const wasBusy = useRef(false);
+  const refocus = useRef<'file' | 'button'>('button');
   const busy = stage !== 'idle';
 
-  useEffect(() => () => abortRef.current?.abort(), []);
+  useEffect(() => {
+    const controller = abortRef.current;
+    return () => controller.abort();
+  }, []);
+
+  // A disabled control drops keyboard focus, so put it back when the work ends.
+  useEffect(() => {
+    if (busy) {
+      wasBusy.current = true;
+      return;
+    }
+    if (!wasBusy.current) return;
+    wasBusy.current = false;
+    (refocus.current === 'file' ? fileRef : buttonRef).current?.focus();
+  }, [busy]);
 
   function reset() {
     setFile(null);
     setAltText('');
     setUploadedKey(null);
-    setPercent(0);
+    setPercent(null);
     setInputKey((key) => key + 1);
   }
 
   function chooseFile(chosen: File | null) {
+    if (!chosen) return; // a cancelled picker must not drop a pending retry
     setError(null);
+    setAdded(false);
     setUploadedKey(null);
     setFile(chosen);
-    setFileError(chosen ? imageFileError(chosen) : null);
+    setFileError(imageFileError(chosen));
   }
 
   async function register(storageKey: string) {
@@ -76,6 +97,8 @@ export function ImageUploadForm({
     }
     if (response.success) {
       reset();
+      setAdded(true);
+      refocus.current = 'file';
       onUpdated(response.data);
       return;
     }
@@ -86,7 +109,8 @@ export function ImageUploadForm({
 
   async function upload(chosen: File) {
     setStage('preparing');
-    setPercent(0);
+    setPercent(null);
+    refocus.current = 'button';
     let ticket: Awaited<ReturnType<typeof presignImageUploadAction>>;
     try {
       ticket = await presignImageUploadAction(product.id, {
@@ -101,17 +125,16 @@ export function ImageUploadForm({
       setError(ticket.error);
       return;
     }
+    const { signal } = abortRef.current;
+    if (signal.aborted) return; // the editor was closed while the link was being requested
     setStage('uploading');
-    const controller = new AbortController();
-    abortRef.current = controller;
     const result = await putFile(
       ticket.data.uploadUrl,
       ticket.data.headers,
       chosen,
       setPercent,
-      controller.signal
+      signal
     );
-    abortRef.current = null;
     if (!result.ok) {
       if (result.reason !== 'aborted') setError(uploadFailureMessage(result.reason));
       return;
@@ -124,6 +147,7 @@ export function ImageUploadForm({
     if (busy) return;
     setError(null);
     setAltError(null);
+    setAdded(false);
     if (!file) {
       setFileError('Choose an image to upload.');
       return;
@@ -153,6 +177,7 @@ export function ImageUploadForm({
           {(describedBy) => (
             <Input
               key={inputKey}
+              ref={fileRef}
               id="image-file"
               type="file"
               accept={IMAGE_ACCEPT}
@@ -184,9 +209,10 @@ export function ImageUploadForm({
       )}
       <div aria-live="polite" className="space-y-1.5">
         {busy && <p className="text-sm text-muted-foreground">{STAGE_TEXT[stage]}</p>}
+        {added && !busy && <p className="text-sm">Image added.</p>}
         {stage === 'uploading' && (
           <progress
-            value={percent}
+            value={percent ?? undefined}
             max={100}
             aria-label="Upload progress"
             className="h-2 w-full"
@@ -194,7 +220,7 @@ export function ImageUploadForm({
           />
         )}
       </div>
-      <Button type="submit" disabled={busy || !file || fileError !== null}>
+      <Button ref={buttonRef} type="submit" disabled={busy || !file || fileError !== null}>
         {busy ? 'Working…' : uploadedKey ? 'Retry' : 'Add image'}
       </Button>
     </form>

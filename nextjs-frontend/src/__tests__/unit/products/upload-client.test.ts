@@ -86,6 +86,20 @@ describe('putFile', () => {
     expect(already).toEqual({ ok: false, reason: 'aborted' });
   });
 
+  it('fails with a network result instead of throwing when a header is invalid', async () => {
+    vi.stubGlobal(
+      'XMLHttpRequest',
+      class extends FakeXhr {
+        setRequestHeader(): void {
+          throw new Error('bad header');
+        }
+      }
+    );
+    await expect(
+      putFile(URL_WITH_SECRET, { 'Bad Header': 'x' }, new Blob(['x']), vi.fn())
+    ).resolves.toEqual({ ok: false, reason: 'network' });
+  });
+
   it('keeps the presigned URL out of the failure messages', () => {
     for (const reason of ['network', 'rejected', 'aborted'] as const) {
       expect(uploadFailureMessage(reason)).not.toContain('X-Amz');

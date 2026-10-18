@@ -37,11 +37,16 @@ Errors are shown in `role="alert"` regions: wrong type, too large, empty file, s
 
 **Orphaned objects.** If the PUT succeeds but registration fails, the form keeps the uploaded key and offers Retry, which registers it again without uploading twice. There is no route to delete an object, so a file the merchant abandons stays in the bucket unreferenced. Clean-up of unreferenced `stores/` objects belongs to a bucket lifecycle rule or a backend job (not part of this story).
 
-**Owner step (bucket CORS).** Names only, no secrets. The R2 bucket's CORS policy must allow:
+**Owner step (bucket CORS checklist).** Names only, no secrets. Compare the bucket's CORS policy (Cloudflare dashboard, R2, the bucket, Settings, CORS policy; see https://developers.cloudflare.com/r2/buckets/cors/) with what the browser sends:
 
-- Allowed origins: the production dashboard origin (and any preview origin that should upload).
-- Allowed methods: `PUT` and `GET`.
-- Allowed headers: `Content-Type`.
+- The request is a cross-origin `PUT` straight to the presigned `https://<account>.r2.cloudflarestorage.com/<bucket>/stores/<store id>/<id>.<jpg|png|webp>?X-Amz-...` URL, with `XMLHttpRequest`, no cookies and no credentials.
+- The only header the code sets is `Content-Type` (`image/jpeg`, `image/png` or `image/webp`, exactly as the backend signed it). The browser adds `Origin`, and `Content-Length` itself (not listed in a policy). So the preflight (`OPTIONS`) asks for `Access-Control-Request-Method: PUT` and `Access-Control-Request-Headers: content-type`.
+- **AllowedOrigins:** each exact app origin that uploads (scheme and host, no path, no trailing slash): the production dashboard origin, plus any preview or local origin you want to allow. `*` also works for a bucket with no credentialed use but is not needed.
+- **AllowedMethods:** `PUT` (required). `GET` and `HEAD` are fine for later reads.
+- **AllowedHeaders:** `Content-Type` (required). Any extra header the code adds later must be listed too.
+- **ExposeHeaders** (optional): `ETag`. The code does not read it. **MaxAgeSeconds** (optional): for example `3600`, to cache the preflight.
+- An expired or mismatched presigned URL answers `403` without CORS headers, which the browser reports as a plain network error. The form therefore asks for a fresh URL right before every upload (the link lives 300 seconds) and shows one message that names both causes (network and CORS). A registration retry never reuses a link.
+- Status of this checklist: the code side is verified by unit tests and a local e2e with a stubbed storage host. The real bucket policy is **not verified from code**: the bucket host is a backend setting that was deliberately not read, so no preflight was sent to it. The owner confirms it by uploading one image from the production dashboard.
 
 The backend needs its R2 settings (`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_PUBLIC_BASE_URL`); without them presigning answers 503 and the form shows "Products could not be reached".
 

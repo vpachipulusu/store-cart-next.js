@@ -44,6 +44,8 @@ describe('presignRequestSchema', () => {
     [{ contentType: 'image/png', sizeBytes: MAX_IMAGE_BYTES + 1 }, TOO_LARGE_MESSAGE],
     [{ contentType: 'image/png', sizeBytes: 1.5 }, EMPTY_FILE_MESSAGE],
     [{ contentType: 'image/png', sizeBytes: 'big' }, EMPTY_FILE_MESSAGE],
+    [{ contentType: 'image/png' }, EMPTY_FILE_MESSAGE],
+    [{ contentType: 'image/png', sizeBytes: 0 }, EMPTY_FILE_MESSAGE],
   ])('rejects %j', (input, message) => {
     const parsed = presignRequestSchema.safeParse(input);
     expect(parsed.success).toBe(false);
