@@ -9,7 +9,7 @@ from app.services.admin_stores import (
     AdminStoresService,
 )
 from tests.api.test_admin_stores import Harness
-from tests.fakes_admin_stores import store
+from tests.fakes_admin_stores import NOW, store
 
 
 class ReprovisionHarness(Harness):
@@ -34,6 +34,7 @@ class ReprovisionHarness(Harness):
                 self.auditor,
                 migrate,
                 start_provisioning=start,
+                clock=lambda: NOW,
             )
         )
 
@@ -142,3 +143,45 @@ async def test_audit_failure_is_503_with_retry_after(harness):
     assert result.status_code == 503
     assert result.headers["retry-after"] == "5"
     assert harness.started == []
+
+
+async def test_stuck_provisioning_store_is_failed_then_re_run(harness):
+    from datetime import timedelta
+
+    from app.services.admin_stores import STUCK_AFTER
+
+    async def migrate(store_id: str) -> int:
+        return 0
+
+    async def start(store_id: str, attempt: int) -> bool:
+        harness.started.append(store_id)
+        return True
+
+    harness.app.dependency_overrides[get_admin_stores_service] = lambda: (
+        AdminStoresService(
+            harness.repository,
+            harness.session,
+            harness.auditor,
+            migrate,
+            start_provisioning=start,
+            clock=lambda: NOW + STUCK_AFTER + timedelta(minutes=1),
+        )
+    )
+    async with harness.client() as client:
+        result = await client.post("/v1/admin/stores/new/reprovision")
+
+    assert result.status_code == 200
+    assert result.json()["data"]["status"] == "PROVISIONING"
+    assert harness.started == ["new"]
+    assert [row["action"] for row in harness.auditor.rows] == [
+        "admin.stores.fail_stuck",
+        "admin.stores.reprovision",
+    ]
+
+
+async def test_recently_changed_provisioning_store_is_not_re_run(harness):
+    async with harness.client() as client:
+        result = await client.post("/v1/admin/stores/new/reprovision")
+
+    assert result.status_code == 409
+    assert harness.started == [] and harness.auditor.rows == []

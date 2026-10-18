@@ -247,11 +247,18 @@ class AdminStoresService:
         record = await self.repository.get_store(store_id, lock=True)
         if record is None:
             await self._abort(AdminStoreNotFound(), store_id)
-        if (
-            record.status is not StoreStatus.PROVISIONING
-            or record.updated_at > self._clock() - STUCK_AFTER
-        ):
+        if not self._is_stuck(record):
             await self._abort(StoreConflict(), store_id)
+        await self._fail_stuck(actor, record)
+        return StatusResult(StoreStatus.FAILED, changed=True)
+
+    def _is_stuck(self, record: StoreRecord) -> bool:
+        return (
+            record.status is StoreStatus.PROVISIONING
+            and record.updated_at <= self._clock() - STUCK_AFTER
+        )
+
+    async def _fail_stuck(self, actor: AdminContext, record: StoreRecord) -> None:
         await self._record(
             actor,
             record,
@@ -261,7 +268,6 @@ class AdminStoresService:
             reason=STUCK_REASON,
             new_status=StoreStatus.FAILED,
         )
-        return StatusResult(StoreStatus.FAILED, changed=True)
 
     async def suspend(self, actor: AdminContext, store_id: str) -> StatusResult:
         return await self._transition(
@@ -286,13 +292,20 @@ class AdminStoresService:
         """Re-run provisioning of a FAILED store: the one cap-and-requeue path.
 
         Used by the admin route and by the merchant retry (KAN-242; ``kind`` only names
-        the audit actions). The cap counts both kinds of audit row. FAILED to
+        the audit actions). A store stuck in PROVISIONING is failed first (KAN-248). The cap counts both kinds of audit row. FAILED to
         PROVISIONING is a single conditional UPDATE, so of two concurrent callers only
         one queues a chain.
         """
         record = await self.repository.get_store(store_id, lock=True)
         if record is None:
             await self._abort(AdminStoreNotFound(), store_id)
+        if self._is_stuck(record):
+            # The job gave up silently (KAN-248): fail it first, then re-run it.
+            await self._fail_stuck(actor, record)
+            refreshed = await self.repository.get_store(store_id, lock=True)
+            if refreshed is None:
+                await self._abort(AdminStoreNotFound(), store_id)
+            record = refreshed
         if record.status is not StoreStatus.FAILED:
             await self._abort(StoreConflict(), store_id)
         counts = await self.repository.count_reprovisions(store_id)

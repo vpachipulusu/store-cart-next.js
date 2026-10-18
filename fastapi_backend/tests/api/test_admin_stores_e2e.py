@@ -642,12 +642,12 @@ async def test_stuck_provisioning_store_is_listed_failed_and_audited(client, eng
     assert [s["id"] for s in listed.json()["data"]["stores"]] == [stuck_id]
     assert too_early.status_code == 409
     assert failed.status_code == 200
-    assert await rows(engine, "SELECT status FROM stores WHERE id = :i", i=stuck_id) == [
-        ("FAILED",)
-    ]
-    assert await rows(engine, "SELECT status FROM stores WHERE id = :i", i=fresh_id) == [
-        ("PROVISIONING",)
-    ]
+    assert await rows(
+        engine, "SELECT status FROM stores WHERE id = :i", i=stuck_id
+    ) == [("FAILED",)]
+    assert await rows(
+        engine, "SELECT status FROM stores WHERE id = :i", i=fresh_id
+    ) == [("PROVISIONING",)]
     assert await rows(engine, "SELECT action FROM audit_logs") == [
         ("admin.stores.fail_stuck",)
     ]
