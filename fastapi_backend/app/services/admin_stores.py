@@ -37,6 +37,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import NoReturn, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -68,6 +69,12 @@ SUSPEND_ACTION = "admin.stores.suspend"
 UNSUSPEND_ACTION = "admin.stores.unsuspend"
 MIGRATE_ACTION = "admin.stores.migrate"
 MIGRATE_FAILED_ACTION = "admin.stores.migrate_failed"
+FAIL_STUCK_ACTION = "admin.stores.fail_stuck"
+# A store PROVISIONING without any change for this long is stuck (KAN-248). The whole
+# chain takes seconds, and QStash retries within minutes.
+STUCK_AFTER = timedelta(minutes=15)
+MAX_STUCK_LISTED = 100
+STUCK_REASON = "no progress while PROVISIONING"
 # Re-runs allowed per store. Not confirmed by the owner (KAN-200): raise or lower here.
 MAX_REPROVISION_ATTEMPTS = 3
 TIMEOUT_REASON = "timeout (outcome unknown; re-run to repair)"
@@ -122,6 +129,7 @@ class StoresStore(Protocol):
     async def get_store(
         self, store_id: str, *, lock: bool = False
     ) -> StoreRecord | None: ...
+    async def list_stuck(self, cutoff: datetime, limit: int) -> list[StoreRecord]: ...
     async def set_status(self, store_id: str, status: StoreStatus) -> None: ...
     async def claim_failed(self, store_id: str) -> bool: ...
     async def release_provisioning(self, store_id: str) -> StoreStatus | None: ...
@@ -172,6 +180,18 @@ MERCHANT_RETRY = ReprovisionKind(
 
 
 @dataclass(frozen=True)
+class StuckStoreRecord:
+    store: StoreRecord
+    minutes_stuck: int
+
+
+@dataclass(frozen=True)
+class StuckStores:
+    items: list[StuckStoreRecord]
+    truncated: bool
+
+
+@dataclass(frozen=True)
 class MigrateResult:
     previous_version: int
     schema_version: int
@@ -194,10 +214,12 @@ class AdminStoresService:
         timeout: float = MIGRATE_TIMEOUT_SECONDS,
         *,
         start_provisioning: Callable[[str, int], Awaitable[bool]],
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self.repository, self.session, self.auditor = repository, session, auditor
         self._migrate, self.timeout = migrate, timeout
         self._start_provisioning = start_provisioning
+        self._clock = clock
 
     async def list_organizations(
         self, search: str | None, limit: int, offset: int
@@ -211,6 +233,57 @@ class AdminStoresService:
     ) -> StorePage:
         return await self.repository.list_stores(
             filters, min(max(limit, 1), MAX_PAGE_SIZE), max(offset, 0)
+        )
+
+    async def list_stuck(self) -> StuckStores:
+        """Stores PROVISIONING for longer than ``STUCK_AFTER`` without any change.
+
+        The age is the app clock against the database's ``updated_at``: a skew of a
+        minute or two moves the cutoff by that much, which the 15-minute margin absorbs.
+        """
+        now = self._clock()
+        records = await self.repository.list_stuck(
+            now - STUCK_AFTER, MAX_STUCK_LISTED + 1
+        )
+        return StuckStores(
+            [
+                StuckStoreRecord(
+                    r, max(0, int((now - r.updated_at).total_seconds() // 60))
+                )
+                for r in records[:MAX_STUCK_LISTED]
+            ],
+            truncated=len(records) > MAX_STUCK_LISTED,
+        )
+
+    async def fail_stuck(self, actor: AdminContext, store_id: str) -> StatusResult:
+        """PROVISIONING for over ``STUCK_AFTER`` becomes FAILED (audited).
+
+        FAILED is what the merchant retry and the admin re-run act on. A store that
+        is not PROVISIONING, or changed recently, is a conflict: the job may be alive.
+        """
+        record = await self.repository.get_store(store_id, lock=True)
+        if record is None:
+            await self._abort(AdminStoreNotFound(), store_id)
+        if not self._is_stuck(record):
+            await self._abort(StoreConflict(), store_id)
+        await self._fail_stuck(actor, record)
+        return StatusResult(StoreStatus.FAILED, changed=True)
+
+    def _is_stuck(self, record: StoreRecord) -> bool:
+        return (
+            record.status is StoreStatus.PROVISIONING
+            and record.updated_at < self._clock() - STUCK_AFTER
+        )
+
+    async def _fail_stuck(self, actor: AdminContext, record: StoreRecord) -> None:
+        await self._record(
+            actor,
+            record,
+            FAIL_STUCK_ACTION,
+            before={"status": StoreStatus.PROVISIONING.value},
+            after={"status": StoreStatus.FAILED.value},
+            reason=STUCK_REASON,
+            new_status=StoreStatus.FAILED,
         )
 
     async def suspend(self, actor: AdminContext, store_id: str) -> StatusResult:
@@ -239,10 +312,25 @@ class AdminStoresService:
         the audit actions). The cap counts both kinds of audit row. FAILED to
         PROVISIONING is a single conditional UPDATE, so of two concurrent callers only
         one queues a chain.
+
+        A store stuck in PROVISIONING (``STUCK_AFTER``) is failed first (KAN-248): that
+        commits on its own (audit row ``admin.stores.fail_stuck``, not counted in the
+        cap) and releases the row lock, which is taken again for the re-run. If the cap
+        is then reached, or the enqueue fails, the store stays FAILED and the caller
+        gets the 409/502: the honest state of a store that made no progress. The
+        merchant route keeps its OWNER/ADMIN check; only the identity in the audit rows
+        is shared.
         """
         record = await self.repository.get_store(store_id, lock=True)
         if record is None:
             await self._abort(AdminStoreNotFound(), store_id)
+        if self._is_stuck(record):
+            # The job gave up silently (KAN-248): fail it first, then re-run it.
+            await self._fail_stuck(actor, record)
+            refreshed = await self.repository.get_store(store_id, lock=True)
+            if refreshed is None:
+                await self._abort(AdminStoreNotFound(), store_id)
+            record = refreshed
         if record.status is not StoreStatus.FAILED:
             await self._abort(StoreConflict(), store_id)
         counts = await self.repository.count_reprovisions(store_id)

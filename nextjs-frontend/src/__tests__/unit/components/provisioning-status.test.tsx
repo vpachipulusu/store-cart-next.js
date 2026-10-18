@@ -213,7 +213,7 @@ describe('ProvisioningStatus', () => {
     await advance(POLL_MAX_MS * (POLL_MAX_ATTEMPTS + 2));
     expect(statusRegion()).toHaveTextContent(/taking longer/i);
     expect(mocks.getStoreStatusAction).toHaveBeenCalledTimes(POLL_MAX_ATTEMPTS);
-    expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /check again/i })).toBeInTheDocument();
   });
 
   describe('FAILED provisioning (KAN-191)', () => {

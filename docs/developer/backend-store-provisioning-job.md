@@ -47,6 +47,67 @@ or archive) is an operator action and not part of this story.
 | `QSTASH_URL` | Optional, defaults to `https://qstash.upstash.io` (https, upstash.io hosts only). |
 | `PROVISIONING_STEP_RETRIES` | Optional, 0 to 10, default 5. |
 
+## Production checklist (KAN-248)
+
+A store stays `PROVISIONING` with no error when QStash accepts the first publish but the callbacks never reach this
+service. In production check, in this order:
+
+1. **Routing.** The backend service has no public route (ADR-011), so QStash can reach it only through the top-level
+   rewrite `/internal/provisioning/(.*)` to `fastapi_backend` in the root `vercel.json`, placed before the catch-all.
+   Without it, every delivery (and the failure callback) goes to the frontend and answers 404, so retries run out
+   quietly and the store is never marked `FAILED`. This was the cause of KAN-248. `tests/core/test_vercel_routing.py`
+   guards it.
+2. **Variables** (Vercel project, Production scope; names only): `QSTASH_TOKEN`, `QSTASH_CURRENT_SIGNING_KEY` and
+   `QSTASH_NEXT_SIGNING_KEY` (copy both from the Upstash console, they rotate), `PROVISIONING_BASE_URL` (the public
+   origin QStash calls, for example `https://<production domain>`, https, no path, no trailing slash, identical to the
+   domain the rewrite is served on), `STORE_DB_PROVIDER=neon`, `NEON_API_KEY`, `NEON_PROJECT_ID`, `NEON_BRANCH_ID`,
+   `NEON_ROLE_NAME`, `STORE_DB_ENCRYPTION_KEY`.
+3. **Deployment Protection.** QStash sends no Vercel bypass header. If the production domain is behind Vercel
+   Authentication or a password, add a protection-bypass exception for `/internal/provisioning/*` only; do not turn
+   protection off. (The routes are safe to expose: every request must carry a valid QStash signature.)
+4. **Readiness.** `GET /health/ready` (header `X-Internal-Key`) returns `provisioning: {ready, missing}`; `missing` lists
+   variable NAMES only. The backend also logs `store provisioning is not configured; missing: ...` at start. Neither
+   can see the routing or protection problems above.
+
+Where to look when a store is stuck (backend function logs, filter on `/internal/provisioning`):
+
+| Evidence | Meaning |
+|---|---|
+| No request to `/internal/provisioning/step` at all | The rewrite is missing or deployed on another domain, protection blocks QStash, or QStash did not accept the publish (look for `qstash publish failed/rejected: status=` and `QSTASH_TOKEN and PROVISIONING_BASE_URL are not set`; that case makes the store `FAILED` at once). Check the message log in the Upstash console for the HTTP status QStash got |
+| 404 (served by the frontend) in the Upstash message log | Routing (item 1) |
+| 401 `Invalid signature` and `qstash signature rejected` | A signing key is wrong or rotated, or `PROVISIONING_BASE_URL` differs from the URL QStash called (host, scheme or path prefix) |
+| 503 `Service temporarily unavailable` | `PROVISIONING_BASE_URL` or both signing keys are unset |
+| 500 `Provisioning step failed`, plus `provisioning step failed: <ExceptionClass>` | A step raised: Neon (`ProvisionerNotConfigured`, an API error), the store database, or migrations. Retried by QStash up to `PROVISIONING_STEP_RETRIES`, then the failure callback marks the store `FAILED` |
+
+A store-scoped read (for example `GET /v1/stores/{id}/categories`) of a store whose database is not usable answers 503
+`Store database is not available` and logs `store database unavailable: <Reason>` (logger `app.api.store_db`):
+
+| Reason | Meaning |
+|---|---|
+| `StoreDatabaseNotConfigured` | The store has no connection string yet: `create_database` never ran or never finished. For a `PROVISIONING` store this means the job never reached the backend (routing, signing, QStash) or `create_database` failed |
+| `StoreDatabaseUnavailable` | A connection string is stored but cannot be decrypted (`STORE_DB_ENCRYPTION_KEY` missing or rotated without `_PREVIOUS`) or is malformed |
+| `StoreNotFound` | No such store row |
+
+A Neon connect failure is not a `StoreSessionError`: it surfaces as a 500 on the first query, not as this 503.
+
+## Stuck stores (KAN-248)
+
+A store `PROVISIONING` with no change for 15 minutes (`STUCK_AFTER`; `updated_at` moves with every step) is stuck.
+
+The threshold must stay above the longest single step (`updated_at` moves only when a step writes the store row), and
+failing a store whose old QStash retries are still pending can let that run's late failure callback fail the re-run
+(callbacks do not carry the attempt). Both are accepted for now; the 15-minute margin is large against seconds-long steps.
+
+- `GET /v1/admin/stores/stuck` (`stores.read`) lists them, oldest first, with `minutes_stuck` and `truncated` (more than 100 stuck stores). Ages use the app clock against the database
+  `updated_at`; a skew of a minute or two is absorbed by the 15-minute margin.
+- `POST /v1/admin/stores/{id}/fail-stuck` (`stores.reprovision`) marks one `FAILED` (audit row
+  `admin.stores.fail_stuck`); 409 when it is not `PROVISIONING` or changed within 15 minutes.
+- `POST /v1/admin/stores/{id}/reprovision` and the merchant's `POST /v1/stores/{id}/retry-provisioning` accept a stuck
+  store: they fail it first, then re-run it. The fail commits on its own (not counted in the cap of 3; the re-run is), so
+  when the cap is reached or the enqueue fails the store stays `FAILED` and the caller gets 409/502. The merchant route
+  keeps its OWNER/ADMIN check. The onboarding status page offers "Retry setup"
+  once it stops polling.
+
 ## Local development
 
 Without `QSTASH_TOKEN` the steps are not enqueued and a new store stays `PROVISIONING`. To drive one by hand, call
@@ -60,9 +121,7 @@ runs the real steps against Postgres when `TEST_DATABASE_URL` is set (see `testi
 
 ## Operating notes and known gaps
 
-- **Stuck `PROVISIONING`.** There is no sweeper. If the process dies between the store commit and the first publish, or QStash
-  is down, a store can stay `PROVISIONING`. Find them with
-  `SELECT id FROM stores WHERE status = 'PROVISIONING' AND created_at < now() - interval '15 minutes'`.
+- **Stuck `PROVISIONING`.** There is no automatic sweeper; operators and merchants act on stuck stores, see "Stuck stores".
 - **`FAILED` retry.** A platform admin re-runs it through `POST /v1/admin/stores/{id}/reprovision` (KAN-200, see `backend-admin-stores.md`). A manual re-publish of a step within QStash's deduplication window (about 10 minutes) is
   collapsed into the earlier message (the dedup id is `provision-<store_id>-<step>-a<attempt>`; admin re-runs get a new attempt, KAN-200).
 - **Orphans.** A `FAILED` store may leave its database and encrypted connection string behind; nothing deletes them. The admin re-run reuses them.

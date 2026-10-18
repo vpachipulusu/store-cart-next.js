@@ -44,7 +44,10 @@ async def test_ready_is_ok_with_an_injected_fake_session_provider(
         response = await client.get("/health/ready", headers=KEY_HEADER)
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {
+        "status": "ok",
+        "provisioning": {"ready": True, "missing": []},
+    }
     assert provider.fake_session.statements == ["SELECT 1"]
     assert (provider.opened, provider.closed) == (1, 1)
 
@@ -58,7 +61,7 @@ async def test_ready_is_503_when_the_database_is_down(client: AsyncClient) -> No
         response = await client.get("/health/ready", headers=KEY_HEADER)
 
     assert response.status_code == 503
-    assert response.json() == {"status": "unavailable"}
+    assert response.json()["status"] == "unavailable"
     assert provider.closed == 1
 
 
@@ -86,7 +89,7 @@ async def test_ready_is_503_not_500_when_the_connection_fails(
         response = await client.get("/health/ready", headers=KEY_HEADER)
 
     assert response.status_code == 503
-    assert response.json() == {"status": "unavailable"}
+    assert response.json()["status"] == "unavailable"
 
 
 def test_openapi_identifies_storecart() -> None:
@@ -211,3 +214,29 @@ async def test_custom_openapi_url_is_ignored_in_production(
         response = await http.get("/custom-schema.json")
 
     assert response.status_code == 404
+
+
+@pytest.mark.usefixtures("override_provider")
+async def test_ready_names_missing_provisioning_settings_without_values(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = FakeSessionProvider(FakeSession(value=1))
+    app.dependency_overrides[get_session_provider] = lambda: provider
+    unconfigured = settings.model_copy(
+        update={
+            "ENVIRONMENT": "production",
+            "VERCEL_ENV": None,
+            "QSTASH_TOKEN": None,
+            "STORE_DB_PROVIDER": "local",
+        }
+    )
+    monkeypatch.setattr("app.api.v1.health.settings", unconfigured)
+
+    async with client:
+        response = await client.get("/health/ready", headers=KEY_HEADER)
+
+    assert response.status_code == 200
+    provisioning = response.json()["provisioning"]
+    assert provisioning["ready"] is False
+    assert "QSTASH_TOKEN" in provisioning["missing"]
+    assert "STORE_DB_PROVIDER" in provisioning["missing"]

@@ -37,6 +37,7 @@ from app.services.admin_stores import (
     MAX_PAGE_SIZE,
     MAX_REPROVISION_ATTEMPTS,
     RETRY_LIMIT_MESSAGE,
+    STUCK_AFTER,
     AdminStoreNotFound,
     AdminStoresService,
     CommitFailed,
@@ -65,6 +66,7 @@ router = APIRouter(
     },
 )
 
+STUCK_AFTER_MINUTES = int(STUCK_AFTER.total_seconds() // 60)
 IDENTIFIER_PATTERN = r"^[A-Za-z0-9_-]+$"
 IDENTIFIER_MAX_LENGTH = 128
 DEFAULT_PAGE_SIZE = 20
@@ -103,7 +105,8 @@ _REPROVISION_RESPONSES: dict[int | str, dict[str, Any]] = {
     **_NOT_FOUND,
     409: {
         "model": ErrorResponse,
-        "description": "The store is not FAILED, or it was already re-run the "
+        "description": "The store is not FAILED (or not yet stuck for "
+        f"{STUCK_AFTER_MINUTES} minutes), or it was already re-run the "
         "maximum number of times (`MAX_REPROVISION_ATTEMPTS`).",
     },
     502: {
@@ -189,6 +192,23 @@ class AdminStoresPage(BaseModel):
 class AdminStoresPageResponse(BaseModel):
     success: Literal[True] = True
     data: AdminStoresPage
+
+
+class StuckStore(StoreSummary):
+    minutes_stuck: int = Field(description="Whole minutes since the last change.")
+
+
+class StuckStoresPage(BaseModel):
+    stores: list[StuckStore]
+    stuck_after_minutes: int
+    truncated: bool = Field(
+        description="True when more stuck stores exist than the page holds."
+    )
+
+
+class StuckStoresResponse(BaseModel):
+    success: Literal[True] = True
+    data: StuckStoresPage
 
 
 class StoreStatusData(BaseModel):
@@ -404,6 +424,51 @@ async def admin_list_stores(
             offset=offset,
         )
     )
+
+
+@router.get(
+    "/stores/stuck",
+    response_model=StuckStoresResponse,
+    summary="List stores stuck in PROVISIONING",
+)
+async def admin_list_stuck_stores(
+    response: Response, _admin: ReadAdmin, service: ServiceDep
+) -> StuckStoresResponse:
+    """Stores PROVISIONING for over `stuck_after_minutes` with no change (KAN-248), oldest first.
+
+    Mark one FAILED with `fail-stuck`, then re-run it with `reprovision` (or the
+    merchant's own retry).
+    """
+    _no_store(response)
+    stuck = await service.list_stuck()
+    return StuckStoresResponse(
+        data=StuckStoresPage(
+            stores=[
+                StuckStore(
+                    **_store(item.store).model_dump(),
+                    minutes_stuck=item.minutes_stuck,
+                )
+                for item in stuck.items
+            ],
+            stuck_after_minutes=STUCK_AFTER_MINUTES,
+            truncated=stuck.truncated,
+        )
+    )
+
+
+@router.post(
+    "/stores/{store_id}/fail-stuck",
+    summary="Mark a store stuck in PROVISIONING as FAILED",
+    response_model=StoreStatusResponse,
+    responses=_STATUS_RESPONSES,
+)
+async def admin_fail_stuck_store(
+    store_id: Identifier,
+    response: Response,
+    admin: ReprovisionAdmin,
+    service: ServiceDep,
+) -> StoreStatusResponse:
+    return await _change_status(service.fail_stuck(admin, store_id), store_id, response)
 
 
 @router.post(

@@ -18,7 +18,9 @@ responses do not (they hold no store data). Rate limited by subject
 | `POST /stores/{store_id}/suspend`    | `stores.suspend` | ACTIVE to SUSPENDED                                                      |
 | `POST /stores/{store_id}/unsuspend`  | `stores.suspend` | SUSPENDED to ACTIVE                                                      |
 | `POST /stores/{store_id}/migrate`    | `stores.migrate` | Run `migrate_store` (KAN-57); returns the previous and new `schema_version` |
-| `POST /stores/{store_id}/reprovision` | `stores.reprovision` | Re-run provisioning of a `FAILED` store (KAN-200) |
+| `POST /stores/{store_id}/reprovision` | `stores.reprovision` | Re-run provisioning of a `FAILED` store (KAN-200); a store stuck in `PROVISIONING` for 15 minutes is failed first (KAN-248) |
+| `GET /stores/stuck` | `stores.read` | Stores `PROVISIONING` for over 15 minutes with no change (KAN-248) |
+| `POST /stores/{store_id}/fail-stuck` | `stores.reprovision` | Mark a stuck `PROVISIONING` store `FAILED` (audit `admin.stores.fail_stuck`, KAN-248) |
 
 - **Lists** return `status` and `schema_version` per store, and the store count per organisation. They never return
   `database_ref` or the connection string. Newest first, id as tie-break. Unknown `status` or malformed ids are a 422.

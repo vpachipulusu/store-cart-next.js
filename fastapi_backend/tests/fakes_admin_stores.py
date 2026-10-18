@@ -87,6 +87,14 @@ class FakeStoresRepository:
             self.locked.append(store_id)
         return self.stores.get(store_id)
 
+    async def list_stuck(self, cutoff: datetime, limit: int) -> list[StoreRecord]:
+        rows = [
+            s
+            for s in self.stores.values()
+            if s.status is StoreStatus.PROVISIONING and s.updated_at < cutoff
+        ]
+        return sorted(rows, key=lambda s: (s.updated_at, s.id))[:limit]
+
     async def set_status(self, store_id: str, status: StoreStatus) -> None:
         self.stores[store_id] = replace(self.stores[store_id], status=status)
 

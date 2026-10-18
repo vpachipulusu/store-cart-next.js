@@ -60,9 +60,14 @@ def store_products_service(
                     StoreCatalogueRepository(session), session, store_id, plan
                 )
         except StoreSessionError as error:
+            # The cause is in the message, so it shows in log lines that drop extras:
+            # StoreDatabaseNotConfigured = provisioning never stored a connection string,
+            # StoreDatabaseUnavailable = it cannot be decrypted or used (key or URL).
+            reason = type(error).__name__
             logger.error(
-                "store database unavailable",
-                extra={"store_id": store_id, "reason": type(error).__name__},
+                "store database unavailable: %s",
+                reason,
+                extra={"store_id": store_id, "reason": reason},
             )
             raise HTTPException(503, STORE_UNAVAILABLE) from None
 

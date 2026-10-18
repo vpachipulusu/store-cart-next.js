@@ -18,6 +18,7 @@ from app.services.admin_stores import (
     StoreConflict,
 )
 from tests.fakes_admin_stores import (
+    NOW,
     FakeAuditor,
     FakeSession,
     FakeStoresRepository,
@@ -53,7 +54,12 @@ def build(*stores, ok: bool = True):
         return 0
 
     service = AdminStoresService(
-        repository, session, auditor, migrate, start_provisioning=starter
+        repository,
+        session,
+        auditor,
+        migrate,
+        start_provisioning=starter,
+        clock=lambda: NOW,
     )
     return service, repository, session, auditor, starter
 

@@ -1917,6 +1917,31 @@ export type ProfileResponse = {
 };
 
 /**
+ * ProvisioningSettingsStatus
+ */
+export type ProvisioningSettingsStatus = {
+    /**
+     * Ready
+     */
+    ready: boolean;
+    /**
+     * Missing
+     */
+    missing: Array<string>;
+};
+
+/**
+ * ReadyResponse
+ */
+export type ReadyResponse = {
+    /**
+     * Status
+     */
+    status: string;
+    provisioning: ProvisioningSettingsStatus;
+};
+
+/**
  * RefundData
  */
 export type RefundData = {
@@ -2397,6 +2422,84 @@ export type StorefrontResponse = {
      */
     success?: true;
     data: StorefrontData;
+};
+
+/**
+ * StuckStore
+ */
+export type StuckStore = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Organization Id
+     */
+    organization_id: string;
+    /**
+     * Organization Name
+     */
+    organization_name: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Slug
+     */
+    slug: string;
+    status: StoreStatus;
+    /**
+     * Schema Version
+     *
+     * Store migrations applied.
+     */
+    schema_version: number;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+    /**
+     * Minutes Stuck
+     *
+     * Whole minutes since the last change.
+     */
+    minutes_stuck: number;
+};
+
+/**
+ * StuckStoresPage
+ */
+export type StuckStoresPage = {
+    /**
+     * Stores
+     */
+    stores: Array<StuckStore>;
+    /**
+     * Stuck After Minutes
+     */
+    stuck_after_minutes: number;
+    /**
+     * Truncated
+     *
+     * True when more stuck stores exist than the page holds.
+     */
+    truncated: boolean;
+};
+
+/**
+ * StuckStoresResponse
+ */
+export type StuckStoresResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: StuckStoresPage;
 };
 
 /**
@@ -3023,7 +3126,7 @@ export type ReadinessCheckResponses = {
     /**
      * Successful Response
      */
-    200: HealthResponse;
+    200: ReadyResponse;
 };
 
 export type ReadinessCheckResponse = ReadinessCheckResponses[keyof ReadinessCheckResponses];
@@ -5142,6 +5245,129 @@ export type AdminListStoresResponses = {
 
 export type AdminListStoresResponse = AdminListStoresResponses[keyof AdminListStoresResponses];
 
+export type AdminListStuckStoresData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/admin/stores/stuck';
+};
+
+export type AdminListStuckStoresErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type AdminListStuckStoresError = AdminListStuckStoresErrors[keyof AdminListStuckStoresErrors];
+
+export type AdminListStuckStoresResponses = {
+    /**
+     * Successful Response
+     */
+    200: StuckStoresResponse;
+};
+
+export type AdminListStuckStoresResponse = AdminListStuckStoresResponses[keyof AdminListStuckStoresResponses];
+
+export type AdminFailStuckStoreData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/admin/stores/{store_id}/fail-stuck';
+};
+
+export type AdminFailStuckStoreErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * No such store.
+     */
+    404: ErrorResponse;
+    /**
+     * The store's status does not allow this operation.
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * The change or its audit row could not be recorded and was rolled back. Retry after `Retry-After` seconds (5). Also returned when the rate limiter is unavailable.
+     */
+    503: ErrorResponse;
+};
+
+export type AdminFailStuckStoreError = AdminFailStuckStoreErrors[keyof AdminFailStuckStoreErrors];
+
+export type AdminFailStuckStoreResponses = {
+    /**
+     * Successful Response
+     */
+    200: StoreStatusResponse;
+};
+
+export type AdminFailStuckStoreResponse = AdminFailStuckStoreResponses[keyof AdminFailStuckStoreResponses];
+
 export type AdminSuspendStoreData = {
     body?: never;
     headers?: {
@@ -5386,7 +5612,7 @@ export type AdminReprovisionStoreErrors = {
      */
     404: ErrorResponse;
     /**
-     * The store is not FAILED, or it was already re-run the maximum number of times (`MAX_REPROVISION_ATTEMPTS`).
+     * The store is not FAILED (or not yet stuck for 15 minutes), or it was already re-run the maximum number of times (`MAX_REPROVISION_ATTEMPTS`).
      */
     409: ErrorResponse;
     /**
