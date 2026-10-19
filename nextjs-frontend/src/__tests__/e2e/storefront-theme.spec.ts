@@ -174,6 +174,11 @@ test.describe('storefront theme', () => {
       const response = await page.goto(storeUrl(store.slug, route));
       expect(response?.status(), route).toBe(404);
     }
+    const unknownPath = await page.goto(storeUrl(store.slug, '/no/such/page'));
+    expect(unknownPath?.status()).toBe(404);
+    await expect(page.getByRole('heading', { name: 'We could not find that page' })).toBeVisible();
+    await expect(page.getByRole('link', { name: store.name })).toBeVisible();
+
     const unknownStore = await page.goto(storeUrl('e2e-theme-ghost', '/products/x'));
     expect(unknownStore?.status()).toBe(404);
 
