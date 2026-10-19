@@ -2,18 +2,20 @@
 
 ``start_onboarding`` creates the organisation's Express connected account on first use,
 then returns a Stripe-hosted onboarding link. ``status`` reads the capability flags that
-the Connect webhook (``ConnectWebhookService``) keeps in sync from ``account.updated``.
+the Connect webhook (``ConnectWebhookService``) keeps in sync with Stripe.
 
 Both require the OWNER or ADMIN role (the same check as billing); a non-member sees
 "not found". Nothing here writes capability flags except the webhook: returning from
 onboarding does not enable charges, Stripe's event does.
 
-Checkout guard (AC3): checkout code must call ``require_charges_enabled`` (or
-``require_org_charges_enabled``) before it creates a payment for an organisation's
-store, and map ``ChargesNotEnabled`` to an HTTP 409 with a generic message.
+Checkout guard (AC3): this module only provides ``require_charges_enabled`` and
+``require_org_charges_enabled``. The checkout story (KAN-68) must call one of them before it
+creates a payment for an organisation's store, and map ``ChargesNotEnabled`` to an HTTP 409
+with a generic message.
 """
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -22,8 +24,8 @@ from typing import Any, Protocol
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ids import new_id
-from app.core.stripe_billing import StripeError
-from app.core.stripe_connect import StripeConnect
+from app.core.stripe_billing import StripeError, StripeNotFound, StripeRejected
+from app.core.stripe_connect import StripeAccountState, StripeConnect
 from app.models.platform.membership import MembershipRole
 from app.repositories.org_connect import ConnectRecord
 from app.services.org_billing import (
@@ -36,7 +38,12 @@ from app.services.org_billing import (
 
 logger = logging.getLogger(__name__)
 
-HANDLED_EVENT_TYPE = "account.updated"
+UPDATED_EVENT_TYPE = "account.updated"
+DEAUTHORIZED_EVENT_TYPE = "account.application.deauthorized"
+ACCOUNT_CREATE_ATTEMPTS = 2
+NO_ACCESS = StripeAccountState(
+    charges_enabled=False, payouts_enabled=False, details_submitted=False
+)
 
 
 class ChargesNotEnabled(Exception):
@@ -44,7 +51,7 @@ class ChargesNotEnabled(Exception):
 
 
 class MalformedConnectEvent(Exception):
-    """The event is signed but not shaped like an ``account.updated`` event (400)."""
+    """The event is signed but lacks the account id the handler needs (400)."""
 
 
 class WebhookOutcome(StrEnum):
@@ -142,7 +149,6 @@ class ConnectService:
         *,
         return_url: str,
         refresh_url: str,
-        request_key: str | None,
     ) -> str:
         record = await self._authorize(organization_id, user_id)
         return_target = validate_return_url(return_url, self._origins)
@@ -151,24 +157,18 @@ class ConnectService:
             record.id
         )
         try:
+            # Links are single use and expire in minutes: always a fresh server-side key.
             return await self._stripe.create_account_link(
                 account_id=account_id,
                 refresh_url=refresh_target,
                 return_url=return_target,
-                idempotency_key=f"sc-connect-link-{record.id}-{request_key or new_id()}",
+                idempotency_key=f"sc-connect-link-{record.id}-{new_id()}",
             )
         except StripeError:
             raise BillingUnavailable from None
 
     async def _create_account(self, organization_id: str) -> str:
-        try:
-            # Deterministic key: a retry after a failed save gets the same account back.
-            created = await self._stripe.create_account(
-                organization_id=organization_id,
-                idempotency_key=f"sc-connect-account-{organization_id}",
-            )
-        except StripeError:
-            raise BillingUnavailable from None
+        created = await self._create_account_at_stripe(organization_id)
         try:
             saved = await self._store.link_account(organization_id, created)
         except LookupError:
@@ -178,44 +178,103 @@ class ConnectService:
         await self._session.commit()
         return saved
 
+    async def _create_account_at_stripe(self, organization_id: str) -> str:
+        # Deterministic key: a retry gets the same account back while Stripe remembers it (about 24 hours).
+        key = f"sc-connect-account-{organization_id}"
+        for attempt in range(ACCOUNT_CREATE_ATTEMPTS):
+            try:
+                return await self._stripe.create_account(
+                    organization_id=organization_id, idempotency_key=key
+                )
+            except StripeRejected:
+                # Stripe answers 409 while a request with the same key is still in flight: a racing
+                # first request for this organisation. Use the account it linked, or try again.
+                linked = await self._linked_account(organization_id)
+                if linked is not None:
+                    return linked
+                if attempt == ACCOUNT_CREATE_ATTEMPTS - 1:
+                    raise BillingUnavailable from None
+            except StripeError:
+                raise BillingUnavailable from None
+        raise BillingUnavailable
 
-def _flag(account: dict[str, Any], name: str) -> bool:
-    value = account.get(name)
-    if not isinstance(value, bool):
+    async def _linked_account(self, organization_id: str) -> str | None:
+        record = await self._store.get(organization_id)
+        await self._session.rollback()
+        return None if record is None else record.stripe_connect_account_id
+
+
+class ConnectWebhookService:
+    """Keeps the flags in step with Stripe from ``account.updated`` and ``account.application.deauthorized``.
+
+    The event is only a trigger: Stripe delivers events unordered and ``created`` has one-second
+    resolution, so the flags are never taken from the payload. ``account.updated`` retrieves the
+    account and stores what Stripe reports now; the row is stamped with the time the read started,
+    so a slower, older read that finishes later cannot overwrite a newer one.
+    ``account.application.deauthorized`` clears the flags. Other events are acknowledged and ignored.
+    """
+
+    def __init__(
+        self,
+        store: ConnectStore,
+        session: AsyncSession,
+        stripe: Callable[[], StripeConnect],
+    ) -> None:
+        self._store = store
+        self._session = session
+        # A factory, so an unset STRIPE_SECRET_KEY only matters once an event needs Stripe.
+        self._stripe = stripe
+
+    async def handle(self, event: dict[str, Any]) -> WebhookOutcome:
+        event_type = event.get("type")
+        if event_type == UPDATED_EVENT_TYPE:
+            return await self._sync(_updated_account_id(event))
+        if event_type == DEAUTHORIZED_EVENT_TYPE:
+            return await self._apply(
+                _deauthorized_account_id(event), NO_ACCESS, datetime.now(UTC)
+            )
+        return WebhookOutcome.IGNORED
+
+    async def _sync(self, account_id: str) -> WebhookOutcome:
+        observed_at = datetime.now(UTC)
+        try:
+            state = await self._stripe().get_account(account_id)
+        except StripeNotFound:
+            state = NO_ACCESS
+        return await self._apply(account_id, state, observed_at)
+
+    async def _apply(
+        self, account_id: str, state: StripeAccountState, observed_at: datetime
+    ) -> WebhookOutcome:
+        updated = await self._store.apply_account_update(
+            account_id,
+            charges_enabled=state.charges_enabled,
+            payouts_enabled=state.payouts_enabled,
+            details_submitted=state.details_submitted,
+            event_at=observed_at,
+        )
+        await self._session.commit()
+        if not updated:
+            # Unknown account, or a newer read already stored: nothing to retry.
+            logger.info("connect webhook changed no organisation")
+            return WebhookOutcome.IGNORED
+        return WebhookOutcome.PROCESSED
+
+
+def _account_id(value: Any) -> str:
+    if not isinstance(value, str) or not value:
         raise MalformedConnectEvent
     return value
 
 
-class ConnectWebhookService:
-    """Applies ``account.updated``; every other event type is acknowledged and ignored."""
+def _updated_account_id(event: dict[str, Any]) -> str:
+    data = event.get("data")
+    account = data.get("object") if isinstance(data, dict) else None
+    if not isinstance(account, dict):
+        raise MalformedConnectEvent
+    return _account_id(account.get("id"))
 
-    def __init__(self, store: ConnectStore, session: AsyncSession) -> None:
-        self._store = store
-        self._session = session
 
-    async def handle(self, event: dict[str, Any]) -> WebhookOutcome:
-        if event.get("type") != HANDLED_EVENT_TYPE:
-            return WebhookOutcome.IGNORED
-        data = event.get("data")
-        account = data.get("object") if isinstance(data, dict) else None
-        created = event.get("created")
-        if not isinstance(account, dict) or isinstance(created, bool):
-            raise MalformedConnectEvent
-        if not isinstance(created, int):
-            raise MalformedConnectEvent
-        account_id = account.get("id")
-        if not isinstance(account_id, str) or not account_id:
-            raise MalformedConnectEvent
-        updated = await self._store.apply_account_update(
-            account_id,
-            charges_enabled=_flag(account, "charges_enabled"),
-            payouts_enabled=_flag(account, "payouts_enabled"),
-            details_submitted=_flag(account, "details_submitted"),
-            event_at=datetime.fromtimestamp(created, UTC),
-        )
-        await self._session.commit()
-        if not updated:
-            # Unknown account, or an older event than the one applied: nothing to retry.
-            logger.info("connect account.updated changed no organisation")
-            return WebhookOutcome.IGNORED
-        return WebhookOutcome.PROCESSED
+def _deauthorized_account_id(event: dict[str, Any]) -> str:
+    # The event's object is the application; the connected account is the event's `account`.
+    return _account_id(event.get("account"))

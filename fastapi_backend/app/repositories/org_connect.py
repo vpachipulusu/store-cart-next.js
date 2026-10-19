@@ -67,10 +67,10 @@ class OrgConnectRepository(BaseRepository):
         details_submitted: bool,
         event_at: datetime,
     ) -> bool:
-        """Mirror an ``account.updated`` event; True if an organisation was updated.
+        """Store the flags Stripe reported at ``event_at``; True if an organisation was updated.
 
-        One atomic statement, so a redelivery rewrites the same values and a late, older
-        event (``event_at`` before the last applied one) changes nothing.
+        ``event_at`` is when the state was read from Stripe. One atomic statement, so a read that
+        started earlier than the stored one changes nothing, and a repeat rewrites the same values.
         """
         result = await self._session.execute(
             update(Organization)

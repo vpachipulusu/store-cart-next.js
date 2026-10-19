@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mocks = vi.hoisted(() => ({
@@ -28,10 +28,11 @@ function status(overrides: Record<string, boolean> = {}) {
 }
 
 const assign = vi.fn();
+const PATH = '/dashboard/settings';
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.stubGlobal('location', { ...window.location, search: '', assign });
+  vi.stubGlobal('location', { ...window.location, pathname: PATH, hash: '', search: '', assign });
   mocks.getConnectStatusAction.mockResolvedValue(status());
 });
 
@@ -79,7 +80,11 @@ describe('ConnectPaymentsPanel', () => {
   });
 
   it('shows an alert with a working retry when the status cannot be loaded', async () => {
-    mocks.getConnectStatusAction.mockResolvedValueOnce({ success: false, error: 'down' });
+    mocks.getConnectStatusAction.mockResolvedValueOnce({
+      success: false,
+      error: 'down',
+      kind: 'retry',
+    });
     const user = userEvent.setup();
 
     render(<ConnectPaymentsPanel />);
@@ -133,6 +138,7 @@ describe('ConnectPaymentsPanel', () => {
     mocks.startConnectOnboardingAction.mockResolvedValue({
       success: false,
       error: 'We could not reach the payment provider. Please try again in a few minutes.',
+      kind: 'retry',
     });
     const user = userEvent.setup();
     render(<ConnectPaymentsPanel />);
@@ -174,7 +180,7 @@ describe('ConnectPaymentsPanel', () => {
     ['?connect=return', /may take a moment to confirm/i],
     ['?connect=refresh', /setup link expired/i],
   ])('explains the return marker %s', async (search, message) => {
-    vi.stubGlobal('location', { ...window.location, search, assign });
+    vi.stubGlobal('location', { ...window.location, pathname: PATH, hash: '', search, assign });
 
     render(<ConnectPaymentsPanel />);
 
@@ -182,11 +188,137 @@ describe('ConnectPaymentsPanel', () => {
   });
 
   it('ignores unknown return markers', async () => {
-    vi.stubGlobal('location', { ...window.location, search: '?connect=evil', assign });
+    vi.stubGlobal('location', {
+      ...window.location,
+      pathname: PATH,
+      hash: '',
+      search: '?connect=evil',
+      assign,
+    });
 
     render(<ConnectPaymentsPanel />);
 
     await screen.findByRole('button', { name: 'Start onboarding' });
     expect(screen.queryByText(/may take a moment|link expired/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('ConnectPaymentsPanel failure kinds', () => {
+  it.each([
+    ['no_organization', 'Create a store first.'],
+    ['forbidden', 'Only an organisation owner or admin can set up payments.'],
+  ] as const)('shows %s as a plain note with no Retry and no alert', async (kind, message) => {
+    mocks.getConnectStatusAction.mockResolvedValue({ success: false, error: message, kind });
+
+    render(<ConnectPaymentsPanel />);
+
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(message);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('shows an expired session as an alert without Retry', async () => {
+    mocks.getConnectStatusAction.mockResolvedValue({
+      success: false,
+      error: 'Your session has expired. Please sign in again.',
+      kind: 'session',
+    });
+
+    render(<ConnectPaymentsPanel />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/session has expired/i);
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+  });
+});
+
+describe('ConnectPaymentsPanel after Stripe', () => {
+  it('re-enables the button when the page comes back from the back/forward cache', async () => {
+    mocks.startConnectOnboardingAction.mockResolvedValue({
+      success: true,
+      data: { url: 'https://connect.stripe.com/setup/abc' },
+    });
+    const user = userEvent.setup();
+    render(<ConnectPaymentsPanel />);
+    await user.click(await screen.findByRole('button', { name: 'Start onboarding' }));
+    await vi.waitFor(() => expect(assign).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('button', { name: 'Start onboarding' })).toBeDisabled();
+
+    act(() => {
+      window.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: true }));
+    });
+
+    expect(screen.getByRole('button', { name: 'Start onboarding' })).toBeEnabled();
+  });
+
+  it('keeps the button disabled for a pageshow that is not a cache restore', async () => {
+    mocks.startConnectOnboardingAction.mockResolvedValue({
+      success: true,
+      data: { url: 'https://connect.stripe.com/setup/abc' },
+    });
+    const user = userEvent.setup();
+    render(<ConnectPaymentsPanel />);
+    await user.click(await screen.findByRole('button', { name: 'Start onboarding' }));
+    await vi.waitFor(() => expect(assign).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      window.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: false }));
+    });
+
+    expect(screen.getByRole('button', { name: 'Start onboarding' })).toBeDisabled();
+  });
+
+  it('strips the return marker from the address bar but keeps showing the notice', async () => {
+    const replaceState = vi.spyOn(window.history, 'replaceState');
+    vi.stubGlobal('location', {
+      ...window.location,
+      pathname: PATH,
+      hash: '',
+      search: '?connect=return&tab=billing',
+      assign,
+    });
+
+    render(<ConnectPaymentsPanel />);
+
+    expect(await screen.findByText(/may take a moment to confirm/i)).toBeInTheDocument();
+    expect(replaceState).toHaveBeenCalledWith(null, '', `${PATH}?tab=billing`);
+    replaceState.mockRestore();
+  });
+
+  it('leaves the address bar alone when there is no marker', async () => {
+    const replaceState = vi.spyOn(window.history, 'replaceState');
+
+    render(<ConnectPaymentsPanel />);
+
+    await screen.findByRole('button', { name: 'Start onboarding' });
+    expect(replaceState).not.toHaveBeenCalled();
+    replaceState.mockRestore();
+  });
+
+  it('offers Refresh status after returning from Stripe and re-reads the status', async () => {
+    vi.stubGlobal('location', {
+      ...window.location,
+      pathname: PATH,
+      hash: '',
+      search: '?connect=return',
+      assign,
+    });
+    mocks.getConnectStatusAction
+      .mockResolvedValueOnce(status({ hasAccount: true }))
+      .mockResolvedValueOnce(status({ hasAccount: true, chargesEnabled: true }));
+    const user = userEvent.setup();
+    render(<ConnectPaymentsPanel />);
+
+    await user.click(await screen.findByRole('button', { name: 'Refresh status' }));
+
+    expect(await screen.findByText('Enabled')).toBeInTheDocument();
+    expect(mocks.getConnectStatusAction).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not offer Refresh status without the return marker', async () => {
+    render(<ConnectPaymentsPanel />);
+
+    await screen.findByRole('button', { name: 'Start onboarding' });
+    expect(screen.queryByRole('button', { name: 'Refresh status' })).not.toBeInTheDocument();
   });
 });

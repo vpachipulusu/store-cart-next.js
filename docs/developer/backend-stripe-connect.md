@@ -8,27 +8,28 @@ Each organisation owns one Stripe **Express** connected account. Merchants compl
 
 Both routes sit under `/v1/organizations/{organization_id}/connect`, need the internal service key and a verified session, and are limited to an `OWNER` or `ADMIN` of the organisation (the same check as billing; a non-member sees 404, a `STAFF` member 403). Responses are `Cache-Control: no-store`.
 
-| Route                              | Purpose                                                                                                                                                                                                                   |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET  .../connect`                 | `{has_account, charges_enabled, payouts_enabled, details_submitted}`. The Stripe account id is never returned.                                                                                                            |
-| `POST .../connect/onboarding-link` | Body `{return_url, refresh_url}`; both must be on `BILLING_RETURN_URL_ORIGINS` (422 otherwise). Creates the Express account on first use, then returns a one-time Stripe-hosted `url`. Optional `Idempotency-Key` header. |
+| Route                              | Purpose                                                                                                                                                                                                                                                                             |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET  .../connect`                 | `{has_account, charges_enabled, payouts_enabled, details_submitted}`. The Stripe account id is never returned.                                                                                                                                                                      |
+| `POST .../connect/onboarding-link` | Body `{return_url, refresh_url}`; both must be on `BILLING_RETURN_URL_ORIGINS` (422 otherwise). Creates the Express account on first use, then returns a one-time Stripe-hosted `url`. The Stripe link key is always server-generated (links are single use and expire in minutes). |
 
 Errors use the usual envelope with generic text: 403, 404, 422, 502 (Stripe failed), 503 (`STRIPE_SECRET_KEY` unset). No Stripe text, ids or account data reach a response or a log.
 
-Account creation uses the deterministic Stripe idempotency key `sc-connect-account-{organization_id}` (honoured by Stripe for about 24 hours) and a conditional update (`link_account`), so two racing first requests end with one linked account.
+Account creation uses the deterministic Stripe idempotency key `sc-connect-account-{organization_id}` (honoured by Stripe for about 24 hours) and a conditional update (`link_account`). Stripe answers 409 while a request with that key is in flight, so the losing request re-reads the organisation (using the account the winner linked) or retries once, and two racing first requests end with one linked account and two 200s. If the link step fails after the account was saved, the account stays linked and the next try reuses it.
 
 ## Webhook
 
-`POST /webhooks/stripe-connect` (public, the signature is the credential, not in OpenAPI) handles only `account.updated`. It is a **separate endpoint with its own signing secret**, `STRIPE_CONNECT_WEBHOOK_SECRET` (a Connect endpoint's `whsec_...`, never the Billing one; startup fails if the two are equal). Verification is the shared `read_verified_body` (300 second tolerance, constant-time compare, 1 MB cap). Unset secret: 503.
+`POST /webhooks/stripe-connect` (public, the signature is the credential, not in OpenAPI) handles `account.updated` and `account.application.deauthorized`. It is a **separate endpoint with its own signing secret**, `STRIPE_CONNECT_WEBHOOK_SECRET` (a Connect endpoint's `whsec_...`, never the Billing one; startup fails if the two are equal, and logs a warning in production when `STRIPE_SECRET_KEY` is set but this secret is not). Verification is the shared `read_verified_body` (`app/core/stripe_webhook_body.py`: 300 second tolerance, constant-time compare, 1 MB cap). Unset secret: 503.
 
-- The update is one atomic `UPDATE ... WHERE stripe_connect_account_id = :id AND (stripe_connect_event_at IS NULL OR stripe_connect_event_at <= :created)`, so a redelivery rewrites the same values and a late, older event changes nothing. Stripe's `created` has one-second resolution, so two events in the same second apply in arrival order.
-- An event for an unknown account, or any other event type, is acknowledged with 200 (nothing to retry). A signed but malformed `account.updated` is 400. Any other failure is a generic retryable 500.
-- Known limits, left to KAN-69 (event routing and once-only processing): an `account.updated` that arrives before the account link is committed is acknowledged and dropped (the next event repairs it), and `account.application.deauthorized` is not handled.
+- **The event is only a trigger.** Stripe delivers events unordered and `created` has one-second resolution, so the flags are never read from the payload. `account.updated` retrieves the account (`GET /v1/accounts/{id}`) and stores what Stripe reports now. Each write is one atomic `UPDATE ... WHERE stripe_connect_account_id = :id AND (stripe_connect_event_at IS NULL OR stripe_connect_event_at <= :read_started_at)`, so a slower, older read that finishes later cannot overwrite a newer one (the column holds the time the read started, microsecond resolution), and a redelivery rewrites the same values.
+- `account.application.deauthorized` (the connected account is the event's top-level `account`) clears all three flags. An account Stripe no longer knows is treated the same.
+- An event for an unknown account, or any other event type, is acknowledged with 200 (nothing to retry). A signed event without an account id is 400. A Stripe outage or any other failure is a generic retryable 500; an unset `STRIPE_SECRET_KEY` is a retryable 503.
+- Known limit, left to KAN-69 (event routing and once-only processing): an `account.updated` that arrives before the account link is committed is acknowledged and dropped (the next event repairs it).
 - Vercel: `vercel.json` has a rewrite for the exact path, and `tests/core/test_vercel_routing.py` pins it.
 
 ## Checkout guard (acceptance criterion 3)
 
-There is no checkout yet. The checkout story must call one of these before it creates any payment for an organisation's store:
+There is no checkout yet: this PR only provides the guard as a function. The checkout story (KAN-68) must call one of these before it creates any payment for an organisation's store:
 
 ```python
 from app.services.stripe_connect import (
@@ -55,4 +56,4 @@ Migration `0010` adds to `organizations`: `stripe_connect_account_id` (unique), 
 
 ## Frontend
 
-`src/lib/api/connect.ts` (server-only wrapper; the organisation is the caller's owner or admin organisation), `src/app/actions/connect-actions.ts` (curated messages, server-built return URLs `/dashboard/settings?connect=return|refresh`) and the **Payments** panel on the dashboard settings page (`connect-payments-panel.tsx`): status pills, Start or Continue onboarding, then a redirect to the Stripe-hosted link (https, `stripe.com` hosts only). Local e2e: `src/__tests__/e2e/connect-onboarding.spec.ts` (see [local-e2e.md](local-e2e.md)).
+`src/lib/api/connect.ts` (server-only wrapper; the organisation is the one that owns the dashboard's selected store, validated by `getCurrentStoreSelection()`, so a user with several organisations sets up payments for the one they are looking at), `src/app/actions/connect-actions.ts` (curated messages, server-built return URLs `/dashboard/settings?connect=return|refresh`) and the **Payments** panel on the dashboard settings page (`connect-payments-panel.tsx`): status pills, Start or Continue onboarding, a Refresh status button after returning from Stripe (the `?connect=` marker is stripped from the address bar), then a redirect to the Stripe-hosted link (https, `stripe.com` hosts only). Users with no organisation or without the owner/admin role see a plain note without Retry. Local e2e: `src/__tests__/e2e/connect-onboarding.spec.ts` (see [local-e2e.md](local-e2e.md)).

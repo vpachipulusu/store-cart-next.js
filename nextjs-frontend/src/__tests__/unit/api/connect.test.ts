@@ -1,10 +1,17 @@
 // @vitest-environment node
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 
-const cookieGet = vi.fn();
+const mocks = vi.hoisted(() => ({
+  cookieGet: vi.fn(),
+  getCurrentStoreSelection: vi.fn(),
+}));
+
 vi.mock('next/headers', () => ({
-  cookies: vi.fn(async () => ({ get: cookieGet })),
+  cookies: vi.fn(async () => ({ get: mocks.cookieGet })),
   headers: vi.fn(async () => ({ get: vi.fn() })),
+}));
+vi.mock('@/lib/stores/current', () => ({
+  getCurrentStoreSelection: mocks.getCurrentStoreSelection,
 }));
 
 import {
@@ -22,53 +29,38 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-function organization(id: string, role: 'OWNER' | 'ADMIN' | 'STAFF') {
-  return {
-    id,
-    name: id,
-    slug: id,
-    role,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-    stores: [],
-    stores_truncated: false,
+function selectionOf(organizationId: string) {
+  const selected = {
+    id: `store-of-${organizationId}`,
+    name: 'Shop',
+    slug: 'shop',
+    status: 'ACTIVE',
+    organizationId,
+    organizationName: organizationId,
   };
+  return { available: true, stores: [selected], selected };
 }
 
 describe('Connect API wrappers', () => {
   const fetchMock = vi.fn<(request: Request) => Promise<Response>>();
-  let organizations: ReturnType<typeof organization>[];
-
-  const connectCalls = () =>
-    fetchMock.mock.calls.map(([request]) => request).filter((r) => r.url.includes('/connect'));
 
   beforeEach(() => {
     process.env.BACKEND_API_URL = BACKEND_URL;
-    cookieGet.mockReturnValue({ name: 'session', value: 'session-cookie' });
-    organizations = [organization('org-1', 'OWNER')];
-    fetchMock.mockReset().mockImplementation(async (request) => {
-      if (request.url === `${BACKEND_URL}/v1/organizations`) {
-        return jsonResponse({
-          success: true,
-          data: organizations,
-          total: organizations.length,
-          limit: 50,
-          offset: 0,
-        });
-      }
-      if (request.url.endsWith('/onboarding-link')) {
-        return jsonResponse({ success: true, data: { url: 'https://connect.stripe.test/x' } });
-      }
-      return jsonResponse({
-        success: true,
-        data: {
-          has_account: true,
-          charges_enabled: false,
-          payouts_enabled: false,
-          details_submitted: true,
-        },
-      });
-    });
+    mocks.cookieGet.mockReturnValue({ name: 'session', value: 'session-cookie' });
+    mocks.getCurrentStoreSelection.mockResolvedValue(selectionOf('org-1'));
+    fetchMock.mockReset().mockImplementation(async (request) =>
+      request.url.endsWith('/onboarding-link')
+        ? jsonResponse({ success: true, data: { url: 'https://connect.stripe.test/x' } })
+        : jsonResponse({
+            success: true,
+            data: {
+              has_account: true,
+              charges_enabled: false,
+              payouts_enabled: false,
+              details_submitted: true,
+            },
+          })
+    );
     vi.stubGlobal('fetch', fetchMock);
   });
 
@@ -76,7 +68,7 @@ describe('Connect API wrappers', () => {
     vi.unstubAllGlobals();
   });
 
-  it('reads the status for the organisation taken from the session memberships', async () => {
+  it('reads the status for the organisation that owns the selected store', async () => {
     const result = await fetchConnectStatus();
 
     expect(result).toEqual({
@@ -88,43 +80,69 @@ describe('Connect API wrappers', () => {
         details_submitted: true,
       },
     });
-    const [request] = connectCalls();
+    const [[request]] = fetchMock.mock.calls;
     expect(request.method).toBe('GET');
     expect(request.url).toBe(`${BACKEND_URL}/v1/organizations/org-1/connect`);
     expect(request.headers.get('X-Session-Token')).toBe('session-cookie');
   });
 
-  it('sends the return and refresh URLs with a fresh Idempotency-Key per call', async () => {
-    const first = await startConnectOnboarding('https://app.test/r', 'https://app.test/f');
+  it('follows the selected store when the user belongs to several organisations', async () => {
+    // A user who owns org-a and administers org-b is looking at a store of org-b.
+    mocks.getCurrentStoreSelection.mockResolvedValue(selectionOf('org-b'));
+
+    await fetchConnectStatus();
     await startConnectOnboarding('https://app.test/r', 'https://app.test/f');
 
-    expect(first).toEqual({ success: true, data: { url: 'https://connect.stripe.test/x' } });
-    const [one, two] = connectCalls();
-    expect(one.method).toBe('POST');
-    expect(one.url).toBe(`${BACKEND_URL}/v1/organizations/org-1/connect/onboarding-link`);
-    expect(await one.clone().json()).toEqual({
+    expect(fetchMock.mock.calls.map(([request]) => request.url)).toEqual([
+      `${BACKEND_URL}/v1/organizations/org-b/connect`,
+      `${BACKEND_URL}/v1/organizations/org-b/connect/onboarding-link`,
+    ]);
+  });
+
+  it('sends the return and refresh URLs and no client idempotency key', async () => {
+    const result = await startConnectOnboarding('https://app.test/r', 'https://app.test/f');
+
+    expect(result).toEqual({ success: true, data: { url: 'https://connect.stripe.test/x' } });
+    const [[request]] = fetchMock.mock.calls;
+    expect(request.method).toBe('POST');
+    expect(await request.clone().json()).toEqual({
       return_url: 'https://app.test/r',
       refresh_url: 'https://app.test/f',
     });
-    const keyOne = one.headers.get('Idempotency-Key');
-    expect(keyOne).toBeTruthy();
-    expect(two.headers.get('Idempotency-Key')).not.toBe(keyOne);
+    expect(request.headers.get('Idempotency-Key')).toBeNull();
   });
 
-  it('does not call Connect for a user who owns or administers no organisation', async () => {
-    organizations = [organization('org-staff', 'STAFF')];
+  it('does not call the backend when the user has no store', async () => {
+    mocks.getCurrentStoreSelection.mockResolvedValue({
+      available: true,
+      stores: [],
+      selected: null,
+    });
 
     const result = await fetchConnectStatus();
 
     expect(result).toEqual({ success: false, error: NO_CONNECT_ORGANIZATION_MESSAGE });
-    expect(connectCalls()).toHaveLength(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('passes on the error when the store list is unavailable', async () => {
+    mocks.getCurrentStoreSelection.mockResolvedValue({
+      available: false,
+      error: 'Could not load your stores. Please try again.',
+    });
+
+    const result = await fetchConnectStatus();
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Could not load your stores. Please try again.',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('passes a backend error through with its status', async () => {
-    fetchMock.mockImplementation(async (request) =>
-      request.url.endsWith('/v1/organizations')
-        ? jsonResponse({ success: true, data: organizations, total: 1, limit: 50, offset: 0 })
-        : jsonResponse({ success: false, error: 'Forbidden' }, 403)
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ success: false, error: 'Forbidden' }, 403)
     );
 
     const result = await fetchConnectStatus();

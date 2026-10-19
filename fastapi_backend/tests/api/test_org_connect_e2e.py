@@ -27,11 +27,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from app.api.auth import get_session_identity
 from app.api.deps import get_session_provider
-from app.api.v1.org_connect import stripe_connect
+from app.api.v1.org_connect import get_stripe_connect_client
 from app.core.config import settings
 from app.core.database import DefaultSessionProvider, build_engine
 from app.core.firebase import VerifiedIdentity
 from app.core.ids import new_id
+from app.core.stripe_connect import StripeAccountState
 from app.core.stripe_signature import compute_signature
 from app.main import create_app
 from app.repositories.org_connect import OrgConnectRepository
@@ -103,7 +104,10 @@ async def client(
         async_sessionmaker(engine, expire_on_commit=False)
     )
     app.dependency_overrides[get_session_provider] = lambda: provider
-    app.dependency_overrides[stripe_connect] = lambda: stripe
+    app.dependency_overrides[get_stripe_connect_client] = lambda: stripe
+    monkeypatch.setattr(
+        "app.api.v1.webhooks_connect.get_stripe_connect", lambda: stripe
+    )
 
     async def identity(
         x_test_uid: Annotated[str | None, Header()] = None,
@@ -173,22 +177,28 @@ def as_user(name: str) -> dict[str, str]:
     return {"X-Test-Uid": f"fb-{name}"}
 
 
-def account_event(
-    account_id: str, *, created: int = T0, charges: bool = True, payouts: bool = False
-) -> dict[str, Any]:
+def account_event(account_id: str) -> dict[str, Any]:
+    """An account.updated trigger; the flags come from Stripe, not from the payload."""
     return {
         "id": f"evt_{new_id()}",
         "type": "account.updated",
-        "created": created,
-        "data": {
-            "object": {
-                "id": account_id,
-                "charges_enabled": charges,
-                "payouts_enabled": payouts,
-                "details_submitted": True,
-            }
-        },
+        "created": T0,
+        "data": {"object": {"id": account_id}},
     }
+
+
+def deauthorized_event(account_id: str) -> dict[str, Any]:
+    return {
+        "id": f"evt_{new_id()}",
+        "type": "account.application.deauthorized",
+        "created": T0,
+        "account": account_id,
+        "data": {"object": {"id": "ca_platform", "object": "application"}},
+    }
+
+
+def stripe_reports(stripe: FakeStripeConnect, *, charges: bool, payouts: bool = False):
+    stripe.account_state = StripeAccountState(charges, payouts, True)
 
 
 async def deliver(
@@ -222,7 +232,8 @@ async def test_owner_onboards_then_account_updated_enables_charges(
     status_before = await client.get(
         f"/v1/organizations/{org}/connect", headers=as_user("owner")
     )
-    delivered = await deliver(client, account_event("acct_new", payouts=True))
+    stripe_reports(stripe, charges=True, payouts=True)
+    delivered = await deliver(client, account_event("acct_new"))
     status_after = await client.get(
         f"/v1/organizations/{org}/connect", headers=as_user("owner")
     )
@@ -242,7 +253,7 @@ async def test_owner_onboards_then_account_updated_enables_charges(
         "payouts_enabled": True,
         "details_submitted": True,
     }
-    assert stripe.names() == ["create_account", "create_account_link"]
+    assert stripe.names() == ["create_account", "create_account_link", "get_account"]
 
 
 async def test_continuing_onboarding_does_not_create_a_second_account(
@@ -261,7 +272,7 @@ async def test_continuing_onboarding_does_not_create_a_second_account(
     assert (await connect_row(engine, org))[0] == "acct_new"
 
 
-async def test_concurrent_first_requests_leave_one_linked_account(
+async def test_concurrent_first_requests_all_succeed_and_link_one_account(
     client, engine, stripe
 ):
     org = await seed_org(engine, {"owner": "OWNER"})
@@ -270,6 +281,8 @@ async def test_concurrent_first_requests_leave_one_linked_account(
 
     assert [r.status_code for r in results] == [200] * 4
     assert (await connect_row(engine, org))[0] == "acct_new"
+    # Several requests reached Stripe at once; the losers saw the in-flight conflict and recovered.
+    assert stripe.names().count("create_account") > 1
 
 
 async def test_staff_cannot_onboard_and_other_organisations_are_hidden(
@@ -293,23 +306,78 @@ async def test_staff_cannot_onboard_and_other_organisations_are_hidden(
     assert (await connect_row(engine, other))[0] is None
 
 
-async def test_older_event_does_not_overwrite_and_unknown_account_is_acknowledged(
-    client, engine
+async def test_unknown_account_is_acknowledged_without_touching_a_row(
+    client, engine, stripe
 ):
     org = await seed_org(engine, {"owner": "OWNER"})
     await onboard(client, org)
-    await deliver(client, account_event("acct_new", created=T0 + 10, charges=False))
+    stripe_reports(stripe, charges=True)
 
-    stale = await deliver(client, account_event("acct_new", created=T0, charges=True))
     unknown = await deliver(client, account_event("acct_nobody"))
 
-    assert (stale.status_code, unknown.status_code) == (200, 200)
+    assert unknown.status_code == 200
     assert (await connect_row(engine, org))[1] is False
 
 
-async def test_redelivered_event_leaves_the_same_state(client, engine):
+async def test_events_in_any_order_leave_what_stripe_now_reports(
+    client, engine, stripe
+):
     org = await seed_org(engine, {"owner": "OWNER"})
     await onboard(client, org)
+    stripe_reports(stripe, charges=True)
+    first = account_event("acct_new")
+    second = account_event("acct_new")  # same second, delivered in reversed order
+
+    responses = [await deliver(client, second), await deliver(client, first)]
+
+    assert [r.status_code for r in responses] == [200, 200]
+    assert (await connect_row(engine, org))[1] is True
+
+
+async def test_deauthorization_clears_the_flags(client, engine, stripe):
+    org = await seed_org(engine, {"owner": "OWNER"})
+    await onboard(client, org)
+    stripe_reports(stripe, charges=True, payouts=True)
+    await deliver(client, account_event("acct_new"))
+
+    cleared = await deliver(client, deauthorized_event("acct_new"))
+
+    assert cleared.status_code == 200
+    assert (await connect_row(engine, org))[1:] == (False, False, False)
+
+
+async def test_a_read_that_started_earlier_does_not_overwrite_a_newer_one(engine):
+    org = await seed_org(engine, {"owner": "OWNER"})
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    newer = datetime(2026, 10, 19, 12, 0, 1, tzinfo=UTC)
+    older = datetime(2026, 10, 19, 12, 0, 0, tzinfo=UTC)
+    async with maker() as session:
+        repository = OrgConnectRepository(session)
+        await repository.link_account(org, "acct_race")
+        applied = await repository.apply_account_update(
+            "acct_race",
+            charges_enabled=True,
+            payouts_enabled=True,
+            details_submitted=True,
+            event_at=newer,
+        )
+        stale = await repository.apply_account_update(
+            "acct_race",
+            charges_enabled=False,
+            payouts_enabled=False,
+            details_submitted=False,
+            event_at=older,
+        )
+        await session.commit()
+
+    assert (applied, stale) == (True, False)
+    assert (await connect_row(engine, org))[1:] == (True, True, True)
+
+
+async def test_redelivered_event_leaves_the_same_state(client, engine, stripe):
+    org = await seed_org(engine, {"owner": "OWNER"})
+    await onboard(client, org)
+    stripe_reports(stripe, charges=True)
     event = account_event("acct_new")
 
     responses = await asyncio.gather(*(deliver(client, event) for _ in range(3)))
@@ -318,17 +386,19 @@ async def test_redelivered_event_leaves_the_same_state(client, engine):
     assert (await connect_row(engine, org))[1:] == (True, False, True)
 
 
-async def test_bad_signature_changes_nothing(client, engine):
+async def test_bad_signature_changes_nothing(client, engine, stripe):
     org = await seed_org(engine, {"owner": "OWNER"})
     await onboard(client, org)
+    stripe_reports(stripe, charges=True)
 
     response = await deliver(client, account_event("acct_new"), secret="whsec_wrong")
 
     assert response.status_code == 400
     assert (await connect_row(engine, org))[1] is False
+    assert "get_account" not in stripe.names()
 
 
-async def test_checkout_guard_blocks_until_charges_are_enabled(client, engine):
+async def test_checkout_guard_blocks_until_charges_are_enabled(client, engine, stripe):
     org = await seed_org(engine, {"owner": "OWNER"})
     maker = async_sessionmaker(engine, expire_on_commit=False)
 
@@ -336,24 +406,12 @@ async def test_checkout_guard_blocks_until_charges_are_enabled(client, engine):
         with pytest.raises(ChargesNotEnabled):
             await require_org_charges_enabled(OrgConnectRepository(session), org)
     await onboard(client, org)
-    await deliver(client, account_event("acct_new", charges=False))
+    stripe_reports(stripe, charges=False)
+    await deliver(client, account_event("acct_new"))
     async with maker() as session:
         with pytest.raises(ChargesNotEnabled):
             await require_org_charges_enabled(OrgConnectRepository(session), org)
-    await deliver(client, account_event("acct_new", created=T0 + 5, charges=True))
+    stripe_reports(stripe, charges=True)
+    await deliver(client, account_event("acct_new"))
     async with maker() as session:
         await require_org_charges_enabled(OrgConnectRepository(session), org)
-
-
-async def test_apply_account_update_reports_whether_a_row_matched(engine):
-    maker = async_sessionmaker(engine, expire_on_commit=False)
-    async with maker() as session:
-        matched = await OrgConnectRepository(session).apply_account_update(
-            "acct_none",
-            charges_enabled=True,
-            payouts_enabled=True,
-            details_submitted=True,
-            event_at=datetime.now(UTC),
-        )
-
-    assert matched is False

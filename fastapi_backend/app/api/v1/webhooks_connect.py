@@ -1,9 +1,9 @@
-"""Stripe Connect webhook (KAN-67): ``account.updated`` only.
+"""Stripe Connect webhook (KAN-67): ``account.updated`` and ``account.application.deauthorized``.
 
 A separate endpoint from the Billing webhook with its own signing secret
 (``STRIPE_CONNECT_WEBHOOK_SECRET``). Public route: the signature is the credential. Not
-in the OpenAPI schema. KAN-69 adds event routing and once-only processing; until then
-the update is idempotent by construction (see ``OrgConnectRepository.apply_account_update``).
+in the OpenAPI schema. The event only triggers a re-read of the account from Stripe (see
+``ConnectWebhookService``). KAN-69 adds event routing and once-only processing on top.
 """
 
 import json
@@ -14,13 +14,16 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
 from app.api.deps import SessionDep
-from app.api.v1.webhooks import (
+from app.core.config import settings
+from app.core.sentry import report_exception
+from app.core.stripe_billing import StripeNotConfigured
+from app.core.stripe_connect import get_stripe_connect
+from app.core.stripe_webhook_body import (
     INVALID_PAYLOAD_MESSAGE,
+    NOT_CONFIGURED_MESSAGE,
     PROCESSING_FAILED_MESSAGE,
     read_verified_body,
 )
-from app.core.config import settings
-from app.core.sentry import report_exception
 from app.repositories.org_connect import OrgConnectRepository
 from app.services.stripe_connect import ConnectWebhookService, MalformedConnectEvent
 
@@ -34,7 +37,9 @@ class WebhookAck(BaseModel):
 
 
 def get_connect_webhook_service(session: SessionDep) -> ConnectWebhookService:
-    return ConnectWebhookService(OrgConnectRepository(session), session)
+    return ConnectWebhookService(
+        OrgConnectRepository(session), session, get_stripe_connect
+    )
 
 
 async def _verified_body(request: Request, signature: str | None) -> bytes:
@@ -61,6 +66,9 @@ async def stripe_connect_webhook(
         await service.handle(event)
     except MalformedConnectEvent:
         raise HTTPException(400, INVALID_PAYLOAD_MESSAGE) from None
+    except StripeNotConfigured:
+        # Retryable: the event is not lost while the operator sets STRIPE_SECRET_KEY.
+        raise HTTPException(503, NOT_CONFIGURED_MESSAGE) from None
     except Exception as exc:  # noqa: BLE001 - any failure must become a retryable 500
         # Type only: a database error's text can carry statement parameters.
         logger.error("stripe connect webhook handler failed: %s", type(exc).__name__)

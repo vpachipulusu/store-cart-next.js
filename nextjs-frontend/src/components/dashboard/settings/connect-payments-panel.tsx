@@ -6,6 +6,7 @@ import { Loader2 } from 'lucide-react';
 import {
   getConnectStatusAction,
   startConnectOnboardingAction,
+  type ConnectFailureKind,
   type ConnectStatus,
 } from '@/app/actions/connect-actions';
 import { Panel } from '@/components/dashboard/overview/panel';
@@ -14,7 +15,10 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusPill, type StatusPillVariant } from '@/components/ui/status-pill';
 
-type Load = { state: 'loading' } | { state: 'failed'; message: string } | { state: 'ready' };
+type Load =
+  | { state: 'loading' }
+  | { state: 'failed'; message: string; kind: ConnectFailureKind }
+  | { state: 'ready' };
 
 const RETURN_NOTICES = {
   return:
@@ -28,6 +32,19 @@ const START_FAILED = 'We could not start payment setup. Please try again.';
 function readReturnMarker(): 'return' | 'refresh' | null {
   const marker = new URLSearchParams(window.location.search).get('connect');
   return marker === 'return' || marker === 'refresh' ? marker : null;
+}
+
+/** Drops the marker from the address bar so a reload does not show the notice again. */
+function stripReturnMarker() {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has('connect')) return;
+  params.delete('connect');
+  const query = params.toString();
+  window.history.replaceState(
+    window.history.state,
+    '',
+    `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash ?? ''}`
+  );
 }
 
 /** Only navigate to an https Stripe URL: the link comes from our backend, but a navigation is never worth trusting blindly. */
@@ -79,14 +96,18 @@ export function ConnectPaymentsPanel() {
         const result = await getConnectStatusAction();
         if (cancelled) return;
         if (!result.success) {
-          setLoad({ state: 'failed', message: result.error });
+          setLoad({ state: 'failed', message: result.error, kind: result.kind });
           return;
         }
         setStatus(result.data);
         setLoad({ state: 'ready' });
       } catch {
         if (cancelled) return;
-        setLoad({ state: 'failed', message: 'We could not load your payment status.' });
+        setLoad({
+          state: 'failed',
+          message: 'We could not load your payment status.',
+          kind: 'retry',
+        });
       }
     }
 
@@ -96,7 +117,20 @@ export function ConnectPaymentsPanel() {
     };
   }, [attempt]);
 
-  function retry() {
+  useEffect(() => {
+    stripReturnMarker();
+  }, []);
+
+  // Back from Stripe restores this page from the back/forward cache with the button still disabled.
+  useEffect(() => {
+    function onPageShow(event: PageTransitionEvent) {
+      if (event.persisted) setIsStarting(false);
+    }
+    window.addEventListener('pageshow', onPageShow);
+    return () => window.removeEventListener('pageshow', onPageShow);
+  }, []);
+
+  function reload() {
     setLoad({ state: 'loading' });
     setAttempt((count) => count + 1);
   }
@@ -136,15 +170,28 @@ export function ConnectPaymentsPanel() {
   }
 
   if (load.state === 'failed' || !status) {
+    const message =
+      load.state === 'failed' ? load.message : 'We could not load your payment status.';
+    const kind = load.state === 'failed' ? load.kind : 'retry';
+    // Nothing the user can retry: no organisation, or not an owner/admin. A plain note, not an error.
+    if (kind === 'no_organization' || kind === 'forbidden') {
+      return (
+        <Panel title="Payments" titleId="payments-title">
+          <p role="status" className="text-sm text-muted-foreground">
+            {message}
+          </p>
+        </Panel>
+      );
+    }
     return (
       <Panel title="Payments" titleId="payments-title">
         <div role="alert" className="space-y-3">
-          <p className="text-sm">
-            {load.state === 'failed' ? load.message : 'We could not load your payment status.'}
-          </p>
-          <Button type="button" variant="outline" onClick={retry}>
-            Try again
-          </Button>
+          <p className="text-sm">{message}</p>
+          {kind === 'retry' && (
+            <Button type="button" variant="outline" onClick={reload}>
+              Try again
+            </Button>
+          )}
         </div>
       </Panel>
     );
@@ -197,12 +244,19 @@ export function ConnectPaymentsPanel() {
         </p>
       )}
 
-      {!complete && (
-        <Button type="button" className="mt-4" onClick={startOnboarding} disabled={isStarting}>
-          {isStarting && <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" />}
-          {status.hasAccount ? 'Continue onboarding' : 'Start onboarding'}
-        </Button>
-      )}
+      <div className="mt-4 flex flex-wrap gap-2">
+        {!complete && (
+          <Button type="button" onClick={startOnboarding} disabled={isStarting}>
+            {isStarting && <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" />}
+            {status.hasAccount ? 'Continue onboarding' : 'Start onboarding'}
+          </Button>
+        )}
+        {marker === 'return' && (
+          <Button type="button" variant="outline" onClick={reload}>
+            Refresh status
+          </Button>
+        )}
+      </div>
     </Panel>
   );
 }

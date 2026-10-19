@@ -79,12 +79,35 @@ def test_only_the_intended_public_paths_reach_the_backend() -> None:
     ]
 
 
-def test_the_connect_route_matches_the_rewrite_and_checks_the_signature() -> None:
-    from app.api.v1.webhooks_connect import router
+async def test_the_connect_route_matches_the_rewrite_and_rejects_unsigned_posts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from httpx import ASGITransport, AsyncClient
+    from pydantic import SecretStr
 
+    from app.api.deps import get_session_provider
+    from app.api.v1.webhooks_connect import router
+    from app.core.config import settings
+    from app.main import create_app
+    from tests.fakes import FakeSession, FakeSessionProvider
+
+    monkeypatch.setattr(
+        settings, "STRIPE_CONNECT_WEBHOOK_SECRET", SecretStr("whsec_routing_test_only")
+    )
     assert {route.path for route in router.routes} == {CONNECT_WEBHOOK_PATH}  # type: ignore[attr-defined]
-    for route in router.routes:
-        assert "_verified_body(" in inspect.getsource(route.endpoint)  # type: ignore[attr-defined]
+    app = create_app()
+    app.dependency_overrides[get_session_provider] = lambda: FakeSessionProvider(
+        FakeSession()
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://test",
+    ) as http:
+        unsigned = await http.post(CONNECT_WEBHOOK_PATH, content=b"{}")
+
+    assert unsigned.status_code == 400
+    assert unsigned.json() == {"success": False, "error": "Invalid signature"}
 
 
 def test_the_stripe_route_matches_the_rewrite_and_checks_the_signature() -> None:

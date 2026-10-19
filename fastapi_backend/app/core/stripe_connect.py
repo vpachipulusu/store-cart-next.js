@@ -1,21 +1,34 @@
-"""Stripe Connect client (KAN-67): create a connected account and its hosted onboarding link.
+"""Stripe Connect client (KAN-67): create a connected account, its hosted onboarding link, read its state.
 
 Reuses the Stripe Billing transport (``HttpStripeBilling._call``), so the same timeout,
 error mapping and no-secret logging apply: every failure becomes a ``StripeError``
 without Stripe text. Tests inject a fake ``StripeConnect``.
 """
 
+from dataclasses import dataclass
 from typing import Protocol
 
 from app.core.config import settings
 from app.core.stripe_billing import (
     HttpStripeBilling,
     StripeNotConfigured,
+    as_dict,
     require_text,
 )
 
 
+@dataclass(frozen=True)
+class StripeAccountState:
+    """The capability flags of a connected account, as Stripe reports them now."""
+
+    charges_enabled: bool
+    payouts_enabled: bool
+    details_submitted: bool
+
+
 class StripeConnect(Protocol):
+    async def get_account(self, account_id: str) -> StripeAccountState: ...
+
     async def create_account(
         self, *, organization_id: str, idempotency_key: str
     ) -> str: ...
@@ -31,6 +44,14 @@ class StripeConnect(Protocol):
 
 
 class HttpStripeConnect(HttpStripeBilling):
+    async def get_account(self, account_id: str) -> StripeAccountState:
+        body = as_dict(await self._call("GET", f"/accounts/{account_id}"))
+        return StripeAccountState(
+            charges_enabled=body.get("charges_enabled") is True,
+            payouts_enabled=body.get("payouts_enabled") is True,
+            details_submitted=body.get("details_submitted") is True,
+        )
+
     async def create_account(
         self, *, organization_id: str, idempotency_key: str
     ) -> str:
@@ -70,7 +91,7 @@ class HttpStripeConnect(HttpStripeBilling):
 
 
 def get_stripe_connect() -> StripeConnect:
-    """The one place the real client is built; tests override this dependency."""
+    """The one place the real client is built; tests override the dependency that calls it."""
     secret = settings.STRIPE_SECRET_KEY
     if secret is None or not secret.get_secret_value():
         raise StripeNotConfigured("STRIPE_SECRET_KEY is not set")

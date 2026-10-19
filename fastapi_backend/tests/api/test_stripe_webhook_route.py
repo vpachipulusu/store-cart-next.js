@@ -11,13 +11,13 @@ from pydantic import SecretStr
 
 from app.api.deps import get_session_provider
 from app.api.v1.webhooks import (
-    MAX_BODY_BYTES,
     get_stripe_webhook_service,
     price_catalogue,
 )
 from app.core.config import settings
 from app.core.plans import PlanKey
 from app.core.stripe_signature import compute_signature
+from app.core.stripe_webhook_body import MAX_BODY_BYTES
 from app.main import create_app
 from app.services.stripe_webhook import MalformedEvent, WebhookOutcome
 from tests.fakes import FakeSession, FakeSessionProvider

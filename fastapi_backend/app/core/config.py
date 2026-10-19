@@ -1,3 +1,4 @@
+import logging
 import re
 from typing import Annotated, Literal
 from urllib.parse import urlparse
@@ -159,6 +160,17 @@ class Settings(BaseSettings):
         ):
             raise ValueError(
                 "STRIPE_CONNECT_WEBHOOK_SECRET must differ from STRIPE_WEBHOOK_SECRET"
+            )
+        if (
+            self.STRIPE_SECRET_KEY is not None
+            and connect is None
+            and not self.relaxed_environment
+        ):
+            # A warning, not a startup failure: refusing to boot would take the whole API down
+            # for a missing optional integration. The Connect webhook answers 503 meanwhile.
+            logging.getLogger("storecart.config").warning(
+                "STRIPE_CONNECT_WEBHOOK_SECRET is not set: /webhooks/stripe-connect answers 503 "
+                "and merchant payment status will not update"
             )
         return self
 

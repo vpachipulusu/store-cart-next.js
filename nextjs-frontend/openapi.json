@@ -9150,25 +9150,6 @@
             }
           },
           {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "minLength": 8,
-                  "maxLength": 64,
-                  "pattern": "^[A-Za-z0-9_-]+$"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Idempotency-Key"
-            }
-          },
-          {
             "name": "X-Internal-Key",
             "in": "header",
             "required": false,

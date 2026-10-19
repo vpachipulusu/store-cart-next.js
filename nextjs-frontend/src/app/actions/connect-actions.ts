@@ -13,6 +13,9 @@ import {
  * Stripe Connect server actions (KAN-67). Onboarding itself is Stripe-hosted: these only read the capability flags
  * the Connect webhook keeps in sync and ask the backend for a one-time onboarding link. Messages shown to the
  * browser are curated here; no backend or Stripe text reaches it.
+ *
+ * A failure carries a `kind` so the panel can tell "nothing to do here" (no organisation, not allowed: an
+ * informational note without Retry) from a signed-out session and from an outage (Retry).
  */
 
 export type ConnectStatus = {
@@ -22,11 +25,16 @@ export type ConnectStatus = {
   detailsSubmitted: boolean;
 };
 
-type ConnectActionResponse<T> = { success: true; data: T } | { success: false; error: string };
+export type ConnectFailureKind = 'no_organization' | 'forbidden' | 'session' | 'retry';
+
+type ConnectActionResponse<T> =
+  | { success: true; data: T }
+  | { success: false; error: string; kind: ConnectFailureKind };
 
 const MESSAGES = {
-  unauthorized: 'Your session has expired. Please sign in again.',
-  noOrganization: 'Create a store first. Payments are set up for your organisation.',
+  session: 'Your session has expired. Please sign in again.',
+  noOrganization: 'Create a store first. Payments are set up for your store’s organisation.',
+  notFound: 'We could not find the payment settings for this store’s organisation.',
   forbidden: 'Only an organisation owner or admin can set up payments.',
   unavailable: 'We could not reach the payment provider. Please try again in a few minutes.',
   notConfigured: 'Payments are not available right now. Please try again later.',
@@ -34,20 +42,34 @@ const MESSAGES = {
   startFailed: 'We could not start payment setup. Please try again.',
 } as const;
 
-function messageFor(error: string, status: number | undefined, fallback: string): string {
-  if (error === NO_CONNECT_ORGANIZATION_MESSAGE) return MESSAGES.noOrganization;
+function failure(
+  error: string,
+  kind: ConnectFailureKind
+): { success: false; error: string; kind: ConnectFailureKind } {
+  return { success: false, error, kind };
+}
+
+function classify(
+  error: string,
+  status: number | undefined,
+  fallback: string
+): { success: false; error: string; kind: ConnectFailureKind } {
+  if (error === NO_CONNECT_ORGANIZATION_MESSAGE) {
+    return failure(MESSAGES.noOrganization, 'no_organization');
+  }
   switch (status) {
     case 401:
-      return MESSAGES.unauthorized;
+      return failure(MESSAGES.session, 'session');
     case 403:
+      return failure(MESSAGES.forbidden, 'forbidden');
     case 404:
-      return MESSAGES.forbidden;
+      return failure(MESSAGES.notFound, 'no_organization');
     case 502:
-      return MESSAGES.unavailable;
+      return failure(MESSAGES.unavailable, 'retry');
     case 503:
-      return MESSAGES.notConfigured;
+      return failure(MESSAGES.notConfigured, 'retry');
     default:
-      return fallback;
+      return failure(fallback, 'retry');
   }
 }
 
@@ -57,15 +79,12 @@ function errorClass(error: unknown): string {
 
 export async function getConnectStatusAction(): Promise<ConnectActionResponse<ConnectStatus>> {
   try {
-    if (!(await getVerifiedUserId())) return { success: false, error: MESSAGES.unauthorized };
+    if (!(await getVerifiedUserId())) return failure(MESSAGES.session, 'session');
 
     const result = await fetchConnectStatus();
     if (!result.success) {
       logger.error('Get Connect status failed:', { status: result.status });
-      return {
-        success: false,
-        error: messageFor(result.error, result.status, MESSAGES.loadFailed),
-      };
+      return classify(result.error, result.status, MESSAGES.loadFailed);
     }
     return {
       success: true,
@@ -78,7 +97,7 @@ export async function getConnectStatusAction(): Promise<ConnectActionResponse<Co
     };
   } catch (error: unknown) {
     logger.error('Get Connect status error:', { cause: errorClass(error) });
-    return { success: false, error: MESSAGES.loadFailed };
+    return failure(MESSAGES.loadFailed, 'retry');
   }
 }
 
@@ -87,20 +106,17 @@ export async function startConnectOnboardingAction(): Promise<
   ConnectActionResponse<{ url: string }>
 > {
   try {
-    if (!(await getVerifiedUserId())) return { success: false, error: MESSAGES.unauthorized };
+    if (!(await getVerifiedUserId())) return failure(MESSAGES.session, 'session');
 
     const { returnUrl, refreshUrl } = buildConnectReturnUrls();
     const result = await startConnectOnboarding(returnUrl, refreshUrl);
     if (!result.success) {
       logger.error('Start Connect onboarding failed:', { status: result.status });
-      return {
-        success: false,
-        error: messageFor(result.error, result.status, MESSAGES.startFailed),
-      };
+      return classify(result.error, result.status, MESSAGES.startFailed);
     }
     return { success: true, data: { url: result.data.url } };
   } catch (error: unknown) {
     logger.error('Start Connect onboarding error:', { cause: errorClass(error) });
-    return { success: false, error: MESSAGES.startFailed };
+    return failure(MESSAGES.startFailed, 'retry');
   }
 }

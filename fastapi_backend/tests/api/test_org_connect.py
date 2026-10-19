@@ -10,7 +10,7 @@ from pydantic import SecretStr
 
 from app.api.auth import get_current_identity
 from app.api.me import get_current_user_id
-from app.api.v1.org_connect import get_connect_service, stripe_connect
+from app.api.v1.org_connect import get_connect_service, get_stripe_connect_client
 from app.core.config import settings
 from app.core.firebase import VerifiedIdentity
 from app.main import create_app
@@ -132,7 +132,7 @@ async def test_staff_is_403_and_strangers_and_other_orgs_are_404(harness):
     assert harness.stripe.calls == []
 
 
-async def test_onboarding_link_returns_the_hosted_url_and_uses_the_client_key(harness):
+async def test_onboarding_link_returns_the_hosted_url_with_a_server_side_key(harness):
     harness.store.orgs["org1"] = connect_record(stripe_connect_account_id="acct_1")
 
     async with client(harness) as http:
@@ -145,9 +145,8 @@ async def test_onboarding_link_returns_the_hosted_url_and_uses_the_client_key(ha
     assert result.status_code == 200
     assert result.headers["cache-control"] == "no-store"
     assert result.json()["data"] == {"url": "https://connect.stripe.test/setup/abc"}
-    assert harness.stripe.last("create_account_link")["idempotency_key"] == (
-        "sc-connect-link-org1-client-key-1"
-    )
+    key = harness.stripe.last("create_account_link")["idempotency_key"]
+    assert key.startswith("sc-connect-link-org1-") and "client-key-1" not in key
 
 
 @pytest.mark.parametrize(
@@ -192,9 +191,9 @@ def test_unconfigured_secret_key_is_503_and_a_configured_one_builds_a_client(
 ):
     monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", None)
     with pytest.raises(HTTPException) as raised:
-        stripe_connect()
+        get_stripe_connect_client()
 
     monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", SecretStr("sk_test_x"))
 
     assert raised.value.status_code == 503
-    assert stripe_connect() is not None
+    assert get_stripe_connect_client() is not None

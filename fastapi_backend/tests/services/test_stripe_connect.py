@@ -4,6 +4,8 @@ from typing import Any
 
 import pytest
 
+from app.core.stripe_billing import StripeError
+from app.core.stripe_connect import StripeAccountState
 from app.models.platform.membership import MembershipRole
 from app.services.org_billing import (
     BillingForbidden,
@@ -25,6 +27,9 @@ from tests.fakes_billing import FakeCommitSession
 from tests.fakes_connect import FakeConnectStore, FakeStripeConnect, connect_record
 
 OK = "https://app.example.com/settings"
+ENABLED = StripeAccountState(
+    charges_enabled=True, payouts_enabled=False, details_submitted=True
+)
 
 
 def build(
@@ -47,7 +52,7 @@ def build(
 
 
 async def onboard(service: ConnectService, user: str = "owner", **overrides: Any):
-    args = {"return_url": OK, "refresh_url": OK, "request_key": "key-0001"}
+    args = {"return_url": OK, "refresh_url": OK}
     return await service.start_onboarding("org1", user, **{**args, **overrides})
 
 
@@ -71,19 +76,21 @@ async def test_continue_onboarding_reuses_the_saved_account():
 
     assert stripe.names() == ["create_account_link"]
     assert stripe.last("create_account_link")["account_id"] == "acct_1"
-    assert stripe.last("create_account_link")["idempotency_key"] == (
-        "sc-connect-link-org1-key-0001"
-    )
 
 
-async def test_onboarding_without_a_request_key_still_gets_a_unique_link_key():
+async def test_every_link_request_uses_a_fresh_server_side_idempotency_key():
     service, _, stripe, _ = build(connect_record(stripe_connect_account_id="acct_1"))
 
-    await onboard(service, request_key=None)
+    await onboard(service)
+    await onboard(service)
 
-    assert stripe.last("create_account_link")["idempotency_key"].startswith(
-        "sc-connect-link-org1-"
-    )
+    keys = [
+        args["idempotency_key"]
+        for name, args in stripe.calls
+        if name == "create_account_link"
+    ]
+    assert len(set(keys)) == 2
+    assert all(key.startswith("sc-connect-link-org1-") for key in keys)
 
 
 async def test_admin_may_onboard_but_staff_and_strangers_may_not():
@@ -108,16 +115,100 @@ async def test_foreign_return_or_refresh_urls_are_rejected_before_stripe(field, 
     assert stripe.calls == []
 
 
-@pytest.mark.parametrize("failing", ["create_account", "create_account_link"])
-async def test_stripe_failures_become_billing_unavailable_and_save_nothing(failing):
-    service, store, stripe, _ = build()
-    stripe.fail_on = failing
+async def test_account_creation_failure_saves_nothing():
+    service, store, stripe, session = build()
+    stripe.fail_on = "create_account"
 
     with pytest.raises(BillingUnavailable):
         await onboard(service)
 
-    if failing == "create_account":
-        assert store.orgs["org1"].stripe_connect_account_id is None
+    assert store.orgs["org1"].stripe_connect_account_id is None
+    assert session.commits == 0
+
+
+async def test_link_failure_keeps_the_account_linked_and_committed():
+    service, store, stripe, session = build()
+    stripe.fail_on = "create_account_link"
+
+    with pytest.raises(BillingUnavailable):
+        await onboard(service)
+
+    assert store.orgs["org1"].stripe_connect_account_id == "acct_new"
+    assert session.commits == 1
+
+
+async def test_a_retry_after_a_failed_link_reuses_the_saved_account():
+    service, _, stripe, _ = build()
+    stripe.fail_on = "create_account_link"
+    with pytest.raises(BillingUnavailable):
+        await onboard(service)
+    stripe.fail_on = None
+
+    assert await onboard(service)
+
+    assert stripe.names().count("create_account") == 1
+
+
+async def test_an_in_flight_conflict_is_retried_and_creates_the_account_once():
+    service, store, stripe, session = build()
+    stripe.reject_next_create = True
+
+    url = await onboard(service)
+
+    assert url == "https://connect.stripe.test/setup/abc"
+    assert stripe.names().count("create_account") == 2
+    assert store.orgs["org1"].stripe_connect_account_id == "acct_new"
+    assert session.commits == 1
+
+
+async def test_a_conflict_uses_the_account_the_racing_request_already_linked():
+    service, store, stripe, _ = build()
+    stripe.reject_next_create = True
+    original = store.get
+    calls = 0
+
+    async def get_then_link(organization_id: str):
+        nonlocal calls
+        calls += 1
+        if calls == 2:  # the re-read after the conflict: the other request has linked
+            await store.link_account(organization_id, "acct_winner")
+        return await original(organization_id)
+
+    store.get = get_then_link  # type: ignore[method-assign]
+
+    await onboard(service)
+
+    assert stripe.names().count("create_account") == 1
+    assert stripe.last("create_account_link")["account_id"] == "acct_winner"
+
+
+async def test_repeated_conflicts_become_billing_unavailable():
+    service, _, stripe, _ = build()
+
+    async def always_reject(**kwargs: Any) -> str:
+        from app.core.stripe_billing import StripeRejected
+
+        raise StripeRejected("Stripe request failed")
+
+    stripe.create_account = always_reject  # type: ignore[method-assign]
+
+    with pytest.raises(BillingUnavailable):
+        await onboard(service)
+
+
+async def test_organisation_deleted_during_account_link_is_not_found_and_rolls_back():
+    service, store, _, session = build()
+
+    async def vanished(organization_id: str, account_id: str) -> str:
+        raise LookupError
+
+    store.link_account = vanished  # type: ignore[method-assign]
+
+    with pytest.raises(OrganizationNotFound):
+        await onboard(service)
+
+    assert session.rollbacks >= 2
+    assert session.commits == 0
 
 
 async def test_status_reports_the_stored_flags_to_owner_and_admin():
@@ -151,37 +242,48 @@ async def test_status_for_an_unknown_organisation_or_non_member_is_not_found():
         await service.status("org1", "staff")
 
 
-def account_event(**overrides: Any) -> dict[str, Any]:
-    account = {
-        "id": "acct_1",
-        "charges_enabled": True,
-        "payouts_enabled": False,
-        "details_submitted": True,
-    }
-    event: dict[str, Any] = {
+def updated_event(account_id: str = "acct_1", **payload: Any) -> dict[str, Any]:
+    """An account.updated event; the payload flags are deliberately not what the service uses."""
+    return {
         "id": "evt_1",
         "type": "account.updated",
         "created": 1_800_000_000,
-        "data": {"object": {**account, **overrides.pop("account", {})}},
+        "data": {"object": {"id": account_id, **payload}},
     }
-    return {**event, **overrides}
 
 
-def webhook() -> tuple[ConnectWebhookService, FakeConnectStore, FakeCommitSession]:
+def deauthorized_event(account: Any = "acct_1") -> dict[str, Any]:
+    event: dict[str, Any] = {
+        "id": "evt_2",
+        "type": "account.application.deauthorized",
+        "created": 1_800_000_000,
+        "data": {"object": {"id": "ca_platform", "object": "application"}},
+    }
+    if account is not None:
+        event["account"] = account
+    return event
+
+
+def webhook() -> tuple[
+    ConnectWebhookService, FakeConnectStore, FakeStripeConnect, FakeCommitSession
+]:
     store = FakeConnectStore()
     store.add(
         connect_record(stripe_connect_account_id="acct_1"),
         "owner",
         MembershipRole.OWNER,
     )
+    stripe = FakeStripeConnect()
     session = FakeCommitSession()
-    return ConnectWebhookService(store, session), store, session  # type: ignore[arg-type]
+    service = ConnectWebhookService(store, session, lambda: stripe)  # type: ignore[arg-type]
+    return service, store, stripe, session
 
 
-async def test_account_updated_syncs_charges_and_payouts_flags():
-    service, store, session = webhook()
+async def test_account_updated_stores_the_flags_stripe_reports_now():
+    service, store, stripe, session = webhook()
+    stripe.account_state = ENABLED
 
-    outcome = await service.handle(account_event())
+    outcome = await service.handle(updated_event())
 
     record = store.orgs["org1"]
     assert outcome is WebhookOutcome.PROCESSED
@@ -190,45 +292,117 @@ async def test_account_updated_syncs_charges_and_payouts_flags():
         record.connect_payouts_enabled,
         record.connect_details_submitted,
     ) == (True, False, True)
+    assert stripe.last("get_account") == {"account_id": "acct_1"}
     assert session.commits == 1
 
 
-async def test_redelivery_is_idempotent():
-    service, store, _ = webhook()
-    event = account_event()
+async def test_the_payload_flags_are_ignored_so_a_stale_event_cannot_win():
+    service, store, stripe, _ = webhook()
+    stripe.account_state = ENABLED
+    stale = updated_event(
+        charges_enabled=False, payouts_enabled=False, details_submitted=False
+    )
 
-    await service.handle(event)
-    await service.handle(event)
+    await service.handle(stale)  # delivered late, carrying older state
+    await service.handle(
+        updated_event(charges_enabled=True)
+    )  # same second, reversed order
 
     assert store.orgs["org1"].connect_charges_enabled is True
 
 
-async def test_an_older_event_does_not_overwrite_newer_state():
-    service, store, _ = webhook()
-    await service.handle(
-        account_event(created=2_000, account={"charges_enabled": False})
-    )
+async def test_charges_follow_stripe_when_they_are_later_switched_off():
+    service, store, stripe, _ = webhook()
+    stripe.account_state = ENABLED
+    await service.handle(updated_event())
 
-    outcome = await service.handle(account_event(created=1_000))
+    stripe.account_state = StripeAccountState(False, False, True)
+    await service.handle(updated_event())
 
-    assert outcome is WebhookOutcome.IGNORED
     assert store.orgs["org1"].connect_charges_enabled is False
 
 
+async def test_a_read_that_started_earlier_cannot_overwrite_a_newer_one():
+    service, store, stripe, _ = webhook()
+    stripe.account_state = ENABLED
+    await service.handle(updated_event())
+    from datetime import UTC, datetime
+
+    outcome = await service._apply(
+        "acct_1",
+        StripeAccountState(False, False, False),
+        datetime(2020, 1, 1, tzinfo=UTC),
+    )
+
+    assert outcome is WebhookOutcome.IGNORED
+    assert store.orgs["org1"].connect_charges_enabled is True
+
+
+async def test_redelivery_is_idempotent():
+    service, store, stripe, _ = webhook()
+    stripe.account_state = ENABLED
+
+    await service.handle(updated_event())
+    await service.handle(updated_event())
+
+    assert store.orgs["org1"].connect_charges_enabled is True
+
+
+async def test_deauthorization_clears_the_flags_without_calling_stripe():
+    service, store, stripe, _ = webhook()
+    stripe.account_state = ENABLED
+    await service.handle(updated_event())
+
+    outcome = await service.handle(deauthorized_event())
+
+    record = store.orgs["org1"]
+    assert outcome is WebhookOutcome.PROCESSED
+    assert (
+        record.connect_charges_enabled,
+        record.connect_payouts_enabled,
+        record.connect_details_submitted,
+    ) == (False, False, False)
+    assert stripe.names() == ["get_account"]
+
+
+async def test_an_account_stripe_no_longer_knows_has_its_flags_cleared():
+    service, store, stripe, _ = webhook()
+    stripe.account_state = ENABLED
+    await service.handle(updated_event())
+    stripe.not_found_on_get = True
+
+    await service.handle(updated_event())
+
+    assert store.orgs["org1"].connect_charges_enabled is False
+
+
+async def test_a_stripe_outage_propagates_so_the_event_is_retried():
+    service, store, stripe, session = webhook()
+    stripe.fail_on = "get_account"
+
+    with pytest.raises(StripeError):
+        await service.handle(updated_event())
+
+    assert store.orgs["org1"].connect_charges_enabled is False
+    assert session.commits == 0
+
+
 async def test_unknown_account_is_ignored_not_retried():
-    service, _, _ = webhook()
+    service, _, _, _ = webhook()
 
-    outcome = await service.handle(account_event(account={"id": "acct_other"}))
+    assert await service.handle(updated_event("acct_other")) is WebhookOutcome.IGNORED
+    assert (
+        await service.handle(deauthorized_event("acct_other")) is WebhookOutcome.IGNORED
+    )
+
+
+async def test_other_event_types_are_ignored_without_touching_stripe_or_the_store():
+    service, store, stripe, session = webhook()
+
+    outcome = await service.handle({"id": "evt_3", "type": "customer.updated"})
 
     assert outcome is WebhookOutcome.IGNORED
-
-
-async def test_other_event_types_are_ignored_without_touching_the_store():
-    service, store, session = webhook()
-
-    outcome = await service.handle({"id": "evt_2", "type": "customer.updated"})
-
-    assert outcome is WebhookOutcome.IGNORED
+    assert stripe.calls == []
     assert store.orgs["org1"].connect_charges_enabled is False
     assert session.commits == 0
 
@@ -237,22 +411,21 @@ async def test_other_event_types_are_ignored_without_touching_the_store():
     "event",
     [
         {"type": "account.updated", "created": 1},
-        {"type": "account.updated", "created": 1, "data": {"object": "x"}},
-        {"type": "account.updated", "data": {"object": {"id": "acct_1"}}},
-        account_event(created="1"),
-        account_event(created=True),
-        account_event(account={"id": ""}),
-        account_event(account={"id": 5}),
-        account_event(account={"charges_enabled": "yes"}),
-        account_event(account={"payouts_enabled": None}),
-        account_event(account={"details_submitted": 1}),
+        {"type": "account.updated", "data": {"object": "x"}},
+        {"type": "account.updated", "data": {"object": {"id": ""}}},
+        {"type": "account.updated", "data": {"object": {"id": 5}}},
+        {"type": "account.application.deauthorized", "data": {"object": {}}},
+        {"type": "account.application.deauthorized", "account": ""},
+        {"type": "account.application.deauthorized", "account": 7},
     ],
 )
-async def test_malformed_account_updated_events_are_rejected(event):
-    service, _, _ = webhook()
+async def test_events_without_an_account_id_are_rejected(event):
+    service, _, stripe, _ = webhook()
 
     with pytest.raises(MalformedConnectEvent):
         await service.handle(event)
+
+    assert stripe.calls == []
 
 
 def test_guard_blocks_without_an_account_or_with_charges_disabled():
@@ -282,18 +455,3 @@ async def test_org_guard_loads_the_organisation_and_blocks_unknown_ones():
         await require_org_charges_enabled(store, "new")
     with pytest.raises(ChargesNotEnabled):
         await require_org_charges_enabled(store, "missing")
-
-
-async def test_organisation_deleted_during_account_link_is_not_found_and_rolls_back():
-    service, store, _, session = build()
-
-    async def vanished(organization_id: str, account_id: str) -> str:
-        raise LookupError
-
-    store.link_account = vanished  # type: ignore[method-assign]
-
-    with pytest.raises(OrganizationNotFound):
-        await onboard(service)
-
-    assert session.rollbacks >= 2
-    assert session.commits == 0

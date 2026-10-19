@@ -7407,10 +7407,6 @@ export type CreateOnboardingLinkData = {
     body: OnboardingRequest;
     headers?: {
         /**
-         * Idempotency-Key
-         */
-        'Idempotency-Key'?: string | null;
-        /**
          * X-Internal-Key
          */
         'X-Internal-Key'?: string | null;

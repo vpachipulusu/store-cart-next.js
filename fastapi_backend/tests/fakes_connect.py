@@ -1,20 +1,33 @@
 """Test doubles for Stripe Connect (KAN-67): a recording Stripe client and an in-memory store."""
 
+import asyncio
 from dataclasses import replace
 from datetime import datetime
 from typing import Any
 
-from app.core.stripe_billing import StripeError
+from app.core.stripe_billing import StripeError, StripeNotFound, StripeRejected
+from app.core.stripe_connect import StripeAccountState
 from app.models.platform.membership import MembershipRole
 from app.repositories.org_connect import ConnectRecord
 
+ACCOUNT_ID = "acct_new"
+
 
 class FakeStripeConnect:
-    """Implements StripeConnect; records every call and can be told to fail."""
+    """Implements StripeConnect; records every call and can be told to fail.
+
+    Like Stripe, ``create_account`` returns the same account for the same idempotency key, and
+    answers 409 (``StripeRejected``) while a request with that key is still in flight.
+    """
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.fail_on: str | None = None
+        self.not_found_on_get = False
+        self.reject_next_create = False
+        self.account_state = StripeAccountState(False, False, False)
+        self._accounts: dict[str, str] = {}
+        self._in_flight: set[str] = set()
 
     def _record(self, call: str, /, **kwargs: Any) -> None:
         self.calls.append((call, kwargs))
@@ -27,9 +40,24 @@ class FakeStripeConnect:
     def last(self, name: str) -> dict[str, Any]:
         return next(args for call, args in reversed(self.calls) if call == name)
 
+    async def get_account(self, account_id: str) -> StripeAccountState:
+        self._record("get_account", account_id=account_id)
+        if self.not_found_on_get:
+            raise StripeNotFound("Stripe request failed")
+        return self.account_state
+
     async def create_account(self, **kwargs: Any) -> str:
         self._record("create_account", **kwargs)
-        return "acct_new"
+        key = kwargs["idempotency_key"]
+        if self.reject_next_create or key in self._in_flight:
+            self.reject_next_create = False
+            raise StripeRejected("Stripe request failed")
+        self._in_flight.add(key)
+        try:
+            await asyncio.sleep(0)
+            return self._accounts.setdefault(key, ACCOUNT_ID)
+        finally:
+            self._in_flight.discard(key)
 
     async def create_account_link(self, **kwargs: Any) -> str:
         self._record("create_account_link", **kwargs)

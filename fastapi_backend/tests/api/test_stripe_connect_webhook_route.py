@@ -10,10 +10,10 @@ from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr
 
 from app.api.deps import get_session_provider
-from app.api.v1.webhooks import MAX_BODY_BYTES
 from app.api.v1.webhooks_connect import get_connect_webhook_service
 from app.core.config import settings
 from app.core.stripe_signature import compute_signature
+from app.core.stripe_webhook_body import MAX_BODY_BYTES
 from app.main import create_app
 from app.services.stripe_connect import MalformedConnectEvent, WebhookOutcome
 from tests.fakes import FakeSession, FakeSessionProvider
@@ -143,3 +143,16 @@ async def test_unexpected_failure_is_a_generic_retryable_500(client, service, ca
     assert response.status_code == 500
     assert response.json() == {"success": False, "error": "Webhook processing failed"}
     assert "hunter2" not in caplog.text
+
+
+async def test_missing_stripe_secret_key_is_a_retryable_503(
+    client, service, monkeypatch
+):
+    from app.core.stripe_billing import StripeNotConfigured
+
+    service.error = StripeNotConfigured("STRIPE_SECRET_KEY is not set")
+
+    response = await client.post(PATH, content=BODY, headers=signed(BODY))
+
+    assert response.status_code == 503
+    assert response.json()["error"] == "Service temporarily unavailable"

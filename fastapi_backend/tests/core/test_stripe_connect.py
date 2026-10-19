@@ -91,3 +91,36 @@ def test_factory_requires_the_secret_key(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", SecretStr(SECRET))
     assert isinstance(get_stripe_connect(), HttpStripeConnect)
+
+
+async def test_get_account_reads_the_three_capability_flags():
+    seen: list[httpx.Request] = []
+    body = {
+        "charges_enabled": True,
+        "payouts_enabled": False,
+        "details_submitted": True,
+    }
+    stripe = client_for(lambda r: httpx.Response(200, json=body), seen)
+
+    state = await stripe.get_account("acct_1")
+
+    assert seen[0].method == "GET" and seen[0].url.path == "/v1/accounts/acct_1"
+    assert (state.charges_enabled, state.payouts_enabled, state.details_submitted) == (
+        True,
+        False,
+        True,
+    )
+
+
+async def test_get_account_treats_missing_or_non_boolean_flags_as_off():
+    stripe = client_for(
+        lambda r: httpx.Response(200, json={"charges_enabled": "true"}), []
+    )
+
+    state = await stripe.get_account("acct_1")
+
+    assert (state.charges_enabled, state.payouts_enabled, state.details_submitted) == (
+        False,
+        False,
+        False,
+    )

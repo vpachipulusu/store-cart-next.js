@@ -8,7 +8,7 @@ text, ids or account data reach a response or a log.
 import logging
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Path, Response
+from fastapi import APIRouter, Depends, HTTPException, Path, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.auth import require_internal_key
@@ -54,15 +54,6 @@ router = APIRouter(
 OrganizationId = Annotated[
     str, Path(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
 ]
-RequestKey = Annotated[
-    str | None,
-    Header(
-        alias="Idempotency-Key",
-        min_length=8,
-        max_length=64,
-        pattern=r"^[A-Za-z0-9_-]+$",
-    ),
-]
 
 
 class ConnectStatusData(BaseModel):
@@ -93,7 +84,7 @@ class OnboardingUrlResponse(BaseModel):
     data: OnboardingUrlData
 
 
-def stripe_connect() -> StripeConnect:
+def get_stripe_connect_client() -> StripeConnect:
     try:
         return get_stripe_connect()
     except StripeNotConfigured:
@@ -102,7 +93,7 @@ def stripe_connect() -> StripeConnect:
 
 def get_connect_service(
     session: SessionDep,
-    stripe: Annotated[StripeConnect, Depends(stripe_connect)],
+    stripe: Annotated[StripeConnect, Depends(get_stripe_connect_client)],
 ) -> ConnectService:
     return ConnectService(
         OrgBillingRepository(session),
@@ -152,7 +143,9 @@ async def read_connect_status(
         status = await service.status(organization_id, user_id)
     except HANDLED as exc:
         raise _http_error(exc) from None
-    return ConnectStatusResponse(data=ConnectStatusData(**vars(status)))
+    return ConnectStatusResponse(
+        data=ConnectStatusData.model_validate(status, from_attributes=True)
+    )
 
 
 @router.post("/onboarding-link", response_model=OnboardingUrlResponse)
@@ -162,7 +155,6 @@ async def create_onboarding_link(
     response: Response,
     user_id: CurrentUserIdDep,
     service: ServiceDep,
-    request_key: RequestKey = None,
 ) -> OnboardingUrlResponse:
     response.headers["Cache-Control"] = "no-store"
     try:
@@ -171,7 +163,6 @@ async def create_onboarding_link(
             user_id,
             return_url=body.return_url,
             refresh_url=body.refresh_url,
-            request_key=request_key,
         )
     except HANDLED as exc:
         raise _http_error(exc) from None
