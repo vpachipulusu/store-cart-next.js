@@ -7,12 +7,18 @@ stores are the same 404). Money is integer minor units; the tax rate is in basis
 removes the threshold. Bodies reject unknown fields; responses carry ``Cache-Control: no-store``.
 """
 
-import logging
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Response
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
+from fastapi import APIRouter, Depends, HTTPException, Response
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    model_validator,
+)
 
 from app.api.auth import require_internal_key
 from app.api.merchant import OWNER_ADMIN
@@ -30,7 +36,6 @@ from app.services.store_settings import (
     StoreSettingsService,
 )
 
-logger = logging.getLogger(__name__)
 NO_STORE_HEADERS = {"Cache-Control": "no-store"}
 
 router = APIRouter(
@@ -68,16 +73,39 @@ class StoreSettingsResponse(BaseModel):
 
 
 class UpdateStoreSettingsRequest(BaseModel):
+    """Send only the fields to change. Only the threshold accepts null (it clears it)."""
+
     model_config = ConfigDict(extra="forbid")
 
     shipping_flat_rate_minor: StrictInt | None = Field(
-        default=None, ge=0, le=MAX_AMOUNT_MINOR
+        default=None,
+        ge=0,
+        le=MAX_AMOUNT_MINOR,
+        description="Charged per order, minor units. Cannot be null.",
     )
     free_shipping_threshold_minor: StrictInt | None = Field(
-        default=None, ge=1, le=MAX_AMOUNT_MINOR
+        default=None,
+        ge=1,
+        le=MAX_AMOUNT_MINOR,
+        description="Item subtotal that waives shipping. Null clears the threshold.",
     )
-    tax_rate_bps: StrictInt | None = Field(default=None, ge=0, le=MAX_TAX_RATE_BPS)
-    prices_include_tax: StrictBool | None = None
+    tax_rate_bps: StrictInt | None = Field(
+        default=None,
+        ge=0,
+        le=MAX_TAX_RATE_BPS,
+        description="Tax rate in basis points (2000 = 20%). Cannot be null.",
+    )
+    prices_include_tax: StrictBool | None = Field(
+        default=None,
+        description="True when catalogue prices already contain the tax. Cannot be null.",
+    )
+
+    @model_validator(mode="after")
+    def reject_null_on_required_fields(self) -> "UpdateStoreSettingsRequest":
+        for name in self.model_fields_set - {"free_shipping_threshold_minor"}:
+            if getattr(self, name) is None:
+                raise ValueError(f"{name} cannot be null")
+        return self
 
 
 def _response(row: StoreSettingsRow) -> StoreSettingsResponse:
@@ -104,33 +132,19 @@ async def get_store_settings(
     "",
     response_model=StoreSettingsResponse,
     summary="Update shipping and tax settings",
+    description=(
+        "Changes only the fields sent. `free_shipping_threshold_minor: null` clears the "
+        "threshold; null on any other field is a 422."
+    ),
+    responses={422: {"model": ErrorResponse}},
 )
 async def update_store_settings(
-    store_id: Annotated[str, Path(max_length=128)],
-    body: UpdateStoreSettingsRequest,
-    response: Response,
-    service: WriteService,
+    body: UpdateStoreSettingsRequest, response: Response, service: WriteService
 ) -> StoreSettingsResponse:
     no_store(response)
-    # Only sent fields change; null is a value solely for the threshold (removes it).
     changes = {name: getattr(body, name) for name in body.model_fields_set}
-    nulled = sorted(
-        name
-        for name, value in changes.items()
-        if value is None and name != "free_shipping_threshold_minor"
-    )
-    if nulled:
-        raise HTTPException(
-            422, f"{nulled[0]} cannot be null", headers=NO_STORE_HEADERS
-        )
     try:
         row = await service.update(changes)
     except InvalidStoreSettings as error:
         raise HTTPException(422, str(error), headers=NO_STORE_HEADERS) from None
-    # The JSON log formatter drops unknown extras, so the store and fields go in the message.
-    logger.info(
-        "store settings changed: store=%s fields=%s",
-        store_id,
-        ",".join(sorted(changes)),
-    )
     return _response(row)

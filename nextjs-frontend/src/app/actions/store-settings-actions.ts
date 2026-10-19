@@ -21,6 +21,7 @@ export type StoreSettingsActionResponse =
   | { success: true; data: StoreSettingsResponse; error?: undefined }
   | { success: false; data?: undefined; error: string };
 
+const STORE_CHANGED_MESSAGE = 'The selected store changed. Reload.';
 const NO_STORE_MESSAGE = 'Select a store before changing its settings.';
 const INVALID_INPUT_MESSAGE = 'Check the highlighted fields and try again.';
 
@@ -35,6 +36,9 @@ export async function updateStoreSettingsAction(
   if (!selection.selected) return { success: false, error: NO_STORE_MESSAGE };
 
   const value = parsed.data;
+  if (selection.selected.id !== value.storeId) {
+    return { success: false, error: STORE_CHANGED_MESSAGE };
+  }
   const result = await saveStoreSettings(selection.selected.id, {
     shipping_flat_rate_minor: value.shippingFlatRateMinor,
     free_shipping_threshold_minor: value.freeShippingThresholdMinor,

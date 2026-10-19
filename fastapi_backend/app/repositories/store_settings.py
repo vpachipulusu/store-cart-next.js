@@ -6,7 +6,7 @@ never commits. There is no ORM model for store tables: explicit SQL, bound param
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import text
@@ -42,14 +42,20 @@ _ENSURE_ROW = text(
 
 class StoreSettingsRepository(BaseRepository):
     async def _ensure_row(self) -> None:
-        """Re-create the singleton row if a support script removed it (the migration seeds it)."""
+        """Re-create the singleton row if a support script removed it (the migration seeds it). Writes only."""
         await self._session.execute(_ENSURE_ROW)
 
     async def get(self) -> StoreSettingsRow:
+        """The row, or the defaults when it is missing; a read never writes."""
         row = (await self._session.execute(text(_SELECT))).mappings().one_or_none()
         if row is None:  # the migration seeds it; only a removed row gets here
-            await self._ensure_row()
-            row = (await self._session.execute(text(_SELECT))).mappings().one()
+            return StoreSettingsRow(
+                shipping_flat_rate_minor=0,
+                free_shipping_threshold_minor=None,
+                tax_rate_bps=0,
+                prices_include_tax=False,
+                updated_at=datetime.now(UTC),
+            )
         return StoreSettingsRow(**row)
 
     async def update(self, changes: Mapping[str, Any]) -> StoreSettingsRow:

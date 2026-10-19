@@ -79,10 +79,18 @@ def totals_settings(row: StoreSettingsRow) -> TotalsSettings:
 
 class StoreSettingsService:
     def __init__(
-        self, repository: StoreSettingsRepository, session: AsyncSession
+        self,
+        repository: StoreSettingsRepository,
+        session: AsyncSession,
+        *,
+        store_id: str = "",
+        actor_id: str = "",
     ) -> None:
         self._repository = repository
         self._session = session
+        # Only for the audit line after a change.
+        self._store_id = store_id
+        self._actor_id = actor_id
 
     async def get(self) -> StoreSettingsRow:
         return await self._repository.get()
@@ -108,4 +116,11 @@ class StoreSettingsService:
             # Outages, deadlocks and cancellation are not the client's fault: roll back and let them propagate.
             await self._session.rollback()
             raise
+        # The JSON log formatter drops unknown extras, so who, where and what go in the message.
+        logger.info(
+            "store settings changed: actor=%s store=%s fields=%s",
+            self._actor_id,
+            self._store_id,
+            ",".join(sorted(changes)),
+        )
         return row

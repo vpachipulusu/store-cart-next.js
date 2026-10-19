@@ -7,6 +7,7 @@ import { fetchStoreSettings, storeSettingsErrorMessage } from '@/lib/api/store-s
 import { fetchPlatformCurrency } from '@/lib/api/settings';
 import { logger } from '@/lib/logger';
 import { currencyExponent } from '@/lib/products/money';
+import { isKnownCurrency } from '@/lib/store-settings/form';
 import { getCurrentStoreSelection } from '@/lib/stores/current';
 
 export const metadata = { title: 'Shipping and tax' };
@@ -16,7 +17,8 @@ const CURRENCY_UNAVAILABLE_MESSAGE = 'The store currency could not be read. Plea
 /** Null when the lookup fails: guessing a currency would misread amounts (JPY has no cents, KWD has three decimals). */
 async function loadCurrency(): Promise<string | null> {
   try {
-    return await fetchPlatformCurrency();
+    const code = await fetchPlatformCurrency();
+    return isKnownCurrency(code) ? code : null;
   } catch {
     return null;
   }
@@ -57,6 +59,7 @@ export default async function StoreSettingsPage() {
       {initial && currency !== null ? (
         <StoreSettingsForm
           key={selection.selected.id}
+          storeId={selection.selected.id}
           initial={initial}
           currency={currency}
           exponent={currencyExponent(currency)}

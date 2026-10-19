@@ -121,7 +121,12 @@ def store_settings_service(
         store_id = merchant.store.id
         try:
             async with open_store_session(store_id, provider) as session:
-                yield StoreSettingsService(StoreSettingsRepository(session), session)
+                yield StoreSettingsService(
+                    StoreSettingsRepository(session),
+                    session,
+                    store_id=store_id,
+                    actor_id=merchant.user_id,
+                )
         except StoreSessionError as error:
             reason = type(error).__name__
             logger.error(

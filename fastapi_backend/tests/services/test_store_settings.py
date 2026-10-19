@@ -110,3 +110,25 @@ async def test_an_outage_rolls_back_and_is_not_reported_as_bad_input() -> None:
         await service(repository, session).update({"tax_rate_bps": 1})
 
     session.rollback.assert_awaited_once()
+
+
+async def test_a_change_is_logged_with_the_actor_the_store_and_the_field_names(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    repository, session = AsyncMock(), AsyncMock()
+    repository.update.return_value = ROW
+    audited = StoreSettingsService(
+        cast(StoreSettingsRepository, repository),
+        session,
+        store_id="store1",
+        actor_id="user1",
+    )
+
+    with caplog.at_level("INFO", logger="app.services.store_settings"):
+        await audited.update({"tax_rate_bps": 2000, "shipping_flat_rate_minor": 5})
+
+    assert (
+        "actor=user1 store=store1 fields=shipping_flat_rate_minor,tax_rate_bps"
+        in caplog.text
+    )
+    assert "2000" not in caplog.text

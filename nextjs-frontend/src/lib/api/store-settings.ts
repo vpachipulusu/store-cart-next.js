@@ -48,15 +48,17 @@ export function storeSettingsErrorMessage(result: { error: string; status?: numb
 
 /** The body has no `success` flag, so `callBackend` passes it whole; refuse any other shape. */
 function asSettings(data: unknown): ApiResult<StoreSettingsResponse> {
-  if (
-    !data ||
-    typeof data !== 'object' ||
-    Array.isArray(data) ||
-    !('tax_rate_bps' in data) ||
-    !('shipping_flat_rate_minor' in data)
-  ) {
-    return { success: false, error: STORE_SETTINGS_FAILED_MESSAGE, status: 502 };
-  }
+  const body = data as Partial<Record<keyof StoreSettingsResponse, unknown>> | null;
+  const valid =
+    typeof body === 'object' &&
+    body !== null &&
+    !Array.isArray(body) &&
+    Number.isSafeInteger(body.shipping_flat_rate_minor) &&
+    (body.free_shipping_threshold_minor === null ||
+      Number.isSafeInteger(body.free_shipping_threshold_minor)) &&
+    Number.isSafeInteger(body.tax_rate_bps) &&
+    typeof body.prices_include_tax === 'boolean';
+  if (!valid) return { success: false, error: STORE_SETTINGS_FAILED_MESSAGE, status: 502 };
   return { success: true, data: data as StoreSettingsResponse };
 }
 

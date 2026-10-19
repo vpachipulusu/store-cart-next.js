@@ -2,6 +2,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   bpsToPercentInput,
+  isKnownCurrency,
+  normaliseDecimal,
   parseDraft,
   parsePercentToBps,
   storeSettingsSchema,
@@ -90,6 +92,7 @@ describe('parseDraft', () => {
 
 describe('storeSettingsSchema', () => {
   const valid = {
+    storeId: 'store1',
     shippingFlatRateMinor: 0,
     freeShippingThresholdMinor: null,
     taxRateBps: 10000,
@@ -105,7 +108,38 @@ describe('storeSettingsSchema', () => {
     { freeShippingThresholdMinor: 0 },
     { taxRateBps: 10001 },
     { taxRateBps: 1.5 },
+    { storeId: '' },
   ])('rejects %j', (over) => {
     expect(storeSettingsSchema.safeParse({ ...valid, ...over }).success).toBe(false);
   });
+});
+
+describe('normaliseDecimal', () => {
+  it.each([
+    ['7,5', '7.5'],
+    [' 4,99 ', '4.99'],
+    ['7.5', '7.5'],
+    ['1,234,5', '1,234,5'],
+    ['1.234,5', '1.234,5'],
+  ])('%s -> %s', (text, expected) => {
+    expect(normaliseDecimal(text)).toBe(expected);
+  });
+
+  it('lets parseDraft read comma decimals', () => {
+    const result = parseDraft(
+      draft({ shippingFlatRate: '4,99', freeShippingThreshold: '50,5', taxRatePercent: '7,25' }),
+      2
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      value: { shippingFlatRateMinor: 499, freeShippingThresholdMinor: 5050, taxRateBps: 725 },
+    });
+  });
+});
+
+describe('isKnownCurrency', () => {
+  it.each(['GBP', 'JPY', 'KWD'])('knows %s', (code) => expect(isKnownCurrency(code)).toBe(true));
+  it.each(['', 'gbp', 'ZZZZ', 'G1P', 'XX'])('rejects %j', (code) =>
+    expect(isKnownCurrency(code)).toBe(false)
+  );
 });

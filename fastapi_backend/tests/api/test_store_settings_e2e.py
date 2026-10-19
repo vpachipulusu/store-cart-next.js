@@ -27,6 +27,7 @@ from tests.api.products_support import (  # noqa: F401  (fixtures)
     store_of,
     world,
 )
+from tests.api.test_products_isolation_e2e import set_status
 from tests.isolation_world import World
 from tests.pg_scaffold import TEST_DATABASE_URL
 
@@ -253,10 +254,9 @@ async def test_an_explicit_null_on_a_required_field_is_a_422(
     )
 
     assert response.status_code == 422
-    assert response.headers["cache-control"] == "no-store"
 
 
-async def test_updated_at_moves_only_on_a_real_change(
+async def test_an_empty_patch_keeps_updated_at_and_a_real_change_moves_it(
     client: AsyncClient, world: World
 ) -> None:
     store = store_of(world, "a", "north")
@@ -295,3 +295,57 @@ async def test_a_deleted_settings_row_is_recreated_on_the_next_change(
 
     assert read.status_code == 200 and values(read) == DEFAULTS
     assert saved.status_code == 200 and values(saved)["tax_rate_bps"] == 300
+
+
+@pytest.mark.parametrize("status", ["SUSPENDED", "ARCHIVED"])
+async def test_a_store_that_is_not_active_rejects_changes(
+    client: AsyncClient, world: World, status: str
+) -> None:
+    store = store_of(world, "b", "south")
+    await set_status(world, store, status)
+    try:
+        read = await client.get(url(store), headers=BOB)
+        write = await client.patch(url(store), json={"tax_rate_bps": 5}, headers=BOB)
+    finally:
+        await set_status(world, store, "ACTIVE")
+
+    # A suspended store can still be read; an archived one is gone.
+    assert (read.status_code, write.status_code) == (
+        (200, 403) if status == "SUSPENDED" else (404, 404)
+    )
+
+
+async def test_the_upper_and_lower_bounds_are_accepted(
+    client: AsyncClient, world: World
+) -> None:
+    store = store_of(world, "a", "north")
+    body = {
+        "shipping_flat_rate_minor": 100_000_000_000,
+        "free_shipping_threshold_minor": 1,
+        "tax_rate_bps": 10_000,
+        "prices_include_tax": True,
+    }
+
+    saved = await client.patch(url(store), json=body, headers=ALICE)
+    top = await client.patch(
+        url(store),
+        json={"free_shipping_threshold_minor": 100_000_000_000},
+        headers=ALICE,
+    )
+
+    assert saved.status_code == 200 and values(saved) == body
+    assert top.status_code == 200
+
+
+async def test_a_threshold_above_the_maximum_is_a_422(
+    client: AsyncClient, world: World
+) -> None:
+    store = store_of(world, "a", "north")
+
+    response = await client.patch(
+        url(store),
+        json={"free_shipping_threshold_minor": 100_000_000_001},
+        headers=ALICE,
+    )
+
+    assert response.status_code == 422

@@ -3038,22 +3038,32 @@ export type UpdateRequest = {
 
 /**
  * UpdateStoreSettingsRequest
+ *
+ * Send only the fields to change. Only the threshold accepts null (it clears it).
  */
 export type UpdateStoreSettingsRequest = {
     /**
      * Shipping Flat Rate Minor
+     *
+     * Charged per order, minor units. Cannot be null.
      */
     shipping_flat_rate_minor?: number | null;
     /**
      * Free Shipping Threshold Minor
+     *
+     * Item subtotal that waives shipping. Null clears the threshold.
      */
     free_shipping_threshold_minor?: number | null;
     /**
      * Tax Rate Bps
+     *
+     * Tax rate in basis points (2000 = 20%). Cannot be null.
      */
     tax_rate_bps?: number | null;
     /**
      * Prices Include Tax
+     *
+     * True when catalogue prices already contain the tax. Cannot be null.
      */
     prices_include_tax?: boolean | null;
 };
@@ -9295,7 +9305,7 @@ export type UpdateStoreSettingsErrors = {
      */
     404: ErrorResponse;
     /**
-     * Invalid request
+     * Unprocessable Entity
      */
     422: ErrorResponse;
     /**

@@ -29,6 +29,7 @@ import {
 import { STORES_UNAVAILABLE_MESSAGE } from '@/lib/stores/selection';
 
 const INPUT = {
+  storeId: 'store1',
   shippingFlatRateMinor: 499,
   freeShippingThresholdMinor: 5000,
   taxRateBps: 2000,
@@ -61,6 +62,27 @@ describe('updateStoreSettingsAction', () => {
       prices_include_tax: true,
     });
     expect(mocks.revalidatePath).toHaveBeenCalledWith('/dashboard/settings/store');
+  });
+
+  it('refuses to save when the selected store is not the one the form was rendered for', async () => {
+    mocks.getCurrentStoreSelection.mockResolvedValue({
+      available: true,
+      selected: { id: 'storeB' },
+    });
+
+    const result = await updateStoreSettingsAction(INPUT);
+
+    expect(result).toEqual({ success: false, error: 'The selected store changed. Reload.' });
+    expect(mocks.saveStoreSettings).not.toHaveBeenCalled();
+  });
+
+  it('rejects input without a store id', async () => {
+    const { storeId: _storeId, ...withoutStore } = INPUT;
+
+    const result = await updateStoreSettingsAction(withoutStore as typeof INPUT);
+
+    expect(result.success).toBe(false);
+    expect(mocks.saveStoreSettings).not.toHaveBeenCalled();
   });
 
   it('sends a null threshold to remove it', async () => {

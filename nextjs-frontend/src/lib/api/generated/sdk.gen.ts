@@ -776,6 +776,8 @@ export const getStoreSettings = <ThrowOnError extends boolean = false>(options: 
 
 /**
  * Update shipping and tax settings
+ *
+ * Changes only the fields sent. `free_shipping_threshold_minor: null` clears the threshold; null on any other field is a 422.
  */
 export const updateStoreSettings = <ThrowOnError extends boolean = false>(options: Options<UpdateStoreSettingsData, ThrowOnError>) => (options.client ?? client).patch<UpdateStoreSettingsResponses, UpdateStoreSettingsErrors, ThrowOnError>({
     url: '/v1/stores/{store_id}/store-settings',

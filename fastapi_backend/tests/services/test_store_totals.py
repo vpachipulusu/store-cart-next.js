@@ -163,3 +163,24 @@ def test_a_basket_of_free_items_ships_free() -> None:
 def test_rejects_a_total_beyond_the_bigint_limit() -> None:
     with pytest.raises(ValueError, match="too large"):
         compute_totals([LineAmount(2**62, 3)], settings())
+
+
+def test_exclusive_tax_multiplies_by_the_quantity() -> None:
+    totals = compute_totals([LineAmount(333, 3)], settings(flat=100, tax_bps=1_000))
+
+    assert totals.subtotal_minor == 999
+    assert totals.tax_minor == 100  # 99.9 -> 100
+    assert totals.total_minor == 1_199
+
+
+def test_exclusive_tax_rounds_a_half_cent_up() -> None:
+    totals = compute_totals([LineAmount(5, 1)], settings(tax_bps=1_000))
+
+    assert totals.tax_minor == 1  # 0.5 -> 1
+
+
+def test_inclusive_tax_on_an_exact_tie_rounds_the_net_up() -> None:
+    totals = compute_totals([LineAmount(1, 1)], settings(tax_bps=10_000, included=True))
+
+    assert totals.tax_minor == 0  # net 0.5 -> 1, tax is the rest
+    assert totals.total_minor == 1

@@ -61,6 +61,17 @@ describe('fetchStoreSettings', () => {
     expect(await fetchStoreSettings('store1')).toMatchObject({ success: false, status: 502 });
   });
 
+  it.each([
+    { ...BODY, tax_rate_bps: undefined },
+    { ...BODY, prices_include_tax: 'no' },
+    { ...BODY, shipping_flat_rate_minor: '499' },
+    { ...BODY, free_shipping_threshold_minor: undefined },
+  ])('refuses a body with a wrong or missing field: %j', async (bad) => {
+    mocks.callBackend.mockResolvedValue({ success: true, data: bad });
+
+    expect(await fetchStoreSettings('store1')).toMatchObject({ success: false, status: 502 });
+  });
+
   it('passes a backend failure through', async () => {
     const failure = { success: false, error: 'Forbidden', status: 403 };
     mocks.callBackend.mockResolvedValue(failure);

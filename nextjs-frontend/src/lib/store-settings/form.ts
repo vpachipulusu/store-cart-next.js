@@ -12,9 +12,26 @@ import { MAX_MINOR, parseMajorToMinor } from '@/lib/products/money';
 export const MAX_AMOUNT_MINOR = 100_000_000_000;
 export const MAX_TAX_RATE_BPS = 10_000;
 
+/** "7,5" becomes "7.5": a single comma is read as the decimal separator (no thousands separators are accepted). */
+export function normaliseDecimal(text: string): string {
+  const trimmed = text.trim();
+  return /^\d+,\d*$/.test(trimmed) ? trimmed.replace(',', '.') : trimmed;
+}
+
+/** Whether the runtime knows this ISO 4217 code, so the decimal places can be trusted. */
+export function isKnownCurrency(code: string): boolean {
+  if (!/^[A-Z]{3}$/.test(code)) return false;
+  try {
+    new Intl.NumberFormat('en', { style: 'currency', currency: code });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** "20" or "7.5" or "7.25" becomes 2000, 750, 725. Null for anything that is not a plain percentage. */
 export function parsePercentToBps(text: string): number | null {
-  const match = /^(\d+)(?:\.(\d{0,2}))?$/.exec(text.trim());
+  const match = /^(\d+)(?:\.(\d{0,2}))?$/.exec(normaliseDecimal(text));
   if (!match) return null;
   const bps = Number(match[1]) * 100 + Number((match[2] ?? '').padEnd(2, '0'));
   return bps <= MAX_TAX_RATE_BPS ? bps : null;
@@ -31,6 +48,8 @@ export function bpsToPercentInput(bps: number): string {
 
 /** The request body the server action takes. */
 export const storeSettingsSchema = z.object({
+  /** The store the form was rendered for; the action refuses to save to any other. */
+  storeId: z.string().min(1).max(128),
   shippingFlatRateMinor: z.number().int().min(0).max(MAX_AMOUNT_MINOR),
   freeShippingThresholdMinor: z.number().int().min(1).max(MAX_AMOUNT_MINOR).nullable(),
   taxRateBps: z.number().int().min(0).max(MAX_TAX_RATE_BPS),
@@ -46,8 +65,10 @@ export type StoreSettingsDraft = {
   pricesIncludeTax: boolean;
 };
 
+export type StoreSettingsValuesInput = Omit<StoreSettingsInput, 'storeId'>;
+
 export type DraftResult =
-  | { ok: true; value: StoreSettingsInput }
+  | { ok: true; value: StoreSettingsValuesInput }
   | { ok: false; errors: Record<string, string> };
 
 const AMOUNT_LIMIT = Math.min(MAX_AMOUNT_MINOR, MAX_MINOR);
@@ -56,14 +77,14 @@ const AMOUNT_LIMIT = Math.min(MAX_AMOUNT_MINOR, MAX_MINOR);
 export function parseDraft(draft: StoreSettingsDraft, exponent: number): DraftResult {
   const errors: Record<string, string> = {};
 
-  const flat = parseMajorToMinor(draft.shippingFlatRate, exponent);
+  const flat = parseMajorToMinor(normaliseDecimal(draft.shippingFlatRate), exponent);
   if (flat === null || flat > AMOUNT_LIMIT) {
     errors.shippingFlatRate = 'Enter an amount like 4.99, or 0 for free shipping.';
   }
 
   let threshold: number | null = null;
   if (draft.freeShippingThreshold.trim() !== '') {
-    threshold = parseMajorToMinor(draft.freeShippingThreshold, exponent);
+    threshold = parseMajorToMinor(normaliseDecimal(draft.freeShippingThreshold), exponent);
     if (threshold === null || threshold < 1 || threshold > AMOUNT_LIMIT) {
       errors.freeShippingThreshold =
         'Enter an amount above 0, or leave it empty for no free shipping.';

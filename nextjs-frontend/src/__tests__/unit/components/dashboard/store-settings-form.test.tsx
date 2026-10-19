@@ -18,7 +18,9 @@ const INITIAL = {
 };
 
 function renderForm() {
-  return render(<StoreSettingsForm initial={INITIAL} currency="GBP" exponent={2} />);
+  return render(
+    <StoreSettingsForm storeId="store1" initial={INITIAL} currency="GBP" exponent={2} />
+  );
 }
 
 beforeEach(() => {
@@ -68,6 +70,7 @@ describe('StoreSettingsForm', () => {
 
     await waitFor(() =>
       expect(mocks.updateStoreSettingsAction).toHaveBeenCalledWith({
+        storeId: 'store1',
         shippingFlatRateMinor: 599,
         freeShippingThresholdMinor: null,
         taxRateBps: 2000,
@@ -86,7 +89,47 @@ describe('StoreSettingsForm', () => {
     await user.click(screen.getByRole('button', { name: 'Save settings' }));
 
     expect(await screen.findByText(/percentage from 0 to 100/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Tax rate/)).toHaveFocus();
+    expect(screen.queryByText('Check the highlighted fields and try again.')).toBeNull();
     expect(mocks.updateStoreSettingsAction).not.toHaveBeenCalled();
+  });
+
+  it('accepts a comma as the decimal separator', async () => {
+    const user = userEvent.setup();
+    mocks.updateStoreSettingsAction.mockResolvedValue({ success: false, error: 'x' });
+    renderForm();
+
+    await user.clear(screen.getByLabelText(/Tax rate/));
+    await user.type(screen.getByLabelText(/Tax rate/), '7,5');
+    await user.click(screen.getByRole('button', { name: 'Save settings' }));
+
+    await waitFor(() =>
+      expect(mocks.updateStoreSettingsAction).toHaveBeenCalledWith(
+        expect.objectContaining({ taxRateBps: 750 })
+      )
+    );
+  });
+
+  it('clears the saved message as soon as a field changes', async () => {
+    const user = userEvent.setup();
+    mocks.updateStoreSettingsAction.mockResolvedValue({
+      success: true,
+      data: {
+        shipping_flat_rate_minor: 499,
+        free_shipping_threshold_minor: 5000,
+        tax_rate_bps: 725,
+        prices_include_tax: false,
+        updated_at: '',
+      },
+    });
+    renderForm();
+
+    await user.click(screen.getByRole('button', { name: 'Save settings' }));
+    expect(await screen.findByText('Settings saved.')).toBeInTheDocument();
+    await user.type(screen.getByLabelText(/Tax rate/), '1');
+
+    expect(screen.queryByText('Settings saved.')).toBeNull();
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
   it('shows the action error', async () => {

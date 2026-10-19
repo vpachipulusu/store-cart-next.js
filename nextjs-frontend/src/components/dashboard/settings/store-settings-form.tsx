@@ -17,6 +17,13 @@ export type StoreSettingsValues = {
   pricesIncludeTax: boolean;
 };
 
+const FIELD_IDS = {
+  shippingFlatRate: 'shipping-flat-rate',
+  freeShippingThreshold: 'free-shipping-threshold',
+  taxRatePercent: 'tax-rate',
+} as const;
+const FIELD_ORDER = ['shippingFlatRate', 'freeShippingThreshold', 'taxRatePercent'] as const;
+
 function toDraft(values: StoreSettingsValues, exponent: number): StoreSettingsDraft {
   return {
     shippingFlatRate: minorToInput(values.shippingFlatRateMinor, exponent),
@@ -34,10 +41,13 @@ function toDraft(values: StoreSettingsValues, exponent: number): StoreSettingsDr
  * and the tax rate as a percentage; the server action receives minor units and basis points.
  */
 export function StoreSettingsForm({
+  storeId,
   initial,
   currency,
   exponent,
 }: {
+  /** The store this form was rendered for; the action refuses to save to any other. */
+  storeId: string;
   initial: StoreSettingsValues;
   currency: string;
   exponent: number;
@@ -48,6 +58,8 @@ export function StoreSettingsForm({
   const [pending, setPending] = useState(false);
 
   function change(patch: Partial<StoreSettingsDraft>) {
+    if (pending) return;
+    setMessage((current) => (current?.kind === 'saved' ? null : current));
     setDraft((current) => ({ ...current, ...patch }));
   }
 
@@ -58,14 +70,15 @@ export function StoreSettingsForm({
     const parsed = parseDraft(draft, exponent);
     if (!parsed.ok) {
       setErrors(parsed.errors);
-      setMessage({ kind: 'error', text: 'Check the highlighted fields and try again.' });
+      const first = FIELD_ORDER.find((name) => parsed.errors[name]);
+      if (first) document.getElementById(FIELD_IDS[first])?.focus();
       return;
     }
     setErrors({});
     setPending(true);
     let response: Awaited<ReturnType<typeof updateStoreSettingsAction>>;
     try {
-      response = await updateStoreSettingsAction(parsed.value);
+      response = await updateStoreSettingsAction({ storeId, ...parsed.value });
     } catch {
       setMessage({ kind: 'error', text: 'The request failed. Please try again.' });
       return;
@@ -114,7 +127,7 @@ export function StoreSettingsForm({
               onChange={(event) => change({ shippingFlatRate: event.target.value })}
               aria-invalid={Boolean(errors.shippingFlatRate)}
               aria-describedby={describedBy}
-              disabled={pending}
+              readOnly={pending}
             />
           )}
         </Field>
@@ -132,7 +145,7 @@ export function StoreSettingsForm({
               onChange={(event) => change({ freeShippingThreshold: event.target.value })}
               aria-invalid={Boolean(errors.freeShippingThreshold)}
               aria-describedby={describedBy}
-              disabled={pending}
+              readOnly={pending}
             />
           )}
         </Field>
@@ -154,7 +167,7 @@ export function StoreSettingsForm({
               onChange={(event) => change({ taxRatePercent: event.target.value })}
               aria-invalid={Boolean(errors.taxRatePercent)}
               aria-describedby={describedBy}
-              disabled={pending}
+              readOnly={pending}
             />
           )}
         </Field>
@@ -173,21 +186,20 @@ export function StoreSettingsForm({
             checked={draft.pricesIncludeTax}
             onCheckedChange={(checked) => change({ pricesIncludeTax: checked })}
             aria-describedby="prices-include-tax-hint"
-            disabled={pending}
+            aria-disabled={pending}
             className="relative before:absolute before:-inset-2.5 before:content-['']"
           />
         </div>
       </fieldset>
 
       <div className="flex items-center gap-3">
-        <Button type="submit" disabled={pending}>
+        {/* aria-disabled, not disabled: a disabled button would drop keyboard focus mid-save. */}
+        <Button type="submit" aria-disabled={pending}>
           {pending ? 'Saving…' : 'Save settings'}
         </Button>
-        {message?.kind === 'saved' && (
-          <p role="status" className="text-sm text-muted-foreground">
-            {message.text}
-          </p>
-        )}
+        <p role="status" className="text-sm text-muted-foreground">
+          {message?.kind === 'saved' ? message.text : ''}
+        </p>
       </div>
     </form>
   );
