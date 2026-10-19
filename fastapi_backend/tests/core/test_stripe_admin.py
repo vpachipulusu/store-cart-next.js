@@ -12,6 +12,7 @@ from app.core.stripe_billing import (
     StripeConflict,
     StripeError,
     StripeNotFound,
+    StripeNotProcessed,
     StripeRejected,
 )
 
@@ -185,7 +186,7 @@ async def test_cancel_subscription_deletes_it_with_an_idempotency_key():
         (400, StripeRejected),
         (402, StripeRejected),
         (409, StripeConflict),  # a StripeRejected subclass (KAN-68)
-        (429, StripeError),
+        (429, StripeNotProcessed),  # KAN-68
         (500, StripeError),
     ],
 )

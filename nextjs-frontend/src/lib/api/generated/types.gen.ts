@@ -9939,10 +9939,6 @@ export type StartCheckoutData = {
 
 export type StartCheckoutErrors = {
     /**
-     * Bad Request
-     */
-    400: ErrorResponse;
-    /**
      * Unauthorized
      */
     401: ErrorResponse;

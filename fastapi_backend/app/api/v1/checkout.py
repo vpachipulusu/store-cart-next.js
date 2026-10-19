@@ -2,8 +2,8 @@
 
 Called only by the Next.js server (decision D14), so it needs the internal service key but no
 user session. The shopper's cart travels in ``X-Cart-Token`` like the cart routes. The body
-names only the return URLs (the store's own subdomain, or an app origin on
-``BILLING_RETURN_URL_ORIGINS``); every amount is computed on the server from the catalogue and
+names only the return URLs (the store's own host ``{slug}.<PLATFORM_ROOT_DOMAIN>``, or an
+app origin on ``BILLING_RETURN_URL_ORIGINS``); every amount is computed on the server from the catalogue and
 the store settings, and anything else in the body is a 422.
 
 The answer is the Stripe-hosted ``checkout_url`` (a direct charge on the store organisation's
@@ -56,7 +56,6 @@ router = APIRouter(
     ],
     responses={
         **RATE_LIMIT_RESPONSES,
-        400: {"model": ErrorResponse},
         401: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
         409: {"model": ErrorResponse},
@@ -78,7 +77,10 @@ def get_checkout_service(
     stripe: Annotated[StripeCheckout, Depends(get_stripe_checkout_client)],
 ) -> StoreCheckoutService:
     return storefront_checkout_service(
-        provider, stripe, allowed_origins(settings.BILLING_RETURN_URL_ORIGINS)
+        provider,
+        stripe,
+        allowed_origins(settings.BILLING_RETURN_URL_ORIGINS),
+        settings.PLATFORM_ROOT_DOMAIN,
     )
 
 
@@ -118,7 +120,7 @@ def _status_for(error: CheckoutError) -> int:
         return 422
     if isinstance(error, CheckoutUnavailable):
         return 502
-    return 400
+    return 500  # every CheckoutError is mapped above
 
 
 @router.post(

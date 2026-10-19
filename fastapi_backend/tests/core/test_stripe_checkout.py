@@ -9,7 +9,12 @@ import pytest
 from pydantic import SecretStr
 
 from app.core.config import settings
-from app.core.stripe_billing import StripeConflict, StripeError, StripeNotConfigured
+from app.core.stripe_billing import (
+    StripeConflict,
+    StripeError,
+    StripeNotConfigured,
+    StripeNotProcessed,
+)
 from app.core.stripe_checkout import (
     CheckoutLineItem,
     CheckoutSessionRequest,
@@ -125,4 +130,12 @@ async def test_a_409_is_a_conflict_not_a_refusal():
     stripe = client_for(lambda r: httpx.Response(409, json={}), [])
 
     with pytest.raises(StripeConflict):
+        await stripe.create_payment_session(REQUEST)
+
+
+@pytest.mark.parametrize("status", [401, 429])
+async def test_401_and_429_mean_stripe_did_not_process_the_request(status: int):
+    stripe = client_for(lambda r: httpx.Response(status, json={}), [])
+
+    with pytest.raises(StripeNotProcessed):
         await stripe.create_payment_session(REQUEST)

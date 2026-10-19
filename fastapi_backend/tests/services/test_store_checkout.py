@@ -14,11 +14,13 @@ import pytest
 from app.core.stripe_billing import (
     StripeConflict,
     StripeError,
+    StripeNotProcessed,
     StripeRejected,
 )
 from app.core.stripe_checkout import CheckoutSessionRequest, StripeCheckoutSession
 from app.repositories.connect_events import ConnectRoute
 from app.repositories.org_connect import ConnectRecord
+from app.services import store_checkout
 from app.services.store_cart import CartLine, CartView, LineStatus
 from app.services.store_checkout import (
     CartNotReady,
@@ -34,9 +36,11 @@ from app.services.store_checkout import (
     checkout_payment_handler,
     checkout_return_origins,
     confirm_checkout_payment,
+    normalize_root_domain,
     platform_fee_minor,
 )
 from app.services.store_orders import (
+    InvalidOrder,
     OrderItemRecord,
     OrderLineInput,
     OrderRecord,
@@ -48,8 +52,11 @@ ACCOUNT = "acct_merchant1"
 STORE_ID = "store1"
 SLUG = "north"
 ORIGINS = frozenset({"https://app.example.com"})
-SUCCESS = "https://north.app.example.com/checkout/success"
-CANCEL = "https://north.app.example.com/cart"
+ROOT_DOMAIN = (
+    "example.com"  # stores live at {slug}.example.com, the app at app.example.com
+)
+SUCCESS = "https://north.example.com/checkout/success"
+CANCEL = "https://north.example.com/cart"
 CONNECTED = ConnectRecord(
     id="org1",
     stripe_connect_account_id=ACCOUNT,
@@ -145,6 +152,7 @@ class FakeOrders:
         self.created: list[tuple[tuple[OrderLineInput, ...], str]] = []
         self.attached: list[tuple[str, str]] = []
         self.cancelled: list[str] = []
+        self.create_error: Exception | None = None
 
     async def view_cart(self, token: str | None) -> CartView:
         return self.view
@@ -153,6 +161,8 @@ class FakeOrders:
         self, lines: Sequence[OrderLineInput], currency: str
     ) -> OrderRecord:
         self.created.append((tuple(lines), currency))
+        if self.create_error is not None:
+            raise self.create_error
         return self.priced
 
     async def attach_session(self, order_id: str, session_id: str) -> None:
@@ -193,6 +203,8 @@ def service(
         open_orders,
         stripe,
         ORIGINS,
+        ROOT_DOMAIN,
+        conflict_delay=0,
     )
 
 
@@ -312,17 +324,44 @@ def test_a_request_that_does_not_add_up_is_refused() -> None:
 # --- return URLs ------------------------------------------------------------------------
 
 
-def test_return_urls_may_use_the_store_subdomain_or_an_allowed_origin() -> None:
+def test_store_return_origin_is_under_the_platform_root_domain() -> None:
     origins = checkout_return_origins(
-        frozenset({"https://www.example.com", "http://localhost:3000"}), "north"
+        frozenset({"https://app.storecart.com"}), "shop", "storecart.com"
+    )
+
+    assert origins == {"https://app.storecart.com", "https://shop.storecart.com"}
+
+
+def test_store_return_origin_keeps_the_scheme_and_port_of_a_local_app_origin() -> None:
+    origins = checkout_return_origins(
+        frozenset({"http://localhost:3000", "https://elsewhere.test"}),
+        "north",
+        "localhost",
     )
 
     assert origins == {
-        "https://www.example.com",
-        "https://north.example.com",
         "http://localhost:3000",
+        "https://elsewhere.test",
+        "https://north.localhost",
         "http://north.localhost:3000",
     }
+
+
+@pytest.mark.parametrize(
+    "root", [None, "", "https://storecart.com", "storecart.com/x", "bad host"]
+)
+def test_without_a_valid_root_domain_only_app_origins_are_allowed(
+    root: str | None,
+) -> None:
+    origins = checkout_return_origins(
+        frozenset({"https://app.storecart.com"}), "shop", root
+    )
+
+    assert origins == {"https://app.storecart.com"}
+
+
+def test_root_domain_is_normalised() -> None:
+    assert normalize_root_domain(" StoreCart.COM. ") == "storecart.com"
 
 
 async def test_a_return_url_on_another_stores_subdomain_is_refused() -> None:
@@ -331,7 +370,7 @@ async def test_a_return_url_on_another_stores_subdomain_is_refused() -> None:
 
     with pytest.raises(InvalidCheckoutUrl):
         await service(orders, stripe).start(
-            SLUG, "token", "https://south.app.example.com/ok", CANCEL
+            SLUG, "token", "https://south.example.com/ok", CANCEL
         )
 
     assert orders.created == []
@@ -559,15 +598,79 @@ async def test_an_unpaid_or_unusable_session_writes_nothing(
     assert outcome is None
 
 
-async def test_the_payment_handler_needs_a_store() -> None:
-    opened: list[str] = []
+@pytest.mark.parametrize("bps", [-1, 10_001])
+async def test_an_out_of_range_fee_rate_is_refused_before_anything_is_written(
+    bps: int,
+) -> None:
+    orders = ready_orders()
+    stripe = FakeStripeCheckout()
 
-    def open_store(store_id: str) -> Any:
-        opened.append(store_id)
-        raise AssertionError("no store to open")
+    with pytest.raises(CheckoutUnavailable):
+        await service(orders, stripe, target(platform_fee_bps=bps)).start(
+            SLUG, "token", SUCCESS, CANCEL
+        )
 
-    handler = checkout_payment_handler(open_store)
+    assert orders.created == []
+    assert stripe.requests == []
+
+
+async def test_a_request_that_cannot_be_built_cancels_the_written_order() -> None:
+    broken = replace(order(item("mug", 1000, 2)), total_minor=1)
+    orders = ready_orders(broken)
+    stripe = FakeStripeCheckout()
+
+    with pytest.raises(CheckoutUnavailable):
+        await service(orders, stripe).start(SLUG, "token", SUCCESS, CANCEL)
+
+    assert orders.cancelled == ["order1"]
+    assert stripe.requests == []
+
+
+async def test_a_catalogue_change_after_the_cart_view_is_a_changed_cart() -> None:
+    orders = ready_orders()
+    orders.create_error = InvalidOrder("An item is not available")
+    stripe = FakeStripeCheckout()
+
+    with pytest.raises(CartNotReady):
+        await service(orders, stripe).start(SLUG, "token", SUCCESS, CANCEL)
+
+    assert stripe.requests == []
+
+
+@pytest.mark.parametrize("status_error", ["401", "429"])
+async def test_a_request_stripe_did_not_process_cancels_the_order(
+    status_error: str,
+) -> None:
+    orders = ready_orders()
+    stripe = FakeStripeCheckout()
+    stripe.errors = [StripeNotProcessed(status_error)]
+
+    with pytest.raises(CheckoutUnavailable):
+        await service(orders, stripe).start(SLUG, "token", SUCCESS, CANCEL)
+
+    assert orders.cancelled == ["order1"]
+    assert len(stripe.requests) == 1
+
+
+async def test_a_conflict_then_success_uses_the_session_stripe_returns() -> None:
+    orders = ready_orders()
+    stripe = FakeStripeCheckout()
+    stripe.errors = [StripeConflict("in flight")]
+
+    started = await service(orders, stripe).start(SLUG, "token", SUCCESS, CANCEL)
+
+    assert started.checkout_url.endswith("cs_test_1")
+    assert len(stripe.requests) == 2
+    assert orders.cancelled == []
+
+
+async def test_a_storeless_payment_event_is_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reported: list[BaseException] = []
+    monkeypatch.setattr(store_checkout, "report_exception", reported.append)
+    handler = checkout_payment_handler(lambda store_id: None)  # type: ignore[arg-type,return-value]
 
     await handler(ConnectRoute("org1", ACCOUNT, None), paid_object())
 
-    assert opened == []
+    assert [str(error) for error in reported] == ["no store"]

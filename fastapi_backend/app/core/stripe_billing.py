@@ -25,6 +25,7 @@ STRIPE_API = "https://api.stripe.com/v1"
 REQUEST_TIMEOUT_SECONDS = 10.0
 LIST_LIMIT = 12
 REJECTED_STATUSES = frozenset({400, 402, 409})
+NOT_PROCESSED_STATUSES = frozenset({401, 429})
 # Stripe's error `type` and `code` are fixed snake_case enums; anything else is dropped, never logged.
 ERROR_TOKEN = re.compile(r"[a-z0-9_]{1,64}")
 
@@ -51,6 +52,14 @@ class StripeRejected(StripeError):
 
 class StripeConflict(StripeRejected):
     """HTTP 409: for example a request with the same idempotency key is still in flight."""
+
+
+class StripeNotProcessed(StripeError):
+    """HTTP 401 or 429: Stripe did not process the request (bad key, rate limited).
+
+    Not a ``StripeRejected``: callers that treat a refusal as final keep treating these as
+    retryable outages; checkout uses it to know no session was created.
+    """
 
 
 @dataclass(frozen=True)
@@ -238,6 +247,8 @@ class HttpStripeBilling:
                     raise StripeForbidden("Stripe request failed")
                 if response.status_code == 409:
                     raise StripeConflict("Stripe request failed")
+                if response.status_code in NOT_PROCESSED_STATUSES:
+                    raise StripeNotProcessed("Stripe request failed")
                 if response.status_code in REJECTED_STATUSES:
                     raise StripeRejected("Stripe request failed")
                 raise StripeError("Stripe request failed")

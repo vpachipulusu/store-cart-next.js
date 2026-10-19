@@ -25,6 +25,7 @@ from app.core.ids import new_id
 from app.core.stripe_billing import StripeRejected
 from app.core.stripe_checkout import CheckoutSessionRequest, StripeCheckoutSession
 from app.core.stripe_signature import compute_signature
+from app.services import store_checkout
 from app.services.store_checkout import confirm_checkout_payment
 from app.services.store_migrations import migrate_store
 from app.services.store_orders import PaymentOutcome
@@ -46,8 +47,8 @@ pytestmark = [
 SLUG = "a-north"
 ACCOUNT = "acct_northorg"
 WEBHOOK_SECRET = "whsec_e2e_checkout_only_not_real"
-SUCCESS = "https://a-north.app.example.com/checkout/success"
-CANCEL = "https://a-north.app.example.com/cart"
+SUCCESS = "https://a-north.example.com/checkout/success"
+CANCEL = "https://a-north.example.com/cart"
 T0 = 1_800_000_000
 
 
@@ -72,8 +73,8 @@ class FakeStripeCheckout:
 async def world() -> AsyncIterator[World]:
     with pytest.MonkeyPatch.context() as patch:
         async with open_world(patch) as built:
-            for label in ("a", "b"):
-                store_id = built.tenant(label).stores["north"]
+            for label, slug in (("a", "north"), ("a", "south"), ("b", "north")):
+                store_id = built.tenant(label).stores[slug]
                 await built.provision(store_id)
                 await migrate_store(store_id, built.provider)
             async with built.platform.begin() as connection:
@@ -95,6 +96,7 @@ async def client(
     monkeypatch.setattr(
         settings, "BILLING_RETURN_URL_ORIGINS", "https://app.example.com"
     )
+    monkeypatch.setattr(settings, "PLATFORM_ROOT_DOMAIN", "example.com")
     monkeypatch.setattr(
         settings, "STRIPE_CONNECT_WEBHOOK_SECRET", SecretStr(WEBHOOK_SECRET)
     )
@@ -521,3 +523,74 @@ async def test_a_paid_session_for_a_cancelled_order_is_a_mismatch(
     assert outcome is PaymentOutcome.MISMATCH
     row = await order_row(world, order_id)
     assert (row["status"], row["paid_at"]) == ("cancelled", None)
+
+
+@pytest.fixture
+def reported(monkeypatch: pytest.MonkeyPatch) -> list[BaseException]:
+    seen: list[BaseException] = []
+    monkeypatch.setattr(store_checkout, "report_exception", seen.append)
+    return seen
+
+
+async def test_a_session_in_another_currency_does_not_pay_the_order(
+    client: AsyncClient, world: World, stripe: FakeStripeCheckout
+) -> None:
+    order_id, session_id, request = await started(client, world, stripe)
+    obj = session_event(world, request, session_id)["data"]["object"]
+
+    async with open_store_session(north(world), world.provider) as session:
+        outcome = await confirm_checkout_payment(session, {**obj, "currency": "eur"})
+        await session.commit()
+
+    assert outcome is PaymentOutcome.MISMATCH
+    assert (await order_row(world, order_id))["status"] == "pending"
+
+
+async def test_a_session_naming_a_sibling_store_finds_no_order_and_is_reported(
+    client: AsyncClient,
+    world: World,
+    stripe: FakeStripeCheckout,
+    reported: list[BaseException],
+) -> None:
+    order_id, session_id, request = await started(client, world, stripe)
+    event = session_event(world, request, session_id)
+    event["data"]["object"]["metadata"]["store_id"] = world.tenant("a").stores["south"]
+
+    response = await deliver(client, event)
+
+    assert response.status_code == 200
+    assert [str(error) for error in reported] == ["not_found"]
+    assert (await order_row(world, order_id))["status"] == "pending"
+
+
+async def test_an_order_id_the_store_does_not_have_is_reported(
+    client: AsyncClient,
+    world: World,
+    stripe: FakeStripeCheckout,
+    reported: list[BaseException],
+) -> None:
+    _order_id, _session_id, request = await started(client, world, stripe)
+    event = session_event(world, request, f"cs_test_{new_id()}")
+    event["data"]["object"]["metadata"]["order_id"] = new_id()
+
+    response = await deliver(client, event)
+
+    assert response.status_code == 200
+    assert [str(error) for error in reported] == ["not_found"]
+
+
+async def test_the_webhook_can_pay_an_order_before_its_session_is_linked(
+    client: AsyncClient, world: World, stripe: FakeStripeCheckout
+) -> None:
+    order_id, session_id, request = await started(client, world, stripe)
+    await run_sql(
+        world,
+        "UPDATE orders SET stripe_checkout_session_id = NULL WHERE id = :id",
+        id=order_id,
+    )
+
+    response = await deliver(client, session_event(world, request, session_id))
+
+    assert response.status_code == 200
+    row = await order_row(world, order_id)
+    assert (row["status"], row["stripe_checkout_session_id"]) == ("paid", session_id)

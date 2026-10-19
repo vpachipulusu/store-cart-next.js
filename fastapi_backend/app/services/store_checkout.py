@@ -13,10 +13,12 @@ Checkout Session:
 3. The session is a **direct charge** on the connected account (``Stripe-Account``) whose line
    items add up exactly to the order total. ``application_fee_amount`` comes from the
    organisation's ``platform_fee_bps`` (0 by default, then the field is not sent), on the
-   amount charged. The idempotency key is derived from the order id on the server. A definite
-   Stripe refusal cancels the order; an unknown outcome (timeout, 5xx, 409) is retried once with
-   the same key, so Stripe returns the session it may already have made instead of a second one,
-   and if it stays unknown the order is left ``pending`` (the webhook can still pay it).
+   amount charged. The idempotency key is derived from the order id on the server. A request
+   Stripe did not process (4xx: refused, 401, 429) cancels the order. An unknown outcome
+   (timeout, transport error, 5xx, 409) is retried once with the same key: after a timeout that
+   returns the session Stripe may already have made instead of a second one (a 5xx is usually
+   replayed as is). If it stays unknown the order is left ``pending`` (the webhook can still pay
+   it). Any failure while building the request after the order was written cancels it too.
 
 ``confirm_checkout_payment`` is the Connect webhook side (``checkout.session.completed`` and
 ``checkout.session.async_payment_succeeded``): it marks the order paid in the store database
@@ -24,6 +26,7 @@ with one conditional update keyed on the order and the unique session id, so the
 store side effect is idempotent under duplicate and concurrent deliveries.
 """
 
+import asyncio
 import logging
 import re
 from collections.abc import Callable, Mapping, Sequence
@@ -43,6 +46,7 @@ from app.core.stripe_billing import (
     StripeError,
     StripeForbidden,
     StripeNotFound,
+    StripeNotProcessed,
     StripeRejected,
 )
 from app.core.stripe_checkout import (
@@ -96,6 +100,10 @@ SHIPPING_LINE_NAME = "Shipping"
 PAID_STATUS = "paid"
 CART_CHANGED = "Your cart has changed. Review it and try again."
 SESSION_ATTEMPTS = 2
+CONFLICT_RETRY_DELAY_SECONDS = 0.5
+ROOT_DOMAIN_PATTERN = re.compile(
+    r"(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*"
+)
 SESSION_ID_PATTERN = re.compile(r"cs_[A-Za-z0-9_]{1,250}")
 PAYMENT_INTENT_PATTERN = re.compile(r"pi_[A-Za-z0-9_]{1,250}")
 ORDER_ID_PATTERN = re.compile(r"[A-Za-z0-9]{1,64}")
@@ -177,21 +185,37 @@ def platform_fee_minor(total_minor: int, fee_bps: int) -> int:
     return (total_minor * fee_bps + BPS_DENOMINATOR // 2) // BPS_DENOMINATOR
 
 
-def checkout_return_origins(origins: frozenset[str], slug: str) -> frozenset[str]:
-    """Allowed return origins: the configured app origins and the store's own subdomain of each.
+def normalize_root_domain(value: str | None) -> str | None:
+    """The platform root domain as a lower-case host name, or None when unset or invalid."""
+    if value is None:
+        return None
+    host = value.strip().lower().rstrip(".")
+    return host if ROOT_DOMAIN_PATTERN.fullmatch(host) else None
 
-    ``https://www.example.com`` also allows ``https://{slug}.example.com`` (the leading
-    ``www.`` is the app host, not the root domain).
+
+def checkout_return_origins(
+    origins: frozenset[str], slug: str, root_domain: str | None
+) -> frozenset[str]:
+    """Allowed return origins: the app origins, and the store's own host ``{slug}.<root>``.
+
+    Store subdomains live under the platform root domain (``PLATFORM_ROOT_DOMAIN``), not under
+    the app's host. The store host is allowed over https, and also with the scheme and port of
+    any app origin on the root domain or below it (``http://localhost:3000`` with root
+    ``localhost`` allows ``http://{slug}.localhost:3000`` in development).
     """
     allowed = set(origins)
+    root = normalize_root_domain(root_domain)
+    if root is None:
+        return frozenset(allowed)
+    store_host = f"{slug}.{root}"
+    allowed.add(f"https://{store_host}")
     for origin in origins:
         parts = urlsplit(origin)
         host = parts.hostname
-        if not host:
+        if host is None or not (host == root or host.endswith(f".{root}")):
             continue
-        root = host.removeprefix("www.")
         port = f":{parts.port}" if parts.port else ""
-        allowed.add(f"{parts.scheme}://{slug}.{root}{port}")
+        allowed.add(f"{parts.scheme}://{store_host}{port}")
     return frozenset(allowed)
 
 
@@ -386,11 +410,16 @@ class StoreCheckoutService:
         open_orders: OpenOrders,
         stripe: StripeCheckout,
         origins: frozenset[str],
+        root_domain: str | None,
+        *,
+        conflict_delay: float = CONFLICT_RETRY_DELAY_SECONDS,
     ) -> None:
         self._targets = targets
         self._open_orders = open_orders
         self._stripe = stripe
         self._origins = origins
+        self._root_domain = root_domain
+        self._conflict_delay = conflict_delay
 
     async def start(
         self, slug: str, token: str | None, success_url: str, cancel_url: str
@@ -398,16 +427,27 @@ class StoreCheckoutService:
         target = await self._targets.find(slug)
         if target is None:
             raise CheckoutStoreNotFound
-        allowed = checkout_return_origins(self._origins, target.slug)
+        allowed = checkout_return_origins(self._origins, target.slug, self._root_domain)
         success = _return_url(success_url, allowed)
         cancel = _return_url(cancel_url, allowed)
         try:
             require_charges_enabled(target.connect)
         except ChargesNotEnabled:
             raise PaymentsNotEnabled from None
+        _check_fee_rate(target)
         async with self._open_orders(target.store_id) as orders:
             order = await self._create_order(orders, token, target.currency)
-            request = build_session_request(target, order, success, cancel)
+            try:
+                request = build_session_request(target, order, success, cancel)
+            except ValueError as exc:
+                # Written but unpayable: never leave it pending.
+                logger.error(
+                    "checkout request could not be built: %s",
+                    exc,
+                    extra={"order_id": order.id},
+                )
+                await orders.cancel_order(order.id)
+                raise CheckoutUnavailable from None
             created = await self._create_session(orders, order.id, request)
             await orders.attach_session(order.id, created.id)
         return CheckoutStarted(order_id=order.id, checkout_url=created.url)
@@ -417,16 +457,25 @@ class StoreCheckoutService:
     ) -> StripeCheckoutSession:
         """Create the session. A definite refusal cancels the order; an unknown outcome retries.
 
-        The retry sends the same idempotency key, so Stripe answers with the session it may
-        already have created. If the outcome is still unknown, the order stays pending: a
-        cancelled order with a live session could be paid and then never confirmed.
+        The retry sends the same idempotency key. After a timeout or transport error Stripe
+        answers with the session it may already have created; after a 409 (in flight) it waits
+        a moment first; a 5xx is usually replayed as is. If the outcome is still unknown, the
+        order stays pending: a cancelled order with a live session could be paid and then never
+        confirmed.
         """
         for attempt in range(SESSION_ATTEMPTS):
             try:
                 return await self._stripe.create_payment_session(request)
             except StripeConflict:
-                pass  # in flight: unknown outcome
-            except (StripeRejected, StripeForbidden, StripeNotFound):
+                # In flight: unknown outcome; give the first request time to finish.
+                if attempt < SESSION_ATTEMPTS - 1:
+                    await asyncio.sleep(self._conflict_delay)
+            except (
+                StripeRejected,
+                StripeNotProcessed,
+                StripeForbidden,
+                StripeNotFound,
+            ):
                 await orders.cancel_order(order_id)
                 raise CheckoutUnavailable from None
             except StripeError:
@@ -453,6 +502,17 @@ class StoreCheckoutService:
             await orders.cancel_order(order.id)
             raise CartNotReady("There is nothing to pay for.")
         return order
+
+
+def _check_fee_rate(target: CheckoutTarget) -> None:
+    """A fee rate outside 0..10000 is a data error: refuse before anything is written."""
+    rate = target.platform_fee_bps
+    if isinstance(rate, bool) or not 0 <= rate <= MAX_FEE_BPS:
+        logger.error(
+            "platform_fee_bps out of range; checkout refused",
+            extra={"store_id": target.store_id},
+        )
+        raise CheckoutUnavailable
 
 
 def _return_url(url: str, allowed: frozenset[str]) -> str:
@@ -552,7 +612,9 @@ def checkout_payment_handler(
     """
 
     async def handle(route: ConnectRoute, obj: Mapping[str, Any]) -> None:
-        if route.store_id is None:  # store-scoped events always carry one
+        if route.store_id is None:  # routing always sets one for store-scoped events
+            logger.error("checkout payment event routed without a store")
+            report_exception(UnappliedCheckoutPayment("no store"))
             return
         async with open_store(route.store_id) as session:
             await confirm_checkout_payment(session, obj)

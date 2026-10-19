@@ -10,10 +10,10 @@ A shopper's cart becomes a `pending` order priced only on the server, and a Stri
 
 | Body | Rule |
 |---|---|
-| `success_url`, `cancel_url` | Required. The origin must be on `BILLING_RETURN_URL_ORIGINS`, or be the store's own subdomain of one of those origins (`https://www.example.com` also allows `https://{slug}.example.com`; a leading `www.` is dropped). Anything else is 422. |
+| `success_url`, `cancel_url` | Required. The origin must be on `BILLING_RETURN_URL_ORIGINS`, or be the store's own host `https://{slug}.<PLATFORM_ROOT_DOMAIN>` (for example `https://shop.storecart.com`). The store host is also allowed with the scheme and port of an app origin on the root domain (`http://localhost:3000` with root `localhost` allows `http://{slug}.localhost:3000`). Unset or invalid `PLATFORM_ROOT_DOMAIN` allows only the app origins. Anything else is 422. |
 | anything else | 422. The client can never send an amount, a price or a line. |
 
-Answer: `{order_id, checkout_url}`; redirect the shopper to `checkout_url` (Stripe-hosted). Errors (generic text, no Stripe output): 404 store not found (unknown, not ACTIVE), 409 "Payments are not enabled for this store" (no connected account or charges off; nothing is written), 409 cart empty or changed (a line unavailable, out of stock or above stock), 422 return URL, 502 Stripe failed (the order is cancelled), 503 `STRIPE_SECRET_KEY` unset or store database unavailable.
+Answer: `{order_id, checkout_url}`; redirect the shopper to `checkout_url` (Stripe-hosted). Errors (generic text, no Stripe output): 404 store not found (unknown, not ACTIVE), 409 "Payments are not enabled for this store" (no connected account or charges off; nothing is written), 409 cart empty or changed (a line unavailable, out of stock or above stock, or the catalogue changed between the cart view and pricing), 422 return URL, 502 Stripe failed or the organisation's `platform_fee_bps` is outside 0..10000 (refused before anything is written), 503 `STRIPE_SECRET_KEY` unset or store database unavailable.
 
 ## How the amounts are made
 
@@ -23,7 +23,7 @@ Answer: `{order_id, checkout_url}`; redirect the shopper to `checkout_url` (Stri
 
 ## Stripe call
 
-`POST /v1/checkout/sessions` with `Stripe-Account: acct_...` (direct charge: the merchant is the merchant of record; the payment, Stripe's fees, disputes and refunds are on their account), `mode=payment`, `metadata[store_id]`, `metadata[order_id]` (also on the PaymentIntent), `client_reference_id` = order id. Idempotency key `sc-checkout-{store_id}-{order_id}`, built on the server. A definite refusal (400, 402, 403, 404) cancels the order. An unknown outcome (timeout, transport error, 5xx, 409 in flight) is retried once with the same key, so Stripe answers with the session it may already have made rather than a second one; if the outcome is still unknown the order stays `pending` (cancelling it could leave a live session whose payment is never applied) and the answer is 502. If linking the session to the order fails after Stripe succeeded, the URL is still returned: the webhook accepts an order with no session linked yet.
+`POST /v1/checkout/sessions` with `Stripe-Account: acct_...` (direct charge: the merchant is the merchant of record; the payment, Stripe's fees, disputes and refunds are on their account), `mode=payment`, `metadata[store_id]`, `metadata[order_id]` (also on the PaymentIntent), `client_reference_id` = order id. Idempotency key `sc-checkout-{store_id}-{order_id}`, built on the server. A request Stripe did not process (400, 401, 402, 403, 404, 429) cancels the order. An unknown outcome (timeout, transport error, 5xx, 409 in flight) is retried once with the same key, after a 0.5 s pause for a 409. The retry really helps after a timeout or transport error, where Stripe answers with the session it may already have made rather than a second one; a 5xx is usually replayed as is. If the outcome is still unknown the order stays `pending` (cancelling it could leave a live session whose payment is never applied) and the answer is 502. A failure while building the request after the order was written (a line-sum mismatch) cancels the order too. If linking the session to the order fails after Stripe succeeded, the URL is still returned: the webhook accepts an order with no session linked yet.
 
 **Platform fee.** `payment_intent_data[application_fee_amount]` = `round_half_up(total * organizations.platform_fee_bps / 10000)`, on the amount charged (items, tax added on top and shipping). `platform_fee_bps` defaults to 0 (decision D9: subscription revenue only), and then the field is **not sent**. Raising the column for an organisation turns the fee on with no code change. The fee code is `platform_fee_minor`.
 
@@ -33,6 +33,7 @@ Registered store handlers: `checkout.session.completed` and `checkout.session.as
 
 - Only `payment_status = paid` moves anything; `completed` with `unpaid` (a delayed payment method) waits for `async_payment_succeeded`.
 - `mark_checkout_paid` is one conditional `UPDATE`: the order (from `metadata.order_id`) must be `pending`, linked to this session or none yet, and `amount_total`/`currency` must equal its total and currency. A session already linked to another order never pays this one (`stripe_checkout_session_id` is unique).
+- An event whose route has no store (cannot happen for store-scoped types) is logged and reported, not dropped silently.
 - `metadata.order_id` picks the order (KAN-69's rule is to trust metadata only to pick the store). That is safe here because only the platform can create sessions on an Express account (the merchant has no API keys), and the update still requires the order's own amount, currency and session, so a forged id cannot pay a different order.
 - Store-database writes are at least once (KAN-69): a rerun or a concurrent delivery finds the order paid and changes nothing. Mismatches (amount, currency, another session, a cancelled order) and paid sessions without usable fields are logged as errors, reported to Sentry (`UnappliedCheckoutPayment`) and acknowledged; a paid session for a cancelled order needs a manual refund in the merchant's dashboard.
 
@@ -42,8 +43,9 @@ Store migration `0008_order_checkout` (expand-only): `orders.shipping_minor` (de
 
 ## Owner steps
 
-1. Stripe Dashboard, Connect webhook endpoint (`/webhooks/stripe-connect`, events on **Connected accounts**): add `checkout.session.completed` and `checkout.session.async_payment_succeeded`.
-2. Run the store migrations to `0008` on every store database (the same runner as for `0007`).
+1. **Before deploying this code**, run the store migrations to `0008` on every store database (the same runner as for `0007`). Otherwise checkout fails with a 500 on the new `orders` columns.
+2. Vercel, FastAPI service: set `PLATFORM_ROOT_DOMAIN` to the same host as the frontend's (for example `storecart.com`; name only in tickets). Without it the store's own return URLs are refused (422).
+3. Stripe Dashboard, Connect webhook endpoint (`/webhooks/stripe-connect`, events on **Connected accounts**): add `checkout.session.completed` and `checkout.session.async_payment_succeeded`.
 
 ## Known limits (not in this story)
 

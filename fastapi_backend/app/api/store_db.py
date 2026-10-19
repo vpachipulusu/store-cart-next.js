@@ -196,7 +196,10 @@ def _cart_service(session: AsyncSession) -> StoreCartService:
 
 
 def storefront_checkout_service(
-    provider: SessionProvider, stripe: StripeCheckout, origins: frozenset[str]
+    provider: SessionProvider,
+    stripe: StripeCheckout,
+    origins: frozenset[str],
+    root_domain: str | None,
 ) -> StoreCheckoutService:
     """A checkout service for public storefront routes (KAN-68).
 
@@ -215,7 +218,7 @@ def storefront_checkout_service(
             )
 
     return StoreCheckoutService(
-        PlatformCheckoutTargets(provider), open_orders, stripe, origins
+        PlatformCheckoutTargets(provider), open_orders, stripe, origins, root_domain
     )
 
 
