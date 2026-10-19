@@ -93,6 +93,7 @@ this route. Check, in this order:
    secret, so production configured with the CLI secret answers **400** to every event and the plan never changes
    (KAN-251: found because every event stayed `pending_webhooks=1` while a harmless probe signed with the CLI
    secret was accepted).
+   Never paste a `whsec_` value into tickets, chat or logs.
 3. **Stripe dashboard** (Developers, Webhooks, add endpoint; use the live or test mode that matches the keys in
    use): URL `https://<production origin>/webhooks/stripe` (no trailing slash), events `customer.subscription.created`,
    `customer.subscription.updated` and `customer.subscription.deleted`. These are the only types the backend acts on;

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 /**
  * KAN-251: when the plan has not flipped after the poll window, the dashboard keeps telling the user their payment
@@ -34,7 +34,7 @@ const FREE = { success: true, data: { subscriptionTier: 'free', subscriptionStat
 const PRO = { success: true, data: { subscriptionTier: 'pro', subscriptionStatus: 'active' } };
 
 async function renderAndAdvance(ms: number) {
-  render(<SubscriptionSuccessHandler />);
+  const view = render(<SubscriptionSuccessHandler />);
   // Let verification and the first status check settle before moving the clock, or timers registered by them
   // would be scheduled after the whole advance has already elapsed.
   for (let i = 0; i < 5; i += 1) {
@@ -45,6 +45,7 @@ async function renderAndAdvance(ms: number) {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(ms);
   });
+  return view;
 }
 
 describe('SubscriptionSuccessHandler', () => {
@@ -95,5 +96,63 @@ describe('SubscriptionSuccessHandler', () => {
 
     expect(mocks.replace).toHaveBeenCalledWith('/dashboard');
     expect(mocks.getSubscriptionStatusAction).not.toHaveBeenCalled();
+  });
+
+  it('keeps the processing state until the tenth poll, then times out at about 30 seconds', async () => {
+    mocks.getSubscriptionStatusAction.mockResolvedValue(FREE);
+    render(<SubscriptionSuccessHandler />);
+    for (let i = 0; i < 5; i += 1) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+    }
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(27_000);
+    });
+    expect(screen.getByText(/processing your subscription/i)).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(screen.getByText(/payment received/i)).toBeInTheDocument();
+  });
+
+  it('stops polling and refreshes once after the timeout', async () => {
+    mocks.getSubscriptionStatusAction.mockResolvedValue(FREE);
+
+    await renderAndAdvance(60_000);
+
+    // The first check plus ten polls, then nothing more.
+    expect(mocks.getSubscriptionStatusAction).toHaveBeenCalledTimes(11);
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('lets the user dismiss the timed-out banner', async () => {
+    mocks.getSubscriptionStatusAction.mockResolvedValue(FREE);
+
+    await renderAndAdvance(40_000);
+    fireEvent.click(screen.getByRole('button', { name: /dismiss/i }));
+
+    expect(mocks.replace).toHaveBeenCalledWith('/dashboard');
+  });
+
+  it('clears its timers when it unmounts while polling', async () => {
+    mocks.getSubscriptionStatusAction.mockResolvedValue(FREE);
+
+    const { unmount } = await renderAndAdvance(7_000);
+    unmount();
+
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('refreshes once when the plan turns active, not on a timeout', async () => {
+    mocks.getSubscriptionStatusAction.mockResolvedValue(PRO);
+
+    await renderAndAdvance(5_000);
+
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/payment received/i)).not.toBeInTheDocument();
   });
 });
