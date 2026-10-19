@@ -272,3 +272,9 @@ class UpstashRateLimiter:
 EXPORT_POLICY = RateLimitPolicy(
     "me_export", limit=3, window_seconds=60 * 60, fail_closed=True
 )
+
+# Product CSV import (KAN-74): one call parses up to 1 MB and inserts up to 500 products,
+# so it gets its own budget on top of the api policy. Fail open like the api policy.
+PRODUCT_IMPORT_POLICY = RateLimitPolicy(
+    "product_import", limit=10, window_seconds=10 * 60, fail_closed=False
+)

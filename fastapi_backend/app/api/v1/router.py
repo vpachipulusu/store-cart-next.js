@@ -18,6 +18,7 @@ from app.api.v1 import (
     org_billing,
     org_connect,
     organizations,
+    product_import,
     products,
     settings,
     store_retry,
@@ -51,6 +52,7 @@ api_router.include_router(organizations.router)
 api_router.include_router(stores.router)
 api_router.include_router(store_retry.router)
 api_router.include_router(media.router)
+api_router.include_router(product_import.router)
 api_router.include_router(products.router)
 api_router.include_router(orders.router)
 api_router.include_router(categories.router)

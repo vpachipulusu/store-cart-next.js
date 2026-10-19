@@ -491,6 +491,28 @@ class StoreCatalogueRepository(BaseRepository):
         )
         return [VariantChoice(**row) for row in rows]
 
+    async def existing_slugs(self, slugs: Sequence[str]) -> set[str]:
+        """The given slugs that a product already uses (KAN-74)."""
+        rows = await self._session.execute(
+            text("SELECT slug FROM products WHERE slug = ANY(CAST(:s AS varchar[]))"),
+            {"s": list(slugs)},
+        )
+        return {row[0] for row in rows}
+
+    async def existing_skus(self, skus: Sequence[str]) -> set[str]:
+        """The given SKUs, lower-cased, that a variant already uses (KAN-74).
+
+        Matches ``uq_variants_sku_lower``, so the lookup uses that index.
+        """
+        rows = await self._session.execute(
+            text(
+                "SELECT lower(sku) FROM variants "
+                "WHERE lower(sku) = ANY(CAST(:s AS varchar[]))"
+            ),
+            {"s": [sku.lower() for sku in skus]},
+        )
+        return {row[0] for row in rows}
+
     # --- categories ---------------------------------------------------------------
 
     async def existing_category_ids(self, category_ids: Sequence[str]) -> set[str]:

@@ -1,10 +1,12 @@
 import 'server-only';
 
+import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { BACKEND_ERROR_MESSAGE, callBackend, type ApiResult } from './server';
 import type { Client } from './generated/client';
 import type { CategoryList } from '@/lib/products/categories';
 import type { ImageContentType } from '@/lib/products/image-upload';
+import type { ImportOutcome } from '@/lib/products/csv-import';
 import {
   addImage,
   addVariant,
@@ -12,6 +14,7 @@ import {
   deleteImage,
   deleteProduct,
   deleteVariant,
+  importProductsCsv,
   listCategories,
   listProducts,
   presignImageUpload,
@@ -290,4 +293,35 @@ export async function loadCategoryList(storeId: string): Promise<CategoryList | 
   const result = await fetchCategories(storeId);
   if (!result.success) logger.error('Products: category list failed', { status: result.status });
   return result.success ? { rows: result.data.data, truncated: result.data.truncated } : null;
+}
+
+const importIssueSchema = z.object({
+  row: z.number().int().nullable(),
+  column: z.string().nullable(),
+  message: z.string(),
+});
+
+const importBodySchema = z.object({
+  imported: z.number().int().min(0),
+  errors: z.array(importIssueSchema),
+  truncated: z.boolean(),
+});
+
+/**
+ * Import products from a CSV file into the store (KAN-74). The backend checks every row and imports all or none;
+ * per-row problems come back as data (200 with `imported: 0`), so they are returned as a success here.
+ */
+export async function importStoreProducts(
+  storeId: string,
+  file: Blob
+): Promise<ApiResult<ImportOutcome>> {
+  const result = await callBackend((client) =>
+    importProductsCsv({ client, path: { store_id: storeId }, body: { file } })
+  );
+  if (!result.success) return result;
+  const body = importBodySchema.safeParse(result.data);
+  if (!body.success) {
+    return { success: false, error: PRODUCT_REQUEST_FAILED_MESSAGE, status: 502 };
+  }
+  return { success: true, data: body.data };
 }
