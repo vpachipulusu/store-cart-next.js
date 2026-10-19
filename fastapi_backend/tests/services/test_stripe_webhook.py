@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
@@ -159,6 +160,37 @@ async def test_unknown_event_type_is_ignored_without_touching_anything():
 
     assert outcome is WebhookOutcome.IGNORED
     assert not events.seen and not orgs.lookups and session.commits == 0
+
+
+async def test_ignored_event_logs_its_type(caplog):
+    service, _session, _events, _orgs = build(state())
+
+    with caplog.at_level(logging.INFO, logger="storecart.stripe_webhook"):
+        await service.handle(event(event_type="invoice.paid"))
+
+    assert "stripe event ignored: type=invoice.paid" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "event_type", ["x" * 65, "bad type\nFAKE", "Invoice.Paid", "invoice.p\u00e4id"]
+)
+async def test_ignored_event_log_drops_an_unsafe_type(caplog, event_type):
+    service, _session, _events, _orgs = build(state())
+
+    with caplog.at_level(logging.INFO, logger="storecart.stripe_webhook"):
+        await service.handle(event(event_type=event_type))
+
+    assert caplog.messages[-1] == "stripe event ignored: type=unlisted"
+
+
+async def test_ignored_event_type_of_64_characters_is_still_logged(caplog):
+    service, _session, _events, _orgs = build(state())
+    event_type = "a" * 64
+
+    with caplog.at_level(logging.INFO, logger="storecart.stripe_webhook"):
+        await service.handle(event(event_type=event_type))
+
+    assert f"stripe event ignored: type={event_type}" in caplog.text
 
 
 async def test_failed_apply_rolls_back_and_does_not_commit():

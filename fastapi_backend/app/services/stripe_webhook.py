@@ -10,6 +10,7 @@ Logs carry event and organisation ids only, never the payload.
 """
 
 import logging
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -36,6 +37,8 @@ DELETED_EVENT = "customer.subscription.deleted"
 ENTITLED_STATUSES = frozenset({"active", "trialing", "past_due"})
 ENDED_STATUSES = frozenset({"canceled", "unpaid", "incomplete_expired", "paused"})
 MAX_STATUS_LENGTH = 32
+# Stripe event types are lowercase dotted names (invoice.paid); anything else is not logged verbatim.
+EVENT_TYPE_TOKEN = re.compile(r"[a-z0-9_.]{1,64}")
 
 
 class WebhookOutcome(StrEnum):
@@ -208,6 +211,11 @@ class StripeWebhookService:
         if event_id is None or event_type is None or created is None:
             raise MalformedEvent
         if event_type not in SUBSCRIPTION_EVENTS:
+            # The endpoint may be subscribed to more events than are handled; the type says which.
+            logger.info(
+                "stripe event ignored: type=%s",
+                event_type if EVENT_TYPE_TOKEN.fullmatch(event_type) else "unlisted",
+            )
             return WebhookOutcome.IGNORED
         payload = event.get("data")
         subscription = payload.get("object") if isinstance(payload, Mapping) else None
