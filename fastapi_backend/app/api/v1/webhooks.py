@@ -3,7 +3,7 @@ import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr
 
 from app.api.deps import SessionDep
 from app.core.config import settings
@@ -54,7 +54,13 @@ def get_stripe_webhook_service(session: SessionDep) -> StripeWebhookService:
 
 
 async def _verified_body(request: Request, signature: str | None) -> bytes:
-    secret = settings.STRIPE_WEBHOOK_SECRET
+    return await read_verified_body(request, signature, settings.STRIPE_WEBHOOK_SECRET)
+
+
+async def read_verified_body(
+    request: Request, signature: str | None, secret: SecretStr | None
+) -> bytes:
+    """The raw body once its Stripe signature checks out against ``secret`` (503 if unset)."""
     if secret is None:
         raise HTTPException(503, "Service temporarily unavailable")
     declared = request.headers.get("content-length")

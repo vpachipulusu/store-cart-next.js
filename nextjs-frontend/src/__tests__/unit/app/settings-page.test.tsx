@@ -13,6 +13,18 @@ vi.mock('@/app/actions/user-actions', () => ({
   getUserSettingsAction: mocks.getUserSettingsAction,
   updateUserSettingsAction: mocks.updateUserSettingsAction,
 }));
+vi.mock('@/app/actions/connect-actions', () => ({
+  getConnectStatusAction: vi.fn().mockResolvedValue({
+    success: true,
+    data: {
+      hasAccount: false,
+      chargesEnabled: false,
+      payoutsEnabled: false,
+      detailsSubmitted: false,
+    },
+  }),
+  startConnectOnboardingAction: vi.fn(),
+}));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: mocks.toast }) }));
 
 import SettingsPage from '@/app/dashboard/settings/page';

@@ -21,6 +21,7 @@ pytestmark = pytest.mark.skipif(
 )
 BACKEND_SERVICE = "fastapi_backend"
 STRIPE_WEBHOOK_PATH = "/webhooks/stripe"
+CONNECT_WEBHOOK_PATH = "/webhooks/stripe-connect"
 
 
 def _rewrites() -> list[dict[str, object]]:
@@ -52,6 +53,8 @@ def test_everything_else_still_reaches_the_frontend() -> None:
     ("path", "service"),
     [
         (STRIPE_WEBHOOK_PATH, BACKEND_SERVICE),
+        (CONNECT_WEBHOOK_PATH, BACKEND_SERVICE),
+        ("/webhooks/stripe-connect/", "nextjs-frontend"),
         ("/webhooks/stripe/", "nextjs-frontend"),
         ("/webhooks/stripe/x", "nextjs-frontend"),
         ("/webhooks/stripe-other", "nextjs-frontend"),
@@ -72,7 +75,16 @@ def test_only_the_intended_public_paths_reach_the_backend() -> None:
     assert [r["source"] for r in backend_rules] == [
         "/internal/provisioning/(.*)",
         STRIPE_WEBHOOK_PATH,
+        CONNECT_WEBHOOK_PATH,
     ]
+
+
+def test_the_connect_route_matches_the_rewrite_and_checks_the_signature() -> None:
+    from app.api.v1.webhooks_connect import router
+
+    assert {route.path for route in router.routes} == {CONNECT_WEBHOOK_PATH}  # type: ignore[attr-defined]
+    for route in router.routes:
+        assert "_verified_body(" in inspect.getsource(route.endpoint)  # type: ignore[attr-defined]
 
 
 def test_the_stripe_route_matches_the_rewrite_and_checks_the_signature() -> None:
