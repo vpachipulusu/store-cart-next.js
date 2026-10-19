@@ -7,7 +7,12 @@ import { Breadcrumbs } from './breadcrumbs';
 import { PageLinks } from './page-links';
 import { ProductGrid } from './product-grid';
 import { getCategories, getProductPage, getPublicStore } from '@/lib/api/storefront-catalogue';
-import { categoryTrail, childCategories, type StoreCategory } from '@/lib/storefront/catalogue';
+import {
+  categoryTrail,
+  childCategories,
+  type ProductPage,
+  type StoreCategory,
+} from '@/lib/storefront/catalogue';
 import { categoryMetadata, categoryPath } from '@/lib/storefront/seo';
 import { originFor } from '@/lib/storefront/store-origin';
 
@@ -23,9 +28,26 @@ async function findCategory(
   category: StoreCategory;
   categories: StoreCategory[];
 } | null> {
+  // The store first: an unknown subdomain costs one cached call, not one per read.
+  if (!(await getPublicStore(slug))) return null;
   const categories = await getCategories(slug);
   const category = categories?.find((item) => item.slug === categorySlug);
   return categories && category ? { category, categories } : null;
+}
+
+/**
+ * The listing page, or null when it does not exist. A page past the end is a 404 decided from the cached first
+ * page's total, so `/page/2..400` of a small category never reaches the backend or adds a cache entry.
+ */
+export async function readPage(
+  slug: string,
+  categorySlug: string,
+  page: number
+): Promise<ProductPage | null> {
+  const first = await getProductPage(slug, categorySlug, 1);
+  if (!first || page === 1) return first;
+  if (page > first.pageCount) return null;
+  return getProductPage(slug, categorySlug, page);
 }
 
 export async function categoryListingMetadata(
@@ -33,10 +55,8 @@ export async function categoryListingMetadata(
   categorySlug: string,
   page: number
 ): Promise<Metadata> {
-  const [store, found] = await Promise.all([
-    getPublicStore(slug),
-    findCategory(slug, categorySlug),
-  ]);
+  const found = await findCategory(slug, categorySlug);
+  const store = found ? await getPublicStore(slug) : null;
   if (!store || !found) return {};
   return categoryMetadata(store, found.category, originFor(slug), page);
 }
@@ -52,8 +72,8 @@ export async function CategoryListing({
 }) {
   const found = await findCategory(slug, categorySlug);
   if (!found) notFound();
-  const products = await getProductPage(slug, categorySlug, page);
-  if (!products || (page > 1 && page > products.pageCount)) notFound();
+  const products = await readPage(slug, categorySlug, page);
+  if (!products) notFound();
 
   const { category, categories } = found;
   const trail = categoryTrail(categories, category.slug);

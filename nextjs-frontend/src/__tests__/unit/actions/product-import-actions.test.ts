@@ -66,7 +66,7 @@ describe('importProductsAction', () => {
     expect(result).toEqual({ success: true, data: outcome });
     expect(mocks.importStoreProducts).toHaveBeenCalledWith(STORE, expect.any(File));
     expect(mocks.revalidatePath).toHaveBeenCalledWith('/dashboard/products');
-    expect(mocks.revalidateTag).toHaveBeenCalledWith('storefront:shop', { expire: 0 });
+    expect(mocks.revalidateTag).toHaveBeenCalledWith('storefront:shop', 'max');
   });
 
   it('returns row problems as data and does not refresh when nothing was imported', async () => {

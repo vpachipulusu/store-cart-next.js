@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { PageLinks } from '@/components/storefront/page-links';
 import { ProductGrid } from '@/components/storefront/product-grid';
-import { searchProducts } from '@/lib/api/storefront-catalogue';
+import { getPublicStore, searchProducts } from '@/lib/api/storefront-catalogue';
 import { cleanSearch, MAX_SEARCH_LENGTH, parsePage } from '@/lib/storefront/catalogue';
 import { searchMetadata } from '@/lib/storefront/seo';
 import { originFor } from '@/lib/storefront/store-origin';
@@ -44,6 +44,7 @@ export default async function SearchPage({
   const [{ slug }, raw] = await Promise.all([params, searchParams]);
   const query = cleanSearch(raw.q);
   const page = parsePage(raw.page);
+  if (!(await getPublicStore(slug))) notFound();
   const results = await searchProducts(slug, query, page);
   if (!results) notFound();
 

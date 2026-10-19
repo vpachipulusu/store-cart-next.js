@@ -159,4 +159,36 @@ describe('proxy rate-limit enforcement', () => {
     expect((await proxy(request({ 'x-e2e-client-ip': '10.1.1.1' }))).status).toBe(429);
     expect((await proxy(request({ 'x-e2e-client-ip': '10.1.1.2' }))).status).toBe(401);
   });
+
+  it('limits store-host requests per trusted visitor, not across visitors (KAN-75)', async () => {
+    vi.stubEnv('VERCEL', '1');
+    vi.stubEnv('PLATFORM_ROOT_DOMAIN', 'storecart.test');
+    const { proxy } = await import('@/proxy');
+    const { NextRequest } = await import('next/server');
+    const visit = (ip: string) =>
+      proxy(
+        new NextRequest('https://acme.storecart.test/products/x', {
+          headers: { host: 'acme.storecart.test', 'x-vercel-forwarded-for': ip },
+        })
+      );
+    for (let index = 0; index < 300; index += 1) {
+      expect((await visit('203.0.113.7')).status).not.toBe(429);
+    }
+    const limited = await visit('203.0.113.7');
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get('Retry-After')).toMatch(/^\d+$/);
+    expect((await visit('203.0.113.8')).status).not.toBe(429);
+  });
+
+  it('does not put every store visitor in one bucket when no trusted IP exists', async () => {
+    vi.stubEnv('PLATFORM_ROOT_DOMAIN', 'storecart.test');
+    const { proxy } = await import('@/proxy');
+    const { NextRequest } = await import('next/server');
+    for (let index = 0; index < 305; index += 1) {
+      const response = await proxy(
+        new NextRequest('http://acme.storecart.test/', { headers: { host: 'acme.storecart.test' } })
+      );
+      expect(response.status).not.toBe(429);
+    }
+  });
 });

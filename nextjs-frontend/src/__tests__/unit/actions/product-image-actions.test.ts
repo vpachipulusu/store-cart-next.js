@@ -175,6 +175,8 @@ describe('addImageAction', () => {
       alt_text: 'Front',
     });
     expect(mocks.revalidatePath).toHaveBeenCalledWith(`/dashboard/products/${PRODUCT}`);
+    // KAN-75: a new image refreshes the store's storefront (served stale while it rebuilds).
+    expect(mocks.revalidateTag).toHaveBeenCalledWith('storefront:shop', 'max');
   });
 
   it('sends null alt text when blank', async () => {

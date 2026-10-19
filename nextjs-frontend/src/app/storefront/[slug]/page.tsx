@@ -28,12 +28,13 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
 
 export default async function StoreHomePage({ params }: { params: Params }) {
   const { slug } = await params;
-  const [store, products, categories] = await Promise.all([
-    getPublicStore(slug),
+  const store = await getPublicStore(slug);
+  if (!store) notFound();
+  const [products, categories] = await Promise.all([
     getProductPage(slug, null, 1),
     getCategories(slug),
   ]);
-  if (!store || !products) notFound();
+  if (!products) notFound();
   const roots = childCategories(categories ?? [], null);
 
   return (

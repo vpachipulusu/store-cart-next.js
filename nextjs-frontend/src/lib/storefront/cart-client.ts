@@ -15,6 +15,22 @@ export const CART_CHANGED_EVENT = 'storefront:cart-changed';
 
 const FALLBACK_ERROR = 'The basket could not be updated. Please try again.';
 
+/** The minimum the theme reads; anything else is treated as a failed call. */
+function isCart(value: unknown): value is Cart {
+  if (typeof value !== 'object' || value === null) return false;
+  const cart = value as { lines?: unknown; total_minor?: unknown };
+  return (
+    Array.isArray(cart.lines) &&
+    cart.lines.every(
+      (line: unknown) =>
+        typeof line === 'object' &&
+        line !== null &&
+        typeof (line as { quantity?: unknown }).quantity === 'number'
+    ) &&
+    typeof cart.total_minor === 'number'
+  );
+}
+
 async function send(method: string, path: string, body?: unknown): Promise<CartReply> {
   let response: Response;
   try {
@@ -33,8 +49,8 @@ async function send(method: string, path: string, body?: unknown): Promise<CartR
   } catch {
     parsed = null;
   }
-  const reply = parsed as { success?: boolean; data?: Cart; error?: unknown } | null;
-  if (response.ok && reply?.success && reply.data) {
+  const reply = parsed as { success?: boolean; data?: unknown; error?: unknown } | null;
+  if (response.ok && reply?.success && isCart(reply.data)) {
     if (method !== 'GET' && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent(CART_CHANGED_EVENT, { detail: reply.data }));
     }

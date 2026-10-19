@@ -11,12 +11,16 @@ export function CartCount() {
 
   useEffect(() => {
     let isActive = true;
+    // A change event carries a newer cart than a first read still in flight.
+    let hasNewer = false;
     void readCart().then((reply) => {
-      if (isActive && reply.ok) setCount(itemCount(reply.cart));
+      if (isActive && !hasNewer && reply.ok) setCount(itemCount(reply.cart));
     });
     const handleChange = (event: Event) => {
       const cart = (event as CustomEvent<Cart>).detail;
-      if (cart) setCount(itemCount(cart));
+      if (!cart) return;
+      hasNewer = true;
+      setCount(itemCount(cart));
     };
     window.addEventListener(CART_CHANGED_EVENT, handleChange);
     return () => {

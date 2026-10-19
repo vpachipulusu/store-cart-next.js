@@ -1,6 +1,6 @@
 'use server';
 
-import { revalidatePath, revalidateTag } from 'next/cache';
+import { revalidatePath } from 'next/cache';
 import type { ZodType, ZodTypeDef } from 'zod';
 import {
   addProductImage,
@@ -18,7 +18,7 @@ import {
 } from '@/lib/api/products';
 import { logger } from '@/lib/logger';
 import { getCurrentStoreSelection } from '@/lib/stores/current';
-import { storefrontTag } from '@/lib/storefront/cache';
+import { refreshStorefront, type StorefrontChange } from '@/lib/storefront/revalidate';
 import { STORES_UNAVAILABLE_MESSAGE } from '@/lib/stores/selection';
 import { altTextSchema, isStoreImageKey, presignRequestSchema } from '@/lib/products/image-upload';
 import {
@@ -73,11 +73,11 @@ function parse<T>(schema: ZodType<T, ZodTypeDef, unknown>, input: unknown) {
     : ({ ok: false, response: fail(INVALID_INPUT_MESSAGE, fieldErrors(parsed.error)) } as const);
 }
 
-/** Refreshes the dashboard and expires this store's cached storefront pages (KAN-75) right away. */
-function refresh(storeSlug: string, productId?: string): void {
+/** Refreshes the dashboard and this store's cached storefront pages (KAN-75). */
+function refresh(storeSlug: string, change: StorefrontChange, productId?: string): void {
   revalidatePath('/dashboard/products');
   if (productId) revalidatePath(`/dashboard/products/${productId}`);
-  revalidateTag(storefrontTag(storeSlug), { expire: 0 });
+  refreshStorefront(storeSlug, change);
 }
 
 function backendFailure(
@@ -107,7 +107,7 @@ export async function createProductAction(
     variants: value.variants.map(toVariantBody),
   });
   if (!result.success) return backendFailure('create', result);
-  refresh(store.storeSlug);
+  refresh(store.storeSlug, 'edit');
   return { success: true, data: result.data };
 }
 
@@ -142,7 +142,7 @@ export async function updateProductAction(
     category_ids: value.categoryIds,
   });
   if (!result.success) return backendFailure('update', result);
-  refresh(store.storeSlug, productId);
+  refresh(store.storeSlug, value.status === 'draft' ? 'remove' : 'edit', productId);
   return { success: true, data: result.data };
 }
 
@@ -155,7 +155,7 @@ export async function deleteProductAction(
 
   const result = await deleteStoreProduct(store.storeId, productId);
   if (!result.success) return backendFailure('delete', result);
-  refresh(store.storeSlug);
+  refresh(store.storeSlug, 'remove');
   return { success: true, data: { deleted: true } };
 }
 
@@ -171,7 +171,7 @@ export async function addVariantAction(
 
   const result = await addProductVariant(store.storeId, productId, toVariantBody(parsed.value));
   if (!result.success) return backendFailure('add-variant', result);
-  refresh(store.storeSlug, productId);
+  refresh(store.storeSlug, 'edit', productId);
   return { success: true, data: result.data };
 }
 
@@ -197,7 +197,7 @@ export async function updateVariantAction(
     stock,
   });
   if (!result.success) return backendFailure('update-variant', result);
-  refresh(store.storeSlug, productId);
+  refresh(store.storeSlug, 'edit', productId);
   return { success: true, data: result.data };
 }
 
@@ -211,7 +211,7 @@ export async function deleteVariantAction(
 
   const result = await deleteProductVariant(store.storeId, productId, variantId);
   if (!result.success) return backendFailure('delete-variant', result);
-  refresh(store.storeSlug, productId);
+  refresh(store.storeSlug, 'remove', productId);
   return { success: true, data: result.data };
 }
 
@@ -273,7 +273,7 @@ export async function addImageAction(
     alt_text: alt.data,
   });
   if (!result.success) return backendFailure('add-image', result);
-  refresh(store.storeSlug, productId);
+  refresh(store.storeSlug, 'edit', productId);
   return { success: true, data: result.data };
 }
 
@@ -287,6 +287,6 @@ export async function deleteImageAction(
 
   const result = await deleteProductImage(store.storeId, productId, imageId);
   if (!result.success) return backendFailure('delete-image', result);
-  refresh(store.storeSlug, productId);
+  refresh(store.storeSlug, 'edit', productId);
   return { success: true, data: result.data };
 }

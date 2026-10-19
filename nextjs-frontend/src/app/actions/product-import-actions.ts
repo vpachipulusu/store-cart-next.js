@@ -1,6 +1,6 @@
 'use server';
 
-import { revalidatePath, revalidateTag } from 'next/cache';
+import { revalidatePath } from 'next/cache';
 import { importStoreProducts, productErrorMessage } from '@/lib/api/products';
 import { logger } from '@/lib/logger';
 import {
@@ -10,7 +10,7 @@ import {
   type ImportOutcome,
 } from '@/lib/products/csv-import';
 import { isEntityId } from '@/lib/products/schema';
-import { storefrontTag } from '@/lib/storefront/cache';
+import { refreshStorefront } from '@/lib/storefront/revalidate';
 import { getCurrentStoreSelection } from '@/lib/stores/current';
 import { STORES_UNAVAILABLE_MESSAGE } from '@/lib/stores/selection';
 
@@ -55,7 +55,7 @@ export async function importProductsAction(
   if (result.data.imported > 0) {
     revalidatePath('/dashboard/products');
     // KAN-75: imported products can be published, so this store's cached storefront pages expire too.
-    revalidateTag(storefrontTag(selection.selected.slug), { expire: 0 });
+    refreshStorefront(selection.selected.slug, 'edit');
   }
   return { success: true, data: result.data };
 }

@@ -119,7 +119,7 @@ describe('product actions', () => {
       });
       expect(mocks.revalidatePath).toHaveBeenCalledWith('/dashboard/products');
       // KAN-75: the store's cached storefront pages expire at once.
-      expect(mocks.revalidateTag).toHaveBeenCalledWith('storefront:shop', { expire: 0 });
+      expect(mocks.revalidateTag).toHaveBeenCalledWith('storefront:shop', 'max');
     });
 
     it('rejects invalid input with field errors and never calls the backend', async () => {
@@ -303,18 +303,25 @@ describe('product actions', () => {
   });
 
   describe('storefront cache (KAN-75)', () => {
+    const SOON = 'max';
+    const NOW = { expire: 0 };
     it.each([
-      ['update', () => updateProductAction(PRODUCT, details)],
-      ['delete', () => deleteProductAction(PRODUCT)],
-      ['add variant', () => addVariantAction(PRODUCT, { ...variant, options: {} })],
-      ['update variant', () => updateVariantAction(PRODUCT, 'v1', { ...variant, options: {} })],
-      ['delete variant', () => deleteVariantAction(PRODUCT, 'v1')],
-      ['delete image', () => deleteImageAction(PRODUCT, 'i1')],
-    ])('%s expires the pages of the selected store by slug, not id', async (_name, run) => {
+      ['an edit', () => updateProductAction(PRODUCT, { ...details, status: 'active' }), SOON],
+      ['an unpublish', () => updateProductAction(PRODUCT, details), NOW],
+      ['a delete', () => deleteProductAction(PRODUCT), NOW],
+      ['a new variant', () => addVariantAction(PRODUCT, { ...variant, options: {} }), SOON],
+      [
+        'a variant edit',
+        () => updateVariantAction(PRODUCT, 'v1', { ...variant, options: {} }),
+        SOON,
+      ],
+      ['a variant delete', () => deleteVariantAction(PRODUCT, 'v1'), NOW],
+      ['an image delete', () => deleteImageAction(PRODUCT, 'i1'), SOON],
+    ])('%s refreshes the selected store by slug, not id', async (_name, run, profile) => {
       await run();
 
       expect(mocks.revalidateTag).toHaveBeenCalledTimes(1);
-      expect(mocks.revalidateTag).toHaveBeenCalledWith('storefront:shop', { expire: 0 });
+      expect(mocks.revalidateTag).toHaveBeenCalledWith('storefront:shop', profile);
     });
 
     it('leaves the cache alone when the backend refuses the change', async () => {

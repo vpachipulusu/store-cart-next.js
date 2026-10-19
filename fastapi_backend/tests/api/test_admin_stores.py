@@ -195,7 +195,11 @@ async def test_suspend_then_unsuspend_round_trip_is_audited(harness):
         "store_id": "live",
         "status": "SUSPENDED",
         "changed": True,
+        "slug": suspended.json()["data"]["slug"],
     }
+    # KAN-75: the slug lets the frontend expire that store's cached storefront pages.
+    assert suspended.json()["data"]["slug"]
+    assert repeated.json()["data"]["slug"] == suspended.json()["data"]["slug"]
     assert repeated.json()["data"]["changed"] is False
     assert restored.json()["data"]["status"] == "ACTIVE"
     assert [row["action"] for row in harness.auditor.rows] == [

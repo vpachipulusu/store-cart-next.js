@@ -12,6 +12,7 @@ import {
 
 const cart = {
   lines: [{ quantity: 2 }, { quantity: 3 }],
+  total_minor: 500,
 } as unknown as Cart;
 
 function reply(status: number, body: unknown) {
@@ -90,5 +91,11 @@ describe('cart client', () => {
 
   it('counts items by quantity', () => {
     expect(itemCount(cart)).toBe(5);
+  });
+
+  it('treats a success body without a usable cart as a failure', async () => {
+    fetchMock.mockResolvedValue(reply(200, { success: true, data: { lines: 'nope' } }));
+
+    expect((await readCart()).ok).toBe(false);
   });
 });

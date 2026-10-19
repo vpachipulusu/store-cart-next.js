@@ -183,7 +183,11 @@ export function isInternalStorefrontPath(pathname: string): boolean {
 const CATALOGUE_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const CATALOGUE_SLUG_MAX_LENGTH = 200;
 
-/** Checked before any cached read, so a made-up URL costs no backend call and no cache entry. */
+/**
+ * Checked before any cached read: a slug the catalogue could never hold (wrong characters, too long) costs no backend
+ * call and no cache entry. A well-formed but unknown slug still does one read, cached as "not found"; the proxy's
+ * per-visitor limit and the backend's per-store limit bound those.
+ */
 export function isValidCatalogueSlug(slug: string): boolean {
   return slug.length <= CATALOGUE_SLUG_MAX_LENGTH && CATALOGUE_SLUG_PATTERN.test(slug);
 }

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { BasketView } from '@/components/storefront/basket-view';
-import { getProductPage } from '@/lib/api/storefront-catalogue';
+import { getProductPage, getPublicStore } from '@/lib/api/storefront-catalogue';
 import { basketMetadata } from '@/lib/storefront/seo';
 
 /**
@@ -20,6 +20,7 @@ export const metadata: Metadata = basketMetadata();
 export default async function BasketPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   // The currency comes with any product listing; the cached first page costs nothing extra.
+  if (!(await getPublicStore(slug))) notFound();
   const listing = await getProductPage(slug, null, 1);
   if (!listing) notFound();
 

@@ -27,7 +27,11 @@ interface LineProps {
   line: Line;
   currency: string;
   isBusy: boolean;
-  onChange: (change: () => Promise<CartReply>, done: string, isRemoval: boolean) => void;
+  onChange: (
+    change: () => Promise<CartReply>,
+    done: string,
+    isRemoval: boolean
+  ) => Promise<boolean>;
 }
 
 /** One line: a small form (Enter or Update commits the quantity) and Remove. Controls stay focusable while busy. */
@@ -61,11 +65,14 @@ function BasketLine({ line, currency, isBusy, onChange }: LineProps) {
           const quantity = parseQuantity(draft);
           setDraft(String(quantity));
           if (quantity !== line.quantity) {
-            onChange(
+            // A refused change (stock, rate limit) puts the field back to what the basket holds.
+            void onChange(
               () => setQuantity(line.variant_id, quantity),
               `${line.product_name} quantity is now ${quantity}.`,
               false
-            );
+            ).then((isSaved) => {
+              if (!isSaved) setDraft(String(line.quantity));
+            });
           }
         }}
       >
@@ -91,7 +98,11 @@ function BasketLine({ line, currency, isBusy, onChange }: LineProps) {
           aria-disabled={isBusy}
           onClick={() => {
             if (!isBusy) {
-              onChange(() => removeLine(line.variant_id), `Removed ${line.product_name}.`, true);
+              void onChange(
+                () => removeLine(line.variant_id),
+                `Removed ${line.product_name}.`,
+                true
+              );
             }
           }}
         >
@@ -139,22 +150,28 @@ export function BasketView({ currency }: { currency: string }) {
     };
   }, []);
 
-  async function handleChange(change: () => Promise<CartReply>, done: string, isRemoval: boolean) {
+  async function handleChange(
+    change: () => Promise<CartReply>,
+    done: string,
+    isRemoval: boolean
+  ): Promise<boolean> {
     setIsBusy(true);
     const reply = await change();
     setIsBusy(false);
     if (!reply.ok) {
       setError(reply.error);
-      return;
+      return false;
     }
     setError(null);
     setCart(reply.cart);
     setMessage(`${done} Total ${formatMoney(reply.cart.total_minor, currency)}.`);
     // A removed line takes its focused button with it: move focus somewhere that still exists.
-    if (!isRemoval) return;
-    requestAnimationFrame(() => {
-      (reply.cart.lines.length === 0 ? continueRef.current : summaryRef.current)?.focus();
-    });
+    if (isRemoval) {
+      requestAnimationFrame(() => {
+        (reply.cart.lines.length === 0 ? continueRef.current : summaryRef.current)?.focus();
+      });
+    }
+    return true;
   }
 
   const announcements = (
@@ -210,7 +227,7 @@ export function BasketView({ currency }: { currency: string }) {
             line={line}
             currency={currency}
             isBusy={isBusy}
-            onChange={(change, done, isRemoval) => void handleChange(change, done, isRemoval)}
+            onChange={handleChange}
           />
         ))}
       </ul>

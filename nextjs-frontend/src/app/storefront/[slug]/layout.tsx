@@ -30,8 +30,10 @@ export default async function StorefrontLayout({
   params: Params;
 }) {
   const { slug } = await params;
-  const [store, categories] = await Promise.all([getPublicStore(slug), getCategories(slug)]);
+  // The store first: an unknown subdomain then costs one (cached) backend call, not one per read.
+  const store = await getPublicStore(slug);
   if (!store) notFound();
+  const categories = await getCategories(slug);
 
   return (
     <div className="flex min-h-screen flex-col">

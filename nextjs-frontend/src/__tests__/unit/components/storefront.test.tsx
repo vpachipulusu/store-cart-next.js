@@ -204,6 +204,20 @@ describe('BasketView', () => {
     expect(screen.getByLabelText('Quantity of Blue Mug')).toBeInTheDocument();
   });
 
+  it('puts the quantity back when the update is refused', async () => {
+    const user = userEvent.setup();
+    mocks.readCart.mockResolvedValue({ ok: true, cart: cartWith(1) });
+    mocks.setQuantity.mockResolvedValue({ ok: false, error: 'Only 1 in stock' });
+    render(<BasketView currency="GBP" />);
+
+    const quantity = await screen.findByLabelText('Quantity of Blue Mug');
+    await user.clear(quantity);
+    await user.type(quantity, '5{Enter}');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Only 1 in stock');
+    expect(screen.getByLabelText('Quantity of Blue Mug')).toHaveValue(1);
+  });
+
   it('offers a retry when the first read fails', async () => {
     const user = userEvent.setup();
     mocks.readCart
@@ -230,6 +244,21 @@ describe('CartCount', () => {
       window.dispatchEvent(new CustomEvent(CART_CHANGED_EVENT, { detail: cartWith(4) }));
     });
     expect(screen.getByRole('link', { name: 'Basket, 4 items' })).toBeInTheDocument();
+  });
+
+  it('ignores a first read that answers after a newer change', async () => {
+    let answer: (value: unknown) => void = () => undefined;
+    mocks.readCart.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    render(<CartCount />);
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(CART_CHANGED_EVENT, { detail: cartWith(3) }));
+    });
+    await act(async () => {
+      answer({ ok: true, cart: cartWith(0) });
+    });
+
+    expect(screen.getByRole('link', { name: 'Basket, 3 items' })).toBeInTheDocument();
   });
 
   it('shows a plain basket link when the cart cannot be read', async () => {

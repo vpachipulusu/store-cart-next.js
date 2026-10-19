@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Search } from 'lucide-react';
 import { CartCount } from './cart-count';
 import { MAX_SEARCH_LENGTH, type StoreCategory } from '@/lib/storefront/catalogue';
+import { categoryPath } from '@/lib/storefront/seo';
 
 interface StoreHeaderProps {
   storeName: string;
@@ -54,7 +55,7 @@ export function StoreHeader({ storeName, categories }: StoreHeaderProps) {
             {categories.map((category) => (
               <li key={category.slug} className="shrink-0">
                 <Link
-                  href={`/categories/${category.slug}`}
+                  href={categoryPath(category.slug)}
                   className={`inline-flex h-11 items-center rounded-md px-3 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground ${FOCUS}`}
                 >
                   {category.name}

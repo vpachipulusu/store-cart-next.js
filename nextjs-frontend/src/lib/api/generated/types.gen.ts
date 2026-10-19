@@ -3024,6 +3024,12 @@ export type StoreStatusData = {
      * False when the store was already in that state.
      */
     changed: boolean;
+    /**
+     * Slug
+     *
+     * The store's public slug, for refreshing its cached storefront pages.
+     */
+    slug?: string | null;
 };
 
 /**

@@ -112,6 +112,29 @@ function rewritePathPreview(
 }
 
 /**
+ * KAN-75: per-visitor limit on store hosts, so one client cannot force unlimited cache misses (each one a backend
+ * read). Only a trusted visitor identity is limited: off Vercel every visitor would share the `unknown` bucket, so
+ * there the backend's per-store limits are the only bound.
+ */
+function limitStoreHost(request: NextRequest): NextResponse | null {
+  const identifier = getClientIdentifier(request);
+  if (identifier === 'unknown') return null;
+  const result = rateLimit(`storefront:${identifier}`, RATE_LIMIT_CONFIGS.storefront);
+  if (result.success) return null;
+  const response = new NextResponse(result.message ?? 'Too many requests', {
+    status: 429,
+    headers: {
+      ...getRateLimitHeaders(result),
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'Retry-After': String(Math.max(1, Math.ceil((result.reset - Date.now()) / 1000))),
+    },
+  });
+  applySecurityHeaders(response);
+  return response;
+}
+
+/**
  * Apply rate limiting to request
  */
 function applyRateLimit(request: NextRequest, pathname: string): NextResponse | null {
@@ -157,7 +180,7 @@ export async function proxy(request: NextRequest) {
     resolvePlatformRootDomain(process.env.PLATFORM_ROOT_DOMAIN)
   );
   if (storeSlug) {
-    return rewriteToStorefront(request, storeSlug, forwardedHeaders);
+    return limitStoreHost(request) ?? rewriteToStorefront(request, storeSlug, forwardedHeaders);
   }
 
   const pathPreview = parseStorePath(pathname);

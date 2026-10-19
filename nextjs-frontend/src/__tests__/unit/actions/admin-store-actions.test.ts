@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   reprovisionAdminStore: vi.fn(),
   resolveAdminAccess: vi.fn(),
   revalidatePath: vi.fn(),
+  revalidateTag: vi.fn(),
   logError: vi.fn(),
 }));
 
@@ -29,7 +30,10 @@ vi.mock('@/lib/api/admin-stores', async () => {
   };
 });
 vi.mock('@/lib/api/admin-access', () => ({ resolveAdminAccess: mocks.resolveAdminAccess }));
-vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidatePath }));
+vi.mock('next/cache', () => ({
+  revalidatePath: mocks.revalidatePath,
+  revalidateTag: mocks.revalidateTag,
+}));
 vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: mocks.logError },
 }));
@@ -130,13 +134,15 @@ describe('admin store actions', () => {
 
   it('suspendStoreAction suspends, revalidates and reports the change', async () => {
     mocks.suspendAdminStore.mockResolvedValue(
-      ok({ store_id: 'store-1', status: 'SUSPENDED', changed: true })
+      ok({ store_id: 'store-1', status: 'SUSPENDED', changed: true, slug: 'acme' })
     );
 
     const result = await suspendStoreAction('store-1');
 
     expect(mocks.suspendAdminStore).toHaveBeenCalledWith('store-1');
     expect(mocks.revalidatePath).toHaveBeenCalledWith('/admin/stores');
+    // KAN-75: the suspended store's cached storefront pages expire at once.
+    expect(mocks.revalidateTag).toHaveBeenCalledWith('storefront:acme', { expire: 0 });
     expect(result).toEqual({
       success: true,
       data: { status: 'SUSPENDED', changed: true, message: 'Store suspended' },
@@ -155,13 +161,14 @@ describe('admin store actions', () => {
 
   it('unsuspendStoreAction unsuspends and revalidates', async () => {
     mocks.unsuspendAdminStore.mockResolvedValue(
-      ok({ store_id: 'store-1', status: 'ACTIVE', changed: true })
+      ok({ store_id: 'store-1', status: 'ACTIVE', changed: true, slug: 'acme' })
     );
 
     const result = await unsuspendStoreAction('store-1');
 
     expect(mocks.unsuspendAdminStore).toHaveBeenCalledWith('store-1');
     expect(mocks.revalidatePath).toHaveBeenCalledWith('/admin/stores');
+    expect(mocks.revalidateTag).toHaveBeenCalledWith('storefront:acme', { expire: 0 });
     expect(result.data).toMatchObject({ status: 'ACTIVE', message: 'Store unsuspended' });
   });
 

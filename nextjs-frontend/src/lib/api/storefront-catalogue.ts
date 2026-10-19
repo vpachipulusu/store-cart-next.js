@@ -109,17 +109,16 @@ function orNull<T, R>(result: ApiResult<T>, map: (data: T) => R): R | null {
   throw new Error(STOREFRONT_UNAVAILABLE_MESSAGE);
 }
 
-function cached<A extends unknown[], R>(
+function cached<A extends (string | number | null)[], R>(
   read: string,
   load: (slug: string, ...args: A) => Promise<R | null>
 ): (slug: string, ...args: A) => Promise<R | null> {
   return (slug, ...args) => {
     if (!isValidStoreSlug(slug)) return Promise.resolve(null);
-    return unstable_cache(
-      () => load(slug, ...args),
-      storefrontCacheKey(read, slug, ...(args as (string | number | null)[])),
-      { tags: [storefrontTag(slug)], revalidate: STOREFRONT_REVALIDATE_SECONDS }
-    )();
+    return unstable_cache(() => load(slug, ...args), storefrontCacheKey(read, slug, ...args), {
+      tags: [storefrontTag(slug)],
+      revalidate: STOREFRONT_REVALIDATE_SECONDS,
+    })();
   };
 }
 

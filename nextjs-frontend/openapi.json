@@ -19911,6 +19911,18 @@
             "type": "boolean",
             "title": "Changed",
             "description": "False when the store was already in that state."
+          },
+          "slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slug",
+            "description": "The store's public slug, for refreshing its cached storefront pages."
           }
         },
         "type": "object",

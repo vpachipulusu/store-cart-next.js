@@ -25,18 +25,20 @@ type Params = Promise<{ slug: string; productSlug: string }>;
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
   const { slug, productSlug } = await params;
-  const [store, product] = await Promise.all([getPublicStore(slug), getProduct(slug, productSlug)]);
+  const store = await getPublicStore(slug);
+  const product = store ? await getProduct(slug, productSlug) : null;
   return store && product ? productMetadata(store, product, originFor(slug)) : {};
 }
 
 export default async function ProductPage({ params }: { params: Params }) {
   const { slug, productSlug } = await params;
-  const [store, product, categories] = await Promise.all([
-    getPublicStore(slug),
+  const store = await getPublicStore(slug);
+  if (!store) notFound();
+  const [product, categories] = await Promise.all([
     getProduct(slug, productSlug),
     getCategories(slug),
   ]);
-  if (!store || !product) notFound();
+  if (!product) notFound();
 
   const primary = product.categories[0];
   const trail = primary ? categoryTrail(categories ?? [], primary.slug) : [];
@@ -76,9 +78,9 @@ export default async function ProductPage({ params }: { params: Params }) {
           </div>
           {more.length > 0 ? (
             <ul className="grid grid-cols-4 gap-3">
-              {more.map((image) => (
+              {more.map((image, index) => (
                 <li
-                  key={image.url}
+                  key={`${index}-${image.url}`}
                   className="aspect-square overflow-hidden rounded-lg border bg-muted"
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element -- see the cover image */}
