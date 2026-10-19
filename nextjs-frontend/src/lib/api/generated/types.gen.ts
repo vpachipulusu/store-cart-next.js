@@ -379,6 +379,133 @@ export type CancelResponse = {
 };
 
 /**
+ * CartData
+ */
+export type CartData = {
+    /**
+     * Lines
+     */
+    lines: Array<CartLineData>;
+    /**
+     * Subtotal Minor
+     */
+    subtotal_minor: number;
+    /**
+     * Shipping Minor
+     */
+    shipping_minor: number;
+    /**
+     * Tax Minor
+     */
+    tax_minor: number;
+    /**
+     * Total Minor
+     */
+    total_minor: number;
+    /**
+     * Prices Include Tax
+     */
+    prices_include_tax: boolean;
+    /**
+     * Can Checkout
+     *
+     * True when the cart has lines and every line is `ok`.
+     */
+    can_checkout: boolean;
+    /**
+     * Cart Token
+     *
+     * Set only when this request started a new cart. Store it; it is not shown again.
+     */
+    cart_token?: string | null;
+};
+
+/**
+ * CartItemBody
+ */
+export type CartItemBody = {
+    /**
+     * Variant Id
+     */
+    variant_id: string;
+    /**
+     * Quantity
+     */
+    quantity: number;
+};
+
+/**
+ * CartLineData
+ */
+export type CartLineData = {
+    /**
+     * Variant Id
+     */
+    variant_id: string;
+    /**
+     * Product Id
+     */
+    product_id: string;
+    /**
+     * Product Name
+     */
+    product_name: string;
+    /**
+     * Product Slug
+     */
+    product_slug: string;
+    /**
+     * Sku
+     */
+    sku: string;
+    /**
+     * Variant Label
+     */
+    variant_label: string | null;
+    /**
+     * Unit Price Minor
+     */
+    unit_price_minor: number;
+    /**
+     * Quantity
+     */
+    quantity: number;
+    /**
+     * Line Total Minor
+     */
+    line_total_minor: number;
+    /**
+     * Available Stock
+     */
+    available_stock: number;
+    /**
+     * `ok`, or why the line is not purchasable and left out of the totals.
+     */
+    status: LineStatus;
+};
+
+/**
+ * CartQuantityBody
+ */
+export type CartQuantityBody = {
+    /**
+     * Quantity
+     */
+    quantity: number;
+};
+
+/**
+ * CartResponse
+ */
+export type CartResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: CartData;
+};
+
+/**
  * CategoryData
  */
 export type CategoryData = {
@@ -1207,6 +1334,11 @@ export type InvoicesResponse = {
      */
     data: Array<InvoiceData>;
 };
+
+/**
+ * LineStatus
+ */
+export type LineStatus = 'ok' | 'unavailable' | 'out_of_stock' | 'limited';
 
 /**
  * MarkAllReadData
@@ -9316,6 +9448,278 @@ export type ReadStorefrontResponses = {
 };
 
 export type ReadStorefrontResponse = ReadStorefrontResponses[keyof ReadStorefrontResponses];
+
+export type ReadCartData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Cart-Token
+         *
+         * The shopper's cart token. Missing, unknown or expired reads as an empty cart.
+         */
+        'X-Cart-Token'?: string | null;
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Slug
+         */
+        slug: string;
+    };
+    query?: never;
+    url: '/v1/storefront/{slug}/cart';
+};
+
+export type ReadCartErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ReadCartError = ReadCartErrors[keyof ReadCartErrors];
+
+export type ReadCartResponses = {
+    /**
+     * Successful Response
+     */
+    200: CartResponse;
+};
+
+export type ReadCartResponse = ReadCartResponses[keyof ReadCartResponses];
+
+export type AddCartItemData = {
+    body: CartItemBody;
+    headers?: {
+        /**
+         * X-Cart-Token
+         *
+         * The shopper's cart token. Missing, unknown or expired reads as an empty cart.
+         */
+        'X-Cart-Token'?: string | null;
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Slug
+         */
+        slug: string;
+    };
+    query?: never;
+    url: '/v1/storefront/{slug}/cart/items';
+};
+
+export type AddCartItemErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type AddCartItemError = AddCartItemErrors[keyof AddCartItemErrors];
+
+export type AddCartItemResponses = {
+    /**
+     * Successful Response
+     */
+    200: CartResponse;
+};
+
+export type AddCartItemResponse = AddCartItemResponses[keyof AddCartItemResponses];
+
+export type RemoveCartItemData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Cart-Token
+         *
+         * The shopper's cart token. Missing, unknown or expired reads as an empty cart.
+         */
+        'X-Cart-Token'?: string | null;
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Variant Id
+         */
+        variant_id: string;
+        /**
+         * Slug
+         */
+        slug: string;
+    };
+    query?: never;
+    url: '/v1/storefront/{slug}/cart/items/{variant_id}';
+};
+
+export type RemoveCartItemErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type RemoveCartItemError = RemoveCartItemErrors[keyof RemoveCartItemErrors];
+
+export type RemoveCartItemResponses = {
+    /**
+     * Successful Response
+     */
+    200: CartResponse;
+};
+
+export type RemoveCartItemResponse = RemoveCartItemResponses[keyof RemoveCartItemResponses];
+
+export type SetCartItemQuantityData = {
+    body: CartQuantityBody;
+    headers?: {
+        /**
+         * X-Cart-Token
+         *
+         * The shopper's cart token. Missing, unknown or expired reads as an empty cart.
+         */
+        'X-Cart-Token'?: string | null;
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Variant Id
+         */
+        variant_id: string;
+        /**
+         * Slug
+         */
+        slug: string;
+    };
+    query?: never;
+    url: '/v1/storefront/{slug}/cart/items/{variant_id}';
+};
+
+export type SetCartItemQuantityErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type SetCartItemQuantityError = SetCartItemQuantityErrors[keyof SetCartItemQuantityErrors];
+
+export type SetCartItemQuantityResponses = {
+    /**
+     * Successful Response
+     */
+    200: CartResponse;
+};
+
+export type SetCartItemQuantityResponse = SetCartItemQuantityResponses[keyof SetCartItemQuantityResponses];
 
 export type ReadCurrencyData = {
     body?: never;
