@@ -37,6 +37,8 @@ type Step =
 
 type NewStoreDialogProps = {
   open: boolean;
+  /** The business of the selected store; the server creates the store there (it never takes this from the client). */
+  organizationName: string;
   onOpenChange: (open: boolean) => void;
   /** Lets the opener put focus back on its own trigger (the dialog is opened from a menu item that unmounts). */
   onCloseAutoFocus?: (event: Event) => void;
@@ -146,6 +148,7 @@ function StoreLimitNotice({ message }: { message: string }) {
     <div
       ref={noticeRef}
       tabIndex={-1}
+      role="status"
       className="flex flex-col items-start gap-4 outline-none"
       data-testid="store-limit"
     >
@@ -203,6 +206,7 @@ function NewStoreSteps({ onDone }: { onDone: () => void }) {
           storeName={step.name}
           initialStatus={step.status}
           onReady={() => void selectNewStore(step)}
+          variant="dialog"
         />
         {selectFailed ? (
           <Button
@@ -238,14 +242,19 @@ function NewStoreSteps({ onDone }: { onDone: () => void }) {
  * (decided on the server), follows its setup with the onboarding provisioning status (FAILED keeps Retry setup),
  * and selects it once it is ready.
  */
-export function NewStoreDialog({ open, onOpenChange, onCloseAutoFocus }: NewStoreDialogProps) {
+export function NewStoreDialog({
+  open,
+  organizationName,
+  onOpenChange,
+  onCloseAutoFocus,
+}: NewStoreDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md" onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>New store</DialogTitle>
           <DialogDescription>
-            Add another store to this business. Each store has its own products and orders.
+            Add another store to {organizationName}. Each store has its own products and orders.
           </DialogDescription>
         </DialogHeader>
         <NewStoreSteps onDone={() => onOpenChange(false)} />

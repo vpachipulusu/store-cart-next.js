@@ -3,6 +3,9 @@
 A real Pro tier needs a Stripe checkout and webhook; the "New store" spec only needs the plan's store limit, so it
 writes the tier the webhook would write, in the backend's own platform database. It is not part of the app.
 
+Only for a local throwaway e2e database. Never run it against staging or production: it bypasses Stripe and
+changes what a business is billed for.
+
 Usage (from fastapi_backend/, with the same environment as uvicorn):
     PYTHONPATH=. uv run python <this file> <organization_id> <tier>
 """

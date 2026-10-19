@@ -173,6 +173,7 @@ export function StoreSwitcher({ stores, selectedStoreId, variant = 'header' }: S
       </DropdownMenu>
       <NewStoreDialog
         open={newStoreOpen}
+        organizationName={selected.organizationName}
         onOpenChange={(open) => {
           if (!open) openingDialogRef.current = false;
           setNewStoreOpen(open);

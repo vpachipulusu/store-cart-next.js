@@ -56,7 +56,7 @@ describe('createStoreInOrganization', () => {
 
   it.each([
     [409, 'Slug is already taken', 'slug_taken'],
-    [409, 'Organization limit reached', 'limit'],
+    [409, 'Organization limit reached', 'unavailable'],
     [409, 'Store is being changed by another request', 'unavailable'],
     [403, 'Forbidden', 'forbidden'],
     [404, 'Organization not found', 'not_found'],
@@ -84,7 +84,6 @@ describe('createStoreInOrganization', () => {
   it.each([
     'The Free plan allows 1 store. Upgrade your plan to add more. <a href="x">click</a>',
     'The Free plan allows 1 store.',
-    'Plan limit reached',
   ])('does not forward a limit text that is not the known wording: "%s"', async (error) => {
     mocks.callBackend.mockResolvedValueOnce(fail(409, error));
     expect(await createStoreInOrganization(ORG_ID, INPUT)).toEqual({

@@ -45,6 +45,11 @@ type ProvisioningStatusProps = {
   initialStatus: StoreStatus | 'UNKNOWN';
   /** Called once when the store first shows as ready (the dashboard "New store" dialog selects it, KAN-254). */
   onReady?: () => void;
+  /**
+   * `dialog` (KAN-254): shown inside the dashboard "New store" dialog, so focus starts on the status (the form that
+   * had it unmounts), there is no "Open dashboard" link and the copy does not talk about "this page".
+   */
+  variant?: 'page' | 'dialog';
 };
 
 /**
@@ -60,7 +65,9 @@ export function ProvisioningStatus({
   storeName,
   initialStatus,
   onReady,
+  variant = 'page',
 }: ProvisioningStatusProps) {
+  const inDialog = variant === 'dialog';
   const [status, setStatus] = useState<StoreStatus | 'UNKNOWN'>(initialStatus);
   const [problem, setProblem] = useState<string | null>(null);
   /** Polling used up its attempts while the store was still PROVISIONING: the job may have stopped (KAN-248). */
@@ -91,6 +98,10 @@ export function ProvisioningStatus({
   useEffect(() => {
     onReadyRef.current = onReady;
   }, [onReady]);
+
+  useEffect(() => {
+    if (inDialog) statusRegionRef.current?.focus();
+  }, [inDialog]);
 
   useEffect(() => {
     if (initialStatus !== 'PROVISIONING' && retryCount === 0) return;
@@ -330,7 +341,9 @@ export function ProvisioningStatus({
               <span>We are setting up your store</span>
             </div>
             <p className="text-sm text-muted-foreground">
-              {storeName} is being created. This page updates by itself, so you can leave it open.
+              {inDialog
+                ? `${storeName} is being created. This updates by itself.`
+                : `${storeName} is being created. This page updates by itself, so you can leave it open.`}
             </p>
           </>
         )}
@@ -371,7 +384,7 @@ export function ProvisioningStatus({
           </Button>
         </div>
       )}
-      {ready && (
+      {ready && !inDialog && (
         <Button asChild className="min-h-11">
           <Link ref={dashboardLinkRef} href="/dashboard">
             Open dashboard

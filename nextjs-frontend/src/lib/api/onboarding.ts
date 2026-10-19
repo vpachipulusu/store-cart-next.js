@@ -179,16 +179,18 @@ export type CreateStoreInOrganizationResult =
   | { success: true; storeId: string; name: string; status: StoreStatus }
   | { success: false; reason: NewStoreFailureReason; limitMessage?: string };
 
+/** The backend's 409 text for a taken store slug (`http_error` in app/api/v1/organizations.py). */
+const SLUG_TAKEN_ERROR = 'Slug is already taken';
+
 /**
  * The backend's plan store limit text (`store_limit_message` in app/services/plan_limits.py, KAN-84), e.g. "The
  * Free plan allows 1 store. Upgrade your plan to add more." Only text of exactly this shape is shown to the user;
  * anything else falls back to a fixed message. Change both together.
  */
-/** The backend's 409 text for a taken store slug (`http_error` in app/api/v1/organizations.py). */
-const SLUG_TAKEN_ERROR = 'Slug is already taken';
-
 const STORE_LIMIT_PATTERN =
   /^The [A-Za-z][A-Za-z ]{0,39} plan allows \d{1,6} stores?\. Upgrade your plan to add more\.$/;
+/** Looser store-limit wording (the same message reworded): still an upgrade prompt, but with the fixed text. */
+const STORE_LIMIT_FALLBACK_PATTERN = /\bplan allows \d+ stores?\b/i;
 
 function newStoreFailure(failure: Failure): CreateStoreInOrganizationResult {
   switch (failure.status) {
@@ -197,10 +199,10 @@ function newStoreFailure(failure: Failure): CreateStoreInOrganizationResult {
       if (STORE_LIMIT_PATTERN.test(failure.error)) {
         return { success: false, reason: 'limit', limitMessage: failure.error };
       }
-      // A limit worded differently still gets the upgrade prompt (fixed text); any other conflict is not a plan issue.
+      // Any other conflict (the organisation cap, a concurrent change) is not a plan upgrade issue.
       return {
         success: false,
-        reason: /limit|plan allows/i.test(failure.error) ? 'limit' : 'unavailable',
+        reason: STORE_LIMIT_FALLBACK_PATTERN.test(failure.error) ? 'limit' : 'unavailable',
       };
     case 403:
       return { success: false, reason: 'forbidden' };

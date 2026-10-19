@@ -34,7 +34,7 @@ const created = (status: string) => ({
 });
 
 function renderDialog(onOpenChange = vi.fn()) {
-  render(<NewStoreDialog open onOpenChange={onOpenChange} />);
+  render(<NewStoreDialog open organizationName="Acme Ltd" onOpenChange={onOpenChange} />);
   return onOpenChange;
 }
 
@@ -55,7 +55,9 @@ describe('NewStoreDialog', () => {
 
   it('is a dialog named "New store" with the onboarding store fields only', () => {
     renderDialog();
-    expect(screen.getByRole('dialog', { name: 'New store' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'New store' })).toHaveAccessibleDescription(
+      /Add another store to Acme Ltd\./
+    );
     expect(screen.getByLabelText(/store name/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/store address/i)).toBeInTheDocument();
     expect(screen.queryByLabelText(/business name/i)).not.toBeInTheDocument();
@@ -100,6 +102,13 @@ describe('NewStoreDialog', () => {
     expect(await screen.findByText('We are setting up your store')).toBeInTheDocument();
     expect(screen.queryByLabelText(/store name/i)).not.toBeInTheDocument();
     expect(mocks.selectStoreAction).not.toHaveBeenCalled();
+    // Focus moves from the unmounted form to the status, and the dialog copy does not talk about "this page".
+    await waitFor(() =>
+      expect(
+        screen.getByText('We are setting up your store').closest('[role="status"]')
+      ).toHaveFocus()
+    );
+    expect(screen.queryByText(/this page updates/i)).not.toBeInTheDocument();
   });
 
   it('selects the new store once it is ACTIVE, refreshes, confirms and closes', async () => {
@@ -196,6 +205,7 @@ describe('NewStoreDialog', () => {
     await fillAndSubmit(user);
 
     const upgrade = await screen.findByTestId('store-limit');
+    expect(upgrade).toHaveAttribute('role', 'status');
     expect(upgrade).toHaveTextContent(LIMIT);
     expect(screen.getByRole('link', { name: /see plans/i })).toHaveAttribute('href', '/pricing');
     expect(screen.queryByLabelText(/store name/i)).not.toBeInTheDocument();
@@ -325,7 +335,7 @@ describe('NewStoreDialog', () => {
   });
 
   it('renders nothing when closed', () => {
-    render(<NewStoreDialog open={false} onOpenChange={vi.fn()} />);
+    render(<NewStoreDialog open={false} organizationName="Acme Ltd" onOpenChange={vi.fn()} />);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 });

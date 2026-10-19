@@ -689,3 +689,33 @@ describe('ProvisioningStatus onReady (KAN-254)', () => {
     expect(onReady).not.toHaveBeenCalled();
   });
 });
+
+describe('ProvisioningStatus dialog variant (KAN-254)', () => {
+  afterEach(() => cleanup());
+
+  it('focuses the status and drops the page link and "this page" copy', () => {
+    render(
+      <ProvisioningStatus
+        storeId={STORE_ID}
+        storeName="Acme Shop"
+        initialStatus="PROVISIONING"
+        variant="dialog"
+      />
+    );
+    expect(screen.getByRole('status')).toHaveFocus();
+    expect(screen.getByText('Acme Shop is being created. This updates by itself.')).toBeVisible();
+  });
+
+  it('shows no "Open dashboard" link when ready', () => {
+    render(
+      <ProvisioningStatus
+        storeId={STORE_ID}
+        storeName="Acme Shop"
+        initialStatus="ACTIVE"
+        variant="dialog"
+      />
+    );
+    expect(screen.getByText('Your store is ready')).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'Open dashboard' })).not.toBeInTheDocument();
+  });
+});
