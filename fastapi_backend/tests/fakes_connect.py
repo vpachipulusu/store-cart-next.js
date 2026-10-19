@@ -1,7 +1,7 @@
 """Test doubles for Stripe Connect (KAN-67): a recording Stripe client and an in-memory store."""
 
 import asyncio
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any
 
@@ -13,6 +13,7 @@ from app.core.stripe_billing import (
 )
 from app.core.stripe_connect import StripeAccountState
 from app.models.platform.membership import MembershipRole
+from app.repositories.connect_events import ConnectRoute
 from app.repositories.org_connect import ConnectRecord
 
 ACCOUNT_ID = "acct_new"
@@ -48,6 +49,8 @@ class FakeStripeConnect:
 
     async def get_account(self, account_id: str) -> StripeAccountState:
         self._record("get_account", account_id=account_id)
+        # A real read yields, so concurrent deliveries interleave.
+        await asyncio.sleep(0)
         if self.not_found_on_get:
             raise StripeNotFound("Stripe request failed")
         if self.forbidden_on_get:
@@ -79,6 +82,8 @@ class FakeConnectStore:
         self.roles: dict[tuple[str, str], MembershipRole] = {}
         self.orgs: dict[str, ConnectRecord] = {}
         self.event_at: dict[str, datetime] = {}
+        # store id -> owning organisation id (KAN-69 routing)
+        self.stores: dict[str, str] = {}
 
     def add(self, record: ConnectRecord, user_id: str, role: MembershipRole) -> None:
         self.orgs[record.id] = record
@@ -92,10 +97,18 @@ class FakeConnectStore:
     async def get(self, organization_id: str) -> ConnectRecord | None:
         return self.orgs.get(organization_id)
 
-    async def account_exists(self, account_id: str) -> bool:
-        return any(
-            r.stripe_connect_account_id == account_id for r in self.orgs.values()
+    async def organization_for_account(self, account_id: str) -> str | None:
+        return next(
+            (
+                r.id
+                for r in self.orgs.values()
+                if r.stripe_connect_account_id == account_id
+            ),
+            None,
         )
+
+    async def store_belongs_to(self, store_id: str, organization_id: str) -> bool:
+        return self.stores.get(store_id) == organization_id
 
     async def link_account(self, organization_id: str, account_id: str) -> str:
         record = self.orgs[organization_id]
@@ -128,6 +141,67 @@ class FakeConnectStore:
             )
             return True
         return False
+
+
+@dataclass(frozen=True)
+class ClaimedEvent:
+    stripe_event_id: str
+    type: str
+    route: ConnectRoute
+    created: datetime
+
+
+class FakeConnectEvents:
+    """Implements ConnectEventLog: like the unique index, a second claim of an id loses.
+
+    Claims are pending until the session commits; ``pending`` is dropped on rollback, so a
+    failed handler leaves the event unrecorded, as the real transaction would.
+    """
+
+    def __init__(self) -> None:
+        self.recorded: dict[str, ClaimedEvent] = {}
+        self.pending: dict[str, ClaimedEvent] = {}
+
+    async def is_recorded(self, stripe_event_id: str) -> bool:
+        return stripe_event_id in self.recorded
+
+    async def claim(
+        self,
+        stripe_event_id: str,
+        event_type: str,
+        route: ConnectRoute,
+        created: datetime,
+    ) -> bool:
+        if stripe_event_id in self.recorded or stripe_event_id in self.pending:
+            return False
+        self.pending[stripe_event_id] = ClaimedEvent(
+            stripe_event_id, event_type, route, created
+        )
+        return True
+
+    def commit(self) -> None:
+        self.recorded.update(self.pending)
+        self.pending.clear()
+
+    def rollback(self) -> None:
+        self.pending.clear()
+
+
+class FakeEventSession:
+    """A session whose commit and rollback settle the fake event log's pending claims."""
+
+    def __init__(self, events: FakeConnectEvents) -> None:
+        self.events = events
+        self.commits = 0
+        self.rollbacks = 0
+
+    async def commit(self) -> None:
+        self.commits += 1
+        self.events.commit()
+
+    async def rollback(self) -> None:
+        self.rollbacks += 1
+        self.events.rollback()
 
 
 def connect_record(**overrides: Any) -> ConnectRecord:

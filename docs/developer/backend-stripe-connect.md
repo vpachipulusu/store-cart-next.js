@@ -1,4 +1,4 @@
-# Stripe Connect onboarding (KAN-67)
+# Stripe Connect onboarding and webhook (KAN-67, KAN-69)
 
 **Last updated:** 2026-10-19
 
@@ -22,10 +22,23 @@ Account creation uses the deterministic Stripe idempotency key `sc-connect-accou
 `POST /webhooks/stripe-connect` (public, the signature is the credential, not in OpenAPI) handles `account.updated` and `account.application.deauthorized`. It is a **separate endpoint with its own signing secret**, `STRIPE_CONNECT_WEBHOOK_SECRET` (a Connect endpoint's `whsec_...`, never the Billing one; startup fails if the two are equal, and logs a warning in production when `STRIPE_SECRET_KEY` is set but this secret is not). Verification is the shared `read_verified_body` (`app/core/stripe_webhook_body.py`: 300 second tolerance, constant-time compare, 1 MB cap). Unset secret: 503.
 
 - **The event is only a trigger.** Stripe delivers events unordered and `created` has one-second resolution, so the flags are never read from the payload. `account.updated` retrieves the account (`GET /v1/accounts/{id}`) and stores what Stripe reports now. Each write is one atomic `UPDATE ... WHERE stripe_connect_account_id = :id AND (stripe_connect_event_at IS NULL OR stripe_connect_event_at <= :read_started_at)`, so a slower, older read that finishes later cannot overwrite a newer one (the column holds the time the read started, microsecond resolution), and a redelivery rewrites the same values.
-- `account.application.deauthorized` (the connected account is the event's top-level `account`) clears all three flags. An account Stripe no longer knows is treated the same.
+- `account.application.deauthorized` (the connected account is the event's top-level `account`) clears all three flags. The clear is stamped with the event's own `created` time, so a retried old deauthorization cannot undo a newer `account.updated` read. An account Stripe no longer knows is treated the same.
 - An event for an unknown account, or any other event type, is acknowledged with 200 (nothing to retry). A signed event without an account id is 400. A Stripe outage or any other failure is a generic retryable 500; an unset `STRIPE_SECRET_KEY` is a retryable 503.
-- Known limit, left to KAN-69 (event routing and once-only processing): an `account.updated` that arrives before the account link is committed is acknowledged and dropped (the next event repairs it).
+- Known limit: Stripe can send `account.updated` right after the account is created, before `link_account` commits. That event finds no organisation, is acknowledged and not recorded, so it is lost; the flags catch up on the account's next event (onboarding progress always produces more). Returning 5xx for unknown accounts instead would make Stripe retry events of unrelated accounts for days.
 - Vercel: `vercel.json` has a rewrite for the exact path, and `tests/core/test_vercel_routing.py` pins it.
+
+### Routing and once-only processing (KAN-69)
+
+`ConnectWebhookService` (`app/services/stripe_connect.py`) processes every handled event in this order:
+
+0. **Mode.** A live Connect endpoint also receives test-mode events from connected accounts, with the same account ids. The service processes only events whose `livemode` matches the platform key (`STRIPE_SECRET_KEY` starting `sk_live_` or `rk_live_` means live, anything else test; `stripe_livemode()` in `app/core/stripe_connect.py`). Any other event, including one without `livemode`, is acknowledged (200) and ignored before routing, logged by type only. So a test deauthorization or a test checkout can never change live state.
+1. **Type.** Account events (`account.updated`, `account.application.deauthorized`) and the store-scoped types registered in `store_handlers` are handled. Any other type is acknowledged (200), logged by type only, and not recorded. A handled event needs an `evt_...` id, a positive `created` time and an `acct_...` account, else 400.
+2. **Route.** The connected account (the event's top-level `account`, which Stripe sets; for `account.updated` also its object id, and the two must agree) picks the organisation. Only events that happen **on** a connected account carry a top-level `account`, so only **direct charges** (created with the `Stripe-Account` header) route here; destination charges and transfers are platform events and arrive on the Billing endpoint instead. The organisation is found through the unique `organizations.stripe_connect_account_id`. Store-scoped events must also carry `metadata.store_id` on their object, naming a store of **that** organisation. An unknown account, a missing store id, or a store of another organisation is acknowledged with 200, logged without ids from the payload, and not recorded, so Stripe does not retry it forever.
+3. **Once only.** A pre-check skips an event already in `stripe_connect_events` before any Stripe call. Any Stripe read (`account.updated`) happens outside a transaction. Then, in one transaction, the event id is claimed (`INSERT ... ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id`), the side effect runs and both commit. A concurrent delivery of the same id waits on the unique index and gets a duplicate (200, nothing applied); a failing handler rolls back the claim too, so Stripe's retry runs it again. If the organisation or store is deleted between routing and the claim, the claim's foreign key fails (a retryable 500) and the retry finds no route and is acknowledged.
+
+Adding a payment event (KAN-68 checkout, KAN-80 refunds): write an async handler `(route: ConnectRoute, obj: Mapping[str, Any]) -> None`. It runs inside the platform transaction that holds the claim, so it must **not commit or roll back**, must be **short** (concurrent redeliveries wait on the claim's lock, each holding a pooled connection), and must be **idempotent** for any write outside that transaction (a store database opened with `get_store_session(route.store_id)`): a failure after such a write rolls back only the claim, and Stripe's retry runs the handler again. In other words, platform effects are at most once, but **store-database side effects are at least once**: KAN-68 and KAN-80 handlers must key their writes on the Stripe object id (a unique column in the store database, for example the Checkout Session or refund id) so a rerun changes nothing. The handler receives a read-only view of the event object. Register it in `get_connect_webhook_service` (`app/api/v1/webhooks_connect.py`) under its event type, and put `metadata[store_id]` on the Stripe object you create (Checkout Session and PaymentIntent metadata). Add the type to the Connect endpoint in the Stripe Dashboard. Do not trust `metadata` for anything except picking the store: the route has already checked the store belongs to the account's organisation.
+
+Billing (`POST /webhooks/stripe`, `STRIPE_WEBHOOK_SECRET`, ledger `stripe_events`) is unchanged and fully separate: neither secret verifies the other endpoint's events.
 
 ## Checkout guard (acceptance criterion 3)
 
@@ -46,13 +59,15 @@ Both raise `ChargesNotEnabled` when the organisation has no connected account or
 
 ## Owner steps (not in `.env.example`, which the coordinator owns)
 
-1. Stripe Dashboard (test mode first): enable Connect for the platform account and add a webhook endpoint for **Connect** events (`account.updated`) pointing at `https://<app>/webhooks/stripe-connect`.
+1. Stripe Dashboard (test mode first): enable Connect for the platform account and add a webhook endpoint that listens to events on **Connected accounts** (not "Your account") pointing at `https://<app>/webhooks/stripe-connect`, with `account.updated` and `account.application.deauthorized` (payment stories add their own types). This endpoint has its own signing secret; the Billing endpoint (`/webhooks/stripe`, events on your account) keeps `STRIPE_WEBHOOK_SECRET`.
 2. Vercel, FastAPI service: set `STRIPE_CONNECT_WEBHOOK_SECRET` to that endpoint's signing secret (name only in tickets and chat). Keep `STRIPE_SECRET_KEY` and `BILLING_RETURN_URL_ORIGINS` set; the app origin must be listed because the Connect return URLs use it.
 3. Redeploy the backend. Local testing: `stripe listen --forward-connect-to localhost:8000/webhooks/stripe-connect`, then set `STRIPE_CONNECT_WEBHOOK_SECRET` to the secret it prints.
 
 ## Data
 
 Migration `0010` adds to `organizations`: `stripe_connect_account_id` (unique), `connect_charges_enabled`, `connect_payouts_enabled`, `connect_details_submitted` (default false) and `stripe_connect_event_at`. The flags are written only by the webhook.
+
+Migration `0011` (KAN-69) adds `stripe_connect_events`: `stripe_event_id` (unique, the idempotency key), `type`, `stripe_account_id`, `organization_id` (cascade with the organisation), `store_id` (nullable, set null when the store is deleted), `stripe_created_at`, `created_at`. A row means processed, including a no-op (for example a newer read was already stored). No payload is stored. The ledger is append-only; a retention job can be added later if it grows.
 
 ## Frontend
 
