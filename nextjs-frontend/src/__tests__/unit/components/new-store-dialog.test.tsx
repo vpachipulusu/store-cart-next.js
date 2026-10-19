@@ -3,7 +3,7 @@
  * the new store once it is ACTIVE, and shows the plan upgrade message when the store limit is reached.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mocks = vi.hoisted(() => ({
@@ -48,7 +48,10 @@ describe('NewStoreDialog', () => {
     vi.clearAllMocks();
     mocks.selectStoreAction.mockResolvedValue({ success: true });
   });
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
 
   it('is a dialog named "New store" with the onboarding store fields only', () => {
     renderDialog();
@@ -197,6 +200,7 @@ describe('NewStoreDialog', () => {
     expect(screen.getByRole('link', { name: /see plans/i })).toHaveAttribute('href', '/pricing');
     expect(screen.queryByLabelText(/store name/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await waitFor(() => expect(upgrade).toHaveFocus());
   });
 
   it('shows the session-expired text for the unauthorized code', async () => {
@@ -248,6 +252,76 @@ describe('NewStoreDialog', () => {
     expect(mocks.createAdditionalStoreAction).toHaveBeenCalledTimes(1);
     finish(created('PROVISIONING'));
     expect(await screen.findByText('We are setting up your store')).toBeInTheDocument();
+  });
+
+  it('offers to switch again when selecting the ready store failed, and closes once it works', async () => {
+    const user = userEvent.setup();
+    mocks.createAdditionalStoreAction.mockResolvedValue(created('ACTIVE'));
+    mocks.selectStoreAction
+      .mockResolvedValueOnce({ success: false, error: 'nope' })
+      .mockResolvedValueOnce({ success: true });
+    const onOpenChange = renderDialog();
+
+    await fillAndSubmit(user);
+    await user.click(await screen.findByRole('button', { name: 'Switch to Second Shop' }));
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(mocks.selectStoreAction).toHaveBeenCalledTimes(2);
+  });
+
+  it('polls a PROVISIONING store and selects it once when it turns ACTIVE', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    mocks.createAdditionalStoreAction.mockResolvedValue(created('PROVISIONING'));
+    mocks.getStoreStatusAction.mockResolvedValue({
+      success: true,
+      data: { status: 'ACTIVE', name: 'Second Shop' },
+    });
+    const onOpenChange = renderDialog();
+
+    await fillAndSubmit(user);
+    await screen.findByText('We are setting up your store');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(mocks.getStoreStatusAction).toHaveBeenCalledWith(NEW_ID);
+    expect(mocks.selectStoreAction).toHaveBeenCalledTimes(1);
+    expect(mocks.selectStoreAction).toHaveBeenCalledWith(NEW_ID);
+  });
+
+  it('selects the store once after Retry setup turns a FAILED store ACTIVE', async () => {
+    const user = userEvent.setup();
+    mocks.createAdditionalStoreAction.mockResolvedValue(created('FAILED'));
+    mocks.retryProvisioningAction.mockResolvedValue({ success: true, data: { attempt: 2 } });
+    mocks.getStoreStatusAction.mockResolvedValue({
+      success: true,
+      data: { status: 'ACTIVE', name: 'Second Shop' },
+    });
+    const onOpenChange = renderDialog();
+
+    await fillAndSubmit(user);
+    await user.click(await screen.findByRole('button', { name: 'Retry setup' }));
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(mocks.retryProvisioningAction).toHaveBeenCalledWith(NEW_ID);
+    expect(mocks.selectStoreAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-enables the button after a failed submit so the user can submit again', async () => {
+    const user = userEvent.setup();
+    mocks.createAdditionalStoreAction
+      .mockResolvedValueOnce({ success: false, error: 'Try again' })
+      .mockResolvedValueOnce(created('PROVISIONING'));
+    renderDialog();
+
+    await fillAndSubmit(user);
+    await screen.findByRole('alert');
+    await user.click(screen.getByRole('button', { name: /create store/i }));
+
+    expect(await screen.findByText('We are setting up your store')).toBeInTheDocument();
+    expect(mocks.createAdditionalStoreAction).toHaveBeenCalledTimes(2);
   });
 
   it('renders nothing when closed', () => {

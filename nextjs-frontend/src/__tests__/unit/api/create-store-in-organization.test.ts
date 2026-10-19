@@ -57,6 +57,7 @@ describe('createStoreInOrganization', () => {
   it.each([
     [409, 'Slug is already taken', 'slug_taken'],
     [409, 'Organization limit reached', 'limit'],
+    [409, 'Store is being changed by another request', 'unavailable'],
     [403, 'Forbidden', 'forbidden'],
     [404, 'Organization not found', 'not_found'],
     [422, 'Slug is reserved', 'invalid'],

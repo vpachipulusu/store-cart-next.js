@@ -173,7 +173,10 @@ export function StoreSwitcher({ stores, selectedStoreId, variant = 'header' }: S
       </DropdownMenu>
       <NewStoreDialog
         open={newStoreOpen}
-        onOpenChange={setNewStoreOpen}
+        onOpenChange={(open) => {
+          if (!open) openingDialogRef.current = false;
+          setNewStoreOpen(open);
+        }}
         onCloseAutoFocus={(event) => {
           event.preventDefault();
           triggerRef.current?.focus();

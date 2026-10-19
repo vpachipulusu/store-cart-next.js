@@ -199,10 +199,7 @@ export async function createAdditionalStoreAction(
     if (!selection.available) return { success: false, error: GENERIC_ERROR };
     if (!selection.selected) return { success: false, error: NO_STORE_YET_MESSAGE };
 
-    const result = await createStoreInOrganization(
-      selection.selected.organizationId,
-      parsed.data
-    );
+    const result = await createStoreInOrganization(selection.selected.organizationId, parsed.data);
     if (result.success) {
       revalidatePath('/dashboard', 'layout');
       return {

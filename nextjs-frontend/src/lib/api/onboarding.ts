@@ -184,16 +184,24 @@ export type CreateStoreInOrganizationResult =
  * Free plan allows 1 store. Upgrade your plan to add more." Only text of exactly this shape is shown to the user;
  * anything else falls back to a fixed message. Change both together.
  */
+/** The backend's 409 text for a taken store slug (`http_error` in app/api/v1/organizations.py). */
+const SLUG_TAKEN_ERROR = 'Slug is already taken';
+
 const STORE_LIMIT_PATTERN =
   /^The [A-Za-z][A-Za-z ]{0,39} plan allows \d{1,6} stores?\. Upgrade your plan to add more\.$/;
 
 function newStoreFailure(failure: Failure): CreateStoreInOrganizationResult {
   switch (failure.status) {
     case 409:
-      if (/slug/i.test(failure.error)) return { success: false, reason: 'slug_taken' };
-      return STORE_LIMIT_PATTERN.test(failure.error)
-        ? { success: false, reason: 'limit', limitMessage: failure.error }
-        : { success: false, reason: 'limit' };
+      if (failure.error === SLUG_TAKEN_ERROR) return { success: false, reason: 'slug_taken' };
+      if (STORE_LIMIT_PATTERN.test(failure.error)) {
+        return { success: false, reason: 'limit', limitMessage: failure.error };
+      }
+      // A limit worded differently still gets the upgrade prompt (fixed text); any other conflict is not a plan issue.
+      return {
+        success: false,
+        reason: /limit|plan allows/i.test(failure.error) ? 'limit' : 'unavailable',
+      };
     case 403:
       return { success: false, reason: 'forbidden' };
     case 404:

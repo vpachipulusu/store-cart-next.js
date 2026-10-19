@@ -136,10 +136,19 @@ function NewStoreForm({ onCreated, onLimit }: NewStoreFormProps) {
   );
 }
 
-/** The plan's store limit (KAN-84 wording): an upgrade prompt, not an error. */
+/** The plan's store limit (KAN-84 wording): an upgrade prompt, not an error. Focused so it is read out on arrival. */
 function StoreLimitNotice({ message }: { message: string }) {
+  const noticeRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => noticeRef.current?.focus(), []);
+
   return (
-    <div className="flex flex-col items-start gap-4" data-testid="store-limit" role="status">
+    <div
+      ref={noticeRef}
+      tabIndex={-1}
+      className="flex flex-col items-start gap-4 outline-none"
+      data-testid="store-limit"
+    >
       <p className="text-sm">{message}</p>
       <Button asChild className="min-h-11">
         <Link href="/pricing">See plans</Link>
@@ -153,6 +162,9 @@ function NewStoreSteps({ onDone }: { onDone: () => void }) {
   const router = useRouter();
   const { toast } = useToast();
   const [step, setStep] = useState<Step>({ kind: 'form' });
+  /** The store is ready but selecting it failed; the user can try again from here (onReady fires only once). */
+  const [selectFailed, setSelectFailed] = useState(false);
+  const [selecting, setSelecting] = useState(false);
 
   const reportSwitchFailure = (description?: string) =>
     toast({
@@ -162,9 +174,12 @@ function NewStoreSteps({ onDone }: { onDone: () => void }) {
     });
 
   const selectNewStore = async ({ storeId, name }: CreatedStore) => {
+    setSelecting(true);
+    setSelectFailed(false);
     try {
       const result = await selectStoreAction(storeId);
       if (!result.success) {
+        setSelectFailed(true);
         reportSwitchFailure(result.error);
         return;
       }
@@ -172,19 +187,42 @@ function NewStoreSteps({ onDone }: { onDone: () => void }) {
       toast({ title: 'Store ready', description: `Now showing ${name}.` });
       onDone();
     } catch {
+      setSelectFailed(true);
       reportSwitchFailure();
+    } finally {
+      setSelecting(false);
     }
   };
 
   if (step.kind === 'limit') return <StoreLimitNotice message={step.message} />;
   if (step.kind === 'provisioning') {
     return (
-      <ProvisioningStatus
-        storeId={step.storeId}
-        storeName={step.name}
-        initialStatus={step.status}
-        onReady={() => void selectNewStore(step)}
-      />
+      <div className="flex flex-col items-start gap-4">
+        <ProvisioningStatus
+          storeId={step.storeId}
+          storeName={step.name}
+          initialStatus={step.status}
+          onReady={() => void selectNewStore(step)}
+        />
+        {selectFailed ? (
+          <Button
+            type="button"
+            variant="outline"
+            aria-disabled={selecting}
+            onClick={() => {
+              if (!selecting) void selectNewStore(step);
+            }}
+            className="min-h-11 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+          >
+            Switch to {step.name}
+          </Button>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Keep this open to switch to the new store when it is ready, or close it and pick the
+            store from your store menu later.
+          </p>
+        )}
+      </div>
     );
   }
   return (
