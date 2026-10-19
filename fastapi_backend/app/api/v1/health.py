@@ -52,10 +52,12 @@ async def readiness_check(
     never their values. It is a diagnostic: it does not change the status code.
 
     ``migrations`` compares the platform database's Alembic revision with this build's
-    head (KAN-253). Behind (or unreadable) answers 503 with status
+    head (KAN-253). Behind, or no ``alembic_version`` at all, answers 503 with status
     ``migrations_pending``: no deploy runs ``alembic upgrade head`` (ADR-011), and code
-    on an unmigrated schema fails every query on the changed tables. Store databases
-    are not checked here.
+    on an unmigrated schema fails every query on the changed tables. A revision this
+    build does not know counts as ahead (a newer build migrated) and is not pending.
+    Any other database error answers 503 ``unavailable`` with no ``migrations``.
+    Store databases are not checked here.
 
     Redis is deliberately not checked: rate limiting fails open, so a Redis blip
     must not take the service out of rotation.
@@ -64,21 +66,18 @@ async def readiness_check(
     provisioning = ProvisioningSettingsStatus(
         ready=readiness.ready, missing=list(readiness.missing)
     )
-    if not await service.is_database_ready():
+    result = await service.readiness()
+    if result.state != "ok":
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-        return ReadyResponse(status="unavailable", provisioning=provisioning)
-    schema = await service.schema_status()
-    if schema is None:
-        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-        return ReadyResponse(status="unavailable", provisioning=provisioning)
-    migrations = MigrationsStatus(
-        pending=schema.pending, current=schema.current, head=schema.head
-    )
-    if schema.pending:
-        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-        return ReadyResponse(
-            status="migrations_pending",
-            provisioning=provisioning,
-            migrations=migrations,
+    migrations = (
+        None
+        if result.schema is None
+        else MigrationsStatus(
+            pending=result.schema.pending,
+            current=result.schema.current,
+            head=result.schema.head,
         )
-    return ReadyResponse(status="ok", provisioning=provisioning, migrations=migrations)
+    )
+    return ReadyResponse(
+        status=result.state, provisioning=provisioning, migrations=migrations
+    )

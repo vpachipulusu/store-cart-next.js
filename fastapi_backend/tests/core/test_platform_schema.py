@@ -5,30 +5,47 @@ every query that loaded an organisation failed. These pin how an applied revisio
 compared with the code's own Alembic head.
 """
 
-from app.core.platform_schema import platform_heads, platform_schema_status
+from pathlib import Path
+
+from alembic.script import ScriptDirectory
+
+from app.core.platform_schema import (
+    PLATFORM_HEAD,
+    PLATFORM_REVISIONS,
+    platform_schema_status,
+)
+
+SCRIPT_LOCATION = Path(__file__).resolve().parents[2] / "alembic_migrations"
 
 
-def test_the_platform_tree_has_exactly_one_head() -> None:
-    assert len(platform_heads()) == 1
+def test_revision_constants_match_the_migration_tree() -> None:
+    # Adding a platform migration without appending it to PLATFORM_REVISIONS fails here.
+    scripts = ScriptDirectory(str(SCRIPT_LOCATION))
+    heads = scripts.get_heads()
+    oldest_first = [script.revision for script in scripts.walk_revisions()][::-1]
+
+    assert len(heads) == 1
+    assert heads[0] == PLATFORM_HEAD
+    assert tuple(oldest_first) == PLATFORM_REVISIONS
 
 
 def test_database_at_the_code_head_is_not_pending() -> None:
-    (head,) = platform_heads()
-
-    status = platform_schema_status(head)
+    status = platform_schema_status(PLATFORM_HEAD)
 
     assert status.pending is False
-    assert status.current == head
-    assert status.head == head
+    assert status.current == PLATFORM_HEAD
+    assert status.head == PLATFORM_HEAD
 
 
 def test_database_behind_the_code_head_is_pending() -> None:
-    # 0009 is the revision production was on when 0010 (KAN-67) was deployed.
-    status = platform_schema_status("0009")
+    # The revision production was on when the head's migration was deployed.
+    previous = PLATFORM_REVISIONS[-2]
+
+    status = platform_schema_status(previous)
 
     assert status.pending is True
-    assert status.current == "0009"
-    assert status.head == platform_heads()[0]
+    assert status.current == previous
+    assert status.head == PLATFORM_HEAD
 
 
 def test_database_with_no_recorded_revision_is_pending() -> None:

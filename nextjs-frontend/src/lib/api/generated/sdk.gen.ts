@@ -37,10 +37,12 @@ export const healthCheck = <ThrowOnError extends boolean = false>(options?: Opti
  * never their values. It is a diagnostic: it does not change the status code.
  *
  * ``migrations`` compares the platform database's Alembic revision with this build's
- * head (KAN-253). Behind (or unreadable) answers 503 with status
+ * head (KAN-253). Behind, or no ``alembic_version`` at all, answers 503 with status
  * ``migrations_pending``: no deploy runs ``alembic upgrade head`` (ADR-011), and code
- * on an unmigrated schema fails every query on the changed tables. Store databases
- * are not checked here.
+ * on an unmigrated schema fails every query on the changed tables. A revision this
+ * build does not know counts as ahead (a newer build migrated) and is not pending.
+ * Any other database error answers 503 ``unavailable`` with no ``migrations``.
+ * Store databases are not checked here.
  *
  * Redis is deliberately not checked: rate limiting fails open, so a Redis blip
  * must not take the service out of rotation.
