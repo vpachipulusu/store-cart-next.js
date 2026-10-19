@@ -550,16 +550,16 @@ export async function waitForSubscriptionSuccess(
 }
 
 /**
- * Verify subscription tier is displayed correctly on dashboard.
+ * Navigates to the billing page (the caller ends up there) and verifies the tier in its "Current plan"
+ * group (the redesigned dashboard no longer has a "Subscription plan" card).
  */
 export async function expectSubscriptionTier(
   page: Page,
   tier: 'free' | 'pro' | 'enterprise'
 ): Promise<void> {
-  const subscriptionCard = page.locator('[class*="card"]').filter({
-    hasText: /subscription plan/i,
-  });
-  await expect(subscriptionCard).toContainText(new RegExp(tier, 'i'), { timeout: 10000 });
+  await navigateAndWait(page, '/dashboard/settings/billing');
+  const planGroup = page.getByRole('group', { name: 'Current plan' });
+  await expect(planGroup).toContainText(new RegExp(`${tier} plan`, 'i'), { timeout: 10000 });
 }
 
 /**
