@@ -16,7 +16,10 @@ export const MAX_CART_QUANTITY = 99;
 const MAX_VARIANT_ID_LENGTH = 100;
 const MAX_BODY_CHARS = 2_000;
 
-export const variantIdSchema = z.string().min(1).max(MAX_VARIANT_ID_LENGTH);
+/** The backend id alphabet; anything else (dots, slashes, encoded dot-segments) never reaches the backend path. */
+export const variantIdSchema = z
+  .string()
+  .regex(new RegExp(`^[A-Za-z0-9_-]{1,${MAX_VARIANT_ID_LENGTH}}$`));
 const quantitySchema = z.number().int().min(1).max(MAX_CART_QUANTITY);
 export const addItemSchema = z.object({ variantId: variantIdSchema, quantity: quantitySchema });
 export const quantityBodySchema = z.object({ quantity: quantitySchema });
@@ -36,8 +39,10 @@ export function failure(error: string, status: number): Response {
 
 /**
  * Null when the request may continue. Like the storefront page, a request that did not come through the proxy
- * rewrite for this same slug is a 404. A write whose `Origin` is another site is refused (the SameSite=Lax cookie
- * already keeps the shopper's cart token off cross-site requests; this is the second layer).
+ * rewrite for this same slug is a 404. A write whose `Origin` is another host is refused. This is the protection
+ * against another store's page: sibling store subdomains are the same site, so the SameSite=Lax cookie is still sent
+ * on their requests. `Origin: null` (sandboxed frames) is refused too; a request with no Origin (not a browser
+ * write) has no cart cookie of a shopper to abuse.
  */
 export async function guardStoreRequest(
   request: Request,

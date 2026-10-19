@@ -113,3 +113,14 @@ def test_stock_limits_are_conflicts_with_a_plain_message() -> None:
         _check_sellable(VariantRow("v1", 2, "active"), 3)
     with pytest.raises(CartConflict, match="out of stock"):
         _check_sellable(VariantRow("v1", 0, "active"), 1)
+
+
+def test_nothing_priced_ships_nothing_even_with_a_flat_rate() -> None:
+    flat = TotalsSettings(499, None, 2000, False)
+
+    empty = build_view([], flat)
+    nothing_ok = build_view([row(stock=0), row(status="draft")], flat)
+
+    for view in (empty, nothing_ok):
+        assert view.totals.shipping_minor == 0
+        assert view.totals.total_minor == 0

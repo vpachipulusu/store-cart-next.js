@@ -13263,8 +13263,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "minLength": 1,
-              "maxLength": 100,
+              "pattern": "^[A-Za-z0-9_-]{1,100}$",
               "title": "Variant Id"
             }
           },
@@ -13419,8 +13418,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "minLength": 1,
-              "maxLength": 100,
+              "pattern": "^[A-Za-z0-9_-]{1,100}$",
               "title": "Variant Id"
             }
           },
@@ -14749,8 +14747,7 @@
         "properties": {
           "variant_id": {
             "type": "string",
-            "maxLength": 100,
-            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]{1,100}$",
             "title": "Variant Id"
           },
           "quantity": {

@@ -61,14 +61,23 @@ function tokenHeaders(token: string | undefined): { 'X-Cart-Token'?: string } {
   return token ? { 'X-Cart-Token': token } : {};
 }
 
-/** Remembers a newly issued token and returns the cart without it. */
-async function finish(slug: string, result: ApiResult<CartData>): Promise<CartResult> {
+/**
+ * Returns the cart without its token. After a write the cookie is (re)set: to a newly issued token, or to the token
+ * the shopper sent, so its 30-day lifetime slides with the backend's. Only route handlers and server actions call
+ * the write wrappers, since only they may set cookies.
+ */
+async function finish(
+  slug: string,
+  result: ApiResult<CartData>,
+  sent?: { token: string | undefined }
+): Promise<CartResult> {
   if (!result.success) {
     return { success: false, error: cartErrorMessage(result), status: result.status };
   }
   const { cart_token: issued, ...cart } = result.data;
-  if (isCartToken(issued)) {
-    (await cookies()).set(cartCookieName(slug), issued, cartCookieOptions());
+  const keep = isCartToken(issued) ? issued : sent?.token;
+  if (sent && keep) {
+    (await cookies()).set(cartCookieName(slug), keep, cartCookieOptions());
   }
   return { success: true, data: cart };
 }
@@ -106,7 +115,7 @@ export async function addToCart(
       }),
     { withSession: false }
   );
-  return finish(slug, result);
+  return finish(slug, result, { token });
 }
 
 /** Sets the quantity of one variant (adds the line when it is not in the cart yet). */
@@ -127,7 +136,7 @@ export async function setCartQuantity(
       }),
     { withSession: false }
   );
-  return finish(slug, result);
+  return finish(slug, result, { token });
 }
 
 /** Removes one variant. Removing from a cart that does not exist creates nothing. */
@@ -143,5 +152,5 @@ export async function removeFromCart(slug: string, variantId: string): Promise<C
       }),
     { withSession: false }
   );
-  return finish(slug, result);
+  return finish(slug, result, { token });
 }

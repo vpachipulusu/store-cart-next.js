@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from app.api.auth import require_internal_key
 from app.api.rate_limit import RATE_LIMIT_RESPONSES, limit_by_client_ip
-from app.api.store_db import storefront_cart_service
+from app.api.store_db import NO_STORE_HEADERS, storefront_cart_service
 from app.core.errors import ErrorResponse
 from app.core.rate_limit import CART_POLICY
 from app.services.store_cart import (
@@ -31,7 +31,6 @@ from app.services.store_cart import (
     StoreCartService,
 )
 
-NO_STORE_HEADERS = {"Cache-Control": "no-store"}
 CART_TOKEN_HEADER = "X-Cart-Token"
 
 router = APIRouter(
@@ -59,13 +58,14 @@ CartToken = Annotated[
         description="The shopper's cart token. Missing, unknown or expired reads as an empty cart.",
     ),
 ]
-VariantId = Annotated[str, Path(min_length=1, max_length=100)]
+VARIANT_ID_PATTERN = r"^[A-Za-z0-9_-]{1,100}$"
+VariantId = Annotated[str, Path(pattern=VARIANT_ID_PATTERN)]
 
 
 class CartItemBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    variant_id: str = Field(min_length=1, max_length=100)
+    variant_id: str = Field(pattern=VARIANT_ID_PATTERN)
     quantity: StrictInt = Field(ge=1, le=MAX_QUANTITY)
 
 

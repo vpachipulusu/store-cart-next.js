@@ -3,8 +3,10 @@
  *
  * The cookie holds only the opaque cart token the backend issued; prices, stock and totals never live in it. It is
  * named per store (`sc_cart_<slug>`) and, on a store subdomain, is also host-only, so one store's token is never sent
- * with another store's requests. httpOnly: page scripts cannot read it. SameSite=Lax: a cross-site POST cannot
- * carry it, so another site cannot change a shopper's cart.
+ * with another store's requests. httpOnly: page scripts cannot read it. SameSite=Lax keeps it off cross-site
+ * requests, but sibling store subdomains are the same site, so it does not stop another store's page from writing to
+ * this cart: the Origin check in `cart-http.ts` does. The cookie is re-set on every successful write, so it slides
+ * with the backend's 30-day expiry.
  */
 
 export const CART_COOKIE_PREFIX = 'sc_cart_';

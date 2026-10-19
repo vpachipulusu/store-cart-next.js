@@ -15,6 +15,7 @@ from httpx import AsyncClient, Response
 from sqlalchemy import text
 
 from app.services import store_cart
+from app.services.store_cart import hash_token
 from app.services.store_sessions import open_store_session
 from tests.api.products_support import (  # noqa: F401  (fixtures)
     assert_no_database_text,
@@ -55,14 +56,20 @@ def data_of(response: Response) -> dict[str, Any]:
 
 
 async def sellable_variant(
-    client: AsyncClient, world: World, *, price: int = 1000, stock: int = 5
+    client: AsyncClient,
+    world: World,
+    *,
+    price: int = 1000,
+    stock: int = 5,
+    store: tuple[str, str] = NORTH,
+    owner: str = "alice",
 ) -> str:
-    """The variant id of a fresh active product in store a/north."""
+    """The variant id of a fresh active product (store a/north unless given)."""
     payload = simple_payload(
         status="active",
         variants=[variant_payload(unique(), price_minor=price, stock=stock)],
     )
-    product = await create_product(client, store_of(world, *NORTH), "alice", payload)
+    product = await create_product(client, store_of(world, *store), owner, payload)
     variant_id: str = product["variants"][0]["id"]
     return variant_id
 
@@ -140,6 +147,7 @@ async def test_the_token_is_stored_only_as_a_hash(
             (await db.execute(text("SELECT token_hash FROM carts"))).scalars().all()
         )
 
+    assert hash_token(token) in hashes
     assert token not in hashes
     assert all(len(value) == 64 for value in hashes)
 
@@ -352,7 +360,13 @@ async def test_an_expired_cart_reads_empty_and_a_write_starts_a_new_one(
 ) -> None:
     variant = await sellable_variant(client, world)
     token = data_of(await add(client, variant))["cart_token"]
-    await run_sql(world, "UPDATE carts SET expires_at = now() - interval '1 minute'")
+    old_hash = hash_token(token)
+    await run_sql(
+        world,
+        "UPDATE carts SET expires_at = now() - interval '1 minute' "
+        "WHERE token_hash = :h",
+        h=old_hash,
+    )
 
     empty = await read(client, token)
     rewritten = data_of(await add(client, variant, 1, token=token))
@@ -360,6 +374,13 @@ async def test_an_expired_cart_reads_empty_and_a_write_starts_a_new_one(
     assert empty["lines"] == []
     assert rewritten["cart_token"] not in (None, token)
     assert [line["quantity"] for line in rewritten["lines"]] == [1]
+    assert (
+        await world.store_value(
+            store_of(world, *NORTH),
+            f"SELECT count(*) FROM carts WHERE token_hash = '{old_hash}'",
+        )
+        == 0
+    )  # the new cart purged the expired one
 
 
 async def test_a_cart_holds_a_limited_number_of_lines(
@@ -388,6 +409,40 @@ async def test_a_token_from_one_store_is_nothing_in_another(
 
     assert elsewhere["lines"] == []
     assert foreign_variant.status_code == 404
+
+
+async def test_a_write_in_another_store_with_this_token_starts_a_new_cart_there(
+    client: AsyncClient, world: World
+) -> None:
+    variant_a = await sellable_variant(client, world)
+    variant_b = await sellable_variant(client, world, store=("b", "north"), owner="bob")
+    token = data_of(await add(client, variant_a))["cart_token"]
+
+    in_b = data_of(await add(client, variant_b, token=token, slug=NORTH_B))
+    still_a = await read(client, token)
+
+    assert in_b["cart_token"] not in (None, token)
+    assert [line["variant_id"] for line in in_b["lines"]] == [variant_b]
+    assert [line["variant_id"] for line in still_a["lines"]] == [variant_a]
+
+
+async def test_setting_the_quantity_of_a_line_not_in_the_cart_adds_it(
+    client: AsyncClient, world: World
+) -> None:
+    first = await sellable_variant(client, world)
+    second = await sellable_variant(client, world)
+    token = data_of(await add(client, first))["cart_token"]
+
+    cart = data_of(
+        await client.put(
+            cart_url(NORTH_A, f"/items/{second}"),
+            json={"quantity": 3},
+            headers=with_token(token),
+        )
+    )
+
+    quantities = {line["variant_id"]: line["quantity"] for line in cart["lines"]}
+    assert quantities == {first: 1, second: 3}
 
 
 async def test_a_store_that_is_not_live_is_the_same_404_as_an_unknown_one(
@@ -428,7 +483,12 @@ async def test_responses_are_never_cached(client: AsyncClient, world: World) -> 
     written = await add(client, variant)
     read_response = await client.get(cart_url(NORTH_A))
     refused = await add(client, "no-such-variant")
+    unknown_store = await client.get(cart_url("never-existed"))
+    no_database = await client.get(cart_url("a-east"))
 
+    assert unknown_store.status_code == 404
+    assert unknown_store.headers["cache-control"] == "no-store"
+    assert no_database.headers["cache-control"] == "no-store"
     assert written.headers["cache-control"] == "no-store"
     assert read_response.headers["cache-control"] == "no-store"
     assert refused.headers["cache-control"] == "no-store"

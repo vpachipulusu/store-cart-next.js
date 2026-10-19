@@ -13,6 +13,8 @@ import { test, expect, type Page } from '@playwright/test';
 const BACKEND_DIR = process.env.E2E_BACKEND_DIR;
 const SEED_SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'helpers/seed_cart.py');
 const APP_ORIGIN = new URL(process.env.E2E_BASE_URL ?? 'http://localhost:3000');
+// test:e2e:local serves a production build, where the cookie carries the __Host- prefix (Secure, host-only).
+const cartCookie = (slug: string) => `__Host-sc_cart_${slug}`;
 const storeUrl = (slug: string, route = '/') =>
   `${APP_ORIGIN.protocol}//${slug}.localhost:${APP_ORIGIN.port}${route}`;
 
@@ -92,9 +94,10 @@ test.describe('storefront cart', () => {
     expect(added.body.data).toMatchObject({ subtotal_minor: 2500, can_checkout: true });
     expect(added.body.data).not.toHaveProperty('cart_token');
 
-    const cookie = (await context.cookies()).find((c) => c.name === `sc_cart_${alpha.slug}`);
-    expect(cookie).toMatchObject({ httpOnly: true, sameSite: 'Lax', path: '/' });
-    expect(await page.evaluate(() => document.cookie)).not.toContain('sc_cart_');
+    const cookie = (await context.cookies()).find((c) => c.name === cartCookie(alpha.slug));
+    expect(cookie).toMatchObject({ httpOnly: true, secure: true, sameSite: 'Lax', path: '/' });
+    expect(cookie?.domain).toBe(`${alpha.slug}.localhost`);
+    expect(await page.evaluate(() => document.cookie)).not.toContain(cartCookie(alpha.slug));
 
     await page.reload();
     const again = await cart(page, 'GET', '/cart');
@@ -152,8 +155,8 @@ test.describe('storefront cart', () => {
     expect(lines(other)).toEqual([]);
     expect(foreignVariant.status).toBe(404);
     const names = (await context.cookies()).map((c) => c.name);
-    expect(names).toContain(`sc_cart_${alpha.slug}`);
-    expect(names).not.toContain(`sc_cart_${beta.slug}`);
+    expect(names).toContain(cartCookie(alpha.slug));
+    expect(names).not.toContain(cartCookie(beta.slug));
   });
 
   test('the cart is not reachable on the root domain or for an unknown store', async ({

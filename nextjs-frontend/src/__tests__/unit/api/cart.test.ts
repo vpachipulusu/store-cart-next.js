@@ -101,22 +101,45 @@ describe('cart wrapper', () => {
       NEW_TOKEN,
       expect.objectContaining({ httpOnly: true, sameSite: 'lax' })
     );
-    expect(result.success && 'cart_token' in result.data).toBe(false);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data).not.toHaveProperty('cart_token');
     const request = fetchMock.mock.calls[0][0];
     expect(request.method).toBe('POST');
     expect(await request.json()).toEqual({ variant_id: 'v1', quantity: 2 });
   });
 
-  it('does not touch the cookie when no token was issued', async () => {
+  it('re-sets the cookie with the same token after a write, so its lifetime slides', async () => {
     jar.set('sc_cart_acme', TOKEN);
     fetchMock.mockResolvedValue(json(cartBody()));
 
     await setCartQuantity('acme', 'v1', 3);
 
-    expect(cookieSet).not.toHaveBeenCalled();
+    expect(cookieSet).toHaveBeenCalledWith(
+      'sc_cart_acme',
+      TOKEN,
+      expect.objectContaining({ maxAge: 2_592_000, httpOnly: true })
+    );
     const request = fetchMock.mock.calls[0][0];
     expect(request.method).toBe('PUT');
     expect(request.url).toBe('http://backend.test/v1/storefront/acme/cart/items/v1');
+  });
+
+  it('never sets the cookie on a read', async () => {
+    jar.set('sc_cart_acme', TOKEN);
+    fetchMock.mockResolvedValue(json(cartBody()));
+
+    await fetchCart('acme');
+
+    expect(cookieSet).not.toHaveBeenCalled();
+  });
+
+  it('does not set a cookie after a failed write', async () => {
+    jar.set('sc_cart_acme', TOKEN);
+    fetchMock.mockResolvedValue(json({ success: false, error: 'Only 3 in stock' }, 409));
+
+    await addToCart('acme', 'v1', 9);
+
+    expect(cookieSet).not.toHaveBeenCalled();
   });
 
   it('removes a line with DELETE', async () => {

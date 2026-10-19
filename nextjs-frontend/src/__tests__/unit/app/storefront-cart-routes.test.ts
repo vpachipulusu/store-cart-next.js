@@ -104,6 +104,52 @@ describe('storefront cart routes', () => {
     expect(api.addToCart).toHaveBeenCalledTimes(2);
   });
 
+  it('refuses an Origin of null', async () => {
+    const response = await POST(
+      write('POST', { variantId: 'v1', quantity: 1 }, { origin: 'null' }),
+      slugParams
+    );
+
+    expect(response.status).toBe(403);
+    expect(api.addToCart).not.toHaveBeenCalled();
+  });
+
+  it('refuses a body that is too large, by declared length or by content', async () => {
+    const declared = await POST(
+      write('POST', { variantId: 'v1', quantity: 1 }, { 'content-length': '5000' }),
+      slugParams
+    );
+    const actual = await POST(
+      write('POST', JSON.stringify({ variantId: 'v1', quantity: 1, pad: 'x'.repeat(3000) })),
+      slugParams
+    );
+
+    expect(declared.status).toBe(413);
+    expect(actual.status).toBe(413);
+    expect(api.addToCart).not.toHaveBeenCalled();
+  });
+
+  it.each(['..', 'a.b', 'a/b', '%2E%2E', 'x'.repeat(101)])(
+    'rejects the variant id %j on PUT and DELETE',
+    async (variantId) => {
+      const params = { params: Promise.resolve({ slug: 'acme', variantId }) };
+
+      const put = await PUT(write('PUT', { quantity: 1 }), params);
+      const del = await DELETE(write('DELETE'), params);
+
+      expect(put.status).toBe(422);
+      expect(del.status).toBe(422);
+      expect(api.setCartQuantity).not.toHaveBeenCalled();
+      expect(api.removeFromCart).not.toHaveBeenCalled();
+    }
+  );
+
+  it('passes a rate limit through', async () => {
+    api.fetchCart.mockResolvedValue({ success: false, error: 'Too many requests', status: 429 });
+
+    expect((await GET(new Request('http://x/cart'), slugParams)).status).toBe(429);
+  });
+
   it('sets a line quantity and removes a line', async () => {
     const put = await PUT(write('PUT', { quantity: 4 }), lineParams);
     const del = await DELETE(write('DELETE'), lineParams);

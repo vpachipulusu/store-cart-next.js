@@ -66,11 +66,16 @@ class StoreCartRepository(BaseRepository):
     async def lock_cart(self, cart_id: str) -> bool:
         """Serialise writes to one cart until the transaction ends; false when it is gone.
 
-        A cart can be purged between the lookup and the lock, so the caller must check.
+        A cart can expire or be purged between the lookup and the lock, so the caller must
+        check. An expired cart is never locked, so a write cannot revive it.
         """
         row = (
             await self._session.execute(
-                text("SELECT id FROM carts WHERE id = :id FOR UPDATE"), {"id": cart_id}
+                text(
+                    "SELECT id FROM carts "
+                    "WHERE id = :id AND expires_at > now() FOR UPDATE"
+                ),
+                {"id": cart_id},
             )
         ).first()
         return row is not None

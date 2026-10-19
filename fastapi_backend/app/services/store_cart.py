@@ -35,6 +35,8 @@ CART_TTL_DAYS = 30
 MAX_LINES = 50
 MAX_QUANTITY = 99
 EXPIRED_PURGE_LIMIT = 20
+FOREIGN_KEY_VIOLATION = "23503"
+VARIANT_FOREIGN_KEY = "fk_cart_items_variant"
 _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{43}$")
 
 
@@ -145,6 +147,18 @@ def _check_sellable(variant: VariantRow | None, quantity: int) -> None:
         raise CartConflict(f"Only {variant.stock} in stock")
 
 
+def _is_variant_gone(error: IntegrityError) -> bool:
+    """True only for the cart_items -> variants foreign key violation."""
+    original = error.orig
+    for candidate in (original, getattr(original, "__cause__", None)):
+        if (
+            getattr(candidate, "sqlstate", None) == FOREIGN_KEY_VIOLATION
+            and getattr(candidate, "constraint_name", None) == VARIANT_FOREIGN_KEY
+        ):
+            return True
+    return False
+
+
 class StoreCartService:
     def __init__(
         self,
@@ -215,9 +229,11 @@ class StoreCartService:
             await self._repository.set_item(cart_id, variant_id, quantity)
             await self._repository.touch_cart(cart_id, ttl_days=CART_TTL_DAYS)
             await self._session.commit()
-        except IntegrityError:  # the variant was deleted after the check
+        except IntegrityError as error:
             await self._session.rollback()
-            raise ItemUnavailable from None
+            if _is_variant_gone(error):  # deleted after the check
+                raise ItemUnavailable from None
+            raise
         settings = await self._settings.totals_settings()
         rows = await self._repository.list_lines(cart_id)
         return build_view(rows, settings, new_token=issued)

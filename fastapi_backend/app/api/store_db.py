@@ -37,6 +37,7 @@ from app.services.storefront import active_store_id
 logger = logging.getLogger(__name__)
 
 STORE_UNAVAILABLE = "Store database is not available"
+NO_STORE_HEADERS = {"Cache-Control": "no-store"}
 
 
 def store_products_service(
@@ -156,7 +157,7 @@ async def storefront_cart_service(
     async with provider.session() as platform:
         store_id = await active_store_id(StorefrontRepository(platform), slug)
     if store_id is None:
-        raise HTTPException(404, "Store not found")
+        raise HTTPException(404, "Store not found", headers=NO_STORE_HEADERS)
     try:
         async with open_store_session(store_id, provider) as session:
             yield StoreCartService(
@@ -171,4 +172,4 @@ async def storefront_cart_service(
             reason,
             extra={"store_id": store_id, "reason": reason},
         )
-        raise HTTPException(503, STORE_UNAVAILABLE) from None
+        raise HTTPException(503, STORE_UNAVAILABLE, headers=NO_STORE_HEADERS) from None
