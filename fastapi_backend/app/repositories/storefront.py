@@ -28,3 +28,14 @@ class StorefrontRepository(BaseRepository):
             )
         ).one_or_none()
         return PublicStore(name=row.name, slug=row.slug) if row else None
+
+    async def find_active_id_by_slug(self, slug: str) -> str | None:
+        """The id of the ACTIVE store with this slug (internal use: opening its database)."""
+        row = (
+            await self._session.execute(
+                select(Store.id).where(
+                    Store.slug == slug, Store.status == StoreStatus.ACTIVE
+                )
+            )
+        ).one_or_none()
+        return str(row.id) if row else None

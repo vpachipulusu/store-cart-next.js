@@ -25,3 +25,16 @@ class StorefrontService:
         except (InvalidSlug, ReservedSlug):
             return None
         return await self._repository.find_active_by_slug(slug)
+
+
+class ActiveStoreIds(Protocol):
+    async def find_active_id_by_slug(self, slug: str) -> str | None: ...
+
+
+async def active_store_id(repository: ActiveStoreIds, raw_slug: str) -> str | None:
+    """The id of the ACTIVE store with this slug, else None (same rules as ``lookup``)."""
+    try:
+        slug = normalize_slug(raw_slug)
+    except (InvalidSlug, ReservedSlug):
+        return None
+    return await repository.find_active_id_by_slug(slug)
