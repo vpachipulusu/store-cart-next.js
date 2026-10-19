@@ -21,10 +21,12 @@ from app.core.plans import Plan
 from app.models.platform.membership import MembershipRole
 from app.repositories.merchant import MerchantAccess, MerchantRepository
 from app.repositories.store_catalogue import StoreCatalogueRepository
+from app.repositories.store_settings import StoreSettingsRepository
 from app.services.merchant import ALL_ROLES
 from app.services.plan_limits import plan_for
 from app.services.store_products import StoreProductsService
 from app.services.store_sessions import StoreSessionError, open_store_session
+from app.services.store_settings import StoreSettingsService
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,32 @@ def store_products_service(
             # The cause is in the message, so it shows in log lines that drop extras:
             # StoreDatabaseNotConfigured = provisioning never stored a connection string,
             # StoreDatabaseUnavailable = it cannot be decrypted or used (key or URL).
+            reason = type(error).__name__
+            logger.error(
+                "store database unavailable: %s",
+                reason,
+                extra={"store_id": store_id, "reason": reason},
+            )
+            raise HTTPException(503, STORE_UNAVAILABLE) from None
+
+    return dependency
+
+
+def store_settings_service(
+    roles: frozenset[MembershipRole] = ALL_ROLES,
+) -> Callable[..., AsyncIterator[StoreSettingsService]]:
+    """Dependency factory: a store settings service on the caller's store database."""
+    merchant_dependency = require_merchant(roles)
+
+    async def dependency(
+        merchant: Annotated[MerchantAccess, Depends(merchant_dependency)],
+        provider: Annotated[SessionProvider, Depends(get_session_provider)],
+    ) -> AsyncIterator[StoreSettingsService]:
+        store_id = merchant.store.id
+        try:
+            async with open_store_session(store_id, provider) as session:
+                yield StoreSettingsService(StoreSettingsRepository(session), session)
+        except StoreSessionError as error:
             reason = type(error).__name__
             logger.error(
                 "store database unavailable: %s",
