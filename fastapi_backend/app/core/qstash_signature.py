@@ -21,7 +21,16 @@ CLOCK_SKEW_SECONDS = 5
 
 
 class InvalidQStashSignature(Exception):
-    """The signature header is missing, malformed, expired or does not match."""
+    """The signature header is missing, malformed, expired or does not match.
+
+    ``reason`` names the failed check (KAN-255) and ``claimed_url`` is the ``sub`` of a
+    token whose HMAC verified but was issued for another URL. Neither is secret.
+    """
+
+    def __init__(self, reason: str = "malformed", claimed_url: str | None = None):
+        super().__init__(reason)
+        self.reason = reason
+        self.claimed_url = claimed_url
 
 
 _B64URL = re.compile(r"[A-Za-z0-9_-]*")
@@ -51,11 +60,11 @@ def _claims(token: str, keys: Sequence[str]) -> dict[str, Any]:
     """Claims of ``token`` once its HMAC is verified; nothing is parsed before that."""
     parts = token.split(".")
     if len(parts) != 3:
-        raise InvalidQStashSignature
+        raise InvalidQStashSignature("malformed")
     head, payload, signature = parts
     signing_input = f"{head}.{payload}".encode()
     if not _signed_by_any(signing_input, _b64decode(signature), keys):
-        raise InvalidQStashSignature
+        raise InvalidQStashSignature("signature")
     try:
         header = json.loads(_b64decode(head))
         claims = json.loads(_b64decode(payload))
@@ -81,23 +90,29 @@ def verify_qstash_signature(
     """Raise InvalidQStashSignature unless ``token`` signs this ``body`` for ``url``."""
     keys = [key for key in signing_keys if key]
     if not token or not keys:
-        raise InvalidQStashSignature
+        raise InvalidQStashSignature("missing")
     claims = _claims(token, keys)
-    current = time.time() if now is None else now
-    exp, nbf = claims.get("exp"), claims.get("nbf")
-    if (
-        claims.get("iss") != ISSUER
-        or claims.get("sub") != url
-        or not isinstance(exp, int | float)
-        or not isinstance(nbf, int | float)
-        or current > exp + CLOCK_SKEW_SECONDS
-        or current < nbf - CLOCK_SKEW_SECONDS
-        or exp - nbf > MAX_LIFETIME_SECONDS
-    ):
-        raise InvalidQStashSignature
+    _check_claims(claims, url, time.time() if now is None else now)
     digest = base64.urlsafe_b64encode(hashlib.sha256(body).digest()).rstrip(b"=")
     claimed = claims.get("body")
     if not isinstance(claimed, str) or not hmac.compare_digest(
         claimed.rstrip("=").encode(), digest
     ):
-        raise InvalidQStashSignature
+        raise InvalidQStashSignature("body")
+
+
+def _check_claims(claims: dict[str, Any], url: str, current: float) -> None:
+    exp, nbf = claims.get("exp"), claims.get("nbf")
+    if claims.get("iss") != ISSUER:
+        raise InvalidQStashSignature("issuer")
+    sub = claims.get("sub")
+    if sub != url:
+        raise InvalidQStashSignature("subject", sub if isinstance(sub, str) else None)
+    if not isinstance(exp, int | float) or not isinstance(nbf, int | float):
+        raise InvalidQStashSignature("malformed")
+    if current > exp + CLOCK_SKEW_SECONDS:
+        raise InvalidQStashSignature("expired")
+    if current < nbf - CLOCK_SKEW_SECONDS:
+        raise InvalidQStashSignature("not_yet_valid")
+    if exp - nbf > MAX_LIFETIME_SECONDS:
+        raise InvalidQStashSignature("lifetime")

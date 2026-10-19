@@ -250,3 +250,25 @@ async def test_failure_callback_rejects_an_invalid_payload_without_retry(
 @pytest.fixture(autouse=True)
 def _reset_overrides() -> Iterator[None]:
     yield
+
+
+async def test_a_rejected_signature_logs_which_check_failed(client, runner, caplog):
+    """KAN-255: the 401 log names the failed check and, for a URL mismatch, both URLs
+    (never the token, body or keys), so a production rejection can be diagnosed."""
+    caplog.set_level("WARNING", logger="storecart.store_provisioning_job")
+    other = "https://other.example.test/internal/provisioning/step"
+
+    wrong_key = await post(client, STEP_PATH, step_body(), key="someone-elses-key")
+    wrong_url = await post(
+        client, STEP_PATH, step_body(), token=make_token(step_body(), other, KEY)
+    )
+
+    assert [wrong_key.status_code, wrong_url.status_code] == [401, 401]
+    messages = [r.getMessage() for r in caplog.records]
+    assert "qstash signature rejected: reason=signature" in messages
+    assert (
+        f"qstash signature rejected: reason=subject claimed={other} "
+        f"expected={BASE}{STEP_PATH}"
+    ) in messages
+    assert not any(KEY in m or "someone-elses-key" in m for m in messages)
+    assert runner.calls == []
