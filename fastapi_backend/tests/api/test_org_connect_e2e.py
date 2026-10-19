@@ -461,10 +461,13 @@ async def seed_store(engine: AsyncEngine, org_id: str) -> str:
 class RecordingStoreHandler:
     def __init__(self) -> None:
         self.routes: list[ConnectRoute] = []
+        self.fail = False
 
     async def __call__(self, route: ConnectRoute, obj: Any) -> None:
         await asyncio.sleep(0.05)  # widen the race window between deliveries
         self.routes.append(route)
+        if self.fail:
+            raise RuntimeError("handler failed")
 
 
 @pytest.fixture
@@ -549,3 +552,25 @@ async def test_a_store_event_naming_another_organisations_store_is_ignored(
     assert response.status_code == 200
     assert store_handler.routes == []
     assert await connect_event_rows(engine) == []
+
+
+async def test_a_failing_store_handler_records_nothing_and_the_retry_applies_once(
+    client, engine, stripe, store_handler
+):
+    org = await seed_org(engine, {"owner": "OWNER"})
+    await onboard(client, org)
+    store = await seed_store(engine, org)
+    event = checkout_event("acct_new", store)
+    store_handler.fail = True
+
+    failed = await deliver(client, event)
+    rows_after_failure = await connect_event_rows(engine)
+    store_handler.fail = False
+    retried = await deliver(client, event)
+    again = await deliver(client, event)
+
+    assert failed.status_code == 500
+    assert rows_after_failure == []
+    assert (retried.status_code, again.status_code) == (200, 200)
+    assert len(store_handler.routes) == 2  # the failed attempt and the retry
+    assert len(await connect_event_rows(engine)) == 1

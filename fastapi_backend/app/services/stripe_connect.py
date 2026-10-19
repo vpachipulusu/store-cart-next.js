@@ -76,7 +76,10 @@ class WebhookOutcome(StrEnum):
     DUPLICATE = "duplicate"
 
 
-# A store-scoped event handler: runs inside the transaction that records the event.
+# A store-scoped event handler. It runs inside the platform transaction that records the event, so it
+# must not commit or roll back, must be short (it holds the claim's lock), and must be idempotent for
+# any write outside that transaction (a store database): a failure after such a write rolls back only
+# the claim, and Stripe's retry runs the handler again.
 StoreEventHandler = Callable[[ConnectRoute, Mapping[str, Any]], Awaitable[None]]
 
 
@@ -293,7 +296,8 @@ class ConnectWebhookService:
         account_id = _event_account_id(event_type, event)
         try:
             return await self._process(event_id, event_type, created, account_id, event)
-        except BaseException:
+        except Exception:
+            # Cancellation is left to the session provider, which rolls back on close.
             await self._session.rollback()
             raise
 

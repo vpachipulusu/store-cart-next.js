@@ -13,8 +13,8 @@ from app.core.stripe_billing import (
 )
 from app.core.stripe_connect import StripeAccountState
 from app.models.platform.membership import MembershipRole
+from app.repositories.connect_events import ConnectRoute
 from app.repositories.org_connect import ConnectRecord
-from app.services.stripe_connect import ConnectRoute
 
 ACCOUNT_ID = "acct_new"
 
@@ -49,9 +49,8 @@ class FakeStripeConnect:
 
     async def get_account(self, account_id: str) -> StripeAccountState:
         self._record("get_account", account_id=account_id)
-        await asyncio.sleep(
-            0
-        )  # a real read yields, so concurrent deliveries interleave
+        # A real read yields, so concurrent deliveries interleave.
+        await asyncio.sleep(0)
         if self.not_found_on_get:
             raise StripeNotFound("Stripe request failed")
         if self.forbidden_on_get:

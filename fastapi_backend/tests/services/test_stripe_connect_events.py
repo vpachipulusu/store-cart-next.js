@@ -345,3 +345,16 @@ async def test_a_deauthorization_is_recorded_once():
     assert events.recorded["evt_de1"].route == ConnectRoute("org1", "acct_1", None)
     assert stripe.calls == []
     assert store.orgs["org1"].connect_charges_enabled is False
+
+
+def test_account_events_cannot_be_registered_as_store_scoped():
+    store, events = FakeConnectStore(), FakeConnectEvents()
+
+    with pytest.raises(ValueError):
+        ConnectWebhookService(
+            store,
+            events,
+            FakeEventSession(events),  # type: ignore[arg-type]
+            FakeStripeConnect,
+            store_handlers={"account.updated": RecordingHandler()},
+        )

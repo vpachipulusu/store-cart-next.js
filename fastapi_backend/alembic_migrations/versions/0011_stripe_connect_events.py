@@ -1,6 +1,6 @@
 """Stripe Connect webhook events (KAN-69)
 
-Adds `stripe_connect_events`: one row per applied Stripe Connect event, unique on the
+Adds `stripe_connect_events`: one row per processed Stripe Connect event, unique on the
 Stripe event id (the idempotency key), with the connected account and the organisation
 and store the event was routed to. Kept apart from the Billing `stripe_events` ledger:
 a separate endpoint, signing secret and history. Rows go with their organisation
@@ -64,17 +64,19 @@ def upgrade() -> None:
         ["organization_id"],
         unique=False,
     )
+    # Partial: most rows (account events) have no store.
     op.create_index(
-        op.f("ix_stripe_connect_events_store_id"),
+        "ix_stripe_connect_events_store_id",
         "stripe_connect_events",
         ["store_id"],
         unique=False,
+        postgresql_where=sa.text("store_id IS NOT NULL"),
     )
 
 
 def downgrade() -> None:
     op.drop_index(
-        op.f("ix_stripe_connect_events_store_id"), table_name="stripe_connect_events"
+        "ix_stripe_connect_events_store_id", table_name="stripe_connect_events"
     )
     op.drop_index(
         op.f("ix_stripe_connect_events_organization_id"),
