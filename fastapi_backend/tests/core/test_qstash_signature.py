@@ -152,4 +152,7 @@ def test_a_subject_mismatch_reports_the_url_the_token_was_issued_for():
     with pytest.raises(InvalidQStashSignature) as caught:
         verify(make_token(url="https://other.example.test/internal/provisioning/step"))
 
-    assert caught.value.claimed_url == "https://other.example.test/internal/provisioning/step"
+    assert (
+        caught.value.claimed_url
+        == "https://other.example.test/internal/provisioning/step"
+    )
