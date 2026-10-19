@@ -3,12 +3,18 @@ import { ProductCreateForm } from '@/components/dashboard/products/product-creat
 import { ProductsLoadError } from '@/components/dashboard/products/products-load-error';
 import { fetchProducts, loadCategoryList, productErrorMessage } from '@/lib/api/products';
 import { getCurrentStoreSelection } from '@/lib/stores/current';
+import { isStoreInSetup } from '@/lib/stores/provisioning';
+import { StoreSetupState } from '@/components/dashboard/store-setup-state';
 
 export const metadata = { title: 'New product' };
 
 export default async function NewProductPage() {
   const selection = await getCurrentStoreSelection();
   if (!selection.available || !selection.selected) return null;
+  if (isStoreInSetup(selection.selected.status)) {
+    const { id, name, status } = selection.selected;
+    return <StoreSetupState storeId={id} storeName={name} status={status} />;
+  }
 
   // The list response is the only place the API reports the store currency before a product exists.
   const [result, categories] = await Promise.all([

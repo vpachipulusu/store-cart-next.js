@@ -8,6 +8,11 @@ import { StatusPill } from '@/components/ui/status-pill';
 import { getStoreStatusAction, retryProvisioningAction } from '@/app/actions/onboarding-actions';
 import { SESSION_EXPIRED_MESSAGE } from '@/lib/onboarding/schema';
 import type { StoreStatus } from '@/lib/api/onboarding';
+import {
+  RETRY_LIMIT_MESSAGE,
+  RETRY_MESSAGES,
+  STUCK_AFTER_MINUTES,
+} from '@/lib/stores/provisioning';
 
 /** Poll delays grow by 1.5x from 2s to a 15s cap, so a slow provisioning job is not hammered. */
 export const POLL_INITIAL_MS = 2000;
@@ -27,16 +32,9 @@ export function nextPollDelay(attempt: number): number {
 const UNAVAILABLE_MESSAGE = 'This store is not available right now.';
 const SLOW_MESSAGE = 'Setting up your store is taking longer than expected.';
 const CHECK_FAILED_MESSAGE = 'We could not check your store. Please try again.';
-/** Mirrors STUCK_AFTER in fastapi_backend/app/services/admin_stores.py: the backend re-runs a quiet store only after this long. */
-const RETRY_AVAILABLE_AFTER_MINUTES = 15;
+const RETRY_AVAILABLE_AFTER_MINUTES = STUCK_AFTER_MINUTES;
 const TOO_SOON_MESSAGE =
   'Your store is still being set up. Please wait a few minutes, then check again.';
-const RETRY_LIMIT_MESSAGE = 'We have already tried the maximum number of times.';
-const RETRY_MESSAGES = {
-  rate_limited: 'Too many attempts. Wait a few minutes and try again.',
-  forbidden: 'Only an owner or admin of this business can retry the setup.',
-  unavailable: 'We could not retry the setup. Please try again.',
-} as const;
 
 type ProvisioningStatusProps = {
   storeId: string;
