@@ -61,6 +61,8 @@ uv run alembic upgrade head
 uv run uvicorn app.main:app --port 8170
 ```
 
+The backend must not inherit `UPSTASH_REDIS_REST_*` (`.env.e2e.local` sets them): with `ENVIRONMENT=local` it would still use Upstash and login answers 503. Unset them (`unset UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN`) in the backend shell, and never open the env file to check.
+
 In the shell you run the tests from:
 
 ```bash
