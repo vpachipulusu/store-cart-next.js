@@ -24,7 +24,12 @@ export function storeOrigin(slug: string, rootDomain: string, port?: string): st
 }
 
 /** Keys the root layout sets for the platform that must not describe a merchant's store. */
-const NOT_THE_PLATFORM = { keywords: null, authors: null, creator: null } as const;
+const NOT_THE_PLATFORM = {
+  keywords: null,
+  authors: null,
+  creator: null,
+  manifest: null,
+} as const;
 
 /** Store-wide defaults from the storefront layout: title template, base URL, Open Graph site name. */
 export function storeMetadata(store: SeoStore, origin: string): Metadata {

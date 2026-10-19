@@ -174,6 +174,31 @@ describe('cached reads', () => {
     expect(mocks.cacheCalls).toEqual([]);
   });
 
+  it('never call the backend or cache for a malformed product or category slug', async () => {
+    await expect(getProduct('acme', 'x'.repeat(500))).resolves.toBeNull();
+    await expect(getProduct('acme', 'Blue-Mug')).resolves.toBeNull();
+    await expect(getProductPage('acme', 'x.png', 1)).resolves.toBeNull();
+
+    expect(mocks.callBackend).not.toHaveBeenCalled();
+  });
+
+  it('drop image URLs that are not https', async () => {
+    backendReturns({
+      success: true,
+      data: {
+        ...productBody,
+        images: [{ url: 'javascript:alert(1)', alt_text: null }, ...productBody.images],
+      },
+    });
+
+    const product = await getProduct('acme', 'mug');
+
+    expect(product?.images.map((item) => item.url)).toEqual([
+      'https://img.example/1.jpg',
+      'https://img.example/2.jpg',
+    ]);
+  });
+
   it('keep only the public store fields', async () => {
     backendReturns({ success: true, data: { name: 'Acme', slug: 'acme', extra: 'x' } });
 

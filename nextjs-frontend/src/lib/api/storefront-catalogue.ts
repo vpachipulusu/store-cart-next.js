@@ -12,7 +12,7 @@ import {
   type PublicProductData,
   type PublicProductListResponse,
 } from './generated';
-import { isValidStoreSlug } from '@/lib/storefront/host';
+import { isValidCatalogueSlug, isValidStoreSlug } from '@/lib/storefront/host';
 import {
   PAGE_SIZE,
   pageCount,
@@ -43,8 +43,17 @@ import type { PublicStorefront } from './storefront';
 
 export const STOREFRONT_UNAVAILABLE_MESSAGE = 'Storefront temporarily unavailable';
 
-function image(data: PublicImageData, fallbackAlt: string): StoreImage {
-  return { url: data.url, alt: data.alt_text?.trim() || fallbackAlt };
+/** Only https image URLs are rendered; anything else (a misconfigured origin) shows the placeholder. */
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function image(data: PublicImageData, fallbackAlt: string): StoreImage | null {
+  return isHttpsUrl(data.url) ? { url: data.url, alt: data.alt_text?.trim() || fallbackAlt } : null;
 }
 
 export function mapCategory(data: PublicCategoryData): StoreCategory {
@@ -84,9 +93,11 @@ export function mapProduct(data: PublicProductData): ProductDetail {
       inStock: variant.in_stock,
       optionValueIds: variant.option_value_ids,
     })),
-    images: data.images.map((item, index) =>
-      image(item, index === 0 ? data.title : `${data.title}, image ${index + 1}`)
-    ),
+    images: data.images
+      .map((item, index) =>
+        image(item, index === 0 ? data.title : `${data.title}, image ${index + 1}`)
+      )
+      .filter((item): item is StoreImage => item !== null),
     categories: data.categories.map(mapCategory),
   };
 }
@@ -154,13 +165,16 @@ export const getPublicStore = cached(
 /** Newest published products, optionally in one category (by slug); null for an unknown category or store. */
 export const getProductPage = cached(
   'products',
-  (slug: string, category: string | null, page: number) =>
-    loadProducts(slug, { category, page }, SHARED)
+  async (slug: string, category: string | null, page: number) =>
+    category !== null && !isValidCatalogueSlug(category)
+      ? null
+      : loadProducts(slug, { category, page }, SHARED)
 );
 
 export const getProduct = cached(
   'product',
   async (slug: string, productSlug: string): Promise<ProductDetail | null> => {
+    if (!isValidCatalogueSlug(productSlug)) return null;
     const result = await callBackend(
       (client) => readStorefrontProduct({ client, path: { slug, product_slug: productSlug } }),
       SHARED
@@ -180,7 +194,10 @@ export const getCategories = cached(
   }
 );
 
-/** Uncached search; forwards the visitor's IP so each shopper has their own rate limit. */
+/**
+ * Uncached search; forwards the visitor's IP so each shopper has their own rate limit. `cleanSearch` already
+ * removes what the backend would refuse (control characters, over 100 code points).
+ */
 export async function searchProducts(
   slug: string,
   query: string,

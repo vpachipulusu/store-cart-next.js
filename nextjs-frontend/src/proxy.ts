@@ -44,8 +44,16 @@ function rewriteToStorefront(request: NextRequest, slug: string, headers: Header
   headers.set(STORE_SLUG_HEADER, slug);
   const response = NextResponse.rewrite(url, { request: { headers } });
   applySecurityHeaders(response);
+  response.headers.set('Content-Security-Policy', STORE_HOST_CONTENT_SECURITY_POLICY);
   return response;
 }
+
+/**
+ * Baseline for store hosts (KAN-75), which render merchant text: no plugins, no <base> hijack, no framing, no form
+ * posts off the host. Scripts stay as Next.js needs them (inline bootstrap), so this limits, not forbids, script.
+ */
+const STORE_HOST_CONTENT_SECURITY_POLICY =
+  "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
 
 /** The internal 404 page: a fresh URL, so no query string or trailing-slash state of the request survives. */
 function notFoundTarget(request: NextRequest): URL {
@@ -264,5 +272,8 @@ export const config = {
      * - public files (images, etc.)
      */
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    // KAN-75: the image-suffix exclusion above must never let a direct internal storefront path skip the guard.
+    '/storefront/:path*',
+    '/storefront-preview/:path*',
   ],
 };

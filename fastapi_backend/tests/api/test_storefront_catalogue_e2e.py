@@ -229,3 +229,65 @@ async def test_a_store_that_is_not_active_is_not_found(
         response = await client.get(url("a-south", suffix))
         assert response.status_code == 404, suffix
         assert response.json() == {"success": False, "error": "Store not found"}
+
+
+async def test_totals_and_pages_count_published_products_only(
+    client: AsyncClient, world: World
+) -> None:
+    category_id, category_slug = await add_category(world)
+    published = [await publish(client, world) for _ in range(3)]
+    draft = await create_product(
+        client, store_of(world, *NORTH), "alice", simple_payload(status="draft")
+    )
+    for product_id in [p["id"] for p in published] + [draft["id"]]:
+        await run_sql(
+            world,
+            "INSERT INTO product_categories (product_id, category_id) VALUES (:p, :c)",
+            p=product_id,
+            c=category_id,
+        )
+
+    first = await client.get(
+        url("a-north", "/products"), params={"category": category_slug, "limit": 2}
+    )
+    second = await client.get(
+        url("a-north", "/products"),
+        params={"category": category_slug, "limit": 2, "offset": 2},
+    )
+
+    assert first.json()["total"] == second.json()["total"] == 3
+    slugs = [p["slug"] for p in first.json()["data"] + second.json()["data"]]
+    assert sorted(slugs) == sorted(p["slug"] for p in published)
+    assert draft["slug"] not in slugs
+
+
+async def test_search_wildcards_are_literal_text(
+    client: AsyncClient, world: World
+) -> None:
+    tag = unique()
+    percent = await create_product(
+        client,
+        store_of(world, *NORTH),
+        "alice",
+        simple_payload(status="active", title=f"100% cotton {tag}"),
+    )
+    await create_product(
+        client,
+        store_of(world, *NORTH),
+        "alice",
+        simple_payload(status="active", title=f"1000 cotton {tag}"),
+    )
+
+    found = data_of(
+        await client.get(url("a-north", "/products"), params={"q": f"0% cotton {tag}"})
+    )
+    backslash = await client.get(url("a-north", "/products"), params={"q": "\\"})
+
+    assert [p["slug"] for p in found] == [percent["slug"]]
+    assert backslash.status_code == 200
+
+
+async def test_an_offset_past_the_public_cap_is_rejected(client: AsyncClient) -> None:
+    response = await client.get(url("a-north", "/products"), params={"offset": 10_001})
+
+    assert response.status_code == 422

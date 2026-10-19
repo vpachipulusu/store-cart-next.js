@@ -174,3 +174,41 @@ describe('proxy store host extras', () => {
     expect(new URL(rewriteTarget(response)!).pathname).toBe('/storefront/acme');
   });
 });
+
+describe('KAN-75 storefront guard', () => {
+  beforeEach(() => {
+    vi.stubEnv('PLATFORM_ROOT_DOMAIN', 'storecart.test');
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('gives store hosts a baseline content security policy', async () => {
+    const response = await proxy(request('acme.storecart.test', '/products/mug'));
+    expect(response.headers.get('Content-Security-Policy')).toBe(
+      "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    );
+  });
+
+  it.each(['/storefront', '/storefront/acme/products/x.png', '/%73torefront/acme', '/Storefront/acme'])(
+    'sends %s on the platform host to the 404 without the marker',
+    async (path) => {
+      const response = await proxy(request('storecart.test', path));
+      expect(new URL(rewriteTarget(response)!).pathname).toBe('/storefront-preview/not_found');
+      expect(overridden(response, STORE_SLUG_HEADER)).toBeNull();
+      expect(response.headers.get('X-Robots-Tag')).toBe('noindex');
+    }
+  );
+
+  it('keeps a store host on its own store for a /storefront path', async () => {
+    const response = await proxy(request('acme.storecart.test', '/storefront/other'));
+    expect(new URL(rewriteTarget(response)!).pathname).toBe('/storefront/acme/storefront/other');
+  });
+
+  it('runs on every internal storefront path, whatever the suffix', async () => {
+    const { config } = await import('@/proxy');
+    expect(config.matcher).toEqual(
+      expect.arrayContaining(['/storefront/:path*', '/storefront-preview/:path*'])
+    );
+  });
+});

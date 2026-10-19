@@ -15,7 +15,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.api.deps import get_rate_limiter
 from app.api.store_db import STORE_UNAVAILABLE, storefront_catalogue_service
-from app.core.rate_limit import STOREFRONT_POLICY
+from app.core.rate_limit import STOREFRONT_CATALOGUE_POLICY
 from app.main import create_app
 from app.services.store_product_types import OptionRecord, OptionValueRecord
 from app.services.store_sessions import StoreDatabaseUnavailable
@@ -238,11 +238,11 @@ async def test_requests_over_the_storefront_limit_get_429() -> None:
     async with client_for(StubCatalogue(), limiter=limiter) as client:
         statuses = [
             (await client.get("/v1/storefront/acme/categories")).status_code
-            for _ in range(STOREFRONT_POLICY.limit + 1)
+            for _ in range(STOREFRONT_CATALOGUE_POLICY.limit + 1)
         ]
 
     assert statuses[-1] == 429
-    assert all(policy is STOREFRONT_POLICY for _, policy in limiter.hits)
+    assert all(policy is STOREFRONT_CATALOGUE_POLICY for _, policy in limiter.hits)
 
 
 async def _first(slug: str) -> object:
@@ -291,3 +291,25 @@ async def test_an_unusable_store_database_is_a_503(
     assert raised.value.status_code == 503
     assert raised.value.detail == STORE_UNAVAILABLE
     assert raised.value.headers == {"Cache-Control": "no-store"}
+
+
+async def test_a_forwarded_visitor_is_limited_by_ip_and_a_shared_read_by_store() -> (
+    None
+):
+    limiter = FakeRateLimiter()
+    async with client_for(StubCatalogue(), limiter=limiter) as client:
+        await client.get(
+            "/v1/storefront/acme/categories", headers={"X-Client-IP": "203.0.113.9"}
+        )
+        await client.get("/v1/storefront/acme/categories")
+        await client.get("/v1/storefront/other/products")
+        await client.get(
+            "/v1/storefront/acme/categories", headers={"X-Client-IP": "not-an-ip"}
+        )
+
+    assert [identifier for identifier, _ in limiter.hits] == [
+        "storefront_catalogue:ip:203.0.113.9",
+        "storefront_catalogue:store:acme",
+        "storefront_catalogue:store:other",
+        "storefront_catalogue:store:acme",
+    ]

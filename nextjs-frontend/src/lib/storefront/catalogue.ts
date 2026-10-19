@@ -69,13 +69,18 @@ export function parsePage(value: string | string[] | undefined): number {
   return Math.min(Number(raw), MAX_PAGE);
 }
 
-/** Trimmed search text with inner whitespace collapsed, cut to the backend limit; empty means no search. */
+/**
+ * Search text: control characters (which the backend rejects) and runs of whitespace become one space, trimmed
+ * and cut to the backend limit by code point. Empty means no search.
+ */
 export function cleanSearch(value: string | string[] | undefined): string {
   const raw = Array.isArray(value) ? value[0] : value;
-  return (raw ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_SEARCH_LENGTH).trim();
+  const flat = (raw ?? '').replace(/[\u0000-\u001f\u007f\s]+/g, ' ').trim();
+  return Array.from(flat).slice(0, MAX_SEARCH_LENGTH).join('').trim();
 }
 
 export function pageCount(total: number, size: number = PAGE_SIZE): number {
+  if (!Number.isFinite(total) || total <= 0 || size <= 0) return 1;
   return Math.min(Math.max(1, Math.ceil(total / size)), MAX_PAGE);
 }
 

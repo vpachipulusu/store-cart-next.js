@@ -301,4 +301,28 @@ describe('product actions', () => {
       expect(mocks.deleteProductImage).not.toHaveBeenCalled();
     });
   });
+
+  describe('storefront cache (KAN-75)', () => {
+    it.each([
+      ['update', () => updateProductAction(PRODUCT, details)],
+      ['delete', () => deleteProductAction(PRODUCT)],
+      ['add variant', () => addVariantAction(PRODUCT, { ...variant, options: {} })],
+      ['update variant', () => updateVariantAction(PRODUCT, 'v1', { ...variant, options: {} })],
+      ['delete variant', () => deleteVariantAction(PRODUCT, 'v1')],
+      ['delete image', () => deleteImageAction(PRODUCT, 'i1')],
+    ])('%s expires the pages of the selected store by slug, not id', async (_name, run) => {
+      await run();
+
+      expect(mocks.revalidateTag).toHaveBeenCalledTimes(1);
+      expect(mocks.revalidateTag).toHaveBeenCalledWith('storefront:shop', { expire: 0 });
+    });
+
+    it('leaves the cache alone when the backend refuses the change', async () => {
+      mocks.updateStoreProduct.mockResolvedValue({ success: false, error: 'Nope', status: 422 });
+
+      await updateProductAction(PRODUCT, details);
+
+      expect(mocks.revalidateTag).not.toHaveBeenCalled();
+    });
+  });
 });

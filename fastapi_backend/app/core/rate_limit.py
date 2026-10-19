@@ -61,6 +61,12 @@ WEBHOOK_POLICY = RateLimitPolicy(
 STOREFRONT_POLICY = RateLimitPolicy(
     "storefront", limit=120, window_seconds=60, fail_closed=False
 )
+# Public catalogue reads (KAN-75). Visitors are keyed by their forwarded IP; the Next.js server's shared,
+# cached reads carry no visitor IP and are keyed by store instead, so cache misses for one store cannot use
+# up another store's budget. Higher than the lookup: one page view can need three reads.
+STOREFRONT_CATALOGUE_POLICY = RateLimitPolicy(
+    "storefront_catalogue", limit=300, window_seconds=60, fail_closed=False
+)
 # Public cart reads and writes (KAN-76): keyed by client IP, no user is attached. Writes open a
 # store database, so the cap is lower than the lookup's.
 CART_POLICY = RateLimitPolicy("cart", limit=60, window_seconds=60, fail_closed=False)

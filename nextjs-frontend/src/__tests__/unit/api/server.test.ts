@@ -46,6 +46,35 @@ describe('callBackend', () => {
     delete process.env.BACKEND_API_URL;
   });
 
+  describe('Given a shared read for the per-store cache (KAN-75)', () => {
+    it('sends the internal key but no session, no visitor IP and no no-store', async () => {
+      vi.stubEnv('BACKEND_INTERNAL_KEY', 'server-key');
+      vi.stubEnv('VERCEL', '1');
+      headerGet.mockReturnValue('192.0.2.1');
+      fetchMock.mockResolvedValue(jsonResponse({ status: 'ok' }));
+
+      await callBackend((client) => healthCheck({ client }), { shared: true });
+
+      const request = fetchMock.mock.calls[0][0];
+      expect(request.headers.get(INTERNAL_KEY_HEADER)).toBe('server-key');
+      expect(request.headers.get(SESSION_HEADER)).toBeNull();
+      expect(request.headers.get('X-Client-IP')).toBeNull();
+      expect(request.cache).not.toBe('no-store');
+      expect(cookieGet).not.toHaveBeenCalled();
+      expect(headerGet).not.toHaveBeenCalled();
+    });
+
+    it('keeps no-store and the session for ordinary calls', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ status: 'ok' }));
+
+      await callBackend((client) => healthCheck({ client }));
+
+      const request = fetchMock.mock.calls[0][0];
+      expect(request.headers.get(SESSION_HEADER)).toBe('firebase-session-cookie');
+      expect(request.cache).toBe('no-store');
+    });
+  });
+
   describe('Given a signed-in request', () => {
     it('forwards the trusted Vercel IP only alongside the internal key', async () => {
       vi.stubEnv('BACKEND_INTERNAL_KEY', 'server-key');

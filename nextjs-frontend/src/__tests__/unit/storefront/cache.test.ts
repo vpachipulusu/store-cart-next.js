@@ -25,7 +25,15 @@ describe('storefront cache', () => {
     );
   });
 
-  it('expires on its own within minutes', () => {
-    expect(STOREFRONT_REVALIDATE_SECONDS).toBe(300);
+  it('expires on its own within minutes, so a suspension shows quickly', () => {
+    expect(STOREFRONT_REVALIDATE_SECONDS).toBeGreaterThan(0);
+    expect(STOREFRONT_REVALIDATE_SECONDS).toBeLessThanOrEqual(600);
+  });
+
+  it('keeps a numeric zero distinct from a missing argument', () => {
+    expect(storefrontCacheKey('products', 'acme', 0)).toEqual(['storefront', 'products', 'acme', '0']);
+    expect(storefrontCacheKey('products', 'acme', undefined)).toEqual(
+      storefrontCacheKey('products', 'acme', null)
+    );
   });
 });

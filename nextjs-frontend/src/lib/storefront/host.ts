@@ -161,11 +161,31 @@ export const STORE_NOT_FOUND_SLUG = 'not_found';
 export const STOREFRONT_ROUTE = '/storefront';
 export const STOREFRONT_PREVIEW_ROUTE = '/storefront-preview';
 
-/** True for a request path that names an internal storefront route directly instead of through a store host. */
+/**
+ * True for a request path that names an internal storefront route directly instead of through a store host.
+ * Compared after percent-decoding, lower-casing and collapsing repeated slashes, so `/%73torefront/x` and
+ * `//Storefront/x` cannot slip past the proxy.
+ */
 export function isInternalStorefrontPath(pathname: string): boolean {
+  let decoded = pathname;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    decoded = pathname;
+  }
+  const normalised = decoded.toLowerCase().replace(/\/{2,}/g, '/');
   return [STOREFRONT_ROUTE, STOREFRONT_PREVIEW_ROUTE].some(
-    (route) => pathname === route || pathname.startsWith(`${route}/`)
+    (route) => normalised === route || normalised.startsWith(`${route}/`)
   );
+}
+
+/** Product and category slugs as the catalogue stores them (lower-case, hyphenated, at most 200). */
+const CATALOGUE_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+export const CATALOGUE_SLUG_MAX_LENGTH = 200;
+
+/** Checked before any cached read, so a made-up URL costs no backend call and no cache entry. */
+export function isValidCatalogueSlug(slug: string): boolean {
+  return slug.length <= CATALOGUE_SLUG_MAX_LENGTH && CATALOGUE_SLUG_PATTERN.test(slug);
 }
 
 /**

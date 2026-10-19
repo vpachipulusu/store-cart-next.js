@@ -15,10 +15,10 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from pydantic import BaseModel
 
 from app.api.auth import require_internal_key
-from app.api.rate_limit import RATE_LIMIT_RESPONSES, limit_by_client_ip
+from app.api.rate_limit import RATE_LIMIT_RESPONSES, limit_by_client_ip_or_store
 from app.api.store_db import NO_STORE_HEADERS, storefront_catalogue_service
 from app.core.errors import ErrorResponse
-from app.core.rate_limit import STOREFRONT_POLICY
+from app.core.rate_limit import STOREFRONT_CATALOGUE_POLICY
 from app.services.store_product_types import (
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
@@ -39,7 +39,7 @@ router = APIRouter(
     tags=["storefront"],
     dependencies=[
         Depends(require_internal_key),
-        Depends(limit_by_client_ip(STOREFRONT_POLICY)),
+        Depends(limit_by_client_ip_or_store(STOREFRONT_CATALOGUE_POLICY)),
     ],
     responses={
         **RATE_LIMIT_RESPONSES,

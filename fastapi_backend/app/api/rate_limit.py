@@ -170,6 +170,43 @@ def limit_by_client_ip(policy: RateLimitPolicy) -> Callable[..., Awaitable[None]
     return dependency
 
 
+def forwarded_client_ip(request: Request) -> str | None:
+    """The validated ``X-Client-IP`` from an internal-key caller, else None."""
+    if not getattr(request.state, "internal_authenticated", False):
+        return None
+    forwarded = request.headers.get(CLIENT_IP_HEADER, "").strip()
+    try:
+        return str(ipaddress.ip_address(forwarded))
+    except ValueError:
+        return None
+
+
+def limit_by_client_ip_or_store(
+    policy: RateLimitPolicy,
+) -> Callable[..., Awaitable[None]]:
+    """Dependency factory for public store reads that the Next.js server may cache (KAN-75).
+
+    A request forwarding a visitor IP is keyed by that IP. A shared read (internal key, no
+    visitor IP: the server filling its per-store cache) is keyed by the ``{slug}`` path
+    segment, so one store's cache misses never exhaust the budget of the others.
+    """
+
+    async def dependency(
+        request: Request, response: Response, limiter: RateLimiterDep
+    ) -> None:
+        visitor = forwarded_client_ip(request)
+        if visitor is not None:
+            identifier = f"{policy.scope}:ip:{visitor}"
+        elif getattr(request.state, "internal_authenticated", False):
+            slug = str(request.path_params.get("slug", "")).lower()[:63]
+            identifier = f"{policy.scope}:store:{slug}"
+        else:
+            identifier = f"{policy.scope}:ip:{client_ip(request)}"
+        await enforce_rate_limit(request, response, limiter, policy, [identifier])
+
+    return dependency
+
+
 def email_digest(email: str) -> str:
     key = settings.RATE_LIMIT_EMAIL_KEY
     if not key:
