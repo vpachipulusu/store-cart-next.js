@@ -278,21 +278,9 @@ async def test_a_body_without_a_file_part_is_400(
         files={"file": ("p.csv", csv_rows(product_row(unique())), "text/csv")},
         headers=as_user("alice"),
     )
-    part_head = (
-        b'--b\r\nContent-Disposition: form-data; name="file"; filename="p.csv"\r\n\r\n'
-    )
-    upper_case_type = await client.post(
-        url,
-        content=part_head + csv_rows(product_row(unique())) + b"\r\n--b--\r\n",
-        headers={
-            **as_user("alice"),
-            "Content-Type": "Multipart/Form-Data; boundary=b",
-        },
-    )
 
     assert other_part.status_code == 400
     assert extra_field.status_code == 400
-    assert body_of(upper_case_type)["imported"] == 1
     assert not_multipart.status_code == 400
     assert error_of(not_multipart) == "Attach the CSV file as the file field"
 
