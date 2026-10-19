@@ -92,7 +92,7 @@ test.describe('Subscription Upgrade - Happy Path', () => {
       const success = await waitForSubscriptionSuccess(page);
       expect(success).toBe(true);
 
-      // Step 8: Verify subscription tier updated
+      // Step 8: Verify subscription tier updated (read from the billing page)
       await expectSubscriptionTier(page, 'pro');
 
       // Step 9: Verify upgrade banner is gone
@@ -115,8 +115,8 @@ test.describe('Subscription Upgrade - Happy Path', () => {
     await expect(page.getByRole('heading', { name: /subscription management/i })).toBeVisible();
 
     // Check stats cards
-    const totalActiveCard = page.locator('[class*="card"]').filter({ hasText: /total active/i });
-    const proPlansCard = page.locator('[class*="card"]').filter({ hasText: /pro plans/i });
+    const totalActiveCard = page.getByRole('group', { name: 'Total active' });
+    const proPlansCard = page.getByRole('group', { name: 'Pro plans' });
 
     // Should show at least 1 active subscription if the previous test ran
     await expect(totalActiveCard).toBeVisible();
