@@ -24,6 +24,7 @@ from app.api.v1 import (
     store_retry,
     store_settings,
     storefront,
+    storefront_catalogue,
     stores,
     totp,
     webhooks,
@@ -56,6 +57,7 @@ api_router.include_router(products.router)
 api_router.include_router(orders.router)
 api_router.include_router(categories.router)
 api_router.include_router(storefront.router)
+api_router.include_router(storefront_catalogue.router)
 api_router.include_router(cart.router)
 api_router.include_router(settings.router)
 api_router.include_router(store_settings.router)

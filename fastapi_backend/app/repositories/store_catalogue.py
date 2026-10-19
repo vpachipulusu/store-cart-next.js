@@ -88,19 +88,38 @@ class CategoryRow:
     position: int
 
 
+@dataclass(frozen=True)
+class CategoryParentRow:
+    name: str
+    slug: str
+    parent_slug: str | None
+
+
 # Advisory lock key serialising product creates; unique to this use within a store database.
 PRODUCT_CREATE_LOCK_KEY = 0x5C0A0001
 
-_LIST_FILTER = (
+_STATUS_AND_CATEGORY = (
     "(CAST(:status AS varchar) IS NULL OR p.status = CAST(:status AS varchar)) "
     "AND (CAST(:category_id AS varchar) IS NULL OR EXISTS ("
     "SELECT 1 FROM product_categories pc "
     "WHERE pc.product_id = p.id AND pc.category_id = CAST(:category_id AS varchar))) "
+)
+_TITLE_OR_SKU = (
     "AND (CAST(:pattern AS varchar) IS NULL "
     "OR p.title ILIKE CAST(:pattern AS varchar) ESCAPE '\\' "
     "OR EXISTS (SELECT 1 FROM variants sv WHERE sv.product_id = p.id "
     "AND sv.sku ILIKE CAST(:pattern AS varchar) ESCAPE '\\'))"
 )
+# Public storefront search (KAN-75): titles only, so shoppers cannot probe for SKUs.
+_TITLE_ONLY = (
+    "AND (CAST(:pattern AS varchar) IS NULL "
+    "OR p.title ILIKE CAST(:pattern AS varchar) ESCAPE '\\')"
+)
+_LIST_FILTER = _STATUS_AND_CATEGORY + _TITLE_OR_SKU
+
+
+def _list_filter(match_sku: bool) -> str:
+    return _STATUS_AND_CATEGORY + (_TITLE_OR_SKU if match_sku else _TITLE_ONLY)
 
 
 def search_pattern(query: str | None) -> str | None:
@@ -216,12 +235,20 @@ class StoreCatalogueRepository(BaseRepository):
         return ProductRow(**row) if row is not None else None
 
     async def count_products(
-        self, *, status: str | None, category_id: str | None, query: str | None = None
+        self,
+        *,
+        status: str | None,
+        category_id: str | None,
+        query: str | None = None,
+        match_sku: bool = True,
     ) -> int:
         return int(
             (
                 await self._session.execute(
-                    text("SELECT count(*) FROM products p WHERE " + _LIST_FILTER),
+                    text(
+                        "SELECT count(*) FROM products p WHERE "
+                        + _list_filter(match_sku)
+                    ),
                     {
                         "status": status,
                         "category_id": category_id,
@@ -239,6 +266,7 @@ class StoreCatalogueRepository(BaseRepository):
         limit: int,
         offset: int,
         query: str | None = None,
+        match_sku: bool = True,
     ) -> list[ProductSummaryRow]:
         rows = (
             (
@@ -253,7 +281,7 @@ class StoreCatalogueRepository(BaseRepository):
                         "(SELECT max(v.price_minor) FROM variants v "
                         "WHERE v.product_id = p.id) AS max_price_minor "
                         "FROM products p WHERE "
-                        + _LIST_FILTER
+                        + _list_filter(match_sku)
                         + " ORDER BY p.created_at DESC, p.id DESC "
                         "LIMIT :limit OFFSET :offset"
                     ),
@@ -621,3 +649,89 @@ class StoreCatalogueRepository(BaseRepository):
             .all()
         )
         return [ImageRow(**row) for row in rows]
+
+    # --- public storefront reads (KAN-75) -----------------------------------------
+
+    async def get_product_by_slug(self, slug: str) -> ProductRow | None:
+        """The product with this slug (slugs are stored lower-case, ``uq_products_slug``)."""
+        row = (
+            (
+                await self._session.execute(
+                    text(
+                        "SELECT id, title, slug, description, status, created_at, "
+                        "updated_at FROM products WHERE slug = :slug"
+                    ),
+                    {"slug": slug},
+                )
+            )
+            .mappings()
+            .first()
+        )
+        return ProductRow(**row) if row is not None else None
+
+    async def get_category_by_slug(self, slug: str) -> CategoryRow | None:
+        """The category with this slug (slugs are unique per store, stored lower-case)."""
+        row = (
+            (
+                await self._session.execute(
+                    text(
+                        "SELECT id, name, slug, parent_id, position FROM categories "
+                        "WHERE slug = :slug"
+                    ),
+                    {"slug": slug},
+                )
+            )
+            .mappings()
+            .first()
+        )
+        return CategoryRow(**row) if row is not None else None
+
+    async def categories_of_product(self, product_id: str) -> list[CategoryParentRow]:
+        """The product's categories with their parent's slug, ordered like the category list."""
+        rows = (
+            (
+                await self._session.execute(
+                    text(
+                        "SELECT c.name, c.slug, parent.slug AS parent_slug "
+                        "FROM product_categories pc "
+                        "JOIN categories c ON c.id = pc.category_id "
+                        "LEFT JOIN categories parent ON parent.id = c.parent_id "
+                        "WHERE pc.product_id = :id "
+                        "ORDER BY c.parent_id NULLS FIRST, c.position, c.id"
+                    ),
+                    {"id": product_id},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [CategoryParentRow(**row) for row in rows]
+
+    async def first_images(self, product_ids: Sequence[str]) -> dict[str, ImageRow]:
+        """The first image (lowest position) of each product that has one."""
+        if not product_ids:
+            return {}
+        rows = (
+            (
+                await self._session.execute(
+                    text(
+                        "SELECT DISTINCT ON (product_id) product_id, id, storage_key, "
+                        "alt_text, position FROM product_images "
+                        "WHERE product_id = ANY(CAST(:ids AS varchar[])) "
+                        "ORDER BY product_id, position, id"
+                    ),
+                    {"ids": list(product_ids)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return {
+            row["product_id"]: ImageRow(
+                id=row["id"],
+                storage_key=row["storage_key"],
+                alt_text=row["alt_text"],
+                position=row["position"],
+            )
+            for row in rows
+        }
