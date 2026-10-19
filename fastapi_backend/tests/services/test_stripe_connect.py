@@ -259,6 +259,7 @@ def updated_event(account_id: str = "acct_1", **payload: Any) -> dict[str, Any]:
         "id": f"evt_{next(EVENT_IDS)}",
         "type": "account.updated",
         "created": 1_800_000_000,
+        "livemode": False,
         "data": {"object": {"id": account_id, **payload}},
     }
 
@@ -268,6 +269,7 @@ def deauthorized_event(account: Any = "acct_1") -> dict[str, Any]:
         "id": f"evt_{next(EVENT_IDS)}",
         "type": "account.application.deauthorized",
         "created": 1_800_000_000,
+        "livemode": False,
         "data": {"object": {"id": "ca_platform", "object": "application"}},
     }
     if account is not None:
@@ -291,6 +293,7 @@ def webhook() -> tuple[
         session.events,
         session,  # type: ignore[arg-type]
         lambda: stripe,
+        livemode=False,
     )
     return service, store, stripe, session
 
@@ -467,7 +470,9 @@ async def test_events_without_an_account_id_are_rejected(event):
     service, _, stripe, _ = webhook()
 
     with pytest.raises(MalformedConnectEvent):
-        await service.handle({"id": "evt_bad", "created": 1, **event})
+        await service.handle(
+            {"id": "evt_bad", "created": 1, "livemode": False, **event}
+        )
 
     assert stripe.calls == []
 

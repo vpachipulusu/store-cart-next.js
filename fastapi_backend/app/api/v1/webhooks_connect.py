@@ -17,7 +17,7 @@ from app.api.deps import SessionDep
 from app.core.config import settings
 from app.core.sentry import report_exception
 from app.core.stripe_billing import StripeNotConfigured
-from app.core.stripe_connect import get_stripe_connect
+from app.core.stripe_connect import get_stripe_connect, stripe_livemode
 from app.core.stripe_webhook_body import (
     INVALID_PAYLOAD_MESSAGE,
     NOT_CONFIGURED_MESSAGE,
@@ -43,6 +43,7 @@ def get_connect_webhook_service(session: SessionDep) -> ConnectWebhookService:
         ConnectEventRepository(session),
         session,
         get_stripe_connect,
+        livemode=stripe_livemode(),
     )
 
 

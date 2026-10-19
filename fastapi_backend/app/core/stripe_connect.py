@@ -90,6 +90,17 @@ class HttpStripeConnect(HttpStripeBilling):
         return require_text(body.get("url"))
 
 
+LIVE_KEY_PREFIXES = ("sk_live_", "rk_live_")
+
+
+def stripe_livemode() -> bool:
+    """Whether the platform key is a live key; Connect events of the other mode are ignored."""
+    secret = settings.STRIPE_SECRET_KEY
+    return secret is not None and secret.get_secret_value().startswith(
+        LIVE_KEY_PREFIXES
+    )
+
+
 def get_stripe_connect() -> StripeConnect:
     """The one place the real client is built; tests override the dependency that calls it."""
     secret = settings.STRIPE_SECRET_KEY

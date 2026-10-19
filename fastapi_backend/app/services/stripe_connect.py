@@ -21,6 +21,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -263,7 +264,13 @@ class ConnectWebhookService:
     one-second resolution, so the flags are never taken from the payload. The account is read
     from Stripe outside any transaction and stored stamped with the time the read started, so a
     slower, older read that finishes later cannot overwrite a newer one.
-    ``account.application.deauthorized`` clears the flags. Other events are acknowledged and ignored.
+    ``account.application.deauthorized`` clears the flags, stamped with the event's own ``created``
+    time, so a retried old deauthorization cannot undo a newer read. Other events are acknowledged
+    and ignored.
+
+    Mode: a live Connect endpoint also receives test-mode events from connected accounts, with the
+    same account ids. Only events whose ``livemode`` matches the platform key's mode (``livemode``)
+    are processed; the rest are acknowledged and ignored before routing.
     """
 
     def __init__(
@@ -273,9 +280,11 @@ class ConnectWebhookService:
         session: AsyncSession,
         stripe: Callable[[], StripeConnect],
         *,
+        livemode: bool,
         store_handlers: Mapping[str, StoreEventHandler] | None = None,
     ) -> None:
         self._store = store
+        self._livemode = livemode
         self._events = events
         self._session = session
         # A factory, so an unset STRIPE_SECRET_KEY only matters once an event needs Stripe.
@@ -291,6 +300,10 @@ class ConnectWebhookService:
         if not isinstance(event_type, str) or not self._handles(event_type):
             logger.info("connect event ignored: type=%s", _loggable_type(event_type))
             return WebhookOutcome.IGNORED
+        if event.get("livemode") is not self._livemode:
+            # The other mode's event (or none stated): never let test data touch live state.
+            logger.info("connect event ignored for its mode: type=%s", event_type)
+            return WebhookOutcome.IGNORED
         event_id = _event_id(event.get("id"))
         created = _created(event.get("created"))
         account_id = _event_account_id(event_type, event)
@@ -298,8 +311,15 @@ class ConnectWebhookService:
             return await self._process(event_id, event_type, created, account_id, event)
         except Exception:
             # Cancellation is left to the session provider, which rolls back on close.
-            await self._session.rollback()
+            await self._rollback_quietly()
             raise
+
+    async def _rollback_quietly(self) -> None:
+        """Roll back after a failure; a dead connection must not hide the original error."""
+        try:
+            await self._session.rollback()
+        except Exception as exc:  # noqa: BLE001 - the original error is the one to report
+            logger.warning("connect webhook rollback failed: %s", type(exc).__name__)
 
     def _handles(self, event_type: str) -> bool:
         return event_type in ACCOUNT_EVENT_TYPES or event_type in self._store_handlers
@@ -321,7 +341,9 @@ class ConnectWebhookService:
         if recorded:
             logger.info("connect event already processed", extra={"event_id": event_id})
             return WebhookOutcome.DUPLICATE
-        effect = await self._prepare(event_type, route, event)
+        effect = await self._prepare(event_type, route, created, event)
+        # If the organisation or store is deleted between routing and here, the claim's foreign
+        # key fails: a retryable 500, and Stripe's retry finds no route and is acknowledged.
         if not await self._events.claim(event_id, event_type, route, created):
             await self._session.rollback()
             logger.info("connect event already processed", extra={"event_id": event_id})
@@ -353,7 +375,11 @@ class ConnectWebhookService:
         return ConnectRoute(organization_id, account_id, store_id)
 
     async def _prepare(
-        self, event_type: str, route: ConnectRoute, event: Mapping[str, Any]
+        self,
+        event_type: str,
+        route: ConnectRoute,
+        created: datetime,
+        event: Mapping[str, Any],
     ) -> Callable[[], Awaitable[None]]:
         """Do any Stripe read first; return the side effect to run inside the claim's transaction."""
         if event_type == UPDATED_EVENT_TYPE:
@@ -361,10 +387,11 @@ class ConnectWebhookService:
             state = await self._read_account(route.account_id)
             return lambda: self._apply(route.account_id, state, observed_at)
         if event_type == DEAUTHORIZED_EVENT_TYPE:
-            observed_at = datetime.now(UTC)
-            return lambda: self._apply(route.account_id, NO_ACCESS, observed_at)
+            # Stamped with when it happened, not when it arrived: a late retry is older than a read.
+            return lambda: self._apply(route.account_id, NO_ACCESS, created)
         handler = self._store_handlers[event_type]
-        obj = _event_object(event)
+        # Read-only (top level): handlers act on the event, they do not edit it.
+        obj = MappingProxyType(dict(_event_object(event)))
         return lambda: handler(route, obj)
 
     async def _read_account(self, account_id: str) -> StripeAccountState:

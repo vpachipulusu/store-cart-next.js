@@ -197,6 +197,7 @@ def account_event(account_id: str) -> dict[str, Any]:
         "id": f"evt_{new_id()}",
         "type": "account.updated",
         "created": T0,
+        "livemode": False,
         "data": {"object": {"id": account_id}},
     }
 
@@ -206,6 +207,7 @@ def deauthorized_event(account_id: str) -> dict[str, Any]:
         "id": f"evt_{new_id()}",
         "type": "account.application.deauthorized",
         "created": T0,
+        "livemode": False,
         "account": account_id,
         "data": {"object": {"id": "ca_platform", "object": "application"}},
     }
@@ -481,6 +483,7 @@ def store_handler(app: FastAPI, stripe: FakeStripeConnect) -> RecordingStoreHand
             ConnectEventRepository(session),
             session,
             lambda: stripe,
+            livemode=False,
             store_handlers={"checkout.session.completed": handler},
         )
 
@@ -493,6 +496,7 @@ def checkout_event(account_id: str, store_id: str) -> dict[str, Any]:
         "id": f"evt_{new_id()}",
         "type": "checkout.session.completed",
         "created": T0,
+        "livemode": False,
         "account": account_id,
         "data": {"object": {"id": "cs_1", "metadata": {"store_id": store_id}}},
     }

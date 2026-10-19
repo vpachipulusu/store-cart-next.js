@@ -1,6 +1,7 @@
 """Connect webhook routing and at-most-once processing with in-memory fakes (KAN-69)."""
 
 import asyncio
+import logging
 from collections.abc import Mapping
 from typing import Any
 
@@ -66,6 +67,7 @@ def build(
         events,
         session,  # type: ignore[arg-type]
         lambda: stripe,
+        livemode=False,
         store_handlers=handlers,
     )
     return service, store, events, stripe, session
@@ -82,6 +84,7 @@ def store_event(
         "id": event_id,
         "type": PAID,
         "created": 1_800_000_000,
+        "livemode": False,
         "data": {"object": obj},
     }
     if account is not None:
@@ -94,6 +97,7 @@ def updated_event(event_id: str = "evt_upd1", account: str = "acct_1"):
         "id": event_id,
         "type": "account.updated",
         "created": 1_800_000_000,
+        "livemode": False,
         "account": account,
         "data": {"object": {"id": account}},
     }
@@ -167,6 +171,7 @@ async def test_an_unknown_store_id_is_ignored():
 async def test_an_event_for_an_unknown_account_is_acknowledged_and_not_recorded(
     caplog,
 ):
+    caplog.set_level(logging.INFO, logger="app.services.stripe_connect")
     handler = RecordingHandler()
     service, _, events, stripe, session = build(handler)
 
@@ -335,6 +340,7 @@ async def test_a_deauthorization_is_recorded_once():
         "id": "evt_de1",
         "type": "account.application.deauthorized",
         "created": 1_800_000_000,
+        "livemode": False,
         "account": "acct_1",
         "data": {"object": {"id": "ca_platform"}},
     }
@@ -356,5 +362,134 @@ def test_account_events_cannot_be_registered_as_store_scoped():
             events,
             FakeEventSession(events),  # type: ignore[arg-type]
             FakeStripeConnect,
+            livemode=False,
             store_handlers={"account.updated": RecordingHandler()},
         )
+
+
+# Mode (live vs test)
+
+
+def live_service(handler: RecordingHandler) -> tuple[ConnectWebhookService, Any]:
+    service, _, events, stripe, _ = build(handler)
+    service._livemode = True  # as built from an sk_live_ key
+    return service, (events, stripe)
+
+
+@pytest.mark.parametrize("livemode", [True, None, "false", 0])
+async def test_a_test_mode_service_ignores_events_not_marked_test_mode(livemode):
+    handler = RecordingHandler()
+    service, _, events, _, session = build(handler)
+    event = {**store_event(), "livemode": livemode}
+
+    outcome = await service.handle(event)
+
+    assert outcome is WebhookOutcome.IGNORED
+    assert handler.calls == [] and events.recorded == {} and session.commits == 0
+
+
+async def test_a_live_service_ignores_test_mode_events_before_routing(caplog):
+    handler = RecordingHandler()
+    service, (events, stripe) = live_service(handler)
+
+    test_deauth = {
+        "id": "evt_test1",
+        "type": "account.application.deauthorized",
+        "created": 1_800_000_000,
+        "livemode": False,
+        "account": "acct_1",
+    }
+    outcomes = [
+        await service.handle(store_event()),
+        await service.handle(test_deauth),
+    ]
+
+    assert outcomes == [WebhookOutcome.IGNORED, WebhookOutcome.IGNORED]
+    assert handler.calls == [] and events.recorded == {} and stripe.calls == []
+    assert "acct_1" not in caplog.text
+
+
+async def test_a_live_service_processes_live_events():
+    handler = RecordingHandler()
+    service, (events, _) = live_service(handler)
+
+    outcome = await service.handle({**store_event(), "livemode": True})
+
+    assert outcome is WebhookOutcome.PROCESSED
+    assert list(events.recorded) == ["evt_pay1"]
+
+
+@pytest.mark.parametrize(
+    ("key", "live"),
+    [
+        (None, False),
+        ("sk_test_abc", False),
+        ("sk_live_abc", True),
+        ("rk_live_abc", True),
+        ("rk_test_abc", False),
+    ],
+)
+def test_the_mode_follows_the_platform_key(monkeypatch, key, live):
+    from pydantic import SecretStr
+
+    from app.core.config import settings
+    from app.core.stripe_connect import stripe_livemode
+
+    monkeypatch.setattr(
+        settings, "STRIPE_SECRET_KEY", None if key is None else SecretStr(key)
+    )
+
+    assert stripe_livemode() is live
+
+
+# Ordering, payload and rollback
+
+
+async def test_a_late_old_deauthorization_does_not_undo_a_newer_read():
+    service, store, _, stripe, _ = build()
+    stripe.account_state = ENABLED
+    await service.handle(updated_event())  # read now, charges on
+    old = {
+        "id": "evt_olddeauth",
+        "type": "account.application.deauthorized",
+        "created": 1_700_000_000,  # long before the read
+        "livemode": False,
+        "account": "acct_1",
+    }
+
+    outcome = await service.handle(old)
+
+    assert outcome is WebhookOutcome.PROCESSED  # recorded, nothing to change
+    assert store.orgs["org1"].connect_charges_enabled is True
+
+
+async def test_store_handlers_get_a_read_only_object():
+    class Mutating(RecordingHandler):
+        async def __call__(self, route: ConnectRoute, obj: Mapping[str, Any]) -> None:
+            obj["id"] = "changed"  # type: ignore[index]
+
+    service, _, events, _, _ = build(Mutating())
+
+    with pytest.raises(TypeError):
+        await service.handle(store_event())
+
+    assert events.recorded == {}
+
+
+async def test_a_failed_rollback_does_not_hide_the_handler_error(caplog):
+    handler = RecordingHandler(RuntimeError("boom"))
+    service, _, _, _, session = build(handler)
+    healthy_rollback = session.rollback
+
+    async def rollback() -> None:
+        # The connection dies only after the handler ran (the routing rollback still works).
+        if handler.calls:
+            raise ConnectionError("connection lost")
+        await healthy_rollback()
+
+    session.rollback = rollback  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await service.handle(store_event())
+
+    assert "rollback failed: ConnectionError" in caplog.text
