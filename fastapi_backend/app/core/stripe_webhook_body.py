@@ -42,6 +42,10 @@ async def read_verified_body(
     try:
         verify_signature(body, signature, secret.get_secret_value())
     except InvalidSignature:
-        logger.warning("stripe webhook signature rejected")
+        # Header presence only (never its value): a missing header and a wrong secret need different fixes.
+        logger.warning(
+            "stripe webhook signature rejected: header=%s",
+            "present" if signature else "missing",
+        )
         raise HTTPException(400, INVALID_SIGNATURE_MESSAGE) from None
     return body

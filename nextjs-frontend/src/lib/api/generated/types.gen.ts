@@ -2572,6 +2572,40 @@ export type StoreResponse = {
 };
 
 /**
+ * StoreSettingsResponse
+ */
+export type StoreSettingsResponse = {
+    /**
+     * Shipping Flat Rate Minor
+     *
+     * Charged per order, minor units.
+     */
+    shipping_flat_rate_minor: number;
+    /**
+     * Free Shipping Threshold Minor
+     *
+     * Item subtotal that waives shipping; null = never free.
+     */
+    free_shipping_threshold_minor: number | null;
+    /**
+     * Tax Rate Bps
+     *
+     * Tax rate in basis points (2000 = 20%).
+     */
+    tax_rate_bps: number;
+    /**
+     * Prices Include Tax
+     *
+     * True when catalogue prices already contain the tax.
+     */
+    prices_include_tax: boolean;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+};
+
+/**
  * StoreStatus
  */
 export type StoreStatus = 'PROVISIONING' | 'ACTIVE' | 'FAILED' | 'SUSPENDED' | 'ARCHIVED';
@@ -3068,6 +3102,38 @@ export type UpdateRequest = {
      * Slug
      */
     slug?: string | null;
+};
+
+/**
+ * UpdateStoreSettingsRequest
+ *
+ * Send only the fields to change. Only the threshold accepts null (it clears it).
+ */
+export type UpdateStoreSettingsRequest = {
+    /**
+     * Shipping Flat Rate Minor
+     *
+     * Charged per order, minor units. Cannot be null.
+     */
+    shipping_flat_rate_minor?: number | null;
+    /**
+     * Free Shipping Threshold Minor
+     *
+     * Item subtotal that waives shipping. Null clears the threshold.
+     */
+    free_shipping_threshold_minor?: number | null;
+    /**
+     * Tax Rate Bps
+     *
+     * Tax rate in basis points (2000 = 20%). Cannot be null.
+     */
+    tax_rate_bps?: number | null;
+    /**
+     * Prices Include Tax
+     *
+     * True when catalogue prices already contain the tax. Cannot be null.
+     */
+    prices_include_tax?: boolean | null;
 };
 
 /**
@@ -9342,3 +9408,131 @@ export type ReadPlanPricesResponses = {
 };
 
 export type ReadPlanPricesResponse = ReadPlanPricesResponses[keyof ReadPlanPricesResponses];
+
+export type GetStoreSettingsData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/stores/{store_id}/store-settings';
+};
+
+export type GetStoreSettingsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type GetStoreSettingsError = GetStoreSettingsErrors[keyof GetStoreSettingsErrors];
+
+export type GetStoreSettingsResponses = {
+    /**
+     * Successful Response
+     */
+    200: StoreSettingsResponse;
+};
+
+export type GetStoreSettingsResponse = GetStoreSettingsResponses[keyof GetStoreSettingsResponses];
+
+export type UpdateStoreSettingsData = {
+    body: UpdateStoreSettingsRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/stores/{store_id}/store-settings';
+};
+
+export type UpdateStoreSettingsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Unprocessable Entity
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type UpdateStoreSettingsError = UpdateStoreSettingsErrors[keyof UpdateStoreSettingsErrors];
+
+export type UpdateStoreSettingsResponses = {
+    /**
+     * Successful Response
+     */
+    200: StoreSettingsResponse;
+};
+
+export type UpdateStoreSettingsResponse = UpdateStoreSettingsResponses[keyof UpdateStoreSettingsResponses];

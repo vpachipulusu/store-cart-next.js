@@ -1,6 +1,7 @@
 """Route behaviour with a fake service: no database (the real-database run is the e2e test)."""
 
 import json
+import logging
 import time
 from collections.abc import AsyncIterator
 from typing import Any
@@ -90,6 +91,23 @@ async def test_missing_signature_header_returns_400(client, service):
     response = await client.post("/webhooks/stripe", content=BODY)
 
     assert response.status_code == 400 and service.events == []
+
+
+async def test_rejected_signature_log_says_whether_the_header_was_present(
+    client, caplog
+):
+    with caplog.at_level(logging.WARNING, logger="storecart.stripe_webhook"):
+        await client.post(
+            "/webhooks/stripe", content=BODY, headers=signed(BODY, "whsec_wrong")
+        )
+        await client.post("/webhooks/stripe", content=BODY)
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert messages == [
+        "stripe webhook signature rejected: header=present",
+        "stripe webhook signature rejected: header=missing",
+    ]
+    assert "whsec_wrong" not in caplog.text
 
 
 async def test_signature_is_checked_against_the_raw_bytes(client, service):
