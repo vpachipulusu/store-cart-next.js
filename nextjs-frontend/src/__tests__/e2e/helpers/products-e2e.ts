@@ -28,8 +28,8 @@ function backendHeaders(sessionToken: string): Record<string, string> {
   };
 }
 
-/** Creates an organisation and an ACTIVE store for the signed-in throwaway account. */
-export async function seedActiveStore(page: Page, suffix: string): Promise<void> {
+/** Creates an organisation and an ACTIVE store for the signed-in throwaway account; returns the store id. */
+export async function seedActiveStore(page: Page, suffix: string): Promise<string> {
   const session = (await page.context().cookies()).find((cookie) => cookie.name === 'session');
   if (!session || !process.env.BACKEND_INTERNAL_KEY || !BACKEND_DIR) {
     throw new Error('Seeding needs the session cookie, BACKEND_INTERNAL_KEY and E2E_BACKEND_DIR');
@@ -62,6 +62,7 @@ export async function seedActiveStore(page: Page, suffix: string): Promise<void>
     stdio: 'pipe',
     timeout: 120_000,
   });
+  return storeId;
 }
 
 export async function createSimpleProduct(

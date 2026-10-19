@@ -1,8 +1,8 @@
 # Backend store orders (KAN-78)
 
 Store revision `0004` adds `orders` and `order_items` to every store database (ADR-005). The service is
-`app/services/store_orders.py`. There are no HTTP routes yet (no OpenAPI change); the checkout and order-management
-stories add them.
+`app/services/store_orders.py`. The merchant routes (list, detail, fulfil) were added by KAN-79, see [backend-orders-api.md](backend-orders-api.md);
+the checkout story adds order creation.
 
 ## Tables
 
@@ -54,6 +54,19 @@ async with get_store_session(store_id) as session:
   draft so a draft's existence is not revealed.
 - The tax rate is a parameter because no store tax setting exists yet. Stock is not decremented here (inventory story).
 - A route that exposes an order id must authorize the store id itself (the selected-store cookie is a preference).
+
+## Fulfilment (KAN-79, revision `0005`)
+
+Revision `0005` adds three nullable columns to `orders`: `tracking_number`, `carrier` (1 to 100 characters when set)
+and `fulfilled_at`. The CHECK `ck_orders_fulfilled_tracking` says a `fulfilled` order always has a tracking number
+(the columns stay set if a fulfilled order is later refunded).
+
+`fulfil_order(session, order_id, tracking_number, carrier=None)` is the **only** way to reach `fulfilled`: one
+conditional `UPDATE ... WHERE status = 'paid'` writes the status, the (trimmed) tracking number, the carrier and
+`fulfilled_at` together, so two concurrent fulfilments cannot both succeed. `transition_order(..., FULFILLED)` raises
+`InvalidOrder`, because the CHECK would reject it anyway. Errors are the same as for `transition_order`
+(`OrderNotFound`, `InvalidOrderTransition`) plus `InvalidOrder` for tracking text that is blank, over 100 characters or
+has control characters.
 
 ## Rules for callers (checkout and order routes)
 

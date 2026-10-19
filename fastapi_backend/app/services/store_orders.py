@@ -10,6 +10,8 @@ ORM model for store tables; the SQL is explicit and every value is a bound param
   exists yet. Stock is not touched here.
 * ``transition_order`` moves an order along ``ALLOWED_TRANSITIONS`` with one conditional
   ``UPDATE``, so two concurrent moves cannot both succeed from the same status.
+* ``fulfil_order`` is the only way to reach ``fulfilled``: it stores the tracking number,
+  the optional carrier and ``fulfilled_at`` in the same conditional ``UPDATE`` (KAN-79).
 """
 
 from collections.abc import Mapping, Sequence
@@ -30,6 +32,7 @@ BPS_DENOMINATOR = 10_000
 MAX_MINOR = 2**63 - 1  # the bigint columns
 MAX_ID_LENGTH = 100
 MAX_LABEL_LENGTH = 255  # order_items.variant_label
+MAX_TRACKING_LENGTH = 100  # orders.tracking_number and orders.carrier
 SELLABLE_PRODUCT_STATUS = "active"
 
 
@@ -293,6 +296,8 @@ async def transition_order(
     session: AsyncSession, order_id: str, target: OrderStatus
 ) -> OrderStatus:
     """Move an order to ``target`` or raise; the status check and the write are one statement."""
+    if target is OrderStatus.FULFILLED:
+        raise InvalidOrder("Use fulfil_order to fulfil an order")
     sources = sorted(
         status.value for status in OrderStatus if can_transition(status, target)
     )
@@ -310,3 +315,50 @@ async def transition_order(
     if current is None:
         raise OrderNotFound(order_id)
     raise InvalidOrderTransition(OrderStatus(current), target)
+
+
+def clean_tracking_text(value: object, label: str, *, required: bool) -> str | None:
+    """Trimmed fulfilment text, 1 to ``MAX_TRACKING_LENGTH`` characters, no control characters."""
+    if value is None and not required:
+        return None
+    if not isinstance(value, str):
+        raise InvalidOrder(f"{label} is required")
+    cleaned = value.strip()
+    if not cleaned and not required:
+        return None
+    if not 1 <= len(cleaned) <= MAX_TRACKING_LENGTH:
+        raise InvalidOrder(f"{label} must be 1 to {MAX_TRACKING_LENGTH} characters")
+    if not cleaned.isprintable():
+        raise InvalidOrder(f"{label} has characters that are not allowed")
+    return cleaned
+
+
+_FULFIL_SQL = text(
+    "UPDATE orders SET status = 'fulfilled', tracking_number = :tracking,"
+    " carrier = :carrier, fulfilled_at = now(), updated_at = now() "
+    "WHERE id = :id AND status = 'paid' RETURNING id"
+)
+
+
+async def fulfil_order(
+    session: AsyncSession,
+    order_id: str,
+    tracking_number: str,
+    carrier: str | None = None,
+) -> None:
+    """Move a ``paid`` order to ``fulfilled`` and record how it was shipped, in one statement."""
+    tracking = clean_tracking_text(tracking_number, "Tracking number", required=True)
+    carrier_name = clean_tracking_text(carrier, "Carrier", required=False)
+    moved = (
+        await session.execute(
+            _FULFIL_SQL, {"id": order_id, "tracking": tracking, "carrier": carrier_name}
+        )
+    ).first()
+    if moved is not None:
+        return
+    current = (
+        await session.execute(_STATUS_SQL, {"id": order_id})
+    ).scalar_one_or_none()
+    if current is None:
+        raise OrderNotFound(order_id)
+    raise InvalidOrderTransition(OrderStatus(current), OrderStatus.FULFILLED)

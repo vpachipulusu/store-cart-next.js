@@ -1,4 +1,4 @@
-"""Dependency that opens the caller's own store database for the catalogue routes (KAN-245).
+"""Dependency that opens the caller's own store database for the catalogue routes (KAN-245) and the order routes (KAN-79).
 
 The store id is never taken from the request on its own: ``require_merchant`` resolves the
 ``{store_id}`` path segment against the caller's organisation memberships (404 for any
@@ -21,7 +21,9 @@ from app.core.plans import Plan
 from app.models.platform.membership import MembershipRole
 from app.repositories.merchant import MerchantAccess, MerchantRepository
 from app.repositories.store_catalogue import StoreCatalogueRepository
+from app.repositories.store_orders import StoreOrdersRepository
 from app.services.merchant import ALL_ROLES
+from app.services.merchant_orders import StoreOrdersService
 from app.services.plan_limits import plan_for
 from app.services.store_products import StoreProductsService
 from app.services.store_sessions import StoreSessionError, open_store_session
@@ -63,6 +65,36 @@ def store_products_service(
             # The cause is in the message, so it shows in log lines that drop extras:
             # StoreDatabaseNotConfigured = provisioning never stored a connection string,
             # StoreDatabaseUnavailable = it cannot be decrypted or used (key or URL).
+            reason = type(error).__name__
+            logger.error(
+                "store database unavailable: %s",
+                reason,
+                extra={"store_id": store_id, "reason": reason},
+            )
+            raise HTTPException(503, STORE_UNAVAILABLE) from None
+
+    return dependency
+
+
+def store_orders_service(
+    roles: frozenset[MembershipRole] = ALL_ROLES,
+) -> Callable[..., AsyncIterator[StoreOrdersService]]:
+    """Dependency factory: an orders service on the caller's store database (KAN-79).
+
+    Same trust chain as the products service: the store opened is the one
+    ``require_merchant`` resolved from the caller's memberships.
+    """
+    merchant_dependency = require_merchant(roles)
+
+    async def dependency(
+        merchant: Annotated[MerchantAccess, Depends(merchant_dependency)],
+        provider: Annotated[SessionProvider, Depends(get_session_provider)],
+    ) -> AsyncIterator[StoreOrdersService]:
+        store_id = merchant.store.id
+        try:
+            async with open_store_session(store_id, provider) as session:
+                yield StoreOrdersService(StoreOrdersRepository(session), session)
+        except StoreSessionError as error:
             reason = type(error).__name__
             logger.error(
                 "store database unavailable: %s",

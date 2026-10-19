@@ -58,12 +58,12 @@ describe('TabBar', () => {
   });
 
   it('marks the current tab with aria-current', () => {
-    mocks.pathname = '/dashboard/settings/billing';
+    mocks.pathname = '/dashboard/orders';
     render(<TabBar />);
     const current = screen
       .getAllByRole('link')
       .filter((link) => link.getAttribute('aria-current') === 'page');
-    expect(current.map((link) => link.textContent)).toEqual(['Billing']);
+    expect(current.map((link) => link.textContent)).toEqual(['Orders']);
   });
 
   it('opens a dialog listing the remaining items and returns focus to More on Escape', async () => {

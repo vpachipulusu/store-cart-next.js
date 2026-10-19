@@ -32,6 +32,8 @@ describe('activeNavHref', () => {
     ['/dashboard/products', '/dashboard/products'],
     ['/dashboard/products/new', '/dashboard/products'],
     ['/dashboard/products/abc123', '/dashboard/products'],
+    ['/dashboard/orders', '/dashboard/orders'],
+    ['/dashboard/orders/ord123', '/dashboard/orders'],
     ['/dashboard/profile', '/dashboard/profile'],
     ['/dashboard/settings', '/dashboard/settings'],
     ['/dashboard/settings/billing', '/dashboard/settings/billing'],
