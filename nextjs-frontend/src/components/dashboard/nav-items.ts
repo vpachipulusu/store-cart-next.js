@@ -4,6 +4,7 @@ import {
   Package,
   Settings,
   Shield,
+  ShoppingBag,
   Truck,
   User,
   type LucideIcon,
@@ -16,13 +17,14 @@ export interface NavItem {
 }
 
 /**
- * The merchant dashboard nav (KAN-217). Only routes that exist have an entry; planned sections (Orders, Customers,
+ * The merchant dashboard nav (KAN-217). Only routes that exist have an entry; planned sections (Customers,
  * Domains) are added with their pages. Order is the sidebar order; the first TAB_COUNT items are the
  * phone tab bar and the rest go behind More.
  */
 export const NAV_ITEMS: ReadonlyArray<NavItem> = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/dashboard/products', label: 'Products', icon: Package },
+  { href: '/dashboard/orders', label: 'Orders', icon: ShoppingBag },
   { href: '/dashboard/settings/billing', label: 'Billing', icon: CreditCard },
   { href: '/dashboard/settings/store', label: 'Shipping and tax', icon: Truck },
   { href: '/dashboard/settings', label: 'Settings', icon: Settings },

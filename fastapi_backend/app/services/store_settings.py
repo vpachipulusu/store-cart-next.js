@@ -2,7 +2,7 @@
 
 Works on the ``AsyncSession`` of one store (opened by ``store_sessions``) and owns the
 transaction: ``update`` validates, writes and commits once. Validation here mirrors the
-check constraints of ``0005`` so the client gets a curated 422 instead of a database error.
+check constraints of ``0006`` so the client gets a curated 422 instead of a database error.
 """
 
 import logging

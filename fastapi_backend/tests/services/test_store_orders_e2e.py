@@ -25,6 +25,7 @@ from app.services.store_orders import (
     OrderNotFound,
     OrderStatus,
     create_order,
+    fulfil_order,
     transition_order,
 )
 from app.services.store_sessions import open_store_session
@@ -100,6 +101,11 @@ async def make_shop(world: World, name: str, *, status: str = "active") -> Shop:
 @pytest.fixture
 async def shop(world: World) -> AsyncIterator[Shop]:  # noqa: F811
     yield await make_shop(world, "ord")
+
+
+@pytest.fixture
+async def other_shop(world: World) -> AsyncIterator[Shop]:  # noqa: F811
+    yield await make_shop(world, "ord_other")
 
 
 async def test_create_order_snapshots_name_price_and_tax(world: World, shop: Shop):  # noqa: F811
@@ -272,7 +278,8 @@ async def test_the_happy_path_walks_pending_paid_fulfilled(world: World, shop: S
 
     async with open_store_session(shop.store_id, world.provider) as session:
         paid = await transition_order(session, order_id, OrderStatus.PAID)
-        fulfilled = await transition_order(session, order_id, OrderStatus.FULFILLED)
+        await fulfil_order(session, order_id, "TRACK-1", "DPD")
+        fulfilled = OrderStatus.FULFILLED
         refunded = await transition_order(session, order_id, OrderStatus.REFUNDED)
         await session.commit()
 
@@ -312,7 +319,7 @@ async def test_an_invalid_move_is_rejected_and_the_status_is_unchanged(
 
     async with open_store_session(shop.store_id, world.provider) as session:
         with pytest.raises(InvalidOrderTransition) as caught:
-            await transition_order(session, order_id, OrderStatus.FULFILLED)
+            await fulfil_order(session, order_id, "TRACK-1")
 
     assert caught.value.current is OrderStatus.PENDING
     assert await stored_status(world, shop, order_id) == "pending"
@@ -463,19 +470,28 @@ async def test_the_database_applies_exactly_the_allowed_transitions(
     order_id = await place(world, shop)
     async with open_store_session(shop.store_id, world.provider) as session:
         await session.execute(
-            text("UPDATE orders SET status = :s WHERE id = :o"),
-            {"s": current.value, "o": order_id},
+            text("UPDATE orders SET status = :s, tracking_number = :t WHERE id = :o"),
+            {
+                "s": current.value,
+                "t": "TRK-1" if current is OrderStatus.FULFILLED else None,
+                "o": order_id,
+            },
         )
         await session.commit()
 
     async with open_store_session(shop.store_id, world.provider) as session:
+        move = (
+            (lambda: fulfil_order(session, order_id, "TRK-1"))
+            if target is OrderStatus.FULFILLED
+            else (lambda: transition_order(session, order_id, target))
+        )
         if target in ALLOWED_TRANSITIONS[current]:
-            assert await transition_order(session, order_id, target) is target
+            await move()
             await session.commit()
             assert await stored_status(world, shop, order_id) == target.value
         else:
             with pytest.raises(InvalidOrderTransition) as caught:
-                await transition_order(session, order_id, target)
+                await move()
             assert (caught.value.current, caught.value.target) == (current, target)
             assert await stored_status(world, shop, order_id) == current.value
 
@@ -507,7 +523,11 @@ async def move_and_commit(
 ) -> OrderStatus:
     """One caller in its own session: transition, then commit."""
     async with open_store_session(shop.store_id, world.provider) as session:
-        result = await transition_order(session, order_id, target)
+        if target is OrderStatus.FULFILLED:
+            await fulfil_order(session, order_id, "TRACK-1")
+            result = target
+        else:
+            result = await transition_order(session, order_id, target)
         await session.commit()
         return result
 
@@ -722,3 +742,73 @@ async def test_a_two_option_label_follows_option_position(
         )
 
     assert order.items[0].variant_label == "Large / Red"
+
+
+async def test_transition_order_refuses_to_fulfil_without_tracking(
+    world: World,  # noqa: F811
+    shop: Shop,
+):
+    order_id = await place(world, shop)
+    await advance(world, shop, order_id, OrderStatus.PAID)
+
+    async with open_store_session(shop.store_id, world.provider) as session:
+        with pytest.raises(InvalidOrder):
+            await transition_order(session, order_id, OrderStatus.FULFILLED)
+
+    assert await stored_status(world, shop, order_id) == "paid"
+
+
+async def test_fulfil_order_stores_tracking_carrier_and_time(
+    world: World,  # noqa: F811
+    shop: Shop,
+):
+    order_id = await place(world, shop)
+    await advance(world, shop, order_id, OrderStatus.PAID)
+
+    async with open_store_session(shop.store_id, world.provider) as session:
+        await fulfil_order(session, order_id, " TRK-7 ", "  DHL ")
+        await session.commit()
+        row = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT status, tracking_number, carrier, fulfilled_at, "
+                        "updated_at FROM orders WHERE id = :o"
+                    ),
+                    {"o": order_id},
+                )
+            )
+            .mappings()
+            .one()
+        )
+
+    assert (row["status"], row["tracking_number"], row["carrier"]) == (
+        "fulfilled",
+        "TRK-7",
+        "DHL",
+    )
+    assert row["fulfilled_at"] is not None
+
+
+async def test_fulfil_order_on_a_missing_order_raises_not_found(
+    world: World,  # noqa: F811
+    shop: Shop,
+):
+    async with open_store_session(shop.store_id, world.provider) as session:
+        with pytest.raises(OrderNotFound):
+            await fulfil_order(session, new_id(), "TRK-1")
+
+
+async def test_fulfil_order_in_another_store_is_not_found(
+    world: World,  # noqa: F811
+    shop: Shop,
+    other_shop: Shop,
+):
+    order_id = await place(world, shop)
+    await advance(world, shop, order_id, OrderStatus.PAID)
+
+    async with open_store_session(other_shop.store_id, world.provider) as session:
+        with pytest.raises(OrderNotFound):
+            await fulfil_order(session, order_id, "TRK-1")
+
+    assert await stored_status(world, shop, order_id) == "paid"

@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-10-19
 
-Each store database holds one `store_settings` row (store migration `0005`): a flat shipping rate, an optional free-shipping threshold, a manual tax rate and whether prices include tax. Money is integer minor units in the platform currency; the tax rate is in basis points (2000 = 20%, at most 10000).
+Each store database holds one `store_settings` row (store migration `0006`): a flat shipping rate, an optional free-shipping threshold, a manual tax rate and whether prices include tax. Money is integer minor units in the platform currency; the tax rate is in basis points (2000 = 20%, at most 10000).
 
 | Column                          | Meaning                                                               | Range                |
 | ------------------------------- | --------------------------------------------------------------------- | -------------------- |

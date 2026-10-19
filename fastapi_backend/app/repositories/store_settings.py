@@ -1,6 +1,6 @@
 """Store settings row of one store database (KAN-82, KAN-83). No business rules.
 
-The table holds exactly one row (``0005``). Takes the ``AsyncSession`` of one store and
+The table holds exactly one row (``0006``). Takes the ``AsyncSession`` of one store and
 never commits. There is no ORM model for store tables: explicit SQL, bound parameters.
 """
 
