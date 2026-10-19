@@ -15,7 +15,10 @@ const cart = {
 } as unknown as Cart;
 
 function reply(status: number, body: unknown) {
-  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
 }
 
 describe('cart client', () => {

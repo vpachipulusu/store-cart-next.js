@@ -139,11 +139,7 @@ export function BasketView({ currency }: { currency: string }) {
     };
   }, []);
 
-  async function handleChange(
-    change: () => Promise<CartReply>,
-    done: string,
-    isRemoval: boolean
-  ) {
+  async function handleChange(change: () => Promise<CartReply>, done: string, isRemoval: boolean) {
     setIsBusy(true);
     const reply = await change();
     setIsBusy(false);

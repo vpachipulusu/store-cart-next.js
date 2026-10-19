@@ -31,7 +31,12 @@ describe('storefront cache', () => {
   });
 
   it('keeps a numeric zero distinct from a missing argument', () => {
-    expect(storefrontCacheKey('products', 'acme', 0)).toEqual(['storefront', 'products', 'acme', '0']);
+    expect(storefrontCacheKey('products', 'acme', 0)).toEqual([
+      'storefront',
+      'products',
+      'acme',
+      '0',
+    ]);
     expect(storefrontCacheKey('products', 'acme', undefined)).toEqual(
       storefrontCacheKey('products', 'acme', null)
     );

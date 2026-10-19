@@ -16,7 +16,10 @@ import { originFor } from '@/lib/storefront/store-origin';
  * is in the path, not the query, so every page is cached per store and has its own canonical URL.
  */
 
-async function findCategory(slug: string, categorySlug: string): Promise<{
+async function findCategory(
+  slug: string,
+  categorySlug: string
+): Promise<{
   category: StoreCategory;
   categories: StoreCategory[];
 } | null> {
@@ -30,7 +33,10 @@ export async function categoryListingMetadata(
   categorySlug: string,
   page: number
 ): Promise<Metadata> {
-  const [store, found] = await Promise.all([getPublicStore(slug), findCategory(slug, categorySlug)]);
+  const [store, found] = await Promise.all([
+    getPublicStore(slug),
+    findCategory(slug, categorySlug),
+  ]);
   if (!store || !found) return {};
   return categoryMetadata(store, found.category, originFor(slug), page);
 }
@@ -61,7 +67,9 @@ export async function CategoryListing({
           ...trail.map((item) => ({ label: item.name, href: categoryPath(item.slug) })),
         ]}
       />
-      <h1 className="font-display text-3xl font-semibold tracking-tight sm:text-5xl">{category.name}</h1>
+      <h1 className="font-display text-3xl font-semibold tracking-tight sm:text-5xl">
+        {category.name}
+      </h1>
       <p className="mt-2 text-sm text-muted-foreground">
         {products.total} {products.total === 1 ? 'product' : 'products'}
       </p>

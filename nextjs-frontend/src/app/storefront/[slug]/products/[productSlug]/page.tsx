@@ -61,7 +61,12 @@ export default async function ProductPage({ params }: { params: Params }) {
           <div className="aspect-square overflow-hidden rounded-xl border bg-muted">
             {cover ? (
               // eslint-disable-next-line @next/next/no-img-element -- merchant images are served from the store's own image origin
-              <img src={cover.url} alt={cover.alt} fetchPriority="high" className="h-full w-full object-cover" />
+              <img
+                src={cover.url}
+                alt={cover.alt}
+                fetchPriority="high"
+                className="h-full w-full object-cover"
+              />
             ) : (
               <div className="flex h-full items-center justify-center text-muted-foreground">
                 <ImageOff className="h-12 w-12" aria-hidden="true" />
@@ -72,7 +77,10 @@ export default async function ProductPage({ params }: { params: Params }) {
           {more.length > 0 ? (
             <ul className="grid grid-cols-4 gap-3">
               {more.map((image) => (
-                <li key={image.url} className="aspect-square overflow-hidden rounded-lg border bg-muted">
+                <li
+                  key={image.url}
+                  className="aspect-square overflow-hidden rounded-lg border bg-muted"
+                >
                   {/* eslint-disable-next-line @next/next/no-img-element -- see the cover image */}
                   <img
                     src={image.url}
@@ -92,7 +100,11 @@ export default async function ProductPage({ params }: { params: Params }) {
             {product.title}
           </h1>
           <div className="mt-6">
-            <AddToCart options={product.options} variants={product.variants} currency={product.currency} />
+            <AddToCart
+              options={product.options}
+              variants={product.variants}
+              currency={product.currency}
+            />
           </div>
           {product.description ? (
             <section aria-labelledby="description-heading" className="mt-10 border-t pt-8">

@@ -74,7 +74,10 @@ describe('category metadata', () => {
     const metadata = categoryMetadata(STORE, category, ORIGIN);
     expect(metadata.title).toBe('Mugs');
     expect(metadata.alternates?.canonical).toBe(`${ORIGIN}/categories/mugs`);
-    expect(metadata.openGraph).toMatchObject({ url: `${ORIGIN}/categories/mugs`, siteName: 'Acme Goods' });
+    expect(metadata.openGraph).toMatchObject({
+      url: `${ORIGIN}/categories/mugs`,
+      siteName: 'Acme Goods',
+    });
   });
 
   it('later pages have their own canonical URL', () => {

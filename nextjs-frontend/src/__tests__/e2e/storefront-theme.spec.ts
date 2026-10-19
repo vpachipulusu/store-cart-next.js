@@ -83,9 +83,7 @@ test.describe('storefront theme', () => {
     await page.getByRole('link', { name: /Blue Stoneware Mug/ }).click();
 
     await expect(page).toHaveURL(storeUrl(store.slug, `/products/${store.mugSlug}`));
-    await expect(
-      page.getByRole('heading', { level: 1, name: 'Blue Stoneware Mug' })
-    ).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Blue Stoneware Mug' })).toBeVisible();
     await expect(page).toHaveTitle(`Blue Stoneware Mug | ${store.name}`);
     // The in-stock size is selected first.
     await expect(page.getByRole('radio', { name: 'Medium' })).toBeChecked();
@@ -155,27 +153,29 @@ test.describe('storefront theme', () => {
     await expect(page.locator('meta[name="keywords"]')).toHaveCount(0);
   });
 
-  test('catalogue pages are served from the per-store cache', async ({ request }) => {
+  // Page navigations, not APIRequestContext: only Chromium resolves *.localhost to loopback.
+  test('catalogue pages are served from the per-store cache', async ({ page }) => {
     const url = storeUrl(store.slug, `/products/${store.kettleSlug}`);
-    await request.get(url);
-    const second = await request.get(url);
+    await page.goto(url);
+    const second = await page.goto(url);
 
-    expect(second.status()).toBe(200);
-    expect(second.headers()['x-nextjs-cache']).toMatch(/HIT|STALE/);
+    expect(second?.status()).toBe(200);
+    expect(second?.headers()['x-nextjs-cache']).toMatch(/HIT|STALE/);
   });
 
-  test('missing products, drafts, categories and stores are 404s', async ({ request }) => {
+  test('missing products, drafts, categories and stores are 404s', async ({ page, request }) => {
     for (const route of [
       '/products/no-such-product',
       `/products/${store.draftSlug}`,
+      '/products/Not_A_Slug',
       '/categories/no-such-category',
       '/categories/mugs/page/9',
     ]) {
-      const response = await request.get(storeUrl(store.slug, route));
-      expect(response.status(), route).toBe(404);
+      const response = await page.goto(storeUrl(store.slug, route));
+      expect(response?.status(), route).toBe(404);
     }
-    const unknownStore = await request.get(storeUrl('e2e-theme-ghost', '/products/x'));
-    expect(unknownStore.status()).toBe(404);
+    const unknownStore = await page.goto(storeUrl('e2e-theme-ghost', '/products/x'));
+    expect(unknownStore?.status()).toBe(404);
 
     const direct = await request.get(
       `${APP_ORIGIN.origin}/storefront/${store.slug}/products/${store.mugSlug}`

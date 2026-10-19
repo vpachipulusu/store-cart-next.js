@@ -1,9 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound, permanentRedirect } from 'next/navigation';
-import {
-  CategoryListing,
-  categoryListingMetadata,
-} from '@/components/storefront/category-listing';
+import { CategoryListing, categoryListingMetadata } from '@/components/storefront/category-listing';
 import { MAX_PAGE } from '@/lib/storefront/catalogue';
 import { categoryPath } from '@/lib/storefront/seo';
 

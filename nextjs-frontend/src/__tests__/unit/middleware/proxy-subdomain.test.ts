@@ -190,15 +190,17 @@ describe('KAN-75 storefront guard', () => {
     );
   });
 
-  it.each(['/storefront', '/storefront/acme/products/x.png', '/%73torefront/acme', '/Storefront/acme'])(
-    'sends %s on the platform host to the 404 without the marker',
-    async (path) => {
-      const response = await proxy(request('storecart.test', path));
-      expect(new URL(rewriteTarget(response)!).pathname).toBe('/storefront-preview/not_found');
-      expect(overridden(response, STORE_SLUG_HEADER)).toBeNull();
-      expect(response.headers.get('X-Robots-Tag')).toBe('noindex');
-    }
-  );
+  it.each([
+    '/storefront',
+    '/storefront/acme/products/x.png',
+    '/%73torefront/acme',
+    '/Storefront/acme',
+  ])('sends %s on the platform host to the 404 without the marker', async (path) => {
+    const response = await proxy(request('storecart.test', path));
+    expect(new URL(rewriteTarget(response)!).pathname).toBe('/storefront-preview/not_found');
+    expect(overridden(response, STORE_SLUG_HEADER)).toBeNull();
+    expect(response.headers.get('X-Robots-Tag')).toBe('noindex');
+  });
 
   it('keeps a store host on its own store for a /storefront path', async () => {
     const response = await proxy(request('acme.storecart.test', '/storefront/other'));

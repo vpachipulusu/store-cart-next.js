@@ -40,7 +40,13 @@ export function storeMetadata(store: SeoStore, origin: string): Metadata {
     title: { default: store.name, template: `%s | ${store.name}` },
     description,
     applicationName: store.name,
-    openGraph: { type: 'website', siteName: store.name, title: store.name, description, url: `${origin}/` },
+    openGraph: {
+      type: 'website',
+      siteName: store.name,
+      title: store.name,
+      description,
+      url: `${origin}/`,
+    },
     twitter: { card: 'summary', title: store.name, description },
     robots: { index: true, follow: true },
   };
@@ -89,7 +95,14 @@ export function productMetadata(store: SeoStore, product: ProductDetail, origin:
     title: product.title,
     description,
     alternates: { canonical: url },
-    openGraph: { type: 'website', siteName: store.name, title: product.title, description, url, images },
+    openGraph: {
+      type: 'website',
+      siteName: store.name,
+      title: product.title,
+      description,
+      url,
+      images,
+    },
     twitter: {
       card: image ? 'summary_large_image' : 'summary',
       title: product.title,

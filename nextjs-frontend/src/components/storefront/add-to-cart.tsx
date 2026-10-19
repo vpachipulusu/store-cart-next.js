@@ -144,7 +144,9 @@ export function AddToCart({ options, variants, currency }: AddToCartProps) {
             </Link>
           </>
         ) : null}
-        {status.kind === 'error' ? <span className="text-destructive">{status.message}</span> : null}
+        {status.kind === 'error' ? (
+          <span className="text-destructive">{status.message}</span>
+        ) : null}
       </p>
     </div>
   );

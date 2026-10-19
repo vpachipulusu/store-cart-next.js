@@ -1,8 +1,5 @@
 import type { Metadata } from 'next';
-import {
-  CategoryListing,
-  categoryListingMetadata,
-} from '@/components/storefront/category-listing';
+import { CategoryListing, categoryListingMetadata } from '@/components/storefront/category-listing';
 
 /** A category, page 1 (KAN-75). Cached per store. */
 

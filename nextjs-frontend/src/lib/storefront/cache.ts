@@ -20,5 +20,10 @@ export function storefrontCacheKey(
   slug: string,
   ...args: readonly (string | number | null | undefined)[]
 ): string[] {
-  return ['storefront', read, slug, ...args.map((arg) => (arg === null || arg === undefined ? '' : String(arg)))];
+  return [
+    'storefront',
+    read,
+    slug,
+    ...args.map((arg) => (arg === null || arg === undefined ? '' : String(arg))),
+  ];
 }

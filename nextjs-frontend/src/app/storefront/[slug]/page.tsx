@@ -38,9 +38,15 @@ export default async function StoreHomePage({ params }: { params: Params }) {
 
   return (
     <div className="space-y-16">
-      <section aria-labelledby="welcome" className="rounded-xl border bg-secondary px-6 py-12 sm:px-12 sm:py-16">
+      <section
+        aria-labelledby="welcome"
+        className="rounded-xl border bg-secondary px-6 py-12 sm:px-12 sm:py-16"
+      >
         <p className="text-sm font-medium uppercase tracking-widest text-accent-ink">Welcome to</p>
-        <h1 id="welcome" className="mt-3 font-display text-4xl font-semibold tracking-tight sm:text-6xl">
+        <h1
+          id="welcome"
+          className="mt-3 font-display text-4xl font-semibold tracking-tight sm:text-6xl"
+        >
           {store.name}
         </h1>
         <p className="mt-4 max-w-xl text-lg text-muted-foreground">
@@ -68,7 +74,10 @@ export default async function StoreHomePage({ params }: { params: Params }) {
                   className="flex h-full min-h-20 items-center justify-between gap-2 rounded-lg border bg-card p-4 font-medium text-card-foreground transition-colors hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {category.name}
-                  <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <ArrowRight
+                    className="h-4 w-4 shrink-0 text-muted-foreground"
+                    aria-hidden="true"
+                  />
                 </Link>
               </li>
             ))}

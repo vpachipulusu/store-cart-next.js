@@ -157,7 +157,10 @@ async function loadProducts(
 export const getPublicStore = cached(
   'store',
   async (slug: string): Promise<PublicStorefront | null> => {
-    const result = await callBackend((client) => readStorefront({ client, path: { slug } }), SHARED);
+    const result = await callBackend(
+      (client) => readStorefront({ client, path: { slug } }),
+      SHARED
+    );
     return orNull(result, (data) => ({ name: data.name, slug: data.slug }));
   }
 );
