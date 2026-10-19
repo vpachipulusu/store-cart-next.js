@@ -1,9 +1,9 @@
-"""Stripe Connect webhook (KAN-67): ``account.updated`` and ``account.application.deauthorized``.
+"""Stripe Connect webhook (KAN-67, KAN-69).
 
 A separate endpoint from the Billing webhook with its own signing secret
-(``STRIPE_CONNECT_WEBHOOK_SECRET``). Public route: the signature is the credential. Not
-in the OpenAPI schema. The event only triggers a re-read of the account from Stripe (see
-``ConnectWebhookService``). KAN-69 adds event routing and once-only processing on top.
+(``STRIPE_CONNECT_WEBHOOK_SECRET``) and its own event ledger (``stripe_connect_events``).
+Public route: the signature is the credential. Not in the OpenAPI schema. Routing to the
+organisation and store, and once-only processing, are in ``ConnectWebhookService``.
 """
 
 import json
@@ -24,6 +24,7 @@ from app.core.stripe_webhook_body import (
     PROCESSING_FAILED_MESSAGE,
     read_verified_body,
 )
+from app.repositories.connect_events import ConnectEventRepository
 from app.repositories.org_connect import OrgConnectRepository
 from app.services.stripe_connect import ConnectWebhookService, MalformedConnectEvent
 
@@ -38,7 +39,10 @@ class WebhookAck(BaseModel):
 
 def get_connect_webhook_service(session: SessionDep) -> ConnectWebhookService:
     return ConnectWebhookService(
-        OrgConnectRepository(session), session, get_stripe_connect
+        OrgConnectRepository(session),
+        ConnectEventRepository(session),
+        session,
+        get_stripe_connect,
     )
 
 
@@ -54,7 +58,7 @@ async def stripe_connect_webhook(
     service: Annotated[ConnectWebhookService, Depends(get_connect_webhook_service)],
     stripe_signature: Annotated[str | None, Header(alias="Stripe-Signature")] = None,
 ) -> WebhookAck:
-    """200 once handled or ignored; 5xx makes Stripe retry."""
+    """200 once handled, duplicate or ignored; 5xx makes Stripe retry."""
     body = await _verified_body(request, stripe_signature)
     try:
         event: Any = json.loads(body)
