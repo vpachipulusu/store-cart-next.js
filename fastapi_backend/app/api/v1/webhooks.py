@@ -9,7 +9,11 @@ from app.api.deps import SessionDep
 from app.core.config import settings
 from app.core.plans import PlanKey
 from app.core.sentry import report_exception
-from app.core.stripe_signature import InvalidSignature, verify_signature
+from app.core.stripe_webhook_body import (
+    INVALID_PAYLOAD_MESSAGE,
+    PROCESSING_FAILED_MESSAGE,
+    read_verified_body,
+)
 from app.repositories.billing import (
     OrganizationBillingRepository,
     StripeEventRepository,
@@ -21,12 +25,6 @@ logger = logging.getLogger("storecart.stripe_webhook")
 # Public route (ADR-003 section 5): no service key, the Stripe signature is the credential.
 # Not in the OpenAPI schema: Stripe calls it, the generated client never does.
 router = APIRouter(prefix="/webhooks", tags=["webhooks"], include_in_schema=False)
-
-MAX_BODY_BYTES = 1_000_000
-INVALID_SIGNATURE_MESSAGE = "Invalid signature"
-INVALID_PAYLOAD_MESSAGE = "Invalid payload"
-PAYLOAD_TOO_LARGE_MESSAGE = "Payload too large"
-PROCESSING_FAILED_MESSAGE = "Webhook processing failed"
 
 
 class WebhookAck(BaseModel):
@@ -54,30 +52,7 @@ def get_stripe_webhook_service(session: SessionDep) -> StripeWebhookService:
 
 
 async def _verified_body(request: Request, signature: str | None) -> bytes:
-    secret = settings.STRIPE_WEBHOOK_SECRET
-    if secret is None:
-        raise HTTPException(503, "Service temporarily unavailable")
-    declared = request.headers.get("content-length")
-    if declared and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
-        raise HTTPException(413, PAYLOAD_TOO_LARGE_MESSAGE)
-    chunks: list[bytes] = []
-    received = 0
-    async for chunk in request.stream():
-        received += len(chunk)
-        if received > MAX_BODY_BYTES:
-            raise HTTPException(413, PAYLOAD_TOO_LARGE_MESSAGE)
-        chunks.append(chunk)
-    body = b"".join(chunks)
-    try:
-        verify_signature(body, signature, secret.get_secret_value())
-    except InvalidSignature:
-        # Header presence only (never its value): a missing header and a wrong secret need different fixes.
-        logger.warning(
-            "stripe webhook signature rejected: header=%s",
-            "present" if signature else "missing",
-        )
-        raise HTTPException(400, INVALID_SIGNATURE_MESSAGE) from None
-    return body
+    return await read_verified_body(request, signature, settings.STRIPE_WEBHOOK_SECRET)
 
 
 @router.post("/stripe", response_model=WebhookAck)

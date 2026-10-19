@@ -24,6 +24,18 @@ vi.mock('@/app/actions/user-actions', () => ({
   getLoginHistoryAction: mocks.getLoginHistoryAction,
   changePasswordAction: vi.fn(),
 }));
+vi.mock('@/app/actions/connect-actions', () => ({
+  getConnectStatusAction: vi.fn().mockResolvedValue({
+    success: true,
+    data: {
+      hasAccount: false,
+      chargesEnabled: false,
+      payoutsEnabled: false,
+      detailsSubmitted: false,
+    },
+  }),
+  startConnectOnboardingAction: vi.fn(),
+}));
 vi.mock('@/app/actions/subscription-actions', () => ({
   getSubscriptionDetailsAction: mocks.getSubscriptionDetailsAction,
   getPaymentMethodsAction: mocks.getPaymentMethodsAction,

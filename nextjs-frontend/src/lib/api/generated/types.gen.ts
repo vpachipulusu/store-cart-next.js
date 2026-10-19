@@ -588,6 +588,39 @@ export type CheckoutRequest = {
 };
 
 /**
+ * ConnectStatusData
+ */
+export type ConnectStatusData = {
+    /**
+     * Has Account
+     */
+    has_account: boolean;
+    /**
+     * Charges Enabled
+     */
+    charges_enabled: boolean;
+    /**
+     * Payouts Enabled
+     */
+    payouts_enabled: boolean;
+    /**
+     * Details Submitted
+     */
+    details_submitted: boolean;
+};
+
+/**
+ * ConnectStatusResponse
+ */
+export type ConnectStatusResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: ConnectStatusData;
+};
+
+/**
  * CreateProductRequest
  */
 export type CreateProductRequest = {
@@ -1427,6 +1460,41 @@ export type OkResponse = {
      * Success
      */
     success?: true;
+};
+
+/**
+ * OnboardingRequest
+ */
+export type OnboardingRequest = {
+    /**
+     * Return Url
+     */
+    return_url: string;
+    /**
+     * Refresh Url
+     */
+    refresh_url: string;
+};
+
+/**
+ * OnboardingUrlData
+ */
+export type OnboardingUrlData = {
+    /**
+     * Url
+     */
+    url: string;
+};
+
+/**
+ * OnboardingUrlResponse
+ */
+export type OnboardingUrlResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: OnboardingUrlData;
 };
 
 /**
@@ -7464,6 +7532,142 @@ export type SetDefaultPaymentMethodResponses = {
 };
 
 export type SetDefaultPaymentMethodResponse = SetDefaultPaymentMethodResponses[keyof SetDefaultPaymentMethodResponses];
+
+export type ReadConnectStatusData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+    };
+    query?: never;
+    url: '/v1/organizations/{organization_id}/connect';
+};
+
+export type ReadConnectStatusErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ReadConnectStatusError = ReadConnectStatusErrors[keyof ReadConnectStatusErrors];
+
+export type ReadConnectStatusResponses = {
+    /**
+     * Successful Response
+     */
+    200: ConnectStatusResponse;
+};
+
+export type ReadConnectStatusResponse = ReadConnectStatusResponses[keyof ReadConnectStatusResponses];
+
+export type CreateOnboardingLinkData = {
+    body: OnboardingRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+    };
+    query?: never;
+    url: '/v1/organizations/{organization_id}/connect/onboarding-link';
+};
+
+export type CreateOnboardingLinkErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type CreateOnboardingLinkError = CreateOnboardingLinkErrors[keyof CreateOnboardingLinkErrors];
+
+export type CreateOnboardingLinkResponses = {
+    /**
+     * Successful Response
+     */
+    200: OnboardingUrlResponse;
+};
+
+export type CreateOnboardingLinkResponse = CreateOnboardingLinkResponses[keyof CreateOnboardingLinkResponses];
 
 export type ListOrganizationsData = {
     body?: never;

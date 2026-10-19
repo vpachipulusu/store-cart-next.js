@@ -1,3 +1,4 @@
+import logging
 import re
 from typing import Annotated, Literal
 from urllib.parse import urlparse
@@ -90,6 +91,10 @@ class Settings(BaseSettings):
     STRIPE_PRICE_ID_ENTERPRISE_MONTHLY: str | None = None
     STRIPE_PRICE_ID_ENTERPRISE_YEARLY: str | None = None
 
+    # Stripe Connect webhook (KAN-67): a separate endpoint with its own signing secret.
+    # Unset means /webhooks/stripe-connect answers 503.
+    STRIPE_CONNECT_WEBHOOK_SECRET: SecretStr | None = None
+
     # Organisation billing endpoints (KAN-43). Unset secret key means they answer 503.
     STRIPE_SECRET_KEY: SecretStr | None = None
     # Comma separated origins (scheme://host[:port]) that Checkout and the customer
@@ -142,6 +147,32 @@ class Settings(BaseSettings):
         if self.VERCEL_ENV:
             return self.VERCEL_ENV in VERCEL_NON_PRODUCTION
         return self.ENVIRONMENT in LOCAL_ENVIRONMENTS
+
+    @model_validator(mode="after")
+    def validate_distinct_stripe_webhook_secrets(self) -> "Settings":
+        # One shared secret would make the Billing and Connect endpoints accept each other's events.
+        billing = self.STRIPE_WEBHOOK_SECRET
+        connect = self.STRIPE_CONNECT_WEBHOOK_SECRET
+        if (
+            billing is not None
+            and connect is not None
+            and billing.get_secret_value() == connect.get_secret_value()
+        ):
+            raise ValueError(
+                "STRIPE_CONNECT_WEBHOOK_SECRET must differ from STRIPE_WEBHOOK_SECRET"
+            )
+        if (
+            self.STRIPE_SECRET_KEY is not None
+            and connect is None
+            and not self.relaxed_environment
+        ):
+            # A warning, not a startup failure: refusing to boot would take the whole API down
+            # for a missing optional integration. The Connect webhook answers 503 meanwhile.
+            logging.getLogger("storecart.config").warning(
+                "STRIPE_CONNECT_WEBHOOK_SECRET is not set: /webhooks/stripe-connect answers 503 "
+                "and merchant payment status will not update"
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_neon_api_base_url(self) -> "Settings":
