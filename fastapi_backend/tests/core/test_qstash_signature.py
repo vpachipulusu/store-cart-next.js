@@ -124,3 +124,35 @@ def test_rejects_characters_outside_the_base64url_alphabet():
 def test_rejects_a_token_with_an_unreasonably_long_lifetime():
     with pytest.raises(InvalidQStashSignature):
         verify(make_token(claims={"exp": NOW + 10 * 365 * 24 * 3600}))
+
+
+@pytest.mark.parametrize(
+    ("token", "body", "reason"),
+    [
+        (None, BODY, "missing"),
+        ("a.b", BODY, "malformed"),
+        (make_token(key="someone-elses-key"), BODY, "signature"),
+        (make_token(claims={"iss": "Evil"}), BODY, "issuer"),
+        (make_token(url="https://api.example.test/other"), BODY, "subject"),
+        (make_token(claims={"exp": NOW - 60}), BODY, "expired"),
+        (make_token(claims={"nbf": NOW + 600}), BODY, "not_yet_valid"),
+        (make_token(claims={"exp": NOW + 10 * 365 * 24 * 3600}), BODY, "lifetime"),
+        (make_token(), BODY + b" ", "body"),
+    ],
+)
+def test_names_the_check_that_failed(token, body, reason):
+    """KAN-255: production 401s must say which check failed (no secrets)."""
+    with pytest.raises(InvalidQStashSignature) as caught:
+        verify(token, body=body)
+
+    assert caught.value.reason == reason
+
+
+def test_a_subject_mismatch_reports_the_url_the_token_was_issued_for():
+    with pytest.raises(InvalidQStashSignature) as caught:
+        verify(make_token(url="https://other.example.test/internal/provisioning/step"))
+
+    assert (
+        caught.value.claimed_url
+        == "https://other.example.test/internal/provisioning/step"
+    )

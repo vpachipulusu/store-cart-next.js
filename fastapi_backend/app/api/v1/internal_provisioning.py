@@ -81,10 +81,19 @@ async def _verified_body(request: Request, token: str | None, path: str) -> byte
             raise _permanent(413, PAYLOAD_TOO_LARGE_MESSAGE)
         chunks.append(chunk)
     body = b"".join(chunks)
+    expected_url = f"{base_url.rstrip('/')}{path}"
     try:
-        verify_qstash_signature(body, token, f"{base_url.rstrip('/')}{path}", keys)
-    except InvalidQStashSignature:
-        logger.warning("qstash signature rejected")
+        verify_qstash_signature(body, token, expected_url, keys)
+    except InvalidQStashSignature as exc:
+        # Names the failed check (KAN-255); URLs are not secret, the token never logged.
+        if exc.reason == "subject":
+            logger.warning(
+                "qstash signature rejected: reason=subject claimed=%s expected=%s",
+                exc.claimed_url,
+                expected_url,
+            )
+        else:
+            logger.warning("qstash signature rejected: reason=%s", exc.reason)
         raise HTTPException(401, INVALID_SIGNATURE_MESSAGE) from None
     return body
 

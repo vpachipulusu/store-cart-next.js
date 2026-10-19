@@ -94,3 +94,24 @@ allowed to open a store database.
 ## Plan limit (KAN-84)
 
 `POST` is refused with 409 when the store already holds the plan's `max_products`; see [backend-plan-limits.md](backend-plan-limits.md).
+
+## CSV import (KAN-74)
+
+`POST /v1/stores/{store_id}/products/import`, `multipart/form-data` with one `file` part. Same authorisation as the
+other writes (OWNER or ADMIN, ACTIVE store, foreign stores are the same 404). Code: `app/api/v1/product_import.py`
+(route) and `app/services/product_import.py` (parsing and checks); the write is `StoreProductsService.create_many`.
+
+- One row is one product with a single variant and no options. Columns (header names trimmed, any case):
+  `title, slug, description, status, sku, price_minor, compare_at_price_minor, weight_grams, stock`; only `title`,
+  `sku` and `price_minor` are required. Money is integer minor units. Categories and images are not imported.
+- All or nothing: every row is checked first (the same cell rules as the JSON API, repeats inside the file, slugs and
+  SKUs already in the store, the plan's product limit). Any problem answers **200** with `imported: 0` and `errors`
+  (`row` is the spreadsheet row with the header as row 1, `column` the column name; both null for a file-level
+  problem; at most 100 listed, `truncated` says more exist). Otherwise every product is inserted in one store
+  transaction under the plan-limit lock, so a race (a SKU taken a moment ago, a concurrent create at the limit) rolls
+  the whole file back and is reported as a file-level error.
+- Caps (module constants): 1,000,000 bytes and 500 rows. The body is read after the auth dependencies under the byte
+  cap (413 above it), so an unauthorised or oversized upload is never parsed. 400 when the body is not multipart or
+  has no `file` part.
+- The file must be UTF-8 (a BOM is fine; NUL bytes are refused). Text cells that start with `=`, `+`, `-`, `@`, a tab
+  or a carriage return are refused (CSV injection: such values would run as formulas in a later spreadsheet export).
