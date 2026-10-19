@@ -277,7 +277,8 @@ EXPORT_POLICY = RateLimitPolicy(
 )
 
 # Product CSV import (KAN-74): one call parses up to 1 MB and inserts up to 500 products,
-# so it gets its own budget on top of the api policy. Fail open like the api policy.
+# so it gets its own budget on top of the api policy. Fail closed (like EXPORT_POLICY):
+# an outage must not lift the limit on an expensive write.
 PRODUCT_IMPORT_POLICY = RateLimitPolicy(
-    "product_import", limit=10, window_seconds=10 * 60, fail_closed=False
+    "product_import", limit=10, window_seconds=10 * 60, fail_closed=True
 )

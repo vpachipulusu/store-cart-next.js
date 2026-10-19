@@ -1,5 +1,5 @@
 /** KAN-74: the import dialog checks the file, sends it with the rendered store id and lists row problems. */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -10,7 +10,13 @@ vi.mock('@/app/actions/product-import-actions', () => ({
 }));
 
 import { ProductImportDialog } from '@/components/dashboard/products/product-import-dialog';
-import { SAMPLE_CSV, SAMPLE_FILE_NAME, WRONG_TYPE_MESSAGE } from '@/lib/products/csv-import';
+import {
+  IMPORT_COLUMNS,
+  IMPORT_FILE_HINT,
+  SAMPLE_CSV,
+  SAMPLE_FILE_NAME,
+  WRONG_TYPE_MESSAGE,
+} from '@/lib/products/csv-import';
 
 const csv = () =>
   new File(['title,sku,price_minor\nA,A-1,1\n'], 'products.csv', { type: 'text/csv' });
@@ -32,12 +38,17 @@ describe('ProductImportDialog', () => {
     vi.clearAllMocks();
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('explains the format for the named store', async () => {
     await openDialog();
 
     const dialog = screen.getByRole('dialog', { name: 'Import products' });
     expect(within(dialog).getByText(/Add products to Corner Shop/)).toBeInTheDocument();
-    expect(within(dialog).getByText(/Columns: title, slug/)).toBeInTheDocument();
+    expect(within(dialog).getByText(`Columns: ${IMPORT_COLUMNS.join(', ')}`)).toBeInTheDocument();
+    expect(within(dialog).getByText(IMPORT_FILE_HINT)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
   });
 
@@ -51,6 +62,10 @@ describe('ProductImportDialog', () => {
     await importFile(user);
 
     expect(await screen.findByText('Imported 2 products.')).toBeInTheDocument();
+    // One status region carries both the progress and the success text; no alert on success.
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+    expect(screen.getByRole('status')).toHaveTextContent('Imported 2 products.');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     const [storeId, formData] = mocks.importProductsAction.mock.calls[0];
     expect(storeId).toBe('store1');
     expect((formData as FormData).get('file')).toBeInstanceOf(File);
@@ -154,9 +169,13 @@ describe('ProductImportDialog', () => {
   });
 
   it('downloads the sample CSV', async () => {
-    const createObjectURL = vi.fn((_blob: Blob) => 'blob:sample');
-    const revokeObjectURL = vi.fn();
-    Object.assign(URL, { createObjectURL, revokeObjectURL });
+    // jsdom has no object URLs: define them for this test, restored by restoreAllMocks.
+    URL.createObjectURL ??= () => '';
+    URL.revokeObjectURL ??= () => {};
+    const createObjectURL = vi
+      .spyOn(URL, 'createObjectURL')
+      .mockImplementation((_blob: Blob | MediaSource) => 'blob:sample');
+    const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
     const user = await openDialog();
 
@@ -164,7 +183,7 @@ describe('ProductImportDialog', () => {
 
     const anchor = click.mock.contexts[0] as HTMLAnchorElement;
     expect(anchor.download).toBe(SAMPLE_FILE_NAME);
-    const blob = createObjectURL.mock.calls[0][0];
+    const blob = createObjectURL.mock.calls[0][0] as Blob;
     const text = await new Promise<string>((resolve) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result));

@@ -147,6 +147,21 @@ class StoreCatalogueRepository(BaseRepository):
             text("SELECT pg_advisory_xact_lock(:key)"), {"key": PRODUCT_CREATE_LOCK_KEY}
         )
 
+    async def set_transaction_timeouts(
+        self, *, statement_ms: int, lock_ms: int
+    ) -> None:
+        """Bound each statement and each lock wait until the transaction ends (KAN-74).
+
+        ``SET`` takes no bind parameters, so the values are checked as plain integers.
+        """
+        for name, value in (
+            ("statement_timeout", statement_ms),
+            ("lock_timeout", lock_ms),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"{name} must be a positive whole number of ms")
+            await self._session.execute(text(f"SET LOCAL {name} = {value}"))
+
     async def count_all_products(self) -> int:
         """Every product, drafts included: the number the plan limit applies to."""
         return int(

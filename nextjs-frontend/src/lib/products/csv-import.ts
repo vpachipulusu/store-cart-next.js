@@ -20,14 +20,25 @@ export const IMPORT_COLUMNS = [
   'stock',
 ] as const;
 
+export const REQUIRED_IMPORT_COLUMNS = ['title', 'sku', 'price_minor'] as const;
+/** Text cells that start with one of these are refused (CSV injection), as in the backend. */
+export const FORMULA_PREFIXES = ['=', '+', '-', '@'] as const;
+
+const MAX_IMPORT_MB = MAX_IMPORT_BYTES / 1_000_000;
+
 export const CSV_ACCEPT = '.csv,text/csv';
+
+/** The file field hint, built from the limits so it cannot drift from them. */
+export const IMPORT_FILE_HINT =
+  `UTF-8 CSV, up to ${MAX_IMPORT_MB} MB. ${REQUIRED_IMPORT_COLUMNS.join(', ')} are required. ` +
+  `Text cells cannot start with ${FORMULA_PREFIXES.join(', ')}.`;
 
 export const NO_FILE_MESSAGE = 'Choose a CSV file to import.';
 export const WRONG_TYPE_MESSAGE = 'Choose a .csv file.';
 export const EMPTY_FILE_MESSAGE = 'That file is empty. Choose another file.';
 export const UNREADABLE_MESSAGE =
   'That file could not be read as a CSV file. Save it as UTF-8 CSV and try again.';
-export const TOO_LARGE_MESSAGE = 'That file is larger than 1 MB. Split it into smaller files.';
+export const TOO_LARGE_MESSAGE = `That file is larger than ${MAX_IMPORT_MB} MB. Split it into smaller files.`;
 
 /** Browsers report .csv as text/csv, application/vnd.ms-excel (Windows) or nothing at all. */
 const CSV_TYPES: ReadonlySet<string> = new Set([

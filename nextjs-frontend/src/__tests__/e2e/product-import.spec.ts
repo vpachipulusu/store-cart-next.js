@@ -75,7 +75,7 @@ test.describe('Product CSV import', () => {
       csv('Blue Lamp,,Brass,active,E2E-LAMP-1,4500,,900,3', 'Red Lamp,,,draft,E2E-LAMP-2,1250,,,')
     );
     await dialog.getByRole('button', { name: 'Import' }).click();
-    await expect(dialog.getByTestId('import-success')).toHaveText('Imported 2 products.');
+    await expect(dialog.getByRole('status')).toHaveText('Imported 2 products.');
 
     await page.keyboard.press('Escape');
     await page.reload();
@@ -91,5 +91,11 @@ test.describe('Product CSV import', () => {
     await expect(dialog.getByRole('table', { name: 'Problems in the file' })).toContainText(
       'SKU is already in use'
     );
+
+    // Nothing was added: the list still holds the two imported products.
+    await page.keyboard.press('Escape');
+    await page.reload();
+    await waitForPageReady(page);
+    await expect(page.getByTestId('product-row')).toHaveCount(2);
   });
 });

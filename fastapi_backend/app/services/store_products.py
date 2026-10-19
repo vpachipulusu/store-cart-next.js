@@ -81,6 +81,10 @@ from app.services.store_product_types import (
 
 PlanLookup = Callable[[], Awaitable[Plan]]
 
+# Per-statement and lock-wait bounds for the CSV import transaction (KAN-74).
+IMPORT_STATEMENT_TIMEOUT_MS = 10_000
+IMPORT_LOCK_TIMEOUT_MS = 5_000
+
 
 @dataclass(frozen=True)
 class _PreparedProduct:
@@ -207,6 +211,11 @@ class StoreProductsService:
         plan = await self._plan()
 
         async def write() -> None:
+            # The batch holds the catalogue lock while it inserts, so other creates in
+            # this store wait: bound every statement and lock wait of this transaction.
+            await self._repository.set_transaction_timeouts(
+                statement_ms=IMPORT_STATEMENT_TIMEOUT_MS, lock_ms=IMPORT_LOCK_TIMEOUT_MS
+            )
             await self._reserve(plan, len(prepared))
             for product in prepared:
                 await self._insert_prepared(product)
@@ -415,9 +424,10 @@ class StoreProductsService:
         )
         lookup = await self._insert_options(product.product_id, product.options)
         await self._insert_variants(product.product_id, product.variants, lookup)
-        await self._repository.replace_categories(
-            product.product_id, product.category_ids
-        )
+        if product.category_ids:  # a new product has no links to replace
+            await self._repository.replace_categories(
+                product.product_id, product.category_ids
+            )
 
     async def _lock(self, product_id: str) -> None:
         if not await self._repository.lock_product(product_id):

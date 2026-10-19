@@ -21,6 +21,7 @@ vi.mock('@/lib/api/products', async () => {
 
 import { importProductsAction } from '@/app/actions/product-import-actions';
 import {
+  EMPTY_FILE_MESSAGE,
   MAX_IMPORT_BYTES,
   NO_FILE_MESSAGE,
   TOO_LARGE_MESSAGE,
@@ -90,6 +91,8 @@ describe('importProductsAction', () => {
   it.each([
     ['no file', null, NO_FILE_MESSAGE],
     ['text instead of a file', 'title,sku', NO_FILE_MESSAGE],
+    ['an empty file', new File([''], 'p.csv', { type: 'text/csv' }), EMPTY_FILE_MESSAGE],
+    ['an empty file input', new File([''], '', { type: '' }), NO_FILE_MESSAGE],
     ['a non-csv name', new File(['x'], 'p.xlsx', { type: 'text/csv' }), WRONG_TYPE_MESSAGE],
     [
       'an oversized file',

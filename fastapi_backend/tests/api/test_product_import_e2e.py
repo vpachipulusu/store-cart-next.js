@@ -7,6 +7,7 @@ at a throwaway local server (see ``tests/isolation_world.py``).
 
 # ruff: noqa: F811  (pytest fixtures are imported, then named as test parameters)
 
+from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
@@ -256,6 +257,25 @@ async def test_an_oversized_upload_is_refused(
         client, store_of(world, "a", "north"), b"x" * (MAX_REQUEST_BYTES + 1)
     )
 
+    assert response.status_code == 413
+    assert "larger than" in error_of(response)
+
+
+async def test_a_chunked_upload_over_the_cap_is_refused_without_content_length(
+    client: AsyncClient, world: World
+) -> None:
+    async def chunks() -> AsyncIterator[bytes]:
+        yield b'--b\r\nContent-Disposition: form-data; name="file"; filename="p.csv"\r\n\r\n'
+        for _ in range(MAX_REQUEST_BYTES // 65_536 + 2):
+            yield b"x" * 65_536
+
+    response = await client.post(
+        products_url(store_of(world, "a", "north"), "/import"),
+        content=chunks(),
+        headers={**as_user("alice"), "Content-Type": "multipart/form-data; boundary=b"},
+    )
+
+    assert "content-length" not in {k.lower() for k in response.request.headers}
     assert response.status_code == 413
     assert "larger than" in error_of(response)
 

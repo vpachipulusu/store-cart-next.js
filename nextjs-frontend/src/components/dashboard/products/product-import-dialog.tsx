@@ -27,6 +27,7 @@ import {
   CSV_ACCEPT,
   csvFileError,
   IMPORT_COLUMNS,
+  IMPORT_FILE_HINT,
   issueLocation,
   MAX_IMPORT_ROWS,
   NO_FILE_MESSAGE,
@@ -53,6 +54,15 @@ function downloadSample(): void {
 
 function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+
+/** Text of the one always-present status region: progress, then the success count. */
+function statusText(busy: boolean, outcome: ImportOutcome | null): string {
+  if (busy) return 'Importing… keep this dialog open until it finishes.';
+  if (outcome && outcome.errors.length === 0) {
+    return `Imported ${plural(outcome.imported, 'product')}.`;
+  }
+  return '';
 }
 
 /**
@@ -192,7 +202,7 @@ export function ProductImportDialog({
           <Field
             id="product-import-file"
             label="CSV file"
-            hint="UTF-8 CSV, up to 1 MB. Title, sku and price_minor are required. Text cells cannot start with =, +, - or @."
+            hint={IMPORT_FILE_HINT}
             error={fileError ?? undefined}
           >
             {(describedBy) => (
@@ -214,8 +224,8 @@ export function ProductImportDialog({
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
-          <p role="status" className="text-sm text-muted-foreground">
-            {busy ? 'Importing… keep this dialog open until it finishes.' : ''}
+          <p role="status" className="text-sm text-muted-foreground" data-testid="import-status">
+            {statusText(busy, outcome)}
           </p>
           {outcome && !busy && <ImportResult outcome={outcome} />}
           <Button ref={buttonRef} type="submit" disabled={busy || !file || fileError !== null}>
@@ -228,13 +238,7 @@ export function ProductImportDialog({
 }
 
 function ImportResult({ outcome }: { outcome: ImportOutcome }) {
-  if (outcome.errors.length === 0) {
-    return (
-      <p role="status" className="text-sm font-medium" data-testid="import-success">
-        {`Imported ${plural(outcome.imported, 'product')}.`}
-      </p>
-    );
-  }
+  if (outcome.errors.length === 0) return null; // the success text is in the status region
   return (
     <div className="space-y-2" data-testid="import-errors">
       <p role="alert" className="text-sm font-medium text-destructive">

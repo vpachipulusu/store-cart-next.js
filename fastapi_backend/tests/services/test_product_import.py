@@ -1,10 +1,12 @@
 """Product CSV import (KAN-74) without a database: parsing, per-row errors and the write step."""
 
+import csv
 from collections.abc import Sequence
+from typing import Any
 
 import pytest
 
-from app.core.plans import Plan
+from app.core.plans import PLANS, Plan, PlanKey
 from app.services.product_import import (
     COLUMNS,
     MAX_IMPORT_BYTES,
@@ -18,7 +20,11 @@ from app.services.store_product_types import (
     NewProduct,
     ProductLimitReached,
 )
-from app.services.store_products import StoreProductsService
+from app.services.store_products import (
+    IMPORT_LOCK_TIMEOUT_MS,
+    IMPORT_STATEMENT_TIMEOUT_MS,
+    StoreProductsService,
+)
 
 HEADER = ",".join(COLUMNS)
 
@@ -421,6 +427,65 @@ async def test_create_many_of_nothing_writes_nothing() -> None:
     service = StoreProductsService(None, None, "store", plan)  # type: ignore[arg-type]
 
     assert await service.create_many([]) == ()
+
+
+class RecordingRepository:
+    """Records the calls ``create_many`` makes; reads return fixed values."""
+
+    def __init__(self) -> None:
+        self.events: list[str] = []
+
+    async def set_transaction_timeouts(
+        self, *, statement_ms: int, lock_ms: int
+    ) -> None:
+        self.events.append(f"timeouts {statement_ms} {lock_ms}")
+
+    async def count_all_products(self) -> int:
+        self.events.append("count")
+        return 0
+
+    def __getattr__(self, name: str) -> Any:
+        async def record(*args: object, **kwargs: object) -> None:
+            self.events.append(name)
+
+        return record
+
+
+class RecordingSession:
+    async def commit(self) -> None:
+        pass
+
+    async def rollback(self) -> None:
+        pass
+
+
+async def test_create_many_bounds_the_transaction_before_taking_the_lock() -> None:
+    repository = RecordingRepository()
+
+    async def plan() -> Plan:
+        return PLANS[PlanKey.FREE]
+
+    service = StoreProductsService(repository, RecordingSession(), "store", plan)  # type: ignore[arg-type]
+    products = [p.product for p in parse_products_csv(csv_of(row())).rows]
+
+    ids = await service.create_many(products)
+
+    assert len(ids) == 1
+    assert repository.events[:3] == [
+        f"timeouts {IMPORT_STATEMENT_TIMEOUT_MS} {IMPORT_LOCK_TIMEOUT_MS}",
+        "lock_catalogue",
+        "count",
+    ]
+    # A new product without categories has no links to replace.
+    assert "replace_categories" not in repository.events
+
+
+def test_a_cell_over_the_csv_field_limit_is_a_file_error() -> None:
+    errors = errors_of(csv_of(row(description="x" * (csv.field_size_limit() + 1))))
+
+    assert len(errors) == 1
+    assert errors[0][:2] == (None, None)
+    assert "not valid CSV" in errors[0][2]
 
 
 def test_an_over_long_description_is_a_description_error() -> None:
