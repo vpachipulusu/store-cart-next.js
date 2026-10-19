@@ -8,7 +8,13 @@ from pydantic import SecretStr
 from app.core import stripe_admin
 from app.core.config import settings
 from app.core.stripe_admin import HttpStripeAdmin, get_stripe_admin
-from app.core.stripe_billing import StripeError, StripeNotFound, StripeRejected
+from app.core.stripe_billing import (
+    StripeConflict,
+    StripeError,
+    StripeNotFound,
+    StripeNotProcessed,
+    StripeRejected,
+)
 
 SECRET = "sk_test_unit_only_not_real"
 CHARGE = {
@@ -179,8 +185,8 @@ async def test_cancel_subscription_deletes_it_with_an_idempotency_key():
         (404, StripeNotFound),
         (400, StripeRejected),
         (402, StripeRejected),
-        (409, StripeRejected),
-        (429, StripeError),
+        (409, StripeConflict),  # a StripeRejected subclass (KAN-68)
+        (429, StripeNotProcessed),  # KAN-68
         (500, StripeError),
     ],
 )

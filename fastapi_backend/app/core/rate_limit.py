@@ -64,6 +64,10 @@ STOREFRONT_POLICY = RateLimitPolicy(
 # Public cart reads and writes (KAN-76): keyed by client IP, no user is attached. Writes open a
 # store database, so the cap is lower than the lookup's.
 CART_POLICY = RateLimitPolicy("cart", limit=60, window_seconds=60, fail_closed=False)
+# Storefront checkout (KAN-68): keyed by client IP. Each call writes an order and calls Stripe.
+CHECKOUT_POLICY = RateLimitPolicy(
+    "checkout", limit=10, window_seconds=60, fail_closed=False
+)
 # Public platform settings (KAN-205): keyed by client IP, like the storefront lookup.
 PUBLIC_SETTINGS_POLICY = RateLimitPolicy(
     "public_settings", limit=120, window_seconds=60, fail_closed=False

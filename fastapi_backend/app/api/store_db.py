@@ -1,4 +1,4 @@
-"""Dependency that opens the caller's own store database for the catalogue routes (KAN-245), the order routes (KAN-79) and the public cart (KAN-76).
+"""Dependency that opens the caller's own store database for the catalogue routes (KAN-245), the order routes (KAN-79), the public cart (KAN-76) and checkout (KAN-68).
 
 The store id is never taken from the request on its own: ``require_merchant`` resolves the
 ``{store_id}`` path segment against the caller's organisation memberships (404 for any
@@ -10,14 +10,17 @@ seam (``get_session_provider``); the store engine is built and disposed by
 
 import logging
 from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import SessionDep, get_session_provider
 from app.api.merchant import require_merchant
 from app.core.database import SessionProvider
 from app.core.plans import Plan
+from app.core.stripe_checkout import StripeCheckout
 from app.models.platform.membership import MembershipRole
 from app.repositories.merchant import MerchantAccess, MerchantRepository
 from app.repositories.store_cart import StoreCartRepository
@@ -29,10 +32,19 @@ from app.services.merchant import ALL_ROLES
 from app.services.merchant_orders import StoreOrdersService
 from app.services.plan_limits import plan_for
 from app.services.store_cart import StoreCartService
+from app.services.store_checkout import (
+    PAYMENT_EVENT_TYPES,
+    CheckoutOrders,
+    PlatformCheckoutTargets,
+    SqlCheckoutOrders,
+    StoreCheckoutService,
+    checkout_payment_handler,
+)
 from app.services.store_products import StoreProductsService
 from app.services.store_sessions import StoreSessionError, open_store_session
 from app.services.store_settings import StoreSettingsService
 from app.services.storefront import active_store_id
+from app.services.stripe_connect import StoreEventHandler
 
 logger = logging.getLogger(__name__)
 
@@ -173,3 +185,46 @@ async def storefront_cart_service(
             extra={"store_id": store_id, "reason": reason},
         )
         raise HTTPException(503, STORE_UNAVAILABLE, headers=NO_STORE_HEADERS) from None
+
+
+def _cart_service(session: AsyncSession) -> StoreCartService:
+    return StoreCartService(
+        StoreCartRepository(session),
+        StoreSettingsService(StoreSettingsRepository(session), session),
+        session,
+    )
+
+
+def storefront_checkout_service(
+    provider: SessionProvider,
+    stripe: StripeCheckout,
+    origins: frozenset[str],
+    root_domain: str | None,
+) -> StoreCheckoutService:
+    """A checkout service for public storefront routes (KAN-68).
+
+    The store is resolved from the public slug on the platform database (ACTIVE only), then its
+    own database is opened for the cart and the order. A store database that cannot be opened
+    raises ``StoreSessionError`` from inside ``start``; the route maps it to 503.
+    """
+
+    @asynccontextmanager
+    async def open_orders(store_id: str) -> AsyncIterator[CheckoutOrders]:
+        async with open_store_session(store_id, provider) as session:
+            yield SqlCheckoutOrders(
+                session,
+                _cart_service(session),
+                StoreSettingsService(StoreSettingsRepository(session), session),
+            )
+
+    return StoreCheckoutService(
+        PlatformCheckoutTargets(provider), open_orders, stripe, origins, root_domain
+    )
+
+
+def connect_store_handlers(provider: SessionProvider) -> dict[str, StoreEventHandler]:
+    """Store-scoped Connect webhook handlers (KAN-68): checkout payments confirm the order."""
+    payment = checkout_payment_handler(
+        lambda store_id: open_store_session(store_id, provider)
+    )
+    return dict.fromkeys(PAYMENT_EVENT_TYPES, payment)
