@@ -876,6 +876,20 @@ export type ExportSettings = {
 };
 
 /**
+ * FulfilRequest
+ */
+export type FulfilRequest = {
+    /**
+     * Tracking Number
+     */
+    tracking_number: string;
+    /**
+     * Carrier
+     */
+    carrier?: string | null;
+};
+
+/**
  * GrantAdminRequest
  */
 export type GrantAdminRequest = {
@@ -1335,6 +1349,172 @@ export type OptionValueData = {
      * Position
      */
     position: number;
+};
+
+/**
+ * OrderData
+ */
+export type OrderData = {
+    /**
+     * Id
+     */
+    id: string;
+    status: OrderStatus;
+    /**
+     * Currency
+     */
+    currency: string;
+    /**
+     * Subtotal Minor
+     */
+    subtotal_minor: number;
+    /**
+     * Tax Minor
+     */
+    tax_minor: number;
+    /**
+     * Total Minor
+     */
+    total_minor: number;
+    /**
+     * Tracking Number
+     */
+    tracking_number: string | null;
+    /**
+     * Carrier
+     */
+    carrier: string | null;
+    /**
+     * Fulfilled At
+     */
+    fulfilled_at: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+    /**
+     * Items
+     */
+    items: Array<OrderItemData>;
+};
+
+/**
+ * OrderItemData
+ */
+export type OrderItemData = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Product Name
+     */
+    product_name: string;
+    /**
+     * Sku
+     */
+    sku: string;
+    /**
+     * Variant Label
+     */
+    variant_label: string | null;
+    /**
+     * Unit Price Minor
+     */
+    unit_price_minor: number;
+    /**
+     * Quantity
+     */
+    quantity: number;
+    /**
+     * Tax Rate Bps
+     */
+    tax_rate_bps: number;
+    /**
+     * Tax Minor
+     */
+    tax_minor: number;
+};
+
+/**
+ * OrderListResponse
+ */
+export type OrderListResponse = {
+    /**
+     * Data
+     */
+    data: Array<OrderSummaryData>;
+    /**
+     * Total
+     */
+    total: number;
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Offset
+     */
+    offset: number;
+};
+
+/**
+ * OrderResponse
+ */
+export type OrderResponse = {
+    data: OrderData;
+};
+
+/**
+ * OrderStatus
+ */
+export type OrderStatus = 'pending' | 'paid' | 'fulfilled' | 'cancelled' | 'refunded';
+
+/**
+ * OrderSummaryData
+ */
+export type OrderSummaryData = {
+    /**
+     * Id
+     */
+    id: string;
+    status: OrderStatus;
+    /**
+     * Currency
+     */
+    currency: string;
+    /**
+     * Total Minor
+     */
+    total_minor: number;
+    /**
+     * Item Count
+     */
+    item_count: number;
+    /**
+     * Tracking Number
+     */
+    tracking_number: string | null;
+    /**
+     * Carrier
+     */
+    carrier: string | null;
+    /**
+     * Fulfilled At
+     */
+    fulfilled_at: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
 };
 
 /**
@@ -8521,6 +8701,231 @@ export type DeleteImageResponses = {
 };
 
 export type DeleteImageResponse = DeleteImageResponses[keyof DeleteImageResponses];
+
+export type ListOrdersData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: {
+        /**
+         * Status
+         */
+        status?: OrderStatus | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Offset
+         */
+        offset?: number;
+    };
+    url: '/v1/stores/{store_id}/orders';
+};
+
+export type ListOrdersErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ListOrdersError = ListOrdersErrors[keyof ListOrdersErrors];
+
+export type ListOrdersResponses = {
+    /**
+     * Successful Response
+     */
+    200: OrderListResponse;
+};
+
+export type ListOrdersResponse = ListOrdersResponses[keyof ListOrdersResponses];
+
+export type ReadOrderData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Order Id
+         */
+        order_id: string;
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/stores/{store_id}/orders/{order_id}';
+};
+
+export type ReadOrderErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ReadOrderError = ReadOrderErrors[keyof ReadOrderErrors];
+
+export type ReadOrderResponses = {
+    /**
+     * Successful Response
+     */
+    200: OrderResponse;
+};
+
+export type ReadOrderResponse = ReadOrderResponses[keyof ReadOrderResponses];
+
+export type FulfilOrderData = {
+    body: FulfilRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Order Id
+         */
+        order_id: string;
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/stores/{store_id}/orders/{order_id}/fulfil';
+};
+
+export type FulfilOrderErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type FulfilOrderError = FulfilOrderErrors[keyof FulfilOrderErrors];
+
+export type FulfilOrderResponses = {
+    /**
+     * Successful Response
+     */
+    200: OrderResponse;
+};
+
+export type FulfilOrderResponse = FulfilOrderResponses[keyof FulfilOrderResponses];
 
 export type ListCategoriesData = {
     body?: never;

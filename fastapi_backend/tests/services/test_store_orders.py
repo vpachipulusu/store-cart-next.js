@@ -11,6 +11,7 @@ from app.services.store_orders import (
     OrderLineInput,
     OrderStatus,
     can_transition,
+    clean_tracking_text,
     create_order,
     ensure_transition,
     line_tax_minor,
@@ -148,3 +149,32 @@ async def test_create_order_rejects_a_bad_currency(currency: object):
             tax_rate_bps=0,
             lines=[OrderLineInput("a", 1)],
         )
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("  TRK-1 ", "TRK-1"), ("x" * 100, "x" * 100), ("1Z 999", "1Z 999")],
+)
+def test_tracking_text_is_trimmed_and_kept(raw: str, expected: str):
+    assert clean_tracking_text(raw, "Tracking number", required=True) == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["", "   ", "x" * 101, "a\nb", "a\x00b", "a\tb", None, 12345],
+)
+def test_required_tracking_text_rejects_bad_input(raw: object):
+    with pytest.raises(InvalidOrder):
+        clean_tracking_text(raw, "Tracking number", required=True)
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"), [(None, None), ("  ", None), (" UPS ", "UPS")]
+)
+def test_optional_text_may_be_blank(raw: str | None, expected: str | None):
+    assert clean_tracking_text(raw, "Carrier", required=False) == expected
+
+
+def test_optional_text_still_has_limits():
+    with pytest.raises(InvalidOrder):
+        clean_tracking_text("y" * 101, "Carrier", required=False)

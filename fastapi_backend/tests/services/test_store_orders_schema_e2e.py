@@ -111,7 +111,8 @@ async def test_order_defaults_to_pending(conn: AsyncConnection):
     "status", ["pending", "paid", "fulfilled", "cancelled", "refunded"]
 )
 async def test_every_status_of_the_flow_is_accepted(conn: AsyncConnection, status: str):
-    oid = await order(conn, status=status)
+    tracking = "TRK-1" if status == "fulfilled" else None
+    oid = await order(conn, status=status, tracking_number=tracking)
 
     stored = await scalar(conn, "SELECT status FROM orders WHERE id = :i", i=oid)
 
@@ -337,7 +338,7 @@ async def test_downgrade_drops_the_order_tables_and_keeps_the_catalogue(
     assert back is not None
 
 
-async def test_a_store_at_0003_with_data_reaches_0004_through_the_migrate_path(
+async def test_a_store_at_0003_with_data_reaches_head_through_the_migrate_path(
     world: World,  # noqa: F811
 ):
     database = await world.store_database("old3")
@@ -363,7 +364,7 @@ async def test_a_store_at_0003_with_data_reaches_0004_through_the_migrate_path(
         async with engine.connect() as connection:
             products = await scalar(connection, "SELECT count(*) FROM products")
             orders = await scalar(connection, "SELECT to_regclass('orders')")
-        assert await world.stamped_revision(database) == "0004"
+        assert await world.stamped_revision(database) == "0005"
         assert products == 1
         assert orders is not None
     finally:
