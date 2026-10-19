@@ -100,6 +100,10 @@ class Settings(BaseSettings):
     # Comma separated origins (scheme://host[:port]) that Checkout and the customer
     # portal may return to. Unset means every return URL is rejected.
     BILLING_RETURN_URL_ORIGINS: str = ""
+    # Host that store subdomains live under ({slug}.<root>), without scheme, port or path,
+    # e.g. storecart.com; the same value as the frontend's PLATFORM_ROOT_DOMAIN (KAN-68).
+    # Unset or invalid means checkout may return only to BILLING_RETURN_URL_ORIGINS.
+    PLATFORM_ROOT_DOMAIN: str | None = None
 
     # Cloudflare R2 image uploads (KAN-66). All five are set together or none; unset
     # means the upload route answers 503.

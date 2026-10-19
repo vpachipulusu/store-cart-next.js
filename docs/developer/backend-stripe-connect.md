@@ -42,20 +42,7 @@ Billing (`POST /webhooks/stripe`, `STRIPE_WEBHOOK_SECRET`, ledger `stripe_events
 
 ## Checkout guard (acceptance criterion 3)
 
-There is no checkout yet: this PR only provides the guard as a function. The checkout story (KAN-68) must call one of these before it creates any payment for an organisation's store:
-
-```python
-from app.services.stripe_connect import (
-    ChargesNotEnabled,
-    require_charges_enabled,
-    require_org_charges_enabled,
-)
-
-await require_org_charges_enabled(OrgConnectRepository(session), organization_id)  # loads the organisation
-require_charges_enabled(record)  # when you already hold the ConnectRecord
-```
-
-Both raise `ChargesNotEnabled` when the organisation has no connected account or charges are off (the async form also when the organisation is unknown). Map it to HTTP 409 with a generic message such as "Payments are not enabled for this store", and add a test at the checkout call site. `tests/services/test_stripe_connect.py` and `tests/api/test_org_connect_e2e.py` cover the guard itself.
+`require_charges_enabled` / `require_org_charges_enabled` (`app/services/stripe_connect.py`) raise `ChargesNotEnabled` when the organisation has no connected account or charges are off. The storefront checkout (KAN-68) calls `require_charges_enabled` before it writes an order and answers 409 "Payments are not enabled for this store"; see [backend-checkout.md](backend-checkout.md). `tests/services/test_stripe_connect.py` and `tests/api/test_org_connect_e2e.py` cover the guard itself, `tests/api/test_checkout_e2e.py` the call site.
 
 ## Owner steps (not in `.env.example`, which the coordinator owns)
 

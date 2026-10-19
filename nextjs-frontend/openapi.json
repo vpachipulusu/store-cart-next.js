@@ -14440,6 +14440,164 @@
         }
       }
     },
+    "/v1/storefront/{slug}/checkout": {
+      "post": {
+        "tags": [
+          "checkout"
+        ],
+        "summary": "Start a checkout for the cart",
+        "description": "Creates a pending order priced on the server and a Stripe Checkout Session on the store's connected account. 409 when payments are not enabled or the cart is empty or has changed; 422 when a return URL is not the store's subdomain or an allowed app origin; 502 when Stripe fails.",
+        "operationId": "start_checkout",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "X-Cart-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The shopper's cart token. Missing, unknown or expired is an empty cart (409).",
+              "title": "X-Cart-Token"
+            },
+            "description": "The shopper's cart token. Missing, unknown or expired is an empty cart (409)."
+          },
+          {
+            "name": "X-Internal-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
     "/v1/settings/currency": {
       "get": {
         "tags": [
@@ -15849,6 +16007,48 @@
         ],
         "title": "ChangePlanRequest"
       },
+      "CheckoutBody": {
+        "properties": {
+          "success_url": {
+            "type": "string",
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Success Url"
+          },
+          "cancel_url": {
+            "type": "string",
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Cancel Url"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "success_url",
+          "cancel_url"
+        ],
+        "title": "CheckoutBody"
+      },
+      "CheckoutData": {
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "title": "Order Id"
+          },
+          "checkout_url": {
+            "type": "string",
+            "title": "Checkout Url",
+            "description": "Stripe-hosted payment page. Redirect to it."
+          }
+        },
+        "type": "object",
+        "required": [
+          "order_id",
+          "checkout_url"
+        ],
+        "title": "CheckoutData"
+      },
       "CheckoutRequest": {
         "properties": {
           "plan": {
@@ -15889,6 +16089,24 @@
           "cancel_url"
         ],
         "title": "CheckoutRequest"
+      },
+      "CheckoutResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true,
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/CheckoutData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "CheckoutResponse"
       },
       "ConnectStatusData": {
         "properties": {

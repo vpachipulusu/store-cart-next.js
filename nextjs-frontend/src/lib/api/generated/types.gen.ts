@@ -566,6 +566,36 @@ export type ChangePlanRequest = {
 };
 
 /**
+ * CheckoutBody
+ */
+export type CheckoutBody = {
+    /**
+     * Success Url
+     */
+    success_url: string;
+    /**
+     * Cancel Url
+     */
+    cancel_url: string;
+};
+
+/**
+ * CheckoutData
+ */
+export type CheckoutData = {
+    /**
+     * Order Id
+     */
+    order_id: string;
+    /**
+     * Checkout Url
+     *
+     * Stripe-hosted payment page. Redirect to it.
+     */
+    checkout_url: string;
+};
+
+/**
  * CheckoutRequest
  */
 export type CheckoutRequest = {
@@ -585,6 +615,17 @@ export type CheckoutRequest = {
      * Cancel Url
      */
     cancel_url: string;
+};
+
+/**
+ * CheckoutResponse
+ */
+export type CheckoutResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: CheckoutData;
 };
 
 /**
@@ -10270,6 +10311,76 @@ export type SetCartItemQuantityResponses = {
 };
 
 export type SetCartItemQuantityResponse = SetCartItemQuantityResponses[keyof SetCartItemQuantityResponses];
+
+export type StartCheckoutData = {
+    body: CheckoutBody;
+    headers?: {
+        /**
+         * X-Cart-Token
+         *
+         * The shopper's cart token. Missing, unknown or expired is an empty cart (409).
+         */
+        'X-Cart-Token'?: string | null;
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Slug
+         */
+        slug: string;
+    };
+    query?: never;
+    url: '/v1/storefront/{slug}/checkout';
+};
+
+export type StartCheckoutErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type StartCheckoutError = StartCheckoutErrors[keyof StartCheckoutErrors];
+
+export type StartCheckoutResponses = {
+    /**
+     * Successful Response
+     */
+    200: CheckoutResponse;
+};
+
+export type StartCheckoutResponse = StartCheckoutResponses[keyof StartCheckoutResponses];
 
 export type ReadCurrencyData = {
     body?: never;
