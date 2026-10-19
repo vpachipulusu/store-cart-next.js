@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import {
   createOrganizationWithStore,
+  createStoreInOrganization,
   fetchStoreStatus,
   requestProvisioningRetry,
   type RetryFailureReason,
@@ -13,11 +14,15 @@ import { isSessionVerificationError } from '@/lib/auth/session-errors';
 import { logger } from '@/lib/logger';
 import {
   isFieldName,
+  NEW_STORE_FORBIDDEN_MESSAGE,
+  NEW_STORE_LIMIT_MESSAGE,
   onboardingSchema,
   resumeSchema,
   type FieldErrors,
   type OnboardingSubmission,
+  type ResumeInput,
 } from '@/lib/onboarding/schema';
+import { getCurrentStoreSelection } from '@/lib/stores/current';
 import { isStoreId } from '@/lib/stores/selection';
 
 /**
@@ -52,6 +57,7 @@ const GENERIC_ERROR = 'We could not set up your store. Please try again.';
 const PARTIAL_ERROR =
   'Your business was created but the store was not. Submit again to finish setting it up.';
 const STATUS_ERROR = 'Could not check your store. Please try again.';
+const NO_STORE_YET_MESSAGE = 'Set up your first store before adding another.';
 
 type SessionState = 'ok' | 'unauthorized' | 'unavailable';
 
@@ -145,6 +151,83 @@ export async function createStoreAction(
     }
   } catch (error) {
     logger.error('Onboarding error', {
+      errorName: error instanceof Error ? error.name : typeof error,
+    });
+    return { success: false, error: GENERIC_ERROR };
+  }
+}
+
+export type CreateAdditionalStoreResponse =
+  | {
+      success: true;
+      data: { storeId: string; name: string; status: StoreStatus };
+      error?: undefined;
+      fieldErrors?: undefined;
+    }
+  | {
+      success: false;
+      data?: undefined;
+      error?: string;
+      fieldErrors?: FieldErrors;
+      code?: 'unauthorized';
+      /** The plan's store limit: `error` is the upgrade message, shown instead of the form. */
+      limitReached?: true;
+    };
+
+/**
+ * "New store" from the dashboard (KAN-254): another store in the organisation of the currently selected store.
+ * The organisation comes from `getCurrentStoreSelection()` (the user's own stores, re-read from the backend), never
+ * from the browser, and the backend authorizes the role and the plan limit. Input uses the onboarding rules.
+ */
+export async function createAdditionalStoreAction(
+  input: ResumeInput
+): Promise<CreateAdditionalStoreResponse> {
+  const session = await checkSession();
+  if (session === 'unauthorized') return { success: false, code: 'unauthorized' };
+  if (session === 'unavailable') return { success: false, error: GENERIC_ERROR };
+
+  const parsed = resumeSchema.safeParse(input);
+  if (!parsed.success) {
+    const fieldErrors = fieldErrorsFrom(parsed.error.issues);
+    return Object.keys(fieldErrors).length > 0
+      ? { success: false, fieldErrors }
+      : { success: false, error: GENERIC_ERROR };
+  }
+
+  try {
+    const selection = await getCurrentStoreSelection();
+    if (!selection.available) return { success: false, error: GENERIC_ERROR };
+    if (!selection.selected) return { success: false, error: NO_STORE_YET_MESSAGE };
+
+    const result = await createStoreInOrganization(selection.selected.organizationId, parsed.data);
+    if (result.success) {
+      revalidatePath('/dashboard', 'layout');
+      return {
+        success: true,
+        data: { storeId: result.storeId, name: result.name, status: result.status },
+      };
+    }
+    switch (result.reason) {
+      case 'slug_taken':
+        return { success: false, fieldErrors: { storeSlug: SLUG_TAKEN_MESSAGE } };
+      case 'invalid':
+        return { success: false, fieldErrors: { storeSlug: INVALID_ADDRESS_MESSAGE } };
+      case 'limit':
+        return {
+          success: false,
+          limitReached: true,
+          error: result.limitMessage ?? NEW_STORE_LIMIT_MESSAGE,
+        };
+      case 'forbidden':
+        return { success: false, error: NEW_STORE_FORBIDDEN_MESSAGE };
+      case 'unauthorized':
+        return { success: false, code: 'unauthorized' };
+      default:
+        logger.error('New store failed', { reason: result.reason });
+        return { success: false, error: GENERIC_ERROR };
+    }
+  } catch (error) {
+    logger.error('New store error', {
       errorName: error instanceof Error ? error.name : typeof error,
     });
     return { success: false, error: GENERIC_ERROR };

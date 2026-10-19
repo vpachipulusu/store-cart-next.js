@@ -5,6 +5,8 @@ import { ProductsLoadError } from '@/components/dashboard/products/products-load
 import { fetchProduct, loadCategoryList, productErrorMessage } from '@/lib/api/products';
 import { isEntityId } from '@/lib/products/schema';
 import { getCurrentStoreSelection } from '@/lib/stores/current';
+import { isStoreInSetup } from '@/lib/stores/provisioning';
+import { StoreSetupState } from '@/components/dashboard/store-setup-state';
 
 export const metadata = { title: 'Edit product' };
 
@@ -18,6 +20,10 @@ export default async function EditProductPage({
 
   const selection = await getCurrentStoreSelection();
   if (!selection.available || !selection.selected) return null;
+  if (isStoreInSetup(selection.selected.status)) {
+    const { id, name, status } = selection.selected;
+    return <StoreSetupState storeId={id} storeName={name} status={status} />;
+  }
 
   const [result, categories] = await Promise.all([
     fetchProduct(selection.selected.id, productId),

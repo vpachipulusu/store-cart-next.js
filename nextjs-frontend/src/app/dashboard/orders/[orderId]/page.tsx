@@ -16,6 +16,8 @@ import { fetchOrder, orderErrorMessage, type OrderData } from '@/lib/api/orders'
 import { formatMinor } from '@/lib/products/money';
 import { isOrderId } from '@/lib/orders/schema';
 import { getCurrentStoreSelection } from '@/lib/stores/current';
+import { isStoreInSetup } from '@/lib/stores/provisioning';
+import { StoreSetupState } from '@/components/dashboard/store-setup-state';
 
 export const metadata = { title: 'Order' };
 
@@ -41,6 +43,10 @@ export default async function OrderPage({ params }: { params: Promise<{ orderId:
 
   const selection = await getCurrentStoreSelection();
   if (!selection.available || !selection.selected) return null;
+  if (isStoreInSetup(selection.selected.status)) {
+    const { id, name, status } = selection.selected;
+    return <StoreSetupState storeId={id} storeName={name} status={status} />;
+  }
 
   const result = await fetchOrder(selection.selected.id, orderId);
   if (!result.success && result.status === 404) notFound();

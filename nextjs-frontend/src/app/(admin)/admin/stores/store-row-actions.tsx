@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import type { StoreStatus } from '@/lib/api/admin-stores';
+import { STUCK_AFTER_MINUTES } from '@/lib/stores/provisioning';
 import {
   migrateStoreAction,
   reprovisionStoreAction,
@@ -24,6 +25,8 @@ type StoreRowActionsProps = {
   storeId: string;
   storeName: string;
   status: StoreStatus;
+  /** PROVISIONING with no change past the backend threshold (KAN-255): the re-run fails it and starts a new run. */
+  stalled?: boolean;
 };
 
 type ActionResult = { success: boolean; data?: unknown; error?: string };
@@ -33,9 +36,15 @@ const GENERIC_ERROR = 'Something went wrong. Please try again.';
 /**
  * Suspend, unsuspend, re-run migrations and re-run provisioning for one store (KAN-63). Suspending asks first
  * because the storefront goes offline; re-running provisioning asks first because it starts a new run that counts
- * against the attempt cap (only FAILED stores are offered it). Migrations and unsuspend are safe to repeat.
+ * against the attempt cap (only FAILED stores, and PROVISIONING stores stuck past the threshold, are offered
+ * it). Migrations and unsuspend are safe to repeat.
  */
-export function StoreRowActions({ storeId, storeName, status }: StoreRowActionsProps) {
+export function StoreRowActions({
+  storeId,
+  storeName,
+  status,
+  stalled = false,
+}: StoreRowActionsProps) {
   const router = useRouter();
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
@@ -48,7 +57,8 @@ export function StoreRowActions({ storeId, storeName, status }: StoreRowActionsP
   const canSuspend = status === 'ACTIVE';
   const canUnsuspend = status === 'SUSPENDED';
   const canMigrate = status === 'ACTIVE' || status === 'SUSPENDED';
-  const canReprovision = status === 'FAILED';
+  const isStuck = status === 'PROVISIONING' && stalled;
+  const canReprovision = status === 'FAILED' || isStuck;
 
   if (!canSuspend && !canUnsuspend && !canMigrate && !canReprovision) {
     return <span className="text-sm text-muted-foreground">No actions</span>;
@@ -176,8 +186,10 @@ export function StoreRowActions({ storeId, storeName, status }: StoreRowActionsP
           <DialogHeader>
             <DialogTitle>Re-run provisioning for {storeName}?</DialogTitle>
             <DialogDescription>
-              This starts a new provisioning run for the failed store. Each store can be re-run a
-              limited number of times.
+              {isStuck
+                ? `This store has been provisioning for over ${STUCK_AFTER_MINUTES} minutes without progress. Re-running marks the stuck run failed and starts a new one.`
+                : 'This starts a new provisioning run for the failed store.'}{' '}
+              Each store can be re-run a limited number of times.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

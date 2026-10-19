@@ -8,6 +8,11 @@ import { StatusPill } from '@/components/ui/status-pill';
 import { getStoreStatusAction, retryProvisioningAction } from '@/app/actions/onboarding-actions';
 import { SESSION_EXPIRED_MESSAGE } from '@/lib/onboarding/schema';
 import type { StoreStatus } from '@/lib/api/onboarding';
+import {
+  RETRY_LIMIT_MESSAGE,
+  RETRY_MESSAGES,
+  STUCK_AFTER_MINUTES,
+} from '@/lib/stores/provisioning';
 
 /** Poll delays grow by 1.5x from 2s to a 15s cap, so a slow provisioning job is not hammered. */
 export const POLL_INITIAL_MS = 2000;
@@ -27,22 +32,22 @@ export function nextPollDelay(attempt: number): number {
 const UNAVAILABLE_MESSAGE = 'This store is not available right now.';
 const SLOW_MESSAGE = 'Setting up your store is taking longer than expected.';
 const CHECK_FAILED_MESSAGE = 'We could not check your store. Please try again.';
-/** Mirrors STUCK_AFTER in fastapi_backend/app/services/admin_stores.py: the backend re-runs a quiet store only after this long. */
-const RETRY_AVAILABLE_AFTER_MINUTES = 15;
+const RETRY_AVAILABLE_AFTER_MINUTES = STUCK_AFTER_MINUTES;
 const TOO_SOON_MESSAGE =
   'Your store is still being set up. Please wait a few minutes, then check again.';
-const RETRY_LIMIT_MESSAGE = 'We have already tried the maximum number of times.';
-const RETRY_MESSAGES = {
-  rate_limited: 'Too many attempts. Wait a few minutes and try again.',
-  forbidden: 'Only an owner or admin of this business can retry the setup.',
-  unavailable: 'We could not retry the setup. Please try again.',
-} as const;
 
 type ProvisioningStatusProps = {
   storeId: string;
   storeName: string;
   /** The status the server rendered the page with, or UNKNOWN when the backend could not be reached. */
   initialStatus: StoreStatus | 'UNKNOWN';
+  /** Called once when the store first shows as ready (the dashboard "New store" dialog selects it, KAN-254). */
+  onReady?: () => void;
+  /**
+   * `dialog` (KAN-254): shown inside the dashboard "New store" dialog, so focus starts on the status (the form that
+   * had it unmounts), there is no "Open dashboard" link and the copy does not talk about "this page".
+   */
+  variant?: 'page' | 'dialog';
 };
 
 /**
@@ -53,7 +58,14 @@ type ProvisioningStatusProps = {
  * in one persistent polite live region so each change (including "ready" and "still not finished") is announced;
  * the retry and dashboard controls sit outside it.
  */
-export function ProvisioningStatus({ storeId, storeName, initialStatus }: ProvisioningStatusProps) {
+export function ProvisioningStatus({
+  storeId,
+  storeName,
+  initialStatus,
+  onReady,
+  variant = 'page',
+}: ProvisioningStatusProps) {
+  const inDialog = variant === 'dialog';
   const [status, setStatus] = useState<StoreStatus | 'UNKNOWN'>(initialStatus);
   const [problem, setProblem] = useState<string | null>(null);
   /** Polling used up its attempts while the store was still PROVISIONING: the job may have stopped (KAN-248). */
@@ -77,6 +89,17 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
   const focusDashboardRef = useRef(false);
   /** The focused "Retry setup" button unmounts on success or at the cap; focus moves here so it is not lost. */
   const statusRegionRef = useRef<HTMLDivElement>(null);
+  /** The latest `onReady`, so a new callback identity from the parent neither re-fires nor goes stale. */
+  const onReadyRef = useRef(onReady);
+  const readyNotifiedRef = useRef(false);
+
+  useEffect(() => {
+    onReadyRef.current = onReady;
+  }, [onReady]);
+
+  useEffect(() => {
+    if (inDialog) statusRegionRef.current?.focus();
+  }, [inDialog]);
 
   useEffect(() => {
     if (initialStatus !== 'PROVISIONING' && retryCount === 0) return;
@@ -236,6 +259,12 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
   const ready = message === null && status === 'ACTIVE';
   const needsAttention = message !== null || provisioningFailed;
 
+  useEffect(() => {
+    if (!ready || readyNotifiedRef.current) return;
+    readyNotifiedRef.current = true;
+    onReadyRef.current?.();
+  }, [ready]);
+
   // The button that was focused unmounts when a check turns the store ACTIVE, so focus moves to the new link.
   useEffect(() => {
     if (ready && (retryCount > 0 || focusDashboardRef.current)) dashboardLinkRef.current?.focus();
@@ -310,7 +339,9 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
               <span>We are setting up your store</span>
             </div>
             <p className="text-sm text-muted-foreground">
-              {storeName} is being created. This page updates by itself, so you can leave it open.
+              {inDialog
+                ? `${storeName} is being created. This updates by itself.`
+                : `${storeName} is being created. This page updates by itself, so you can leave it open.`}
             </p>
           </>
         )}
@@ -351,7 +382,7 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
           </Button>
         </div>
       )}
-      {ready && (
+      {ready && !inDialog && (
         <Button asChild className="min-h-11">
           <Link ref={dashboardLinkRef} href="/dashboard">
             Open dashboard

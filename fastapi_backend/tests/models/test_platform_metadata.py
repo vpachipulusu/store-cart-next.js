@@ -26,6 +26,8 @@ EXPECTED_TABLES = {
     "stores",
     # billing webhook (KAN-44)
     "stripe_events",
+    # Connect webhook (KAN-69)
+    "stripe_connect_events",
 }
 
 BILLING_COLUMNS = {

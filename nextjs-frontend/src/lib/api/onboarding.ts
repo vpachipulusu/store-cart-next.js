@@ -166,6 +166,82 @@ export async function createOrganizationWithStore(
   };
 }
 
+export type NewStoreFailureReason =
+  | 'slug_taken'
+  | 'invalid'
+  | 'limit'
+  | 'forbidden'
+  | 'not_found'
+  | 'unauthorized'
+  | 'unavailable';
+
+export type CreateStoreInOrganizationResult =
+  | { success: true; storeId: string; name: string; status: StoreStatus }
+  | { success: false; reason: NewStoreFailureReason; limitMessage?: string };
+
+/** The backend's 409 text for a taken store slug (`http_error` in app/api/v1/organizations.py). */
+const SLUG_TAKEN_ERROR = 'Slug is already taken';
+
+/**
+ * The backend's plan store limit text (`store_limit_message` in app/services/plan_limits.py, KAN-84), e.g. "The
+ * Free plan allows 1 store. Upgrade your plan to add more." Only text of exactly this shape is shown to the user;
+ * anything else falls back to a fixed message. Change both together.
+ */
+const STORE_LIMIT_PATTERN =
+  /^The [A-Za-z][A-Za-z ]{0,39} plan allows \d{1,6} stores?\. Upgrade your plan to add more\.$/;
+/** Looser store-limit wording (the same message reworded): still an upgrade prompt, but with the fixed text. */
+const STORE_LIMIT_FALLBACK_PATTERN = /\bplan allows \d+ stores?\b/i;
+
+function newStoreFailure(failure: Failure): CreateStoreInOrganizationResult {
+  switch (failure.status) {
+    case 409:
+      if (failure.error === SLUG_TAKEN_ERROR) return { success: false, reason: 'slug_taken' };
+      if (STORE_LIMIT_PATTERN.test(failure.error)) {
+        return { success: false, reason: 'limit', limitMessage: failure.error };
+      }
+      // Any other conflict (the organisation cap, a concurrent change) is not a plan upgrade issue.
+      return {
+        success: false,
+        reason: STORE_LIMIT_FALLBACK_PATTERN.test(failure.error) ? 'limit' : 'unavailable',
+      };
+    case 403:
+      return { success: false, reason: 'forbidden' };
+    case 404:
+      return { success: false, reason: 'not_found' };
+    case 422:
+      return { success: false, reason: 'invalid' };
+    case 401:
+      return { success: false, reason: 'unauthorized' };
+    default:
+      return { success: false, reason: 'unavailable' };
+  }
+}
+
+/**
+ * Creates another store in one of the caller's organisations ("New store", KAN-254). The caller passes an
+ * organisation id it took from the server-validated store selection, never from the browser, and the backend
+ * authorizes the role and enforces the plan's store limit.
+ */
+export async function createStoreInOrganization(
+  organizationId: string,
+  input: { storeName: string; storeSlug: string }
+): Promise<CreateStoreInOrganizationResult> {
+  const result = await callBackend((client) =>
+    createStore({
+      client,
+      path: { organization_id: organizationId },
+      body: { name: input.storeName, slug: input.storeSlug },
+    })
+  );
+  if (!result.success) return newStoreFailure(result);
+  return {
+    success: true,
+    storeId: result.data.id,
+    name: result.data.name,
+    status: result.data.status,
+  };
+}
+
 /** The store's provisioning status. 403 and 404 both read as "not found" so another tenant's id reveals nothing. */
 export async function fetchStoreStatus(storeId: string): Promise<StoreStatusResult> {
   const result = await callBackend((client) => readStore({ client, path: { store_id: storeId } }));

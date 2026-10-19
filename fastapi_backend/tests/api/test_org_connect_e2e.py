@@ -1,4 +1,4 @@
-"""End to end: Connect onboarding, the Connect webhook and the checkout guard on a real Postgres (KAN-67).
+"""End to end: Connect onboarding, the Connect webhook and the checkout guard on a real Postgres (KAN-67, KAN-69).
 
 Same contract as ``test_org_billing_e2e.py``: runs only when ``TEST_DATABASE_URL`` points at a
 throwaway local database whose name ends in "_test", and rebuilds its schema with the real
@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import pytest
-from fastapi import Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr
 from sqlalchemy import text
@@ -26,8 +26,9 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from app.api.auth import get_session_identity
-from app.api.deps import get_session_provider
+from app.api.deps import SessionDep, get_session_provider
 from app.api.v1.org_connect import get_stripe_connect_client
+from app.api.v1.webhooks_connect import get_connect_webhook_service
 from app.core.config import settings
 from app.core.database import DefaultSessionProvider, build_engine
 from app.core.firebase import VerifiedIdentity
@@ -35,8 +36,14 @@ from app.core.ids import new_id
 from app.core.stripe_connect import StripeAccountState
 from app.core.stripe_signature import compute_signature
 from app.main import create_app
+from app.repositories.connect_events import ConnectEventRepository
 from app.repositories.org_connect import OrgConnectRepository
-from app.services.stripe_connect import ChargesNotEnabled, require_org_charges_enabled
+from app.services.stripe_connect import (
+    ChargesNotEnabled,
+    ConnectRoute,
+    ConnectWebhookService,
+    require_org_charges_enabled,
+)
 from tests.fakes_connect import FakeStripeConnect
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
@@ -90,8 +97,16 @@ def stripe() -> FakeStripeConnect:
 
 
 @pytest.fixture
+def app() -> FastAPI:
+    return create_app()
+
+
+@pytest.fixture
 async def client(
-    engine: AsyncEngine, stripe: FakeStripeConnect, monkeypatch: pytest.MonkeyPatch
+    app: FastAPI,
+    engine: AsyncEngine,
+    stripe: FakeStripeConnect,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[AsyncClient]:
     monkeypatch.setattr(
         settings, "BILLING_RETURN_URL_ORIGINS", "https://app.example.com"
@@ -99,7 +114,6 @@ async def client(
     monkeypatch.setattr(
         settings, "STRIPE_CONNECT_WEBHOOK_SECRET", SecretStr(WEBHOOK_SECRET)
     )
-    app = create_app()
     provider = DefaultSessionProvider(
         async_sessionmaker(engine, expire_on_commit=False)
     )
@@ -183,6 +197,7 @@ def account_event(account_id: str) -> dict[str, Any]:
         "id": f"evt_{new_id()}",
         "type": "account.updated",
         "created": T0,
+        "livemode": False,
         "data": {"object": {"id": account_id}},
     }
 
@@ -192,6 +207,7 @@ def deauthorized_event(account_id: str) -> dict[str, Any]:
         "id": f"evt_{new_id()}",
         "type": "account.application.deauthorized",
         "created": T0,
+        "livemode": False,
         "account": account_id,
         "data": {"object": {"id": "ca_platform", "object": "application"}},
     }
@@ -415,3 +431,150 @@ async def test_checkout_guard_blocks_until_charges_are_enabled(client, engine, s
     await deliver(client, account_event("acct_new"))
     async with maker() as session:
         await require_org_charges_enabled(OrgConnectRepository(session), org)
+
+
+# KAN-69: routing and at-most-once processing on the real tables
+
+
+async def connect_event_rows(engine: AsyncEngine) -> list[tuple[Any, ...]]:
+    async with engine.connect() as connection:
+        rows = await connection.execute(
+            text(
+                "SELECT stripe_event_id, type, stripe_account_id, organization_id, "
+                "store_id FROM stripe_connect_events ORDER BY created_at"
+            )
+        )
+        return [tuple(row) for row in rows]
+
+
+async def seed_store(engine: AsyncEngine, org_id: str) -> str:
+    store_id = new_id()
+    async with engine.begin() as connection:
+        await connection.execute(
+            text(
+                "INSERT INTO stores (id, organization_id, name, slug) "
+                "VALUES (:id, :org, 'Shop', :slug)"
+            ),
+            {"id": store_id, "org": org_id, "slug": f"shop-{store_id}"},
+        )
+    return store_id
+
+
+class RecordingStoreHandler:
+    def __init__(self) -> None:
+        self.routes: list[ConnectRoute] = []
+        self.fail = False
+
+    async def __call__(self, route: ConnectRoute, obj: Any) -> None:
+        await asyncio.sleep(0.05)  # widen the race window between deliveries
+        self.routes.append(route)
+        if self.fail:
+            raise RuntimeError("handler failed")
+
+
+@pytest.fixture
+def store_handler(app: FastAPI, stripe: FakeStripeConnect) -> RecordingStoreHandler:
+    """Serve the Connect webhook with production repositories plus one store-scoped handler."""
+    handler = RecordingStoreHandler()
+
+    def service(session: SessionDep) -> ConnectWebhookService:
+        return ConnectWebhookService(
+            OrgConnectRepository(session),
+            ConnectEventRepository(session),
+            session,
+            lambda: stripe,
+            livemode=False,
+            store_handlers={"checkout.session.completed": handler},
+        )
+
+    app.dependency_overrides[get_connect_webhook_service] = service
+    return handler
+
+
+def checkout_event(account_id: str, store_id: str) -> dict[str, Any]:
+    return {
+        "id": f"evt_{new_id()}",
+        "type": "checkout.session.completed",
+        "created": T0,
+        "livemode": False,
+        "account": account_id,
+        "data": {"object": {"id": "cs_1", "metadata": {"store_id": store_id}}},
+    }
+
+
+async def test_concurrent_redeliveries_record_the_event_once(client, engine, stripe):
+    org = await seed_org(engine, {"owner": "OWNER"})
+    await onboard(client, org)
+    stripe_reports(stripe, charges=True)
+    event = account_event("acct_new")
+
+    responses = await asyncio.gather(*(deliver(client, event) for _ in range(4)))
+
+    assert [r.status_code for r in responses] == [200] * 4
+    assert await connect_event_rows(engine) == [
+        (event["id"], "account.updated", "acct_new", org, None)
+    ]
+
+
+async def test_unknown_account_records_nothing(client, engine, stripe):
+    await seed_org(engine, {"owner": "OWNER"})
+
+    response = await deliver(client, account_event("acct_nobody"))
+
+    assert response.status_code == 200
+    assert await connect_event_rows(engine) == []
+    assert stripe.calls == []
+
+
+async def test_store_events_reach_the_right_store_once(
+    client, engine, stripe, store_handler
+):
+    org = await seed_org(engine, {"owner": "OWNER"})
+    await onboard(client, org)
+    store = await seed_store(engine, org)
+    event = checkout_event("acct_new", store)
+
+    responses = await asyncio.gather(*(deliver(client, event) for _ in range(3)))
+
+    assert [r.status_code for r in responses] == [200] * 3
+    assert store_handler.routes == [ConnectRoute(org, "acct_new", store)]
+    assert await connect_event_rows(engine) == [
+        (event["id"], "checkout.session.completed", "acct_new", org, store)
+    ]
+
+
+async def test_a_store_event_naming_another_organisations_store_is_ignored(
+    client, engine, stripe, store_handler
+):
+    org = await seed_org(engine, {"owner": "OWNER"})
+    await onboard(client, org)
+    rival = await seed_org(engine, {"rival": "OWNER"})
+    rival_store = await seed_store(engine, rival)
+
+    response = await deliver(client, checkout_event("acct_new", rival_store))
+
+    assert response.status_code == 200
+    assert store_handler.routes == []
+    assert await connect_event_rows(engine) == []
+
+
+async def test_a_failing_store_handler_records_nothing_and_the_retry_applies_once(
+    client, engine, stripe, store_handler
+):
+    org = await seed_org(engine, {"owner": "OWNER"})
+    await onboard(client, org)
+    store = await seed_store(engine, org)
+    event = checkout_event("acct_new", store)
+    store_handler.fail = True
+
+    failed = await deliver(client, event)
+    rows_after_failure = await connect_event_rows(engine)
+    store_handler.fail = False
+    retried = await deliver(client, event)
+    again = await deliver(client, event)
+
+    assert failed.status_code == 500
+    assert rows_after_failure == []
+    assert (retried.status_code, again.status_code) == (200, 200)
+    assert len(store_handler.routes) == 2  # the failed attempt and the retry
+    assert len(await connect_event_rows(engine)) == 1

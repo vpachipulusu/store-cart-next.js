@@ -83,6 +83,16 @@ async def test_the_billing_secret_does_not_sign_connect_events(
     assert response.status_code == 400 and service.events == []
 
 
+async def test_the_connect_secret_does_not_sign_billing_events(client, monkeypatch):
+    # KAN-69 AC1: the two endpoints have separate secrets, in both directions.
+    monkeypatch.setattr(settings, "STRIPE_WEBHOOK_SECRET", SecretStr("whsec_billing"))
+
+    response = await client.post("/webhooks/stripe", content=BODY, headers=signed(BODY))
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "Invalid signature"
+
+
 @pytest.mark.parametrize("variant", ["bad", "missing", "tampered", "stale"])
 async def test_unsigned_or_wrongly_signed_requests_get_a_generic_400(
     client, service, variant
