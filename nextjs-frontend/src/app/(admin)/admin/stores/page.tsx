@@ -20,6 +20,7 @@ import {
   type StoreStatus,
 } from '@/lib/api/admin-stores';
 import { logger } from '@/lib/logger';
+import { isStalledProvisioning } from '@/lib/stores/provisioning';
 import { StoreRowActions } from './store-row-actions';
 
 type Param = string | string[] | undefined;
@@ -204,6 +205,7 @@ export default async function AdminStoresPage({ searchParams }: { searchParams: 
                           storeId={store.id}
                           storeName={store.name}
                           status={store.status}
+                          stalled={isStalledProvisioning(store.status, store.updated_at)}
                         />
                       </TableCell>
                     </TableRow>

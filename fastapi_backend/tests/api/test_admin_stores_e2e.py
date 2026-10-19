@@ -651,3 +651,50 @@ async def test_stuck_provisioning_store_is_listed_failed_and_audited(client, eng
     assert await rows(engine, "SELECT action FROM audit_logs") == [
         ("admin.stores.fail_stuck",)
     ]
+
+
+async def test_stuck_store_without_a_database_is_re_run_from_create_database(
+    client, engine, monkeypatch
+):
+    """KAN-255: a store whose first chain never arrived has no database yet; the
+    admin re-run fails it, starts attempt 1 and queues create_database."""
+    published: list[tuple[str, str, int]] = []
+
+    class Recorder:
+        async def enqueue(self, store_id: str, step: Any, *, attempt: int = 0) -> None:
+            published.append((store_id, step.value, attempt))
+
+    monkeypatch.setattr(
+        "app.api.v1.admin_stores.get_step_enqueuer", lambda _settings: Recorder()
+    )
+    await seed_admin(engine, "ops", ["stores.reprovision"])
+    store_id = await seed_store(
+        engine, "orgA", "stuck", status="PROVISIONING", version=0
+    )
+    async with engine.begin() as connection:
+        await connection.execute(
+            text(
+                "UPDATE stores SET database_ref = NULL, "
+                "connection_string_encrypted = NULL, "
+                "updated_at = now() - interval '1 day' WHERE id = :id"
+            ),
+            {"id": store_id},
+        )
+
+    result = await client.post(
+        f"/v1/admin/stores/{store_id}/reprovision", headers=as_user("ops")
+    )
+
+    assert result.status_code == 200
+    assert result.json()["data"]["status"] == "PROVISIONING"
+    assert published == [(store_id, "create_database", 1)]
+    assert await rows(
+        engine,
+        "SELECT status, connection_string_encrypted, updated_at > now() - interval "
+        "'1 minute' FROM stores WHERE id = :i",
+        i=store_id,
+    ) == [("PROVISIONING", None, True)]
+    assert sorted(await rows(engine, "SELECT action FROM audit_logs")) == [
+        ("admin.stores.fail_stuck",),
+        ("admin.stores.reprovision",),
+    ]

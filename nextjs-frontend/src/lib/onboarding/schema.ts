@@ -66,6 +66,15 @@ export function isFieldName(value: unknown): value is FieldName {
 
 export const SESSION_EXPIRED_MESSAGE = 'Your session has expired. Please sign in again.';
 
+/**
+ * "New store" from the dashboard (KAN-254). The plan limit normally shows the backend's KAN-84 wording ("The Free
+ * plan allows 1 store. Upgrade your plan to add more."); this is the fallback in the same words.
+ */
+export const NEW_STORE_LIMIT_MESSAGE =
+  'Your plan does not allow another store. Upgrade your plan to add more.';
+export const NEW_STORE_FORBIDDEN_MESSAGE =
+  'Only an owner or admin of this business can add a store.';
+
 /** Suggests a slug from a display name; the user can edit it. */
 export function slugify(text: string): string {
   return text
