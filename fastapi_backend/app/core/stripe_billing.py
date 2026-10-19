@@ -49,6 +49,10 @@ class StripeRejected(StripeError):
     """Stripe refused the request itself (HTTP 400, 402 or 409), not an outage."""
 
 
+class StripeConflict(StripeRejected):
+    """HTTP 409: for example a request with the same idempotency key is still in flight."""
+
+
 @dataclass(frozen=True)
 class StripeSubscription:
     id: str
@@ -232,6 +236,8 @@ class HttpStripeBilling:
                     raise StripeNotFound("Stripe request failed")
                 if response.status_code == 403:
                     raise StripeForbidden("Stripe request failed")
+                if response.status_code == 409:
+                    raise StripeConflict("Stripe request failed")
                 if response.status_code in REJECTED_STATUSES:
                     raise StripeRejected("Stripe request failed")
                 raise StripeError("Stripe request failed")

@@ -33,15 +33,18 @@ from app.services.merchant_orders import StoreOrdersService
 from app.services.plan_limits import plan_for
 from app.services.store_cart import StoreCartService
 from app.services.store_checkout import (
+    PAYMENT_EVENT_TYPES,
     CheckoutOrders,
     PlatformCheckoutTargets,
     SqlCheckoutOrders,
     StoreCheckoutService,
+    checkout_payment_handler,
 )
 from app.services.store_products import StoreProductsService
 from app.services.store_sessions import StoreSessionError, open_store_session
 from app.services.store_settings import StoreSettingsService
 from app.services.storefront import active_store_id
+from app.services.stripe_connect import StoreEventHandler
 
 logger = logging.getLogger(__name__)
 
@@ -214,3 +217,11 @@ def storefront_checkout_service(
     return StoreCheckoutService(
         PlatformCheckoutTargets(provider), open_orders, stripe, origins
     )
+
+
+def connect_store_handlers(provider: SessionProvider) -> dict[str, StoreEventHandler]:
+    """Store-scoped Connect webhook handlers (KAN-68): checkout payments confirm the order."""
+    payment = checkout_payment_handler(
+        lambda store_id: open_store_session(store_id, provider)
+    )
+    return dict.fromkeys(PAYMENT_EVENT_TYPES, payment)

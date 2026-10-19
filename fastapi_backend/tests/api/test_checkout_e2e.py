@@ -22,11 +22,12 @@ from sqlalchemy import text
 from app.api.v1.checkout import get_stripe_checkout_client
 from app.core.config import settings
 from app.core.ids import new_id
-from app.core.stripe_billing import StripeError
+from app.core.stripe_billing import StripeRejected
 from app.core.stripe_checkout import CheckoutSessionRequest, StripeCheckoutSession
 from app.core.stripe_signature import compute_signature
 from app.services.store_checkout import confirm_checkout_payment
 from app.services.store_migrations import migrate_store
+from app.services.store_orders import PaymentOutcome
 from app.services.store_sessions import open_store_session
 from tests.api.products_support import (
     create_product,
@@ -60,7 +61,7 @@ class FakeStripeCheckout:
     ) -> StripeCheckoutSession:
         self.requests.append(request)
         if self.fail:
-            raise StripeError("Stripe request failed")
+            raise StripeRejected("Stripe request failed")
         session_id = f"cs_test_{new_id()}"
         return StripeCheckoutSession(
             id=session_id, url=f"https://checkout.stripe.com/c/pay/{session_id}"
@@ -502,3 +503,21 @@ async def test_another_session_cannot_pay_an_order_linked_to_a_session(
 
     assert response.status_code == 200
     assert (await order_row(world, order_id))["status"] == "pending"
+
+
+async def test_a_paid_session_for_a_cancelled_order_is_a_mismatch(
+    client: AsyncClient, world: World, stripe: FakeStripeCheckout
+) -> None:
+    order_id, session_id, request = await started(client, world, stripe)
+    await run_sql(
+        world, "UPDATE orders SET status = 'cancelled' WHERE id = :id", id=order_id
+    )
+    obj = session_event(world, request, session_id)["data"]["object"]
+
+    async with open_store_session(north(world), world.provider) as session:
+        outcome = await confirm_checkout_payment(session, obj)
+        await session.commit()
+
+    assert outcome is PaymentOutcome.MISMATCH
+    row = await order_row(world, order_id)
+    assert (row["status"], row["paid_at"]) == ("cancelled", None)

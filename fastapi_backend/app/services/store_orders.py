@@ -402,7 +402,7 @@ _MARK_PAID_SQL = text(
     "RETURNING id"
 )
 _PAYMENT_STATE_SQL = text(
-    "SELECT status, stripe_checkout_session_id FROM orders WHERE id = :id"
+    "SELECT paid_at, stripe_checkout_session_id FROM orders WHERE id = :id"
 )
 
 
@@ -461,8 +461,9 @@ async def mark_checkout_paid(
     )
     if state is None:
         return PaymentOutcome.NOT_FOUND
+    # Paid by this session before (a cancelled order with this session is a mismatch).
     if (
-        state["status"] != OrderStatus.PENDING.value
+        state["paid_at"] is not None
         and state["stripe_checkout_session_id"] == session_id
     ):
         return PaymentOutcome.ALREADY_PAID

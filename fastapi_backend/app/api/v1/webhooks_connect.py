@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
 from app.api.deps import SessionDep, get_session_provider
+from app.api.store_db import connect_store_handlers
 from app.core.config import settings
 from app.core.database import SessionProvider
 from app.core.sentry import report_exception
@@ -28,8 +29,6 @@ from app.core.stripe_webhook_body import (
 )
 from app.repositories.connect_events import ConnectEventRepository
 from app.repositories.org_connect import OrgConnectRepository
-from app.services.store_checkout import PAYMENT_EVENT_TYPES, checkout_payment_handler
-from app.services.store_sessions import open_store_session
 from app.services.stripe_connect import ConnectWebhookService, MalformedConnectEvent
 
 logger = logging.getLogger("storecart.stripe_connect_webhook")
@@ -45,16 +44,13 @@ def get_connect_webhook_service(
     session: SessionDep,
     provider: Annotated[SessionProvider, Depends(get_session_provider)],
 ) -> ConnectWebhookService:
-    payment = checkout_payment_handler(
-        lambda store_id: open_store_session(store_id, provider)
-    )
     return ConnectWebhookService(
         OrgConnectRepository(session),
         ConnectEventRepository(session),
         session,
         get_stripe_connect,
         livemode=stripe_livemode(),
-        store_handlers=dict.fromkeys(PAYMENT_EVENT_TYPES, payment),
+        store_handlers=connect_store_handlers(provider),
     )
 
 

@@ -9,7 +9,7 @@ import pytest
 from pydantic import SecretStr
 
 from app.core.config import settings
-from app.core.stripe_billing import StripeError, StripeNotConfigured
+from app.core.stripe_billing import StripeConflict, StripeError, StripeNotConfigured
 from app.core.stripe_checkout import (
     CheckoutLineItem,
     CheckoutSessionRequest,
@@ -119,3 +119,10 @@ def test_factory_requires_the_secret_key(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", SecretStr(SECRET))
     assert isinstance(get_stripe_checkout(), HttpStripeCheckout)
+
+
+async def test_a_409_is_a_conflict_not_a_refusal():
+    stripe = client_for(lambda r: httpx.Response(409, json={}), [])
+
+    with pytest.raises(StripeConflict):
+        await stripe.create_payment_session(REQUEST)

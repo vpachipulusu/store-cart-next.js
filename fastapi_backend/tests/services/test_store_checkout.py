@@ -11,8 +11,13 @@ from typing import Any
 
 import pytest
 
-from app.core.stripe_billing import StripeError
+from app.core.stripe_billing import (
+    StripeConflict,
+    StripeError,
+    StripeRejected,
+)
 from app.core.stripe_checkout import CheckoutSessionRequest, StripeCheckoutSession
+from app.repositories.connect_events import ConnectRoute
 from app.repositories.org_connect import ConnectRecord
 from app.services.store_cart import CartLine, CartView, LineStatus
 from app.services.store_checkout import (
@@ -22,9 +27,13 @@ from app.services.store_checkout import (
     CheckoutUnavailable,
     InvalidCheckoutUrl,
     PaymentsNotEnabled,
+    PlatformCheckoutTargets,
+    SqlCheckoutOrders,
     StoreCheckoutService,
     build_session_request,
+    checkout_payment_handler,
     checkout_return_origins,
+    confirm_checkout_payment,
     platform_fee_minor,
 )
 from app.services.store_orders import (
@@ -156,14 +165,14 @@ class FakeOrders:
 class FakeStripeCheckout:
     def __init__(self) -> None:
         self.requests: list[CheckoutSessionRequest] = []
-        self.fail = False
+        self.errors: list[StripeError] = []  # raised in order, one per call
 
     async def create_payment_session(
         self, request: CheckoutSessionRequest
     ) -> StripeCheckoutSession:
         self.requests.append(request)
-        if self.fail:
-            raise StripeError("Stripe request failed")
+        if self.errors:
+            raise self.errors.pop(0)
         return StripeCheckoutSession(
             id="cs_test_1", url="https://checkout.stripe.com/c/pay/cs_test_1"
         )
@@ -417,13 +426,148 @@ async def test_a_zero_total_is_refused_and_the_order_cancelled() -> None:
     assert stripe.requests == []
 
 
-async def test_a_stripe_failure_cancels_the_unstarted_order() -> None:
+async def test_a_stripe_refusal_cancels_the_unstarted_order() -> None:
     orders = ready_orders()
     stripe = FakeStripeCheckout()
-    stripe.fail = True
+    stripe.errors = [StripeRejected("Stripe request failed")]
 
     with pytest.raises(CheckoutUnavailable):
         await service(orders, stripe).start(SLUG, "token", SUCCESS, CANCEL)
 
     assert orders.cancelled == ["order1"]
     assert orders.attached == []
+    assert len(stripe.requests) == 1
+
+
+async def test_an_unknown_outcome_is_retried_with_the_same_key() -> None:
+    orders = ready_orders()
+    stripe = FakeStripeCheckout()
+    stripe.errors = [StripeError("timeout")]
+
+    started = await service(orders, stripe).start(SLUG, "token", SUCCESS, CANCEL)
+
+    assert started.order_id == "order1"
+    assert [r.idempotency_key for r in stripe.requests] == [
+        f"sc-checkout-{STORE_ID}-order1"
+    ] * 2
+    assert orders.cancelled == []
+    assert orders.attached == [("order1", "cs_test_1")]
+
+
+@pytest.mark.parametrize("error", [StripeError("timeout"), StripeConflict("in flight")])
+async def test_an_outcome_that_stays_unknown_leaves_the_order_pending(
+    error: StripeError,
+) -> None:
+    orders = ready_orders()
+    stripe = FakeStripeCheckout()
+    stripe.errors = [error, error]
+
+    with pytest.raises(CheckoutUnavailable):
+        await service(orders, stripe).start(SLUG, "token", SUCCESS, CANCEL)
+
+    assert len(stripe.requests) == 2
+    assert orders.cancelled == []
+    assert orders.attached == []
+
+
+# --- store adapter, platform lookup and webhook side, without a database -----------------
+
+
+class BrokenSession:
+    """An AsyncSession whose statements fail; records rollbacks."""
+
+    def __init__(self) -> None:
+        self.rollbacks = 0
+
+    async def execute(self, *args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("connection lost")
+
+    async def commit(self) -> None:
+        raise AssertionError("nothing to commit")
+
+    async def rollback(self) -> None:
+        self.rollbacks += 1
+
+
+def sql_orders(session: BrokenSession) -> SqlCheckoutOrders:
+    return SqlCheckoutOrders(session, None, None)  # type: ignore[arg-type]
+
+
+async def test_a_failed_cancel_is_logged_and_rolled_back_not_raised() -> None:
+    session = BrokenSession()
+
+    await sql_orders(session).cancel_order("order1")
+
+    assert session.rollbacks == 1
+
+
+async def test_a_failed_session_link_does_not_lose_the_checkout_url() -> None:
+    session = BrokenSession()
+
+    await sql_orders(session).attach_session("order1", "cs_test_1")
+
+    assert session.rollbacks == 1
+
+
+class NoProvider:
+    def session(self) -> Any:
+        raise AssertionError("an invalid slug must not reach the database")
+
+
+@pytest.mark.parametrize("slug", ["Not A Slug!", "admin", ""])
+async def test_an_invalid_or_reserved_slug_finds_no_store(slug: str) -> None:
+    targets = PlatformCheckoutTargets(NoProvider())  # type: ignore[arg-type]
+
+    assert await targets.find(slug) is None
+
+
+def paid_object(**changes: Any) -> dict[str, Any]:
+    obj: dict[str, Any] = {
+        "id": "cs_test_1",
+        "payment_status": "paid",
+        "amount_total": 2000,
+        "currency": "gbp",
+        "payment_intent": "pi_1",
+        "metadata": {"store_id": STORE_ID, "order_id": "order1"},
+    }
+    obj.update(changes)
+    return obj
+
+
+@pytest.mark.parametrize(
+    "obj",
+    [
+        paid_object(payment_status="unpaid"),
+        paid_object(metadata=None),
+        paid_object(metadata={"store_id": STORE_ID}),
+        paid_object(metadata={"order_id": "bad id!"}),
+        paid_object(id="pi_not_a_session"),
+        paid_object(amount_total=0),
+        paid_object(amount_total=True),
+        paid_object(amount_total="2000"),
+        paid_object(currency="GBP"),
+        paid_object(currency=None),
+    ],
+)
+async def test_an_unpaid_or_unusable_session_writes_nothing(
+    obj: dict[str, Any],
+) -> None:
+    session = BrokenSession()  # any statement would raise
+
+    outcome = await confirm_checkout_payment(session, obj)  # type: ignore[arg-type]
+
+    assert outcome is None
+
+
+async def test_the_payment_handler_needs_a_store() -> None:
+    opened: list[str] = []
+
+    def open_store(store_id: str) -> Any:
+        opened.append(store_id)
+        raise AssertionError("no store to open")
+
+    handler = checkout_payment_handler(open_store)
+
+    await handler(ConnectRoute("org1", ACCOUNT, None), paid_object())
+
+    assert opened == []

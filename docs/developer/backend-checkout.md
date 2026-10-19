@@ -23,9 +23,9 @@ Answer: `{order_id, checkout_url}`; redirect the shopper to `checkout_url` (Stri
 
 ## Stripe call
 
-`POST /v1/checkout/sessions` with `Stripe-Account: acct_...` (direct charge: the merchant is the merchant of record; the payment, Stripe's fees, disputes and refunds are on their account), `mode=payment`, `metadata[store_id]`, `metadata[order_id]` (also on the PaymentIntent), `client_reference_id` = order id. Idempotency key `sc-checkout-{store_id}-{order_id}`, built on the server, so a retried call cannot create a second session for one order.
+`POST /v1/checkout/sessions` with `Stripe-Account: acct_...` (direct charge: the merchant is the merchant of record; the payment, Stripe's fees, disputes and refunds are on their account), `mode=payment`, `metadata[store_id]`, `metadata[order_id]` (also on the PaymentIntent), `client_reference_id` = order id. Idempotency key `sc-checkout-{store_id}-{order_id}`, built on the server. A definite refusal (400, 402, 403, 404) cancels the order. An unknown outcome (timeout, transport error, 5xx, 409 in flight) is retried once with the same key, so Stripe answers with the session it may already have made rather than a second one; if the outcome is still unknown the order stays `pending` (cancelling it could leave a live session whose payment is never applied) and the answer is 502. If linking the session to the order fails after Stripe succeeded, the URL is still returned: the webhook accepts an order with no session linked yet.
 
-**Platform fee.** `payment_intent_data[application_fee_amount]` = `round_half_up(total * organizations.platform_fee_bps / 10000)`. `platform_fee_bps` defaults to 0 (decision D9: subscription revenue only), and then the field is **not sent**. Raising the column for an organisation turns the fee on with no code change. The fee code is `platform_fee_minor`.
+**Platform fee.** `payment_intent_data[application_fee_amount]` = `round_half_up(total * organizations.platform_fee_bps / 10000)`, on the amount charged (items, tax added on top and shipping). `platform_fee_bps` defaults to 0 (decision D9: subscription revenue only), and then the field is **not sent**. Raising the column for an organisation turns the fee on with no code change. The fee code is `platform_fee_minor`.
 
 ## Confirmation (Connect webhook)
 
@@ -34,11 +34,11 @@ Registered store handlers: `checkout.session.completed` and `checkout.session.as
 - Only `payment_status = paid` moves anything; `completed` with `unpaid` (a delayed payment method) waits for `async_payment_succeeded`.
 - `mark_checkout_paid` is one conditional `UPDATE`: the order (from `metadata.order_id`) must be `pending`, linked to this session or none yet, and `amount_total`/`currency` must equal its total and currency. A session already linked to another order never pays this one (`stripe_checkout_session_id` is unique).
 - `metadata.order_id` picks the order (KAN-69's rule is to trust metadata only to pick the store). That is safe here because only the platform can create sessions on an Express account (the merchant has no API keys), and the update still requires the order's own amount, currency and session, so a forged id cannot pay a different order.
-- Store-database writes are at least once (KAN-69): a rerun or a concurrent delivery finds the order paid and changes nothing. Mismatches (amount, currency, another session, a cancelled order) are logged as errors and acknowledged; a paid session for a cancelled order needs a manual refund in the merchant's dashboard.
+- Store-database writes are at least once (KAN-69): a rerun or a concurrent delivery finds the order paid and changes nothing. Mismatches (amount, currency, another session, a cancelled order) and paid sessions without usable fields are logged as errors, reported to Sentry (`UnappliedCheckoutPayment`) and acknowledged; a paid session for a cancelled order needs a manual refund in the merchant's dashboard.
 
 ## Data
 
-Store migration `0008_order_checkout` (expand-only): `orders.shipping_minor` (default 0), `prices_include_tax` (default false), `stripe_checkout_session_id` (unique), `stripe_payment_intent_id`, `paid_at`, and the new total CHECK (added `NOT VALID`, then validated). Store databases are migrated by the existing store migration runner; no platform migration.
+Store migration `0008_order_checkout` (expand-only): `orders.shipping_minor` (default 0), `prices_include_tax` (default false), `stripe_checkout_session_id` (unique), `stripe_payment_intent_id`, `paid_at`, and the replaced total CHECK (the swap briefly locks `orders` while existing rows are checked). Store databases are migrated by the existing store migration runner; no platform migration.
 
 ## Owner steps
 
@@ -48,7 +48,8 @@ Store migration `0008_order_checkout` (expand-only): `orders.shipping_minor` (de
 ## Known limits (not in this story)
 
 - Stock is not reserved or decremented at payment, and the cart is not emptied after payment (KAN-77 or a follow-up).
-- Every call creates a new order: a double click makes two pending orders, and only the paid one becomes `paid`. Unpaid pending orders are not expired yet.
+- Every call creates a new order and session: a double click makes two pending orders with two payable sessions (each order is paid at most once, but a shopper could pay both). Unpaid pending orders and their sessions are not expired yet. `CHECKOUT_POLICY` fails open when the rate limiter is down. A per-cart dedupe and a pending-order expiry job are follow-up work.
+- `store_orders.create_order` (flat tax rate, used by tests only) and `price_checkout_order` both build order lines from the catalogue; checkout uses only the second.
 - The merchant order API does not return `shipping_minor` yet, so `subtotal + tax` can differ from `total` there.
 
 ## Tests

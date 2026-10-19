@@ -7,8 +7,9 @@ false), which the new CHECK accepts.
 
 * ``shipping_minor`` and ``prices_include_tax`` record how checkout priced the order with the
   store settings (``store_totals.compute_totals``). The total rule becomes
-  ``total = subtotal + shipping + (tax unless prices include it)``. The new CHECK is added
-  NOT VALID and then validated, so the scan of existing rows does not block writes.
+  ``total = subtotal + shipping + (tax unless prices include it)``. Swapping the CHECK holds
+  an exclusive lock on ``orders`` while existing rows are checked; store tables are small, so
+  this is a short stall (a separate VALIDATE would need its own transaction to help).
 * ``stripe_checkout_session_id`` is the Checkout Session created for the order on the
   merchant's connected account. Unique: the Connect webhook confirms by it, so a session can
   pay one order only, and a redelivered event finds the order already paid.
@@ -83,11 +84,7 @@ def upgrade() -> None:
         unique=True,
     )
     op.drop_constraint("ck_orders_total_minor", "orders", type_="check")
-    op.execute(
-        "ALTER TABLE orders ADD CONSTRAINT ck_orders_total_minor"
-        f" CHECK ({NEW_TOTAL_RULE}) NOT VALID"
-    )
-    op.execute("ALTER TABLE orders VALIDATE CONSTRAINT ck_orders_total_minor")
+    op.create_check_constraint("ck_orders_total_minor", "orders", NEW_TOTAL_RULE)
 
 
 def downgrade() -> None:

@@ -12,9 +12,11 @@ Checkout Session:
    settings. The request can name nothing but its return URLs.
 3. The session is a **direct charge** on the connected account (``Stripe-Account``) whose line
    items add up exactly to the order total. ``application_fee_amount`` comes from the
-   organisation's ``platform_fee_bps`` (0 by default, then the field is not sent). The
-   idempotency key is derived from the order id on the server, so a retried Stripe call cannot
-   create a second session for one order. If Stripe fails, the order is cancelled.
+   organisation's ``platform_fee_bps`` (0 by default, then the field is not sent), on the
+   amount charged. The idempotency key is derived from the order id on the server. A definite
+   Stripe refusal cancels the order; an unknown outcome (timeout, 5xx, 409) is retried once with
+   the same key, so Stripe returns the session it may already have made instead of a second one,
+   and if it stays unknown the order is left ``pending`` (the webhook can still pay it).
 
 ``confirm_checkout_payment`` is the Connect webhook side (``checkout.session.completed`` and
 ``checkout.session.async_payment_succeeded``): it marks the order paid in the store database
@@ -34,12 +36,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import SessionProvider
 from app.core.ids import new_id
+from app.core.sentry import report_exception
 from app.core.slugs import InvalidSlug, ReservedSlug, normalize_slug
-from app.core.stripe_billing import StripeError
+from app.core.stripe_billing import (
+    StripeConflict,
+    StripeError,
+    StripeForbidden,
+    StripeNotFound,
+    StripeRejected,
+)
 from app.core.stripe_checkout import (
     CheckoutLineItem,
     CheckoutSessionRequest,
     StripeCheckout,
+    StripeCheckoutSession,
 )
 from app.repositories.app_settings import AppSettingsRepository
 from app.repositories.checkout import CheckoutRepository
@@ -85,6 +95,7 @@ TAX_LINE_NAME = "Tax"
 SHIPPING_LINE_NAME = "Shipping"
 PAID_STATUS = "paid"
 CART_CHANGED = "Your cart has changed. Review it and try again."
+SESSION_ATTEMPTS = 2
 SESSION_ID_PATTERN = re.compile(r"cs_[A-Za-z0-9_]{1,250}")
 PAYMENT_INTENT_PATTERN = re.compile(r"pi_[A-Za-z0-9_]{1,250}")
 ORDER_ID_PATTERN = re.compile(r"[A-Za-z0-9]{1,64}")
@@ -117,6 +128,10 @@ class InvalidCheckoutUrl(CheckoutError):
 class CheckoutUnavailable(CheckoutError):
     def __init__(self) -> None:
         super().__init__("Payment could not be started. Try again.")
+
+
+class UnappliedCheckoutPayment(Exception):
+    """A paid Checkout Session that changed no order: money taken, order not paid (Sentry only)."""
 
 
 @dataclass(frozen=True)
@@ -297,8 +312,25 @@ class SqlCheckoutOrders:
         return order
 
     async def attach_session(self, order_id: str, session_id: str) -> None:
-        await link_checkout_session(self._session, order_id, session_id)
-        await self._session.commit()
+        """Best effort: the webhook also accepts an order with no session linked yet.
+
+        So a failure here must not cost the shopper the checkout URL Stripe already made.
+        """
+        try:
+            linked = await link_checkout_session(self._session, order_id, session_id)
+            await self._session.commit()
+        except Exception as exc:  # noqa: BLE001 - logged; the webhook can still link it
+            logger.error(
+                "checkout session not linked to its order: %s",
+                type(exc).__name__,
+                extra={"order_id": order_id},
+            )
+            await self._rollback_quietly()
+            return
+        if not linked:  # the webhook got there first, or another session is linked
+            logger.warning(
+                "order already had a checkout session", extra={"order_id": order_id}
+            )
 
     async def cancel_order(self, order_id: str) -> None:
         """Best effort: a failure here must not hide why the checkout stopped."""
@@ -306,10 +338,18 @@ class SqlCheckoutOrders:
             await transition_order(self._session, order_id, OrderStatus.CANCELLED)
             await self._session.commit()
         except Exception as exc:  # noqa: BLE001 - the original failure is the one to report
-            logger.warning(
-                "unstarted checkout order not cancelled: %s", type(exc).__name__
+            logger.error(
+                "unstarted checkout order not cancelled: %s",
+                type(exc).__name__,
+                extra={"order_id": order_id},
             )
+            await self._rollback_quietly()
+
+    async def _rollback_quietly(self) -> None:
+        try:
             await self._session.rollback()
+        except Exception as exc:  # noqa: BLE001 - a dead connection must not mask the cause
+            logger.warning("store rollback failed: %s", type(exc).__name__)
 
 
 class PlatformCheckoutTargets:
@@ -368,13 +408,35 @@ class StoreCheckoutService:
         async with self._open_orders(target.store_id) as orders:
             order = await self._create_order(orders, token, target.currency)
             request = build_session_request(target, order, success, cancel)
-            try:
-                created = await self._stripe.create_payment_session(request)
-            except StripeError:
-                await orders.cancel_order(order.id)
-                raise CheckoutUnavailable from None
+            created = await self._create_session(orders, order.id, request)
             await orders.attach_session(order.id, created.id)
         return CheckoutStarted(order_id=order.id, checkout_url=created.url)
+
+    async def _create_session(
+        self, orders: CheckoutOrders, order_id: str, request: CheckoutSessionRequest
+    ) -> StripeCheckoutSession:
+        """Create the session. A definite refusal cancels the order; an unknown outcome retries.
+
+        The retry sends the same idempotency key, so Stripe answers with the session it may
+        already have created. If the outcome is still unknown, the order stays pending: a
+        cancelled order with a live session could be paid and then never confirmed.
+        """
+        for attempt in range(SESSION_ATTEMPTS):
+            try:
+                return await self._stripe.create_payment_session(request)
+            except StripeConflict:
+                pass  # in flight: unknown outcome
+            except (StripeRejected, StripeForbidden, StripeNotFound):
+                await orders.cancel_order(order_id)
+                raise CheckoutUnavailable from None
+            except StripeError:
+                pass  # timeout, transport error or 5xx: unknown outcome
+            if attempt == SESSION_ATTEMPTS - 1:
+                logger.warning(
+                    "checkout session outcome unknown; order left pending",
+                    extra={"order_id": order_id},
+                )
+        raise CheckoutUnavailable
 
     async def _create_order(
         self, orders: CheckoutOrders, token: str | None, currency: str
@@ -452,7 +514,8 @@ async def confirm_checkout_payment(
         return None
     paid = _paid_session(obj)
     if paid is None:
-        logger.warning("paid checkout session without usable fields")
+        logger.error("paid checkout session without usable fields")
+        report_exception(UnappliedCheckoutPayment("unusable"))
         return None
     outcome = await mark_checkout_paid(
         session,
@@ -468,6 +531,7 @@ async def confirm_checkout_payment(
             outcome.value,
             extra={"order_id": paid.order_id},
         )
+        report_exception(UnappliedCheckoutPayment(outcome.value))
     else:
         logger.info(
             "checkout payment confirmed: %s",
