@@ -9,7 +9,7 @@ import {
  * Stripe Connect onboarding section on the dashboard settings page (KAN-67).
  *
  * The onboarding itself happens on Stripe, so these specs stop at our side of the hand-off: the status panel, the
- * Start button and the return markers. Whether the click reaches Stripe depends on the backend's STRIPE_SECRET_KEY
+ * Start button and the return markers. Whether the click reaches Stripe depends on the backend's Stripe key
  * (test mode) and on Connect being enabled for that Stripe account, so the click test accepts either the hosted link
  * or a curated error, and fails on anything raw.
  */
