@@ -4,6 +4,7 @@ from datetime import datetime
 from sqlalchemy import or_, select, update
 
 from app.models.platform.organization import Organization
+from app.models.platform.store import Store
 from app.repositories.base import BaseRepository
 
 
@@ -33,11 +34,21 @@ class OrgConnectRepository(BaseRepository):
         ).one_or_none()
         return None if row is None else ConnectRecord(*row)
 
-    async def account_exists(self, account_id: str) -> bool:
+    async def organization_for_account(self, account_id: str) -> str | None:
+        """The organisation linked to a connected account (the column is unique)."""
         return (
             await self._session.execute(
-                select(Organization.id)
-                .where(Organization.stripe_connect_account_id == account_id)
+                select(Organization.id).where(
+                    Organization.stripe_connect_account_id == account_id
+                )
+            )
+        ).scalar_one_or_none()
+
+    async def store_belongs_to(self, store_id: str, organization_id: str) -> bool:
+        return (
+            await self._session.execute(
+                select(Store.id)
+                .where(Store.id == store_id, Store.organization_id == organization_id)
                 .limit(1)
             )
         ).first() is not None

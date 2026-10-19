@@ -4,6 +4,7 @@ import { loginAsThrowawayAccount, waitForPageReady } from './helpers/e2e-utils';
 
 /**
  * KAN-61/KAN-218: the dashboard is scoped to the selected store and merchants with several stores can switch.
+ * KAN-254: the switcher is a menu from the first store on (creating a store from it is in new-store.spec.ts).
  *
  * Needs the FastAPI backend (BACKEND_API_URL) and BACKEND_INTERNAL_KEY in the environment. Organisations and
  * stores are created through the real API with the throwaway account's own session; a free plan allows one store
@@ -72,13 +73,12 @@ test.describe('Dashboard store switcher', () => {
     await expect(page).toHaveURL(/\/dashboard\/profile$/);
     await expect(page.getByRole('heading', { name: 'Profile', level: 1 })).toBeVisible();
 
-    // One store: its name and organisation are a label, with no menu trigger.
+    // One store: the menu trigger shows its name and organisation (KAN-254: the menu offers New store).
     const alpha = await createOrganizationWithStore(page, 'alpha', suffix);
     await page.goto('/dashboard');
     await waitForPageReady(page);
-    await expect(visible(page, 'store-name')).toContainText(alpha);
-    await expect(visible(page, 'store-name')).toContainText(`Org alpha`);
-    await expect(page.getByTestId('store-switcher')).toHaveCount(0);
+    await expect(visible(page, 'store-switcher')).toContainText(alpha);
+    await expect(visible(page, 'store-switcher')).toContainText(`Org alpha`);
     await expect(page.getByTestId('no-stores')).toHaveCount(0);
 
     // Several stores: a 52px "Switch store" menu trigger that defaults to the first store.

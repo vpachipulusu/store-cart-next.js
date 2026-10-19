@@ -171,6 +171,37 @@ describe('StoreRowActions', () => {
       }
     );
 
+    it('is offered for a PROVISIONING store stuck past the threshold (KAN-255)', () => {
+      render(
+        <StoreRowActions storeId="store-1" storeName="Acme Shop" status="PROVISIONING" stalled />
+      );
+
+      expect(screen.getByRole('button', { name: RERUN })).toBeInTheDocument();
+      expect(screen.queryByText('No actions')).not.toBeInTheDocument();
+    });
+
+    it('is not offered for a stalled flag on a store that is not PROVISIONING', () => {
+      render(<StoreRowActions storeId="store-1" storeName="Acme Shop" status="ACTIVE" stalled />);
+
+      expect(
+        screen.queryByRole('button', { name: /re-run provisioning/i })
+      ).not.toBeInTheDocument();
+    });
+
+    it('re-runs a stuck store after a confirmation that says it is stuck', async () => {
+      mocks.reprovisionStoreAction.mockResolvedValue({ success: true, data: { message: 'ok' } });
+      const user = userEvent.setup();
+      render(
+        <StoreRowActions storeId="store-1" storeName="Acme Shop" status="PROVISIONING" stalled />
+      );
+
+      await user.click(screen.getByRole('button', { name: RERUN }));
+      expect(await screen.findByRole('dialog')).toHaveTextContent(/over 15 minutes/i);
+      await user.click(screen.getByRole('button', { name: 'Re-run provisioning' }));
+
+      await waitFor(() => expect(mocks.reprovisionStoreAction).toHaveBeenCalledWith('store-1'));
+    });
+
     it('is the only action for a failed store', () => {
       renderActions('FAILED');
 

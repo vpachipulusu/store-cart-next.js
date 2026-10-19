@@ -15,6 +15,8 @@ import { formatMinor } from '@/lib/products/money';
 import { isOrderStatus, ORDER_STATUS_LABELS, ORDER_STATUSES } from '@/lib/orders/schema';
 import type { OrderStatus } from '@/lib/orders/schema';
 import { getCurrentStoreSelection } from '@/lib/stores/current';
+import { isStoreInSetup } from '@/lib/stores/provisioning';
+import { StoreSetupState } from '@/components/dashboard/store-setup-state';
 
 export const metadata = { title: 'Orders' };
 
@@ -73,6 +75,10 @@ export default async function OrdersPage({ searchParams }: { searchParams: Searc
   // The layout already explains a missing store or a failed store list, so there is nothing to list here.
   const selection = await getCurrentStoreSelection();
   if (!selection.available || !selection.selected) return null;
+  if (isStoreInSetup(selection.selected.status)) {
+    const { id, name, status } = selection.selected;
+    return <StoreSetupState storeId={id} storeName={name} status={status} />;
+  }
 
   const result = await fetchOrders(selection.selected.id, {
     status,

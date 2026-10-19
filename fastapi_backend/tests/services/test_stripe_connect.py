@@ -1,5 +1,6 @@
 """Connect service, webhook service and the checkout guard with in-memory fakes (KAN-67)."""
 
+import itertools
 from typing import Any
 
 import pytest
@@ -24,9 +25,16 @@ from app.services.stripe_connect import (
     require_org_charges_enabled,
 )
 from tests.fakes_billing import FakeCommitSession
-from tests.fakes_connect import FakeConnectStore, FakeStripeConnect, connect_record
+from tests.fakes_connect import (
+    FakeConnectEvents,
+    FakeConnectStore,
+    FakeEventSession,
+    FakeStripeConnect,
+    connect_record,
+)
 
 OK = "https://app.example.com/settings"
+EVENT_IDS = itertools.count(1)
 ENABLED = StripeAccountState(
     charges_enabled=True, payouts_enabled=False, details_submitted=True
 )
@@ -243,20 +251,25 @@ async def test_status_for_an_unknown_organisation_or_non_member_is_not_found():
 
 
 def updated_event(account_id: str = "acct_1", **payload: Any) -> dict[str, Any]:
-    """An account.updated event; the payload flags are deliberately not what the service uses."""
+    """An account.updated event; the payload flags are deliberately not what the service uses.
+
+    Each call is a new event (its own id), as Stripe sends for every change.
+    """
     return {
-        "id": "evt_1",
+        "id": f"evt_{next(EVENT_IDS)}",
         "type": "account.updated",
         "created": 1_800_000_000,
+        "livemode": False,
         "data": {"object": {"id": account_id, **payload}},
     }
 
 
 def deauthorized_event(account: Any = "acct_1") -> dict[str, Any]:
     event: dict[str, Any] = {
-        "id": "evt_2",
+        "id": f"evt_{next(EVENT_IDS)}",
         "type": "account.application.deauthorized",
         "created": 1_800_000_000,
+        "livemode": False,
         "data": {"object": {"id": "ca_platform", "object": "application"}},
     }
     if account is not None:
@@ -265,7 +278,7 @@ def deauthorized_event(account: Any = "acct_1") -> dict[str, Any]:
 
 
 def webhook() -> tuple[
-    ConnectWebhookService, FakeConnectStore, FakeStripeConnect, FakeCommitSession
+    ConnectWebhookService, FakeConnectStore, FakeStripeConnect, FakeEventSession
 ]:
     store = FakeConnectStore()
     store.add(
@@ -274,8 +287,14 @@ def webhook() -> tuple[
         MembershipRole.OWNER,
     )
     stripe = FakeStripeConnect()
-    session = FakeCommitSession()
-    service = ConnectWebhookService(store, session, lambda: stripe)  # type: ignore[arg-type]
+    session = FakeEventSession(FakeConnectEvents())
+    service = ConnectWebhookService(
+        store,
+        session.events,
+        session,  # type: ignore[arg-type]
+        lambda: stripe,
+        livemode=False,
+    )
     return service, store, stripe, session
 
 
@@ -328,13 +347,15 @@ async def test_a_read_that_started_earlier_cannot_overwrite_a_newer_one():
     await service.handle(updated_event())
     from datetime import UTC, datetime
 
-    outcome = await service._apply(
+    applied = await store.apply_account_update(
         "acct_1",
-        StripeAccountState(False, False, False),
-        datetime(2020, 1, 1, tzinfo=UTC),
+        charges_enabled=False,
+        payouts_enabled=False,
+        details_submitted=False,
+        event_at=datetime(2020, 1, 1, tzinfo=UTC),
     )
 
-    assert outcome is WebhookOutcome.IGNORED
+    assert applied is False
     assert store.orgs["org1"].connect_charges_enabled is True
 
 
@@ -449,7 +470,9 @@ async def test_events_without_an_account_id_are_rejected(event):
     service, _, stripe, _ = webhook()
 
     with pytest.raises(MalformedConnectEvent):
-        await service.handle(event)
+        await service.handle(
+            {"id": "evt_bad", "created": 1, "livemode": False, **event}
+        )
 
     assert stripe.calls == []
 

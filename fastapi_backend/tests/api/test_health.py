@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from typing import Any
 
 import asyncpg
 import pytest
@@ -7,8 +8,20 @@ from pydantic import SecretStr
 
 from app.api.deps import get_session_provider
 from app.core.config import settings
+from app.core.platform_schema import PLATFORM_HEAD
 from app.main import app, create_app
-from tests.fakes import FakeSession, FakeSessionProvider, failing_session
+from tests.fakes import FakeResult, FakeSession, FakeSessionProvider, failing_session
+
+
+class MigratedSession(FakeSession):
+    """Answers SELECT 1 and reports the platform database at this build's head."""
+
+    async def execute(self, statement: Any) -> FakeResult:
+        result = await super().execute(statement)
+        if "alembic_version" in str(statement):
+            return FakeResult(PLATFORM_HEAD)
+        return result
+
 
 KEY_HEADER = {"X-Internal-Key": "test-only-internal-service-key-not-for-deployment"}
 
@@ -37,18 +50,25 @@ async def test_health_returns_ok(client: AsyncClient) -> None:
 async def test_ready_is_ok_with_an_injected_fake_session_provider(
     client: AsyncClient,
 ) -> None:
-    provider = FakeSessionProvider(FakeSession(value=1))
+    provider = FakeSessionProvider(MigratedSession())
     app.dependency_overrides[get_session_provider] = lambda: provider
 
     async with client:
         response = await client.get("/health/ready", headers=KEY_HEADER)
 
     assert response.status_code == 200
-    assert response.json() == {
-        "status": "ok",
-        "provisioning": {"ready": True, "missing": []},
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["provisioning"] == {"ready": True, "missing": []}
+    assert body["migrations"] == {
+        "pending": False,
+        "current": PLATFORM_HEAD,
+        "head": PLATFORM_HEAD,
     }
-    assert provider.fake_session.statements == ["SELECT 1"]
+    assert provider.fake_session.statements == [
+        "SELECT 1",
+        "SELECT version_num FROM alembic_version",
+    ]
     assert (provider.opened, provider.closed) == (1, 1)
 
 
@@ -117,7 +137,7 @@ async def test_ready_accepts_the_next_rotation_key(
 ) -> None:
     next_key = "next-internal-key-that-is-at-least-32-chars"
     monkeypatch.setattr(settings, "BACKEND_INTERNAL_KEY_NEXT", SecretStr(next_key))
-    provider = FakeSessionProvider(FakeSession(value=1))
+    provider = FakeSessionProvider(MigratedSession())
     app.dependency_overrides[get_session_provider] = lambda: provider
 
     async with client:
@@ -220,7 +240,7 @@ async def test_custom_openapi_url_is_ignored_in_production(
 async def test_ready_names_missing_provisioning_settings_without_values(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    provider = FakeSessionProvider(FakeSession(value=1))
+    provider = FakeSessionProvider(MigratedSession())
     app.dependency_overrides[get_session_provider] = lambda: provider
     unconfigured = settings.model_copy(
         update={

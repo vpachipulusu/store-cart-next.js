@@ -107,6 +107,13 @@ failing a store whose old QStash retries are still pending can let that run's la
   when the cap is reached or the enqueue fails the store stays `FAILED` and the caller gets 409/502. The merchant route
   keeps its OWNER/ADMIN check. The onboarding status page offers "Retry setup"
   once it stops polling.
+- UI (KAN-255): `/admin/stores` offers "Re-run provisioning" for a `FAILED` store and for a `PROVISIONING` store whose
+  `updated_at` is older than 15 minutes (`src/lib/stores/provisioning.ts` mirrors `STUCK_AFTER`). The merchant
+  dashboard's store-scoped pages (products, orders, store settings) show "still being set up" / "setup failed" with
+  "Retry setup" for a `PROVISIONING` or `FAILED` store instead of loading data; the backend answers `not_failed`
+  (shown as "still being set up") while a `PROVISIONING` store is inside the 15 minutes.
+- A store created before the `/internal/provisioning/(.*)` rewrite (KAN-248) never received a delivery and stays
+  `PROVISIONING` with no database until someone re-runs it: nothing re-enqueues old messages (KAN-255).
 
 ## Local development
 

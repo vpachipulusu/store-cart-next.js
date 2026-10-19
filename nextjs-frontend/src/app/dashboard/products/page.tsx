@@ -20,6 +20,8 @@ import { toCategoryOptions, type CategoryList } from '@/lib/products/categories'
 import { formatPriceRange } from '@/lib/products/money';
 import { isEntityId, PRODUCT_STATUSES, type ProductStatus } from '@/lib/products/schema';
 import { getCurrentStoreSelection } from '@/lib/stores/current';
+import { isStoreInSetup } from '@/lib/stores/provisioning';
+import { StoreSetupState } from '@/components/dashboard/store-setup-state';
 
 export const metadata = { title: 'Products' };
 
@@ -87,6 +89,10 @@ export default async function ProductsPage({ searchParams }: { searchParams: Sea
   // The layout already explains a missing store or a failed store list, so there is nothing to list here.
   const selection = await getCurrentStoreSelection();
   if (!selection.available || !selection.selected) return null;
+  if (isStoreInSetup(selection.selected.status)) {
+    const { id, name, status } = selection.selected;
+    return <StoreSetupState storeId={id} storeName={name} status={status} />;
+  }
 
   const [result, categories] = await Promise.all([
     fetchProducts(selection.selected.id, {

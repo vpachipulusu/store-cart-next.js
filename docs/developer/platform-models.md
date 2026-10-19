@@ -48,3 +48,10 @@ product decisions. It has no Stripe calls or tables: billing endpoints and the w
 `DATABASE_URL_DIRECT` (Neon unpooled) is used by Alembic when set, else `DATABASE_URL`. `sslmode` in the URL is passed to
 asyncpg as `ssl`; other query parameters are dropped. Run `alembic upgrade head` only on a database you own. CI runs
 `upgrade head`, `alembic check` and `downgrade base` on a Postgres 17 service container.
+
+**Deploying a backend PR that adds a platform migration (KAN-253).** No build or deploy runs migrations (ADR-011).
+Before or right after the deploy, run `uv run alembic upgrade head` from `fastapi_backend/` against the production
+platform database (`DATABASE_URL_DIRECT`). Until then every query on the changed tables fails, and `GET /health/ready`
+(header `X-Internal-Key`) answers 503 `migrations_pending` with `migrations.current` and `migrations.head`. The PR that
+adds the migration also appends its revision id to `PLATFORM_REVISIONS` in `app/core/platform_schema.py`;
+`tests/core/test_platform_schema.py` fails until it does.

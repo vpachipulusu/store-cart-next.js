@@ -32,3 +32,20 @@ async def test_session_is_closed_when_the_repository_raises() -> None:
             await HealthRepository(session).ping()
 
     assert provider.closed == 1
+
+
+async def test_applied_revision_reads_the_platform_alembic_version() -> None:
+    fake = FakeSession(value="0010")
+    provider = FakeSessionProvider(fake)
+
+    async with provider.session() as session:
+        assert await HealthRepository(session).applied_revision() == "0010"
+
+    assert fake.statements == ["SELECT version_num FROM alembic_version"]
+
+
+async def test_applied_revision_is_none_when_the_row_holds_null() -> None:
+    provider = FakeSessionProvider(FakeSession(value=None))
+
+    async with provider.session() as session:
+        assert await HealthRepository(session).applied_revision() is None
