@@ -53,7 +53,7 @@
           "health"
         ],
         "summary": "Readiness Check",
-        "description": "Readiness check: 200 when the database answers, 503 otherwise.\n\nNeeds the service key (KAN-247): it queries the database, so it must not be an\nopen probe on a public URL. Liveness (`/health`) stays open.\n\n``provisioning`` names the store provisioning settings that are missing (KAN-248),\nnever their values. It is a diagnostic: it does not change the status code.\n\nRedis is deliberately not checked: rate limiting fails open, so a Redis blip\nmust not take the service out of rotation.",
+        "description": "Readiness check: 200 when the database answers and is migrated, 503 otherwise.\n\nNeeds the service key (KAN-247): it queries the database, so it must not be an\nopen probe on a public URL. Liveness (`/health`) stays open.\n\n``provisioning`` names the store provisioning settings that are missing (KAN-248),\nnever their values. It is a diagnostic: it does not change the status code.\n\n``migrations`` compares the platform database's Alembic revision with this build's\nhead (KAN-253). Behind, or no ``alembic_version`` at all, answers 503 with status\n``migrations_pending``: no deploy runs ``alembic upgrade head`` (ADR-011), and code\non an unmigrated schema fails every query on the changed tables. A revision this\nbuild does not know counts as ahead (a newer build migrated) and is not pending.\nAny other database error answers 503 ``unavailable`` with no ``migrations``.\nStore databases are not checked here.\n\nRedis is deliberately not checked: rate limiting fails open, so a Redis blip\nmust not take the service out of rotation.",
         "operationId": "readiness_check",
         "parameters": [
           {
@@ -10816,6 +10816,192 @@
         }
       }
     },
+    "/v1/stores/{store_id}/products/import": {
+      "post": {
+        "tags": [
+          "products"
+        ],
+        "summary": "Import products from a CSV file",
+        "description": "All or nothing: 200 with ``imported`` and ids, or ``imported: 0`` and every problem.",
+        "operationId": "import_products_csv",
+        "parameters": [
+          {
+            "name": "store_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Store Id"
+            }
+          },
+          {
+            "name": "X-Internal-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Key"
+            }
+          },
+          {
+            "name": "X-Session-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportProductsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request Timeout"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "title": "ImportProductsBody",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "UTF-8 CSV, at most 1 MB (1000000 bytes) and 500 rows. Columns: title, slug, description, status, sku, price_minor, compare_at_price_minor, weight_grams, stock."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/stores/{store_id}/products": {
       "get": {
         "tags": [
@@ -16891,6 +17077,81 @@
         ],
         "title": "ImageUploadResponse"
       },
+      "ImportIssueData": {
+        "properties": {
+          "row": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row",
+            "description": "Spreadsheet row (the header is row 1); null for the whole file."
+          },
+          "column": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Column",
+            "description": "Column name; null for the whole row."
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "row",
+          "column",
+          "message"
+        ],
+        "title": "ImportIssueData"
+      },
+      "ImportProductsResponse": {
+        "properties": {
+          "imported": {
+            "type": "integer",
+            "title": "Imported",
+            "description": "Products created; 0 when any row failed."
+          },
+          "product_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Product Ids"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/ImportIssueData"
+            },
+            "type": "array",
+            "title": "Errors"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated",
+            "description": "More problems were found than are listed."
+          }
+        },
+        "type": "object",
+        "required": [
+          "imported",
+          "product_ids",
+          "errors",
+          "truncated"
+        ],
+        "title": "ImportProductsResponse"
+      },
       "InvoiceData": {
         "properties": {
           "id": {
@@ -17043,6 +17304,36 @@
           "STAFF"
         ],
         "title": "MembershipRole"
+      },
+      "MigrationsStatus": {
+        "properties": {
+          "pending": {
+            "type": "boolean",
+            "title": "Pending"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current"
+          },
+          "head": {
+            "type": "string",
+            "title": "Head"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pending",
+          "current",
+          "head"
+        ],
+        "title": "MigrationsStatus"
       },
       "NotificationItem": {
         "properties": {
@@ -18971,6 +19262,16 @@
           },
           "provisioning": {
             "$ref": "#/components/schemas/ProvisioningSettingsStatus"
+          },
+          "migrations": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MigrationsStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",

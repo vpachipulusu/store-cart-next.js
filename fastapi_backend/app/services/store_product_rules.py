@@ -208,8 +208,9 @@ def _constraint_name(error: IntegrityError | DataError) -> str | None:
     return None
 
 
-# Deadlock, serialization failure and lock timeout.
-RETRYABLE_SQLSTATES: Final = frozenset({"40P01", "40001", "55P03"})
+# Deadlock, serialization failure, lock timeout and statement timeout (the CSV import
+# bounds its statements, KAN-74).
+RETRYABLE_SQLSTATES: Final = frozenset({"40P01", "40001", "55P03", "57014"})
 
 
 def is_retryable(error: DBAPIError) -> bool:

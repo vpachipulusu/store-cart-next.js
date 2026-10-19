@@ -101,6 +101,7 @@ this route. Check, in this order:
    into `STRIPE_WEBHOOK_SECRET` (step 2) and redeploy.
 4. **Deployment Protection.** Stripe sends no Vercel bypass header. If the production domain is behind Vercel
    Authentication or a password, add a protection-bypass exception for `/webhooks/stripe` only.
+5. **Platform migrations (KAN-253).** No deploy runs migrations (ADR-011): before or right after deploying a backend PR with a platform migration, run `uv run alembic upgrade head` from `fastapi_backend/` against the production platform database; until then `GET /health/ready` answers 503 `migrations_pending` and every query on the changed tables fails (the webhook answers 500).
 
 ### How to verify
 
