@@ -46,8 +46,10 @@ class StoreSettingsRepository(BaseRepository):
         await self._session.execute(_ENSURE_ROW)
 
     async def get(self) -> StoreSettingsRow:
-        await self._ensure_row()
-        row = (await self._session.execute(text(_SELECT))).mappings().one()
+        row = (await self._session.execute(text(_SELECT))).mappings().one_or_none()
+        if row is None:  # the migration seeds it; only a removed row gets here
+            await self._ensure_row()
+            row = (await self._session.execute(text(_SELECT))).mappings().one()
         return StoreSettingsRow(**row)
 
     async def update(self, changes: Mapping[str, Any]) -> StoreSettingsRow:

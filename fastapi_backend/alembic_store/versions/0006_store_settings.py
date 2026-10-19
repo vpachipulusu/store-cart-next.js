@@ -75,4 +75,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drops the table, so the merchant's shipping and tax settings are lost."""
     op.drop_table("store_settings")

@@ -127,8 +127,10 @@ async def update_store_settings(
         row = await service.update(changes)
     except InvalidStoreSettings as error:
         raise HTTPException(422, str(error), headers=NO_STORE_HEADERS) from None
+    # The JSON log formatter drops unknown extras, so the store and fields go in the message.
     logger.info(
-        "store settings changed",
-        extra={"store_id": store_id, "fields": sorted(changes)},
+        "store settings changed: store=%s fields=%s",
+        store_id,
+        ",".join(sorted(changes)),
     )
     return _response(row)
