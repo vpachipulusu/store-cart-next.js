@@ -53,7 +53,7 @@
           "health"
         ],
         "summary": "Readiness Check",
-        "description": "Readiness check: 200 when the database answers, 503 otherwise.\n\nNeeds the service key (KAN-247): it queries the database, so it must not be an\nopen probe on a public URL. Liveness (`/health`) stays open.\n\n``provisioning`` names the store provisioning settings that are missing (KAN-248),\nnever their values. It is a diagnostic: it does not change the status code.\n\nRedis is deliberately not checked: rate limiting fails open, so a Redis blip\nmust not take the service out of rotation.",
+        "description": "Readiness check: 200 when the database answers and is migrated, 503 otherwise.\n\nNeeds the service key (KAN-247): it queries the database, so it must not be an\nopen probe on a public URL. Liveness (`/health`) stays open.\n\n``provisioning`` names the store provisioning settings that are missing (KAN-248),\nnever their values. It is a diagnostic: it does not change the status code.\n\n``migrations`` compares the platform database's Alembic revision with this build's\nhead (KAN-253). Behind, or no ``alembic_version`` at all, answers 503 with status\n``migrations_pending``: no deploy runs ``alembic upgrade head`` (ADR-011), and code\non an unmigrated schema fails every query on the changed tables. A revision this\nbuild does not know counts as ahead (a newer build migrated) and is not pending.\nAny other database error answers 503 ``unavailable`` with no ``migrations``.\nStore databases are not checked here.\n\nRedis is deliberately not checked: rate limiting fails open, so a Redis blip\nmust not take the service out of rotation.",
         "operationId": "readiness_check",
         "parameters": [
           {
@@ -16645,6 +16645,36 @@
         ],
         "title": "MembershipRole"
       },
+      "MigrationsStatus": {
+        "properties": {
+          "pending": {
+            "type": "boolean",
+            "title": "Pending"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current"
+          },
+          "head": {
+            "type": "string",
+            "title": "Head"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pending",
+          "current",
+          "head"
+        ],
+        "title": "MigrationsStatus"
+      },
       "NotificationItem": {
         "properties": {
           "id": {
@@ -18238,6 +18268,16 @@
           },
           "provisioning": {
             "$ref": "#/components/schemas/ProvisioningSettingsStatus"
+          },
+          "migrations": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MigrationsStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
