@@ -25,6 +25,7 @@ PLATFORM_REVISIONS: tuple[str, ...] = (
     "0008",
     "0009",
     "0010",
+    "0011",
 )
 PLATFORM_HEAD = PLATFORM_REVISIONS[-1]
 
