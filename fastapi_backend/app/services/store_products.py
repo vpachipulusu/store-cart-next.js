@@ -14,11 +14,13 @@ Rules kept here because the database cannot express them (``docs/developer/backe
 * ``compare_at`` equal to the price means "no sale" and is stored as null; below it is invalid;
 * a create fails with ``ProductLimitReached`` when the store already holds the plan's
   maximum number of products (KAN-84); the count runs under an advisory lock in the same
-  transaction as the insert, so two concurrent creates cannot both take the last slot;
+  transaction as the insert, so two concurrent creates cannot both take the last slot
+  (``create_many``, the CSV import of KAN-74, counts its whole batch the same way);
 * an image ``storage_key`` must live under this store's own prefix ``stores/{store_id}/``.
 """
 
 from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
 
 from sqlalchemy.exc import DataError, DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -78,6 +80,24 @@ from app.services.store_product_types import (
 )
 
 PlanLookup = Callable[[], Awaitable[Plan]]
+
+# Per-statement and lock-wait bounds for the CSV import transaction (KAN-74).
+IMPORT_STATEMENT_TIMEOUT_MS = 10_000
+IMPORT_LOCK_TIMEOUT_MS = 5_000
+
+
+@dataclass(frozen=True)
+class _PreparedProduct:
+    """A new product after cleaning, ready to insert."""
+
+    product_id: str
+    title: str
+    slug: str
+    description: str | None
+    status: str
+    options: tuple[tuple[str, list[str]], ...]
+    variants: tuple[NewVariant, ...]
+    category_ids: tuple[str, ...]
 
 
 def _clean_search(query: str | None) -> str | None:
@@ -169,43 +189,58 @@ class StoreProductsService:
     # --- products -----------------------------------------------------------------
 
     async def create(self, data: NewProduct) -> ProductRecord:
-        title = clean_text(data.title, "Title", MAX_TITLE_LENGTH)
-        slug = clean_slug(data.slug) if data.slug is not None else slugify(title)
-        if not slug:
-            raise InvalidProduct("Provide a slug: the title has no usable characters")
-        description = clean_optional_text(
-            data.description, "Description", MAX_DESCRIPTION_LENGTH
-        )
-        status = clean_status(data.status)
-        options = clean_options(data.options)
-        if not 1 <= len(data.variants) <= MAX_VARIANTS:
-            raise InvalidProduct(f"A product has 1 to {MAX_VARIANTS} variants")
-        if not options and len(data.variants) != 1:
-            raise InvalidProduct("A product without options has exactly one variant")
-        category_ids = await self._checked_categories(data.category_ids)
-        product_id = new_id()
+        prepared = await self._prepare(data)
         plan = await self._plan()
 
         async def write() -> None:
-            if plan.max_products is not None:
-                # Counting relies on READ COMMITTED (the default): the count must see
-                # rows the previous lock holder committed.
-                await self._repository.lock_catalogue()
-                if await self._repository.count_all_products() >= plan.max_products:
-                    raise ProductLimitReached(product_limit_message(plan))
-            await self._repository.insert_product(
-                product_id=product_id,
-                title=title,
-                slug=slug,
-                description=description,
-                status=status,
-            )
-            lookup = await self._insert_options(product_id, options)
-            await self._insert_variants(product_id, data.variants, lookup)
-            await self._repository.replace_categories(product_id, category_ids)
+            await self._reserve(plan, 1)
+            await self._insert_prepared(prepared)
 
         await self._commit(write)
-        return await self.get(product_id)
+        return await self.get(prepared.product_id)
+
+    async def create_many(self, products: Sequence[NewProduct]) -> tuple[str, ...]:
+        """Create every product in one transaction, or none (the CSV import, KAN-74).
+
+        Same rules and plan-limit lock as ``create``; the limit counts the whole batch.
+        Returns the new ids in input order.
+        """
+        if not products:
+            return ()
+        prepared = [await self._prepare(product) for product in products]
+        plan = await self._plan()
+
+        async def write() -> None:
+            # The batch holds the catalogue lock while it inserts, so other creates in
+            # this store wait: bound every statement and lock wait of this transaction.
+            await self._repository.set_transaction_timeouts(
+                statement_ms=IMPORT_STATEMENT_TIMEOUT_MS, lock_ms=IMPORT_LOCK_TIMEOUT_MS
+            )
+            await self._reserve(plan, len(prepared))
+            for product in prepared:
+                await self._insert_prepared(product)
+
+        await self._commit(write)
+        return tuple(product.product_id for product in prepared)
+
+    async def product_capacity(self) -> int | None:
+        """How many more products the plan allows in this store; ``None`` is unlimited.
+
+        Advisory only (no lock): ``create_many`` checks again under the lock.
+        """
+        plan = await self._plan()
+        if plan.max_products is None:
+            return None
+        return max(0, plan.max_products - await self._repository.count_all_products())
+
+    async def taken_slugs_and_skus(
+        self, slugs: Sequence[str], skus: Sequence[str]
+    ) -> tuple[set[str], set[str]]:
+        """The slugs, and the lower-cased SKUs, among these that the store already uses."""
+        return (
+            await self._repository.existing_slugs(slugs),
+            await self._repository.existing_skus(skus),
+        )
 
     async def update(self, product_id: str, patch: ProductPatch) -> ProductRecord:
         changes: dict[str, object] = {}
@@ -340,6 +375,59 @@ class StoreProductsService:
         return await self.get(product_id)
 
     # --- internals ----------------------------------------------------------------
+
+    async def _prepare(self, data: NewProduct) -> _PreparedProduct:
+        """Clean a new product and give it an id; nothing is written."""
+        title = clean_text(data.title, "Title", MAX_TITLE_LENGTH)
+        slug = clean_slug(data.slug) if data.slug is not None else slugify(title)
+        if not slug:
+            raise InvalidProduct("Provide a slug: the title has no usable characters")
+        description = clean_optional_text(
+            data.description, "Description", MAX_DESCRIPTION_LENGTH
+        )
+        status = clean_status(data.status)
+        options = clean_options(data.options)
+        if not 1 <= len(data.variants) <= MAX_VARIANTS:
+            raise InvalidProduct(f"A product has 1 to {MAX_VARIANTS} variants")
+        if not options and len(data.variants) != 1:
+            raise InvalidProduct("A product without options has exactly one variant")
+        return _PreparedProduct(
+            product_id=new_id(),
+            title=title,
+            slug=slug,
+            description=description,
+            status=status,
+            options=tuple(options),
+            variants=tuple(data.variants),
+            category_ids=await self._checked_categories(data.category_ids),
+        )
+
+    async def _reserve(self, plan: Plan, count: int) -> None:
+        """Raise ``ProductLimitReached`` unless ``count`` more products fit the plan.
+
+        Takes the catalogue lock first. Counting relies on READ COMMITTED (the default):
+        the count must see rows the previous lock holder committed.
+        """
+        if plan.max_products is None:
+            return
+        await self._repository.lock_catalogue()
+        if await self._repository.count_all_products() + count > plan.max_products:
+            raise ProductLimitReached(product_limit_message(plan))
+
+    async def _insert_prepared(self, product: _PreparedProduct) -> None:
+        await self._repository.insert_product(
+            product_id=product.product_id,
+            title=product.title,
+            slug=product.slug,
+            description=product.description,
+            status=product.status,
+        )
+        lookup = await self._insert_options(product.product_id, product.options)
+        await self._insert_variants(product.product_id, product.variants, lookup)
+        if product.category_ids:  # a new product has no links to replace
+            await self._repository.replace_categories(
+                product.product_id, product.category_ids
+            )
 
     async def _lock(self, product_id: str) -> None:
         if not await self._repository.lock_product(product_id):

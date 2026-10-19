@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { getRange } from '@/components/ui/pagination';
+import { ProductImportDialog } from '@/components/dashboard/products/product-import-dialog';
 import { ProductTable, type ProductRow } from '@/components/dashboard/products/product-table';
 import { ProductsLoadError } from '@/components/dashboard/products/products-load-error';
 import {
@@ -118,12 +119,18 @@ export default async function ProductsPage({ searchParams }: { searchParams: Sea
             Products for {selection.selected.name}, with their variants and prices
           </p>
         </div>
-        <Button asChild>
-          <Link href="/dashboard/products/new">
-            <Plus aria-hidden="true" />
-            New product
-          </Link>
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <ProductImportDialog
+            storeId={selection.selected.id}
+            storeName={selection.selected.name}
+          />
+          <Button asChild>
+            <Link href="/dashboard/products/new">
+              <Plus aria-hidden="true" />
+              New product
+            </Link>
+          </Button>
+        </div>
       </div>
 
       <Card>

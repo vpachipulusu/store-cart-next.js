@@ -52,6 +52,17 @@ The backend needs its R2 settings (`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECR
 
 **Local e2e.** `product-management.spec.ts` always checks that the form is present. The upload steps (validation, storage failure, successful upload and persistence) run only with `E2E_IMAGE_UPLOAD=1`. They need a throwaway backend started with made-up R2 test values (the signer works offline), and they stand in for storage with a Playwright route on `*.r2.cloudflarestorage.com`; no real bucket is touched.
 
+## CSV import (KAN-74)
+
+"Import CSV" on the products page (`components/dashboard/products/product-import-dialog.tsx`) checks the file in the
+browser (`.csv`, not empty, at most 1 MB: `lib/products/csv-import.ts`), then calls `importProductsAction`
+(`app/actions/product-import-actions.ts`) with the store id the page was rendered for. The action validates the file
+again with Zod, refuses the call when that id is no longer the selected store, and calls `importStoreProducts` in
+`lib/api/products.ts`. Row problems come back as data and are listed in a Row / Column / Problem table; nothing is
+imported until the file is clean. "Download sample CSV" builds the sample in the browser (`SAMPLE_CSV`). Backend rules:
+[backend-products-api.md](backend-products-api.md#csv-import-kan-74). E2E: `src/__tests__/e2e/product-import.spec.ts`
+(same environment as `product-management.spec.ts`).
+
 ## Known gaps (API-shaped, not widened here)
 
 - **Images.** Add and remove work; there is no reorder or alt-text edit (re-add instead), no delete of the stored object on removal or after a failed registration, and existing images show by alt text and storage key because the public base URL is backend-only (no thumbnails).

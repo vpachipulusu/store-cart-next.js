@@ -1280,6 +1280,54 @@ export type ImageUploadResponse = {
 };
 
 /**
+ * ImportIssueData
+ */
+export type ImportIssueData = {
+    /**
+     * Row
+     *
+     * Spreadsheet row (the header is row 1); null for the whole file.
+     */
+    row: number | null;
+    /**
+     * Column
+     *
+     * Column name; null for the whole row.
+     */
+    column: string | null;
+    /**
+     * Message
+     */
+    message: string;
+};
+
+/**
+ * ImportProductsResponse
+ */
+export type ImportProductsResponse = {
+    /**
+     * Imported
+     *
+     * Products created; 0 when any row failed.
+     */
+    imported: number;
+    /**
+     * Product Ids
+     */
+    product_ids: Array<string>;
+    /**
+     * Errors
+     */
+    errors: Array<ImportIssueData>;
+    /**
+     * Truncated
+     *
+     * More problems were found than are listed.
+     */
+    truncated: boolean;
+};
+
+/**
  * InvoiceData
  */
 export type InvoiceData = {
@@ -8375,6 +8423,90 @@ export type PresignImageUploadResponses = {
 };
 
 export type PresignImageUploadResponse = PresignImageUploadResponses[keyof PresignImageUploadResponses];
+
+export type ImportProductsCsvData = {
+    /**
+     * ImportProductsBody
+     */
+    body: {
+        /**
+         * UTF-8 CSV, at most 1 MB (1000000 bytes) and 500 rows. Columns: title, slug, description, status, sku, price_minor, compare_at_price_minor, weight_grams, stock.
+         */
+        file: Blob | File;
+    };
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/stores/{store_id}/products/import';
+};
+
+export type ImportProductsCsvErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorResponse;
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Request Timeout
+     */
+    408: ErrorResponse;
+    /**
+     * Request Entity Too Large
+     */
+    413: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ImportProductsCsvError = ImportProductsCsvErrors[keyof ImportProductsCsvErrors];
+
+export type ImportProductsCsvResponses = {
+    /**
+     * Successful Response
+     */
+    200: ImportProductsResponse;
+};
+
+export type ImportProductsCsvResponse = ImportProductsCsvResponses[keyof ImportProductsCsvResponses];
 
 export type ListProductsData = {
     body?: never;
