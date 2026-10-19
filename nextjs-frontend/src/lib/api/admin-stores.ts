@@ -42,7 +42,7 @@ export const ADMIN_MIGRATION_FAILED_MESSAGE =
 export const ADMIN_REPROVISION_LIMIT_MESSAGE =
   'This store has used all of its provisioning re-runs.';
 export const ADMIN_REPROVISION_NOT_FAILED_MESSAGE =
-  'This store is no longer failed, so provisioning cannot be re-run.';
+  'This store has changed (no longer failed, or still provisioning normally), so provisioning cannot be re-run.';
 export const ADMIN_REPROVISION_START_FAILED_MESSAGE =
   'Provisioning could not be started. The store is still failed; try again.';
 

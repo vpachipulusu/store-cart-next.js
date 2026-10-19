@@ -9,6 +9,8 @@ import { logger } from '@/lib/logger';
 import { currencyExponent } from '@/lib/products/money';
 import { isKnownCurrency } from '@/lib/store-settings/form';
 import { getCurrentStoreSelection } from '@/lib/stores/current';
+import { isStoreInSetup } from '@/lib/stores/provisioning';
+import { StoreSetupState } from '@/components/dashboard/store-setup-state';
 
 export const metadata = { title: 'Shipping and tax' };
 
@@ -28,6 +30,10 @@ export default async function StoreSettingsPage() {
   // The layout already explains a missing store or a failed store list, so there is nothing to show here.
   const selection = await getCurrentStoreSelection();
   if (!selection.available || !selection.selected) return null;
+  if (isStoreInSetup(selection.selected.status)) {
+    const { id, name, status } = selection.selected;
+    return <StoreSetupState storeId={id} storeName={name} status={status} />;
+  }
 
   const [result, currency] = await Promise.all([
     fetchStoreSettings(selection.selected.id),

@@ -291,3 +291,40 @@ describe('products list search and category filter', () => {
     expect(mocks.loadCategoryList).toHaveBeenCalledWith('store1');
   });
 });
+
+describe('a store that is still being set up (KAN-255)', () => {
+  it.each(['PROVISIONING', 'FAILED'])(
+    'shows the setup state for a %s store instead of calling the store API',
+    async (status) => {
+      mocks.getCurrentStoreSelection.mockResolvedValue({
+        available: true,
+        stores: [],
+        selected: { id: 'store1', name: 'Acme Shop', status },
+      });
+
+      const pages = [
+        await listPage(),
+        html(await NewProductPage()),
+        html(await EditProductPage({ params: Promise.resolve({ productId: 'p1' }) })),
+      ];
+
+      for (const markup of pages) {
+        expect(markup).toContain('Retry setup');
+        expect(markup).not.toContain('could not be reached');
+      }
+      expect(mocks.fetchProducts).not.toHaveBeenCalled();
+      expect(mocks.fetchProduct).not.toHaveBeenCalled();
+      expect(mocks.loadCategoryList).not.toHaveBeenCalled();
+    }
+  );
+
+  it('loads products as usual for an ACTIVE store', async () => {
+    mocks.getCurrentStoreSelection.mockResolvedValue({
+      available: true,
+      stores: [],
+      selected: { id: 'store1', name: 'Acme Shop', status: 'ACTIVE' },
+    });
+
+    expect(await listPage()).toContain('Blue Tee');
+  });
+});
