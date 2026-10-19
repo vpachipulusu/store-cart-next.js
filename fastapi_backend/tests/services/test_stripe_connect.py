@@ -376,6 +376,28 @@ async def test_an_account_stripe_no_longer_knows_has_its_flags_cleared():
     assert store.orgs["org1"].connect_charges_enabled is False
 
 
+async def test_an_account_that_revoked_the_platform_gets_403_and_is_cleared_not_retried():
+    service, store, stripe, _ = webhook()
+    stripe.account_state = ENABLED
+    await service.handle(updated_event())
+    stripe.forbidden_on_get = True
+
+    outcome = await service.handle(updated_event())
+
+    assert outcome is WebhookOutcome.PROCESSED
+    assert store.orgs["org1"].connect_charges_enabled is False
+
+
+async def test_a_signed_event_for_an_unlinked_account_costs_no_stripe_call():
+    service, _, stripe, session = webhook()
+
+    outcome = await service.handle(updated_event("acct_unknown"))
+
+    assert outcome is WebhookOutcome.IGNORED
+    assert stripe.calls == []
+    assert session.commits == 0
+
+
 async def test_a_stripe_outage_propagates_so_the_event_is_retried():
     service, store, stripe, session = webhook()
     stripe.fail_on = "get_account"
@@ -414,6 +436,10 @@ async def test_other_event_types_are_ignored_without_touching_stripe_or_the_stor
         {"type": "account.updated", "data": {"object": "x"}},
         {"type": "account.updated", "data": {"object": {"id": ""}}},
         {"type": "account.updated", "data": {"object": {"id": 5}}},
+        {"type": "account.updated", "data": {"object": {"id": "cus_1"}}},
+        {"type": "account.updated", "data": {"object": {"id": "acct_1/../x"}}},
+        {"type": "account.updated", "data": {"object": {"id": "acct_"}}},
+        {"type": "account.application.deauthorized", "account": "acct_1?x=1"},
         {"type": "account.application.deauthorized", "data": {"object": {}}},
         {"type": "account.application.deauthorized", "account": ""},
         {"type": "account.application.deauthorized", "account": 7},

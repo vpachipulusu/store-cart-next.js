@@ -112,6 +112,15 @@ async def test_get_account_reads_the_three_capability_flags():
     )
 
 
+async def test_a_403_reading_an_account_is_a_distinct_forbidden_error():
+    from app.core.stripe_billing import StripeForbidden
+
+    stripe = client_for(lambda r: httpx.Response(403, json={"error": {}}), [])
+
+    with pytest.raises(StripeForbidden):
+        await stripe.get_account("acct_1")
+
+
 async def test_get_account_treats_missing_or_non_boolean_flags_as_off():
     stripe = client_for(
         lambda r: httpx.Response(200, json={"charges_enabled": "true"}), []

@@ -33,6 +33,15 @@ class OrgConnectRepository(BaseRepository):
         ).one_or_none()
         return None if row is None else ConnectRecord(*row)
 
+    async def account_exists(self, account_id: str) -> bool:
+        return (
+            await self._session.execute(
+                select(Organization.id)
+                .where(Organization.stripe_connect_account_id == account_id)
+                .limit(1)
+            )
+        ).first() is not None
+
     async def link_account(self, organization_id: str, account_id: str) -> str:
         """Save the connected account id if none is saved yet; return the id now saved.
 

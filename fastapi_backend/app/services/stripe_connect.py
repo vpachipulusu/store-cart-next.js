@@ -14,7 +14,9 @@ creates a payment for an organisation's store, and map ``ChargesNotEnabled`` to 
 with a generic message.
 """
 
+import asyncio
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -24,7 +26,12 @@ from typing import Any, Protocol
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ids import new_id
-from app.core.stripe_billing import StripeError, StripeNotFound, StripeRejected
+from app.core.stripe_billing import (
+    StripeError,
+    StripeForbidden,
+    StripeNotFound,
+    StripeRejected,
+)
 from app.core.stripe_connect import StripeAccountState, StripeConnect
 from app.models.platform.membership import MembershipRole
 from app.repositories.org_connect import ConnectRecord
@@ -41,6 +48,8 @@ logger = logging.getLogger(__name__)
 UPDATED_EVENT_TYPE = "account.updated"
 DEAUTHORIZED_EVENT_TYPE = "account.application.deauthorized"
 ACCOUNT_CREATE_ATTEMPTS = 2
+ACCOUNT_RETRY_DELAY_SECONDS = 0.2
+ACCOUNT_ID_PATTERN = re.compile(r"acct_[A-Za-z0-9]+")
 NO_ACCESS = StripeAccountState(
     charges_enabled=False, payouts_enabled=False, details_submitted=False
 )
@@ -69,6 +78,8 @@ class ConnectStatus:
 
 class ConnectStore(Protocol):
     async def get(self, organization_id: str) -> ConnectRecord | None: ...
+
+    async def account_exists(self, account_id: str) -> bool: ...
 
     async def link_account(self, organization_id: str, account_id: str) -> str: ...
 
@@ -194,6 +205,7 @@ class ConnectService:
                     return linked
                 if attempt == ACCOUNT_CREATE_ATTEMPTS - 1:
                     raise BillingUnavailable from None
+                await asyncio.sleep(ACCOUNT_RETRY_DELAY_SECONDS)
             except StripeError:
                 raise BillingUnavailable from None
         raise BillingUnavailable
@@ -236,10 +248,16 @@ class ConnectWebhookService:
         return WebhookOutcome.IGNORED
 
     async def _sync(self, account_id: str) -> WebhookOutcome:
+        # A signed event for an account we never linked costs no Stripe call.
+        if not await self._store.account_exists(account_id):
+            await self._session.rollback()
+            logger.info("connect webhook for an unknown account")
+            return WebhookOutcome.IGNORED
         observed_at = datetime.now(UTC)
         try:
             state = await self._stripe().get_account(account_id)
-        except StripeNotFound:
+        except (StripeNotFound, StripeForbidden):
+            # Gone, or the account revoked the platform (403): nothing to read, so no access.
             state = NO_ACCESS
         return await self._apply(account_id, state, observed_at)
 
@@ -262,7 +280,7 @@ class ConnectWebhookService:
 
 
 def _account_id(value: Any) -> str:
-    if not isinstance(value, str) or not value:
+    if not isinstance(value, str) or not ACCOUNT_ID_PATTERN.fullmatch(value):
         raise MalformedConnectEvent
     return value
 

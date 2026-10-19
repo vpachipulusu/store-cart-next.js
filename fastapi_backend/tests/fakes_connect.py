@@ -5,7 +5,12 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Any
 
-from app.core.stripe_billing import StripeError, StripeNotFound, StripeRejected
+from app.core.stripe_billing import (
+    StripeError,
+    StripeForbidden,
+    StripeNotFound,
+    StripeRejected,
+)
 from app.core.stripe_connect import StripeAccountState
 from app.models.platform.membership import MembershipRole
 from app.repositories.org_connect import ConnectRecord
@@ -24,6 +29,7 @@ class FakeStripeConnect:
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.fail_on: str | None = None
         self.not_found_on_get = False
+        self.forbidden_on_get = False
         self.reject_next_create = False
         self.account_state = StripeAccountState(False, False, False)
         self._accounts: dict[str, str] = {}
@@ -44,6 +50,8 @@ class FakeStripeConnect:
         self._record("get_account", account_id=account_id)
         if self.not_found_on_get:
             raise StripeNotFound("Stripe request failed")
+        if self.forbidden_on_get:
+            raise StripeForbidden("Stripe request failed")
         return self.account_state
 
     async def create_account(self, **kwargs: Any) -> str:
@@ -83,6 +91,11 @@ class FakeConnectStore:
 
     async def get(self, organization_id: str) -> ConnectRecord | None:
         return self.orgs.get(organization_id)
+
+    async def account_exists(self, account_id: str) -> bool:
+        return any(
+            r.stripe_connect_account_id == account_id for r in self.orgs.values()
+        )
 
     async def link_account(self, organization_id: str, account_id: str) -> str:
         record = self.orgs[organization_id]

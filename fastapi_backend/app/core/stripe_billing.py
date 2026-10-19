@@ -41,6 +41,10 @@ class StripeNotFound(StripeError):
     """Stripe has no such object (HTTP 404)."""
 
 
+class StripeForbidden(StripeError):
+    """Stripe refused access to the object (HTTP 403), e.g. an account that revoked the platform."""
+
+
 class StripeRejected(StripeError):
     """Stripe refused the request itself (HTTP 400, 402 or 409), not an outage."""
 
@@ -222,6 +226,8 @@ class HttpStripeBilling:
                 )
                 if response.status_code == 404:
                     raise StripeNotFound("Stripe request failed")
+                if response.status_code == 403:
+                    raise StripeForbidden("Stripe request failed")
                 if response.status_code in REJECTED_STATUSES:
                     raise StripeRejected("Stripe request failed")
                 raise StripeError("Stripe request failed")
