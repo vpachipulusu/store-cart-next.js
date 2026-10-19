@@ -19,6 +19,7 @@ export function SubscriptionSuccessHandler() {
   const [subscriptionUpdated, setSubscriptionUpdated] = useState(false);
   const [isVerifying, setIsVerifying] = useState(upgradeSuccess);
   const [isValidSession, setIsValidSession] = useState(false);
+  const [timedOut, setTimedOut] = useState(false);
 
   // Verify checkout session first
   useEffect(() => {
@@ -98,12 +99,11 @@ export function SubscriptionSuccessHandler() {
           // Stop polling after max attempts
           if (newCount >= maxPolls) {
             setIsPolling(false);
+            setTimedOut(true);
             clearInterval(pollInterval);
-            // Refresh anyway after timeout
-            setTimeout(() => {
-              router.replace('/dashboard');
-              router.refresh();
-            }, 1000);
+            // Keep ?upgrade=success so the banner below stays visible: the payment went through but the plan has
+            // not changed yet (the Stripe webhook can be late or failing), and the user needs to be told.
+            router.refresh();
             return newCount;
           }
 
@@ -130,21 +130,27 @@ export function SubscriptionSuccessHandler() {
   return (
     <Alert className="border-green-500 bg-green-50 dark:bg-green-950">
       <div className="flex items-start gap-3">
-        {subscriptionUpdated ? (
+        {subscriptionUpdated || timedOut ? (
           <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
         ) : (
           <Loader2 className="h-5 w-5 animate-spin text-green-600 dark:text-green-400" />
         )}
         <div className="flex-1">
           <AlertTitle className="text-green-900 dark:text-green-100">
-            {subscriptionUpdated ? 'Subscription Activated!' : 'Processing Your Subscription...'}
+            {subscriptionUpdated
+              ? 'Subscription Activated!'
+              : timedOut
+                ? 'Payment received'
+                : 'Processing Your Subscription...'}
           </AlertTitle>
           <AlertDescription className="text-green-800 dark:text-green-200">
             {subscriptionUpdated
               ? 'Your subscription has been successfully activated. Refreshing your dashboard...'
-              : isPolling
-                ? 'Please wait while we confirm your payment and activate your subscription. This usually takes just a few seconds.'
-                : "Your payment was successful. Please refresh the page if your subscription status doesn't update automatically."}
+              : timedOut
+                ? 'Your payment went through, but your plan has not updated yet. It should update within a few minutes. If it still shows Free after that, please contact support.'
+                : isPolling
+                  ? 'Please wait while we confirm your payment and activate your subscription. This usually takes just a few seconds.'
+                  : "Your payment was successful. Please refresh the page if your subscription status doesn't update automatically."}
           </AlertDescription>
         </div>
       </div>

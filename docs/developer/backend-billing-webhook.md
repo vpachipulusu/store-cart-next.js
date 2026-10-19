@@ -88,6 +88,11 @@ this route. Check, in this order:
 2. **Variable** (Vercel project, FastAPI service, Production scope; name only): `STRIPE_WEBHOOK_SECRET`, the `whsec_...`
    signing secret of the endpoint in step 3. If unset, the route answers **503** and Stripe keeps retrying. The price
    ids `STRIPE_PRICE_ID_{PRO,ENTERPRISE}_{MONTHLY,YEARLY}` must also be set, or the tier stays unchanged (warned).
+   **Not the `stripe listen` secret.** The secret that `stripe listen` prints (and that local e2e keeps in
+   `.env.e2e.local`) belongs to the local forwarder only. Stripe signs real deliveries with the endpoint's own
+   secret, so production configured with the CLI secret answers **400** to every event and the plan never changes
+   (KAN-251: found because every event stayed `pending_webhooks=1` while a harmless probe signed with the CLI
+   secret was accepted).
 3. **Stripe dashboard** (Developers, Webhooks, add endpoint; use the live or test mode that matches the keys in
    use): URL `https://<production origin>/webhooks/stripe` (no trailing slash), events `customer.subscription.created`,
    `customer.subscription.updated` and `customer.subscription.deleted`. These are the only types the backend acts on;
@@ -98,6 +103,9 @@ this route. Check, in this order:
 
 ### How to verify
 
+- Stripe CLI (read-only): `stripe events list --type customer.subscription.created` shows `pending_webhooks`; `1` means the endpoint has not returned 2xx yet. After fixing the secret, resend with `stripe events resend <evt_id> --webhook-endpoint=<we_id>` (or the dashboard's Resend): the plan then flips without a new payment.
+- After checkout the dashboard polls for about 30 seconds. If the plan has not flipped it keeps a "Payment received" banner (it no longer disappears) telling the user to contact support if the plan still shows Free later.
+
 - In the Stripe dashboard the endpoint's recent deliveries show **200** (`{"received": true}`).
 - Run a test checkout: the organisation's plan flips from Free to Pro on the billing page after the redirect.
 
@@ -105,11 +113,11 @@ this route. Check, in this order:
 |---|---|
 | 404 | Routing (item 1) not deployed, or the endpoint URL is on another domain |
 | 503 | `STRIPE_WEBHOOK_SECRET` is unset on the FastAPI service |
-| 400 | Wrong secret (an endpoint from the other mode, or rotated), or a stale/modified body |
+| 400 | Wrong secret: most often the `stripe listen` / `.env.e2e.local` secret instead of this endpoint's, or an endpoint from the other mode, or a rotated one. The backend log says `stripe webhook signature rejected: header=present` (or `missing`) |
 | 401 with an HTML sign-in page | Deployment Protection (item 4) |
 | 413 | Body over 1 MB (not a real Stripe event) |
 | 500 | Handler failed; Stripe retries for up to 3 days, check the backend logs (exception type only) |
-| 200 but plan unchanged | Event type ignored, price id unmapped, or no organisation matches the customer (warning in the logs with the event id) |
+| 200 but plan unchanged | Event type ignored (`stripe event ignored: type=...`), price id unmapped (`price not mapped to a plan`), or no organisation matches the customer (`matches no organisation`, with the event id) |
 
 ## Follow-ups outside this ticket
 
