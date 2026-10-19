@@ -86,8 +86,6 @@ export default async function AdminStoresPage({ searchParams }: { searchParams: 
   }
 
   const stores = result.success ? result.data.stores : [];
-  // Rendered per request on the server, so "now" is the request time (KAN-255 stuck re-run).
-  const renderedAt = Date.now();
   const totalCount = result.success ? result.data.total_count : 0;
   const hasNext = page * ADMIN_STORES_PAGE_SIZE < totalCount;
   const filters = { q, status, org };
@@ -207,11 +205,7 @@ export default async function AdminStoresPage({ searchParams }: { searchParams: 
                           storeId={store.id}
                           storeName={store.name}
                           status={store.status}
-                          stalled={isStalledProvisioning(
-                            store.status,
-                            store.updated_at,
-                            renderedAt
-                          )}
+                          stalled={isStalledProvisioning(store.status, store.updated_at)}
                         />
                       </TableCell>
                     </TableRow>

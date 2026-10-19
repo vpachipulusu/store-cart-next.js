@@ -10,8 +10,13 @@ const STUCK_AFTER_MS = STUCK_AFTER_MINUTES * 60_000;
 /**
  * A PROVISIONING store with no change for longer than the backend threshold: its job gave up silently, and the
  * admin re-run (and merchant retry) will fail it and start a new run. A malformed date never offers a re-run.
+ * `now` defaults to the request time when called from a server component.
  */
-export function isStalledProvisioning(status: string, updatedAt: string, now: number): boolean {
+export function isStalledProvisioning(
+  status: string,
+  updatedAt: string,
+  now: number = Date.now()
+): boolean {
   if (status !== 'PROVISIONING') return false;
   const updated = Date.parse(updatedAt);
   return Number.isFinite(updated) && now - updated > STUCK_AFTER_MS;
