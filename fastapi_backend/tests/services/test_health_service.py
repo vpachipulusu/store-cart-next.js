@@ -3,7 +3,8 @@ import logging
 
 import asyncpg
 import pytest
-from sqlalchemy.exc import DBAPIError
+from alembic.util.exc import CommandError
+from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from app.core.db_url import CONNECT_TIMEOUT_SECONDS
 from app.repositories.health import HealthRepository
@@ -108,3 +109,63 @@ async def test_database_not_ready_when_the_ping_stalls_after_connecting(
 
 def test_readiness_timeout_is_bounded_by_the_connect_timeout() -> None:
     assert 0 < health.READINESS_TIMEOUT_SECONDS <= CONNECT_TIMEOUT_SECONDS
+
+
+async def test_schema_is_pending_when_alembic_version_does_not_exist(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # KAN-253: a database that was never migrated has no alembic_version table.
+    missing = ProgrammingError("SELECT version_num", {}, Exception("undefined table"))
+    provider = FakeSessionProvider(FakeSession(error=missing))
+
+    with caplog.at_level(logging.ERROR, logger="app.services.health"):
+        async with provider.session() as session:
+            status = await HealthService(HealthRepository(session)).schema_status()
+
+    assert status is not None
+    assert status.pending is True
+    assert status.current is None
+    assert "alembic upgrade head" in caplog.text
+
+
+async def test_schema_is_unknown_not_pending_when_the_database_errors(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # An outage must not tell operators to run migrations.
+    provider = FakeSessionProvider(failing_session())
+
+    with caplog.at_level(logging.ERROR, logger="app.services.health"):
+        async with provider.session() as session:
+            status = await HealthService(HealthRepository(session)).schema_status()
+
+    assert status is None
+    assert "Platform revision check failed: " in caplog.text
+    assert "alembic upgrade head" not in caplog.text
+
+
+async def test_schema_is_pending_when_the_database_is_behind_this_build(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    provider = FakeSessionProvider(FakeSession(value="0009"))
+
+    with caplog.at_level(logging.ERROR, logger="app.services.health"):
+        async with provider.session() as session:
+            status = await HealthService(HealthRepository(session)).schema_status()
+
+    assert status is not None
+    assert status.pending is True
+    assert status.current == "0009"
+    assert "current=0009" in caplog.text
+
+
+async def test_schema_is_unknown_when_the_migration_scripts_are_unreadable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unreadable(current: str | None) -> None:
+        raise CommandError("Path doesn't exist")
+
+    monkeypatch.setattr(health, "platform_schema_status", unreadable)
+    provider = FakeSessionProvider(FakeSession(value="0010"))
+
+    async with provider.session() as session:
+        assert await HealthService(HealthRepository(session)).schema_status() is None

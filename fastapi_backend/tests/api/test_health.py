@@ -44,11 +44,16 @@ async def test_ready_is_ok_with_an_injected_fake_session_provider(
         response = await client.get("/health/ready", headers=KEY_HEADER)
 
     assert response.status_code == 200
-    assert response.json() == {
-        "status": "ok",
-        "provisioning": {"ready": True, "missing": []},
-    }
-    assert provider.fake_session.statements == ["SELECT 1"]
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["provisioning"] == {"ready": True, "missing": []}
+    # The fake answers 1 to every query: a revision this build does not know, which
+    # reads as a newer build's migration (not pending). See test_health_migrations.py.
+    assert body["migrations"]["pending"] is False
+    assert provider.fake_session.statements == [
+        "SELECT 1",
+        "SELECT version_num FROM alembic_version",
+    ]
     assert (provider.opened, provider.closed) == (1, 1)
 
 

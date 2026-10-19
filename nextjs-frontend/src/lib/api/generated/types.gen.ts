@@ -1367,6 +1367,24 @@ export type MarkAllReadResponse = {
 export type MembershipRole = 'OWNER' | 'ADMIN' | 'STAFF';
 
 /**
+ * MigrationsStatus
+ */
+export type MigrationsStatus = {
+    /**
+     * Pending
+     */
+    pending: boolean;
+    /**
+     * Current
+     */
+    current: string | null;
+    /**
+     * Head
+     */
+    head: string;
+};
+
+/**
  * NotificationItem
  */
 export type NotificationItem = {
@@ -2319,6 +2337,7 @@ export type ReadyResponse = {
      */
     status: string;
     provisioning: ProvisioningSettingsStatus;
+    migrations?: MigrationsStatus | null;
 };
 
 /**
