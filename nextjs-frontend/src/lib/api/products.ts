@@ -321,7 +321,12 @@ export async function importStoreProducts(
   if (!result.success) return result;
   const body = importBodySchema.safeParse(result.data);
   if (!body.success) {
+    // Paths only, never values: a contract drift must be visible without logging file content.
+    logger.error('Product import: unexpected response shape', {
+      paths: body.error.issues.map((issue) => issue.path.join('.')),
+    });
     return { success: false, error: PRODUCT_REQUEST_FAILED_MESSAGE, status: 502 };
   }
+  // `product_ids` is dropped: the dialog only reports the count.
   return { success: true, data: body.data };
 }

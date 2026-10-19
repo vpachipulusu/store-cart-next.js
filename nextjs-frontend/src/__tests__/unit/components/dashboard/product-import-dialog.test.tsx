@@ -1,6 +1,6 @@
 /** KAN-74: the import dialog checks the file, sends it with the rendered store id and lists row problems. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mocks = vi.hoisted(() => ({ importProductsAction: vi.fn() }));
@@ -98,6 +98,24 @@ describe('ProductImportDialog', () => {
     expect(mocks.importProductsAction).not.toHaveBeenCalled();
   });
 
+  it('stays open while importing and gives focus back to the file input after a success', async () => {
+    let finish: (value: unknown) => void = () => {};
+    mocks.importProductsAction.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    const user = await openDialog();
+
+    await importFile(user);
+    expect(screen.getByRole('status')).toHaveTextContent(/Importing/);
+    expect(screen.getByLabelText('CSV file')).toBeDisabled();
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('dialog', { name: 'Import products' })).toBeInTheDocument();
+
+    finish({ success: true, data: { imported: 1, errors: [], truncated: false } });
+
+    expect(await screen.findByText('Imported 1 product.')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText('CSV file')).toHaveFocus());
+    expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
+  });
+
   it('shows the action error', async () => {
     mocks.importProductsAction.mockResolvedValue({
       success: false,
@@ -153,7 +171,9 @@ describe('ProductImportDialog', () => {
       reader.readAsText(blob);
     });
     expect(text).toBe(SAMPLE_CSV);
-    expect(revokeObjectURL).toHaveBeenCalledWith('blob:sample');
+    await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith('blob:sample'), {
+      timeout: 2000,
+    });
     click.mockRestore();
   });
 });

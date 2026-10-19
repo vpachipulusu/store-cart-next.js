@@ -44,8 +44,11 @@ function downloadSample(): void {
   const link = document.createElement('a');
   link.href = url;
   link.download = SAMPLE_FILE_NAME;
+  document.body.append(link);
   link.click();
-  URL.revokeObjectURL(url);
+  link.remove();
+  // Revoking at once can cancel the download in some browsers.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function plural(count: number, noun: string): string {
@@ -72,6 +75,10 @@ export function ProductImportDialog({
   const [busy, setBusy] = useState(false);
   const [inputKey, setInputKey] = useState(0);
   const mounted = useRef(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const wasBusy = useRef(false);
+  const refocus = useRef<'file' | 'button'>('button');
 
   useEffect(() => {
     mounted.current = true;
@@ -80,12 +87,27 @@ export function ProductImportDialog({
     };
   }, []);
 
-  function reset() {
+  // A disabled control drops keyboard focus, so put it back when the import ends.
+  useEffect(() => {
+    if (busy) {
+      wasBusy.current = true;
+      return;
+    }
+    if (!wasBusy.current) return;
+    wasBusy.current = false;
+    (refocus.current === 'file' ? fileRef : buttonRef).current?.focus();
+  }, [busy]);
+
+  function clearFile() {
     setFile(null);
     setFileError(null);
+    setInputKey((key) => key + 1);
+  }
+
+  function reset() {
+    clearFile();
     setError(null);
     setOutcome(null);
-    setInputKey((key) => key + 1);
   }
 
   function changeOpen(next: boolean) {
@@ -118,11 +140,19 @@ export function ProductImportDialog({
     const form = new FormData();
     form.append('file', file);
     setBusy(true);
+    refocus.current = 'button';
     try {
       const response = await importProductsAction(storeId, form);
       if (!mounted.current) return;
-      if (response.success) setOutcome(response.data);
-      else setError(response.error);
+      if (!response.success) {
+        setError(response.error);
+      } else {
+        setOutcome(response.data);
+        if (response.data.imported > 0) {
+          clearFile(); // the same file would only fail as duplicates now
+          refocus.current = 'file';
+        }
+      }
     } catch {
       if (mounted.current) setError(REQUEST_FAILED);
     } finally {
@@ -138,7 +168,11 @@ export function ProductImportDialog({
           Import CSV
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+      <DialogContent
+        className="max-h-[90vh] max-w-2xl overflow-y-auto"
+        onEscapeKeyDown={(event) => busy && event.preventDefault()}
+        onInteractOutside={(event) => busy && event.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle>Import products</DialogTitle>
           <DialogDescription>
@@ -154,16 +188,17 @@ export function ProductImportDialog({
           <span className="text-muted-foreground">Columns: {IMPORT_COLUMNS.join(', ')}</span>
         </div>
 
-        <form onSubmit={submit} className="space-y-4" aria-label="Import products from CSV">
+        <form onSubmit={submit} className="space-y-4">
           <Field
             id="product-import-file"
             label="CSV file"
-            hint="UTF-8 CSV, up to 1 MB. Title, sku and price_minor are required."
+            hint="UTF-8 CSV, up to 1 MB. Title, sku and price_minor are required. Text cells cannot start with =, +, - or @."
             error={fileError ?? undefined}
           >
             {(describedBy) => (
               <Input
                 key={inputKey}
+                ref={fileRef}
                 id="product-import-file"
                 type="file"
                 accept={CSV_ACCEPT}
@@ -179,11 +214,11 @@ export function ProductImportDialog({
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
-          <div aria-live="polite">
-            {busy && <p className="text-sm text-muted-foreground">Importing…</p>}
-            {outcome && !busy && <ImportResult outcome={outcome} />}
-          </div>
-          <Button type="submit" disabled={busy || !file || fileError !== null}>
+          <p role="status" className="text-sm text-muted-foreground">
+            {busy ? 'Importing… keep this dialog open until it finishes.' : ''}
+          </p>
+          {outcome && !busy && <ImportResult outcome={outcome} />}
+          <Button ref={buttonRef} type="submit" disabled={busy || !file || fileError !== null}>
             {busy ? 'Importing…' : 'Import'}
           </Button>
         </form>
@@ -209,7 +244,7 @@ function ImportResult({ outcome }: { outcome: ImportOutcome }) {
         <TableCaption>Problems in the file</TableCaption>
         <TableHeader>
           <TableRow>
-            <TableHead>Row</TableHead>
+            <TableHead>Location</TableHead>
             <TableHead>Column</TableHead>
             <TableHead>Problem</TableHead>
           </TableRow>
@@ -217,7 +252,7 @@ function ImportResult({ outcome }: { outcome: ImportOutcome }) {
         <TableBody>
           {outcome.errors.map((issue, index) => (
             <TableRow key={`${issue.row ?? 'file'}-${issue.column ?? ''}-${index}`}>
-              <TableCell label="Row">{issueLocation(issue)}</TableCell>
+              <TableCell label="Location">{issueLocation(issue)}</TableCell>
               <TableCell label="Column">{issue.column ?? '—'}</TableCell>
               <TableCell label="Problem">{issue.message}</TableCell>
             </TableRow>

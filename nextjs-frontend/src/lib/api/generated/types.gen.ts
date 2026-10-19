@@ -8279,7 +8279,7 @@ export type ImportProductsCsvData = {
      */
     body: {
         /**
-         * UTF-8 CSV, at most 1000 KB and 500 rows. Columns: title, slug, description, status, sku, price_minor, compare_at_price_minor, weight_grams, stock.
+         * UTF-8 CSV, at most 1 MB (1000000 bytes) and 500 rows. Columns: title, slug, description, status, sku, price_minor, compare_at_price_minor, weight_grams, stock.
          */
         file: Blob | File;
     };

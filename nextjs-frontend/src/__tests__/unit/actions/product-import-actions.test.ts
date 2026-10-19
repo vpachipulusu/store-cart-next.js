@@ -24,6 +24,7 @@ import {
   MAX_IMPORT_BYTES,
   NO_FILE_MESSAGE,
   TOO_LARGE_MESSAGE,
+  UNREADABLE_MESSAGE,
   WRONG_TYPE_MESSAGE,
 } from '@/lib/products/csv-import';
 import { STORES_UNAVAILABLE_MESSAGE } from '@/lib/stores/selection';
@@ -131,7 +132,11 @@ describe('importProductsAction', () => {
       { success: false, error: 'x', status: 403 },
       'You do not have permission to do that in this store.',
     ],
-    [{ success: false, error: 'The file is larger than 1000 KB', status: 413 }, TOO_LARGE_MESSAGE],
+    [{ success: false, error: 'The file is larger than 1 MB', status: 413 }, TOO_LARGE_MESSAGE],
+    [
+      { success: false, error: 'Attach the CSV file as the file field', status: 400 },
+      UNREADABLE_MESSAGE,
+    ],
     [
       { success: false, error: 'Backend unavailable' },
       'Products could not be reached. Please try again.',

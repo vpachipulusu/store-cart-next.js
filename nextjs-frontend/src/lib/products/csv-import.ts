@@ -25,6 +25,8 @@ export const CSV_ACCEPT = '.csv,text/csv';
 export const NO_FILE_MESSAGE = 'Choose a CSV file to import.';
 export const WRONG_TYPE_MESSAGE = 'Choose a .csv file.';
 export const EMPTY_FILE_MESSAGE = 'That file is empty. Choose another file.';
+export const UNREADABLE_MESSAGE =
+  'That file could not be read as a CSV file. Save it as UTF-8 CSV and try again.';
 export const TOO_LARGE_MESSAGE = 'That file is larger than 1 MB. Split it into smaller files.';
 
 /** Browsers report .csv as text/csv, application/vnd.ms-excel (Windows) or nothing at all. */
@@ -38,6 +40,7 @@ const CSV_TYPES: ReadonlySet<string> = new Set([
 
 /** The message for a file that must not be sent, or null when its name, type and size are allowed. */
 export function csvFileError(file: { name: string; type: string; size: number }): string | null {
+  if (file.name === '') return NO_FILE_MESSAGE; // an empty file input submits a nameless empty File
   if (!file.name.toLowerCase().endsWith('.csv') || !CSV_TYPES.has(file.type)) {
     return WRONG_TYPE_MESSAGE;
   }

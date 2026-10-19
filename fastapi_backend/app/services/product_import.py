@@ -53,6 +53,7 @@ from app.services.store_product_types import (
     ProductLimitReached,
 )
 
+# Keep in sync with nextjs-frontend/src/lib/products/csv-import.ts (limits, columns).
 MAX_IMPORT_BYTES: Final = 1_000_000
 MAX_IMPORT_ROWS: Final = 500
 MAX_REPORTED_ERRORS: Final = 100
@@ -73,6 +74,7 @@ TEXT_COLUMNS: Final = frozenset({"title", "slug", "description", "status", "sku"
 
 FORMULA_PREFIXES: Final = ("=", "+", "-", "@")
 FORMULA_MESSAGE: Final = "Cell must not start with =, +, -, @, tab or carriage return"
+TOO_LARGE_MESSAGE: Final = "The file is larger than 1 MB"
 NOT_UTF8_MESSAGE: Final = "The file must be UTF-8 encoded text"
 _WHOLE_NUMBER: Final = re.compile(r"[0-9]{1,20}")
 
@@ -297,7 +299,7 @@ def _check_row(
 
 def _decode(content: bytes) -> str:
     if len(content) > MAX_IMPORT_BYTES:
-        raise _FileError(f"The file is larger than {MAX_IMPORT_BYTES // 1000} KB")
+        raise _FileError(TOO_LARGE_MESSAGE)
     if not content:
         raise _FileError("The file is empty")
     try:

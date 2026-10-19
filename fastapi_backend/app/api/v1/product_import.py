@@ -35,6 +35,7 @@ from app.services.product_import import (
     COLUMNS,
     MAX_IMPORT_BYTES,
     MAX_IMPORT_ROWS,
+    TOO_LARGE_MESSAGE,
     ImportIssue,
     import_products,
 )
@@ -42,7 +43,6 @@ from app.services.store_products import StoreProductsService
 
 # Room for the multipart boundary and part headers around the file.
 MAX_REQUEST_BYTES = MAX_IMPORT_BYTES + 16_384
-TOO_LARGE_MESSAGE = f"The file is larger than {MAX_IMPORT_BYTES // 1000} KB"
 NO_FILE_MESSAGE = "Attach the CSV file as the file field"
 # A stalled upload must not hold the request (and the platform session) open.
 READ_TIMEOUT_SECONDS = 30
@@ -85,7 +85,7 @@ MULTIPART_BODY: dict[str, Any] = {
                             "type": "string",
                             "format": "binary",
                             "description": (
-                                f"UTF-8 CSV, at most {MAX_IMPORT_BYTES // 1000} KB and "
+                                f"UTF-8 CSV, at most 1 MB ({MAX_IMPORT_BYTES} bytes) and "
                                 f"{MAX_IMPORT_ROWS} rows. Columns: {', '.join(COLUMNS)}."
                             ),
                         }

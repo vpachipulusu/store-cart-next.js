@@ -245,9 +245,7 @@ def test_a_file_without_rows_is_a_file_error() -> None:
 def test_a_file_over_the_byte_cap_is_refused() -> None:
     content = csv_of(row(description="x" * (MAX_IMPORT_BYTES + 1)))
 
-    assert errors_of(content) == [
-        (None, None, f"The file is larger than {MAX_IMPORT_BYTES // 1000} KB")
-    ]
+    assert errors_of(content) == [(None, None, "The file is larger than 1 MB")]
 
 
 def test_a_file_over_the_row_cap_is_refused() -> None:
@@ -423,3 +421,9 @@ async def test_create_many_of_nothing_writes_nothing() -> None:
     service = StoreProductsService(None, None, "store", plan)  # type: ignore[arg-type]
 
     assert await service.create_many([]) == ()
+
+
+def test_an_over_long_description_is_a_description_error() -> None:
+    errors = errors_of(csv_of(row(description="x" * 10_001)))
+
+    assert [(r, c) for r, c, _ in errors] == [(2, "description")]

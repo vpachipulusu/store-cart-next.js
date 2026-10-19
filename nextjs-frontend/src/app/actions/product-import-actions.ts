@@ -3,7 +3,12 @@
 import { revalidatePath } from 'next/cache';
 import { importStoreProducts, productErrorMessage } from '@/lib/api/products';
 import { logger } from '@/lib/logger';
-import { csvFileSchema, TOO_LARGE_MESSAGE, type ImportOutcome } from '@/lib/products/csv-import';
+import {
+  csvFileSchema,
+  TOO_LARGE_MESSAGE,
+  UNREADABLE_MESSAGE,
+  type ImportOutcome,
+} from '@/lib/products/csv-import';
 import { isEntityId } from '@/lib/products/schema';
 import { getCurrentStoreSelection } from '@/lib/stores/current';
 import { STORES_UNAVAILABLE_MESSAGE } from '@/lib/stores/selection';
@@ -42,7 +47,9 @@ export async function importProductsAction(
   const result = await importStoreProducts(selection.selected.id, file.data);
   if (!result.success) {
     logger.warn('Product import failed', { status: result.status });
-    return fail(result.status === 413 ? TOO_LARGE_MESSAGE : productErrorMessage(result));
+    if (result.status === 413) return fail(TOO_LARGE_MESSAGE);
+    if (result.status === 400) return fail(UNREADABLE_MESSAGE);
+    return fail(productErrorMessage(result));
   }
   if (result.data.imported > 0) revalidatePath('/dashboard/products');
   return { success: true, data: result.data };
