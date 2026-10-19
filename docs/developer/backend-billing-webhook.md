@@ -75,8 +75,42 @@ pruned after 30 days; Stripe stops retrying after 3 days.
   name must end in `_test` and the host must be local. CI sets it for the backend job (Postgres 17 service `storecart_test`). Locally:
   `TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/storecart_test uv run pytest tests/api/test_stripe_webhook_e2e.py`.
 
+## Production checklist (KAN-251)
+
+After paying, the owner returns to `/dashboard?upgrade=success` but the plan stays Free when Stripe events never reach
+this route. Check, in this order:
+
+1. **Routing.** The backend service has no public route (ADR-011), so Stripe reaches it only through the top-level
+   rewrite `/webhooks/stripe` to `fastapi_backend` in the root `vercel.json`, placed before the catch-all. Without it
+   the event goes to the frontend (404) and no subscription state is ever written. The rewrite is exact (no wildcard)
+   and public: no `X-Internal-Key`, the Stripe signature is the credential (ADR-003 section 5).
+   `tests/core/test_vercel_routing.py` guards it.
+2. **Variable** (Vercel project, FastAPI service, Production scope; name only): `STRIPE_WEBHOOK_SECRET`, the `whsec_...`
+   signing secret of the endpoint in step 3. If unset, the route answers **503** and Stripe keeps retrying. The price
+   ids `STRIPE_PRICE_ID_{PRO,ENTERPRISE}_{MONTHLY,YEARLY}` must also be set, or the tier stays unchanged (warned).
+3. **Stripe dashboard** (Developers, Webhooks, add endpoint; use the live or test mode that matches the keys in
+   use): URL `https://<production origin>/webhooks/stripe` (no trailing slash), events `customer.subscription.created`,
+   `customer.subscription.updated` and `customer.subscription.deleted`. These are the only types the backend acts on;
+   others (for example `checkout.session.completed`) are acknowledged and ignored. Copy the endpoint's signing secret
+   into `STRIPE_WEBHOOK_SECRET` (step 2) and redeploy.
+4. **Deployment Protection.** Stripe sends no Vercel bypass header. If the production domain is behind Vercel
+   Authentication or a password, add a protection-bypass exception for `/webhooks/stripe` only.
+
+### How to verify
+
+- In the Stripe dashboard the endpoint's recent deliveries show **200** (`{"received": true}`).
+- Run a test checkout: the organisation's plan flips from Free to Pro on the billing page after the redirect.
+
+| Stripe delivery shows | Meaning |
+|---|---|
+| 404 | Routing (item 1) not deployed, or the endpoint URL is on another domain |
+| 503 | `STRIPE_WEBHOOK_SECRET` is unset on the FastAPI service |
+| 400 | Wrong secret (an endpoint from the other mode, or rotated), or a stale/modified body |
+| 401 with an HTML sign-in page | Deployment Protection (item 4) |
+| 413 | Body over 1 MB (not a real Stripe event) |
+| 500 | Handler failed; Stripe retries for up to 3 days, check the backend logs (exception type only) |
+| 200 but plan unchanged | Event type ignored, price id unmapped, or no organisation matches the customer (warning in the logs with the event id) |
+
 ## Follow-ups outside this ticket
 
-- Route Stripe to the backend: a narrow public rewrite before the catch-all in `vercel.json` (ADR-011), then point
-  the Billing webhook endpoint at it.
 - `.env.example` and `getting-started.md` entries for the new variables.
