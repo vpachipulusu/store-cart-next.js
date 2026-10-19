@@ -1,15 +1,18 @@
 'use client';
 
-import { useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronsUpDown, Loader2, Store } from 'lucide-react';
+import { ChevronsUpDown, Loader2, Plus, Store } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { NewStoreDialog } from '@/components/dashboard/new-store-dialog';
 import { selectStoreAction } from '@/app/actions/store-actions';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -60,30 +63,22 @@ function StoreText({ store, variant }: { store: MerchantStore; variant: StoreSwi
 }
 
 /**
- * Shows the selected store and organisation. One store is a plain label; several make a "Switch store" menu.
- * The selection is only a preference: `selectStoreAction` validates the id against the user's own stores, and
- * the server re-validates it on every request, so nothing here is an authorization boundary.
+ * Shows the selected store and organisation in a "Switch store" menu that lists the user's stores and ends with
+ * "New store" (KAN-254), so a merchant with one store can add another. The selection is only a preference:
+ * `selectStoreAction` validates the id against the user's own stores, and the server re-validates it on every
+ * request, so nothing here is an authorization boundary.
  */
 export function StoreSwitcher({ stores, selectedStoreId, variant = 'header' }: StoreSwitcherProps) {
   const router = useRouter();
   const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
+  const [newStoreOpen, setNewStoreOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  /** Set while "New store" opens the dialog, so the closing menu does not pull focus back to the trigger. */
+  const openingDialogRef = useRef(false);
 
   const selected = stores.find((store) => store.id === selectedStoreId) ?? stores[0];
   if (!selected) return null;
-
-  if (stores.length === 1) {
-    return (
-      <div
-        className={cn(SLOT_CLASS, VARIANT_CLASS[variant])}
-        data-testid="store-name"
-        role="group"
-        aria-label="Current store"
-      >
-        <StoreText store={selected} variant={variant} />
-      </div>
-    );
-  }
 
   const reportFailure = (description?: string) =>
     toast({
@@ -115,6 +110,7 @@ export function StoreSwitcher({ stores, selectedStoreId, variant = 'header' }: S
       </span>
       <DropdownMenu>
         <DropdownMenuTrigger
+          ref={triggerRef}
           aria-label={`Switch store, current ${selected.name}, ${selected.organizationName}`}
           data-testid="store-switcher"
           aria-busy={isPending}
@@ -142,6 +138,11 @@ export function StoreSwitcher({ stores, selectedStoreId, variant = 'header' }: S
         <DropdownMenuContent
           align="start"
           className="min-w-[var(--radix-dropdown-menu-trigger-width)]"
+          onCloseAutoFocus={(event) => {
+            if (!openingDialogRef.current) return;
+            openingDialogRef.current = false;
+            event.preventDefault();
+          }}
         >
           <DropdownMenuRadioGroup value={selected.id} onValueChange={handleChange}>
             {stores.map((store) => (
@@ -156,8 +157,28 @@ export function StoreSwitcher({ stores, selectedStoreId, variant = 'header' }: S
               </DropdownMenuRadioItem>
             ))}
           </DropdownMenuRadioGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            disabled={isPending}
+            className="min-h-11 gap-2"
+            onSelect={() => {
+              openingDialogRef.current = true;
+              setNewStoreOpen(true);
+            }}
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            New store
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      <NewStoreDialog
+        open={newStoreOpen}
+        onOpenChange={setNewStoreOpen}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          triggerRef.current?.focus();
+        }}
+      />
     </>
   );
 }

@@ -43,6 +43,8 @@ type ProvisioningStatusProps = {
   storeName: string;
   /** The status the server rendered the page with, or UNKNOWN when the backend could not be reached. */
   initialStatus: StoreStatus | 'UNKNOWN';
+  /** Called once when the store first shows as ready (the dashboard "New store" dialog selects it, KAN-254). */
+  onReady?: () => void;
 };
 
 /**
@@ -53,7 +55,12 @@ type ProvisioningStatusProps = {
  * in one persistent polite live region so each change (including "ready" and "still not finished") is announced;
  * the retry and dashboard controls sit outside it.
  */
-export function ProvisioningStatus({ storeId, storeName, initialStatus }: ProvisioningStatusProps) {
+export function ProvisioningStatus({
+  storeId,
+  storeName,
+  initialStatus,
+  onReady,
+}: ProvisioningStatusProps) {
   const [status, setStatus] = useState<StoreStatus | 'UNKNOWN'>(initialStatus);
   const [problem, setProblem] = useState<string | null>(null);
   /** Polling used up its attempts while the store was still PROVISIONING: the job may have stopped (KAN-248). */
@@ -77,6 +84,13 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
   const focusDashboardRef = useRef(false);
   /** The focused "Retry setup" button unmounts on success or at the cap; focus moves here so it is not lost. */
   const statusRegionRef = useRef<HTMLDivElement>(null);
+  /** The latest `onReady`, so a new callback identity from the parent neither re-fires nor goes stale. */
+  const onReadyRef = useRef(onReady);
+  const readyNotifiedRef = useRef(false);
+
+  useEffect(() => {
+    onReadyRef.current = onReady;
+  }, [onReady]);
 
   useEffect(() => {
     if (initialStatus !== 'PROVISIONING' && retryCount === 0) return;
@@ -235,6 +249,12 @@ export function ProvisioningStatus({ storeId, storeName, initialStatus }: Provis
         : null);
   const ready = message === null && status === 'ACTIVE';
   const needsAttention = message !== null || provisioningFailed;
+
+  useEffect(() => {
+    if (!ready || readyNotifiedRef.current) return;
+    readyNotifiedRef.current = true;
+    onReadyRef.current?.();
+  }, [ready]);
 
   // The button that was focused unmounts when a check turns the store ACTIVE, so focus moves to the new link.
   useEffect(() => {
