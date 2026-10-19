@@ -157,6 +157,17 @@ export const STORE_PATH_PREFIX = '/s';
  */
 export const STORE_NOT_FOUND_SLUG = 'not_found';
 
+/** Internal routes: the full storefront (store hosts, KAN-75) and the name-only preview page (`/s`, KAN-202). */
+export const STOREFRONT_ROUTE = '/storefront';
+export const STOREFRONT_PREVIEW_ROUTE = '/storefront-preview';
+
+/** True for a request path that names an internal storefront route directly instead of through a store host. */
+export function isInternalStorefrontPath(pathname: string): boolean {
+  return [STOREFRONT_ROUTE, STOREFRONT_PREVIEW_ROUTE].some(
+    (route) => pathname === route || pathname.startsWith(`${route}/`)
+  );
+}
+
 /**
  * Allow-list, fail closed. Preview paths are served only when `STOREFRONT_PATH_PREVIEW` is exactly `true` and
  * `VERCEL_ENV` is `preview` or `development`, or `VERCEL_ENV` is unset and `NODE_ENV` is not `production`.

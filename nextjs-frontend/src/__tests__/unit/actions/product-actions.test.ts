@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   getCurrentStoreSelection: vi.fn(),
   revalidatePath: vi.fn(),
+  revalidateTag: vi.fn(),
   createStoreProduct: vi.fn(),
   updateStoreProduct: vi.fn(),
   deleteStoreProduct: vi.fn(),
@@ -14,7 +15,10 @@ const mocks = vi.hoisted(() => ({
   deleteProductImage: vi.fn(),
 }));
 
-vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidatePath }));
+vi.mock('next/cache', () => ({
+  revalidatePath: mocks.revalidatePath,
+  revalidateTag: mocks.revalidateTag,
+}));
 vi.mock('@/lib/stores/current', () => ({
   getCurrentStoreSelection: mocks.getCurrentStoreSelection,
 }));
@@ -70,7 +74,7 @@ describe('product actions', () => {
     mocks.getCurrentStoreSelection.mockResolvedValue({
       available: true,
       stores: [],
-      selected: { id: STORE, name: 'Shop' },
+      selected: { id: STORE, name: 'Shop', slug: 'shop' },
     });
     for (const key of [
       'createStoreProduct',
@@ -114,6 +118,8 @@ describe('product actions', () => {
         ],
       });
       expect(mocks.revalidatePath).toHaveBeenCalledWith('/dashboard/products');
+      // KAN-75: the store's cached storefront pages expire at once.
+      expect(mocks.revalidateTag).toHaveBeenCalledWith('storefront:shop', { expire: 0 });
     });
 
     it('rejects invalid input with field errors and never calls the backend', async () => {

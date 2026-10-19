@@ -139,7 +139,8 @@ describe('proxy root-domain behaviour is unchanged', () => {
     const response = await proxy(
       request('storecart.test', '/storefront/acme', { headers: { [STORE_SLUG_HEADER]: 'acme' } })
     );
-    expect(rewriteTarget(response)).toBeNull();
+    // KAN-75: the cached storefront pages cannot check the marker, so the proxy sends direct hits to the 404.
+    expect(new URL(rewriteTarget(response)!).pathname).toBe('/storefront-preview/not_found');
     expect(response.headers.get('x-middleware-override-headers') ?? '').not.toContain(
       STORE_SLUG_HEADER
     );

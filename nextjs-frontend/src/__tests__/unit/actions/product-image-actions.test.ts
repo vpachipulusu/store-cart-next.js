@@ -5,12 +5,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   getCurrentStoreSelection: vi.fn(),
   revalidatePath: vi.fn(),
+  revalidateTag: vi.fn(),
   presignProductImage: vi.fn(),
   addProductImage: vi.fn(),
   warn: vi.fn(),
 }));
 
-vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidatePath }));
+vi.mock('next/cache', () => ({
+  revalidatePath: mocks.revalidatePath,
+  revalidateTag: mocks.revalidateTag,
+}));
 vi.mock('@/lib/stores/current', () => ({
   getCurrentStoreSelection: mocks.getCurrentStoreSelection,
 }));
@@ -38,7 +42,7 @@ function selectStore() {
   mocks.getCurrentStoreSelection.mockResolvedValue({
     available: true,
     stores: [],
-    selected: { id: STORE, name: 'Shop' },
+    selected: { id: STORE, name: 'Shop', slug: 'shop' },
   });
 }
 

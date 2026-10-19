@@ -36,7 +36,7 @@ describe('/s/{slug} when the preview is enabled', () => {
   it('rewrites to the storefront route and sets the slug marker itself', async () => {
     const response = await proxy(request(ROOT_HOST, '/s/acme'));
 
-    expect(rewritePath(response)).toBe('/storefront/acme');
+    expect(rewritePath(response)).toBe('/storefront-preview/acme');
     expect(overridden(response, STORE_SLUG_HEADER)).toBe('acme');
   });
 
@@ -44,7 +44,7 @@ describe('/s/{slug} when the preview is enabled', () => {
     const response = await proxy(request(ROOT_HOST, '/s/acme?x=1'));
 
     const target = new URL(rewriteTarget(response)!);
-    expect(target.pathname).toBe('/storefront/acme');
+    expect(target.pathname).toBe('/storefront-preview/acme');
     expect(target.search).toBe('?x=1');
   });
 
@@ -53,7 +53,7 @@ describe('/s/{slug} when the preview is enabled', () => {
     async (path) => {
       const response = await proxy(request(ROOT_HOST, path));
 
-      expect(rewritePath(response)).toBe('/storefront/not_found');
+      expect(rewritePath(response)).toBe('/storefront-preview/not_found');
       expect(overridden(response, STORE_SLUG_HEADER)).toBeNull();
     }
   );
@@ -74,7 +74,7 @@ describe('/s/{slug} when the preview is enabled', () => {
   it('applies no root-domain auth redirects or API gate', async () => {
     const response = await proxy(request(ROOT_HOST, '/s/acme/login', { cookie: 'session=abc' }));
     expect(response.headers.get('location')).toBeNull();
-    expect(rewritePath(response)).toBe('/storefront/not_found');
+    expect(rewritePath(response)).toBe('/storefront-preview/not_found');
   });
 
   it.each(['/s', '/s/', '/s/ab', '/s/Acme', '/s/acme--x', '/s/www', '/s/admin', '/s/a_b_c'])(
@@ -82,7 +82,7 @@ describe('/s/{slug} when the preview is enabled', () => {
     async (path) => {
       const response = await proxy(request(ROOT_HOST, path, { [STORE_SLUG_HEADER]: 'acme' }));
 
-      expect(rewritePath(response)).toBe('/storefront/not_found');
+      expect(rewritePath(response)).toBe('/storefront-preview/not_found');
       expect(overridden(response, STORE_SLUG_HEADER)).toBeNull();
       expect(response.headers.get('X-Robots-Tag')).toBe('noindex');
     }
@@ -106,7 +106,7 @@ describe.each([
   it('rewrites to the storefront route with the slug marker and the locked-down headers', async () => {
     const response = await proxy(request(ROOT_HOST, '/s/acme'));
 
-    expect(rewritePath(response)).toBe('/storefront/acme');
+    expect(rewritePath(response)).toBe('/storefront-preview/acme');
     expect(overridden(response, STORE_SLUG_HEADER)).toBe('acme');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex');
     expect(response.headers.get('Content-Security-Policy')).toBe(CSP);
@@ -130,7 +130,7 @@ describe.each([
   it('rewrites a valid slug to the not-found target without a slug marker', async () => {
     const response = await proxy(request(ROOT_HOST, '/s/acme', { [STORE_SLUG_HEADER]: 'acme' }));
 
-    expect(rewritePath(response)).toBe('/storefront/not_found');
+    expect(rewritePath(response)).toBe('/storefront-preview/not_found');
     expect(overridden(response, STORE_SLUG_HEADER)).toBeNull();
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex');
     expect(response.headers.get('Content-Security-Policy')).toBe(CSP);
@@ -145,10 +145,18 @@ describe.each([
 describe('header spoofing on ordinary requests', () => {
   beforeEach(() => configure('true', 'preview'));
 
+  it.each(['/storefront/acme', '/storefront-preview/acme', '/storefront/acme/products/tee'])(
+    'sends a direct internal storefront path to the 404 target without the marker: %s',
+    async (path) => {
+      const response = await proxy(request(ROOT_HOST, path, { [STORE_SLUG_HEADER]: 'acme' }));
+      expect(rewritePath(response)).toBe('/storefront-preview/not_found');
+      expect(overridden(response, STORE_SLUG_HEADER)).toBeNull();
+      expect(response.headers.get('X-Robots-Tag')).toBe('noindex');
+    }
+  );
+
   it('strips an inbound slug marker on a root-domain request', async () => {
-    const response = await proxy(
-      request(ROOT_HOST, '/storefront/acme', { [STORE_SLUG_HEADER]: 'acme' })
-    );
+    const response = await proxy(request(ROOT_HOST, '/pricing', { [STORE_SLUG_HEADER]: 'acme' }));
     expect(rewriteTarget(response)).toBeNull();
     expect(overridden(response, STORE_SLUG_HEADER)).toBeNull();
     expect(response.headers.get('x-middleware-override-headers') ?? '').not.toContain(

@@ -1,6 +1,6 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
+import { revalidatePath, revalidateTag } from 'next/cache';
 import type { ZodType, ZodTypeDef } from 'zod';
 import {
   addProductImage,
@@ -18,6 +18,7 @@ import {
 } from '@/lib/api/products';
 import { logger } from '@/lib/logger';
 import { getCurrentStoreSelection } from '@/lib/stores/current';
+import { storefrontTag } from '@/lib/storefront/cache';
 import { STORES_UNAVAILABLE_MESSAGE } from '@/lib/stores/selection';
 import { altTextSchema, isStoreImageKey, presignRequestSchema } from '@/lib/products/image-upload';
 import {
@@ -52,13 +53,13 @@ const INVALID_ID_MESSAGE = 'That item could not be found.';
 const INVALID_IMAGE_KEY_MESSAGE =
   'That upload does not belong to this store. Choose the image again.';
 
-type Resolved = { ok: true; storeId: string } | { ok: false; error: string };
+type Resolved = { ok: true; storeId: string; storeSlug: string } | { ok: false; error: string };
 
 async function resolveStore(): Promise<Resolved> {
   const selection = await getCurrentStoreSelection();
   if (!selection.available) return { ok: false, error: STORES_UNAVAILABLE_MESSAGE };
   if (!selection.selected) return { ok: false, error: NO_STORE_MESSAGE };
-  return { ok: true, storeId: selection.selected.id };
+  return { ok: true, storeId: selection.selected.id, storeSlug: selection.selected.slug };
 }
 
 function fail(error: string, fields?: Record<string, string>): ProductActionResponse<never> {
@@ -72,9 +73,11 @@ function parse<T>(schema: ZodType<T, ZodTypeDef, unknown>, input: unknown) {
     : ({ ok: false, response: fail(INVALID_INPUT_MESSAGE, fieldErrors(parsed.error)) } as const);
 }
 
-function refresh(productId?: string): void {
+/** Refreshes the dashboard and expires this store's cached storefront pages (KAN-75) right away. */
+function refresh(storeSlug: string, productId?: string): void {
   revalidatePath('/dashboard/products');
   if (productId) revalidatePath(`/dashboard/products/${productId}`);
+  revalidateTag(storefrontTag(storeSlug), { expire: 0 });
 }
 
 function backendFailure(
@@ -104,7 +107,7 @@ export async function createProductAction(
     variants: value.variants.map(toVariantBody),
   });
   if (!result.success) return backendFailure('create', result);
-  refresh();
+  refresh(store.storeSlug);
   return { success: true, data: result.data };
 }
 
@@ -139,7 +142,7 @@ export async function updateProductAction(
     category_ids: value.categoryIds,
   });
   if (!result.success) return backendFailure('update', result);
-  refresh(productId);
+  refresh(store.storeSlug, productId);
   return { success: true, data: result.data };
 }
 
@@ -152,7 +155,7 @@ export async function deleteProductAction(
 
   const result = await deleteStoreProduct(store.storeId, productId);
   if (!result.success) return backendFailure('delete', result);
-  refresh();
+  refresh(store.storeSlug);
   return { success: true, data: { deleted: true } };
 }
 
@@ -168,7 +171,7 @@ export async function addVariantAction(
 
   const result = await addProductVariant(store.storeId, productId, toVariantBody(parsed.value));
   if (!result.success) return backendFailure('add-variant', result);
-  refresh(productId);
+  refresh(store.storeSlug, productId);
   return { success: true, data: result.data };
 }
 
@@ -194,7 +197,7 @@ export async function updateVariantAction(
     stock,
   });
   if (!result.success) return backendFailure('update-variant', result);
-  refresh(productId);
+  refresh(store.storeSlug, productId);
   return { success: true, data: result.data };
 }
 
@@ -208,7 +211,7 @@ export async function deleteVariantAction(
 
   const result = await deleteProductVariant(store.storeId, productId, variantId);
   if (!result.success) return backendFailure('delete-variant', result);
-  refresh(productId);
+  refresh(store.storeSlug, productId);
   return { success: true, data: result.data };
 }
 
@@ -270,7 +273,7 @@ export async function addImageAction(
     alt_text: alt.data,
   });
   if (!result.success) return backendFailure('add-image', result);
-  refresh(productId);
+  refresh(store.storeSlug, productId);
   return { success: true, data: result.data };
 }
 
@@ -284,6 +287,6 @@ export async function deleteImageAction(
 
   const result = await deleteProductImage(store.storeId, productId, imageId);
   if (!result.success) return backendFailure('delete-image', result);
-  refresh(productId);
+  refresh(store.storeSlug, productId);
   return { success: true, data: result.data };
 }
