@@ -4,6 +4,7 @@ import {
   Package,
   Settings,
   Shield,
+  Truck,
   User,
   type LucideIcon,
 } from 'lucide-react';
@@ -23,6 +24,7 @@ export const NAV_ITEMS: ReadonlyArray<NavItem> = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/dashboard/products', label: 'Products', icon: Package },
   { href: '/dashboard/settings/billing', label: 'Billing', icon: CreditCard },
+  { href: '/dashboard/settings/store', label: 'Shipping and tax', icon: Truck },
   { href: '/dashboard/settings', label: 'Settings', icon: Settings },
   { href: '/dashboard/profile', label: 'Profile', icon: User },
   { href: '/dashboard/security', label: 'Security', icon: Shield },
