@@ -7,10 +7,11 @@ stores are the same 404). Money is integer minor units; the tax rate is in basis
 removes the threshold. Bodies reject unknown fields; responses carry ``Cache-Control: no-store``.
 """
 
+import logging
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Path, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
 from app.api.auth import require_internal_key
@@ -28,6 +29,9 @@ from app.services.store_settings import (
     InvalidStoreSettings,
     StoreSettingsService,
 )
+
+logger = logging.getLogger(__name__)
+NO_STORE_HEADERS = {"Cache-Control": "no-store"}
 
 router = APIRouter(
     prefix="/v1/stores/{store_id}/store-settings",
@@ -102,16 +106,29 @@ async def get_store_settings(
     summary="Update shipping and tax settings",
 )
 async def update_store_settings(
-    body: UpdateStoreSettingsRequest, response: Response, service: WriteService
+    store_id: Annotated[str, Path(max_length=128)],
+    body: UpdateStoreSettingsRequest,
+    response: Response,
+    service: WriteService,
 ) -> StoreSettingsResponse:
     no_store(response)
     # Only sent fields change; null is a value solely for the threshold (removes it).
-    changes = {
-        name: getattr(body, name)
-        for name in body.model_fields_set
-        if name == "free_shipping_threshold_minor" or getattr(body, name) is not None
-    }
+    changes = {name: getattr(body, name) for name in body.model_fields_set}
+    nulled = sorted(
+        name
+        for name, value in changes.items()
+        if value is None and name != "free_shipping_threshold_minor"
+    )
+    if nulled:
+        raise HTTPException(
+            422, f"{nulled[0]} cannot be null", headers=NO_STORE_HEADERS
+        )
     try:
-        return _response(await service.update(changes))
+        row = await service.update(changes)
     except InvalidStoreSettings as error:
-        raise HTTPException(422, str(error)) from None
+        raise HTTPException(422, str(error), headers=NO_STORE_HEADERS) from None
+    logger.info(
+        "store settings changed",
+        extra={"store_id": store_id, "fields": sorted(changes)},
+    )
+    return _response(row)

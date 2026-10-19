@@ -5,7 +5,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app.repositories.store_settings import StoreSettingsRepository, StoreSettingsRow
 from app.services.store_settings import (
@@ -79,9 +79,9 @@ async def test_an_empty_update_reads_without_writing() -> None:
     session.commit.assert_not_awaited()
 
 
-async def test_a_database_error_rolls_back_and_hides_its_text() -> None:
+async def test_a_constraint_error_rolls_back_and_hides_its_text() -> None:
     repository, session = AsyncMock(), AsyncMock()
-    repository.update.side_effect = DBAPIError("stmt", {}, Exception("ck_secret"))
+    repository.update.side_effect = IntegrityError("stmt", {}, Exception("ck_secret"))
 
     with pytest.raises(InvalidStoreSettings, match="could not be saved") as raised:
         await service(repository, session).update({"tax_rate_bps": 1})
@@ -100,3 +100,13 @@ async def test_totals_settings_maps_the_row() -> None:
     assert (settings.shipping_flat_rate_minor, settings.tax_rate_bps) == (499, 2000)
     assert settings.free_shipping_threshold_minor == 5000
     assert settings.prices_include_tax is True
+
+
+async def test_an_outage_rolls_back_and_is_not_reported_as_bad_input() -> None:
+    repository, session = AsyncMock(), AsyncMock()
+    repository.update.side_effect = OperationalError("stmt", {}, Exception("lost"))
+
+    with pytest.raises(OperationalError):
+        await service(repository, session).update({"tax_rate_bps": 1})
+
+    session.rollback.assert_awaited_once()

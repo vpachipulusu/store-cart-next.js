@@ -69,7 +69,9 @@ def upgrade() -> None:
             "tax_rate_bps BETWEEN 0 AND 10000", name="ck_store_settings_tax_rate_bps"
         ),
     )
-    op.execute("INSERT INTO store_settings (id) VALUES (true)")
+    op.execute(
+        "INSERT INTO store_settings (id) VALUES (true) ON CONFLICT (id) DO NOTHING"
+    )
 
 
 def downgrade() -> None:

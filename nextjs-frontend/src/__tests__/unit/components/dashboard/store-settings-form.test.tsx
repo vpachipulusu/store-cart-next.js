@@ -108,4 +108,17 @@ describe('StoreSettingsForm', () => {
 
     expect(await screen.findByText('The request failed. Please try again.')).toBeInTheDocument();
   });
+
+  it('keeps focus on the save button while saving', async () => {
+    const user = userEvent.setup();
+    let finish: (value: unknown) => void = () => {};
+    mocks.updateStoreSettingsAction.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    renderForm();
+    const save = screen.getByRole('button', { name: 'Save settings' });
+
+    await user.click(save);
+
+    expect(await screen.findByRole('button', { name: 'Saving…' })).toHaveFocus();
+    finish({ success: false, error: 'No permission.' });
+  });
 });

@@ -7,10 +7,13 @@ points at a throwaway local server (see ``tests/isolation_world.py``).
 
 # ruff: noqa: F811  (pytest fixtures are imported, then named as test parameters)
 
+from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
+from sqlalchemy import text
 
 from app.repositories.store_settings import StoreSettingsRepository
 from app.services.store_sessions import open_store_session
@@ -51,6 +54,15 @@ def url(store_id: str) -> str:
 def values(response: Any) -> dict[str, Any]:
     body: dict[str, Any] = response.json()
     return {key: body[key] for key in DEFAULTS}
+
+
+@pytest_asyncio.fixture(autouse=True, loop_scope="module")
+async def reset_north(client: AsyncClient, world: World) -> AsyncIterator[None]:
+    """Every test starts and ends on defaults, even when it fails half way."""
+    store = store_of(world, "a", "north")
+    await reset(client, store)
+    yield
+    await reset(client, store)
 
 
 async def reset(client: AsyncClient, store_id: str) -> None:
@@ -223,3 +235,63 @@ async def test_totals_use_the_saved_shipping_and_tax(
     )
     assert (free.shipping_minor, free.tax_minor, free.total_minor) == (0, 1000, 6000)
     await reset(client, store)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"tax_rate_bps": None},
+        {"shipping_flat_rate_minor": None},
+        {"prices_include_tax": None},
+    ],
+)
+async def test_an_explicit_null_on_a_required_field_is_a_422(
+    client: AsyncClient, world: World, body: dict[str, Any]
+) -> None:
+    response = await client.patch(
+        url(store_of(world, "a", "north")), json=body, headers=ALICE
+    )
+
+    assert response.status_code == 422
+    assert response.headers["cache-control"] == "no-store"
+
+
+async def test_updated_at_moves_only_on_a_real_change(
+    client: AsyncClient, world: World
+) -> None:
+    store = store_of(world, "a", "north")
+    before = (await client.get(url(store), headers=ALICE)).json()["updated_at"]
+
+    await client.patch(url(store), json={}, headers=ALICE)
+    same = (await client.get(url(store), headers=ALICE)).json()["updated_at"]
+    await client.patch(url(store), json={"tax_rate_bps": 100}, headers=ALICE)
+    after = (await client.get(url(store), headers=ALICE)).json()["updated_at"]
+
+    assert same == before and after != before
+
+
+async def test_requests_without_a_session_or_internal_key_are_refused(
+    client: AsyncClient, world: World
+) -> None:
+    store = store_of(world, "a", "north")
+
+    no_session = await client.get(url(store))
+    no_key = await client.get(url(store), headers={**ALICE, "X-Internal-Key": "wrong"})
+
+    assert no_session.status_code == 401
+    assert no_key.status_code in (401, 403)
+
+
+async def test_a_deleted_settings_row_is_recreated_on_the_next_change(
+    client: AsyncClient, world: World
+) -> None:
+    store = store_of(world, "a", "north")
+    async with open_store_session(store, world.provider) as session:
+        await session.execute(text("DELETE FROM store_settings"))
+        await session.commit()
+
+    read = await client.get(url(store), headers=ALICE)
+    saved = await client.patch(url(store), json={"tax_rate_bps": 300}, headers=ALICE)
+
+    assert read.status_code == 200 and values(read) == DEFAULTS
+    assert saved.status_code == 200 and values(saved)["tax_rate_bps"] == 300

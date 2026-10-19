@@ -106,3 +106,60 @@ def test_rejects_negative_amounts_and_empty_quantities(
 ) -> None:
     with pytest.raises(ValueError):
         compute_totals([LineAmount(price, quantity)], settings())
+
+
+def test_tax_inclusive_rounding_gives_net_half_up_and_tax_the_rest() -> None:
+    totals = compute_totals(
+        [LineAmount(105, 1)], settings(tax_bps=1_000, included=True)
+    )
+
+    assert totals.tax_minor == 10  # net 95.45 -> 95, tax 105 - 95
+    assert totals.total_minor == 105
+
+
+def test_tax_inclusive_tax_can_round_down_to_zero() -> None:
+    totals = compute_totals([LineAmount(1, 1)], settings(tax_bps=2_000, included=True))
+
+    assert totals.tax_minor == 0
+
+
+def test_tax_inclusive_at_one_hundred_percent_is_half_the_gross() -> None:
+    totals = compute_totals(
+        [LineAmount(200, 1)], settings(tax_bps=10_000, included=True)
+    )
+
+    assert totals.tax_minor == 100
+
+
+def test_tax_inclusive_tax_is_rounded_per_line() -> None:
+    totals = compute_totals(
+        [LineAmount(105, 1), LineAmount(105, 1)], settings(tax_bps=1_000, included=True)
+    )
+
+    assert totals.tax_minor == 20  # 10 + 10, not 19 from rounding the 210 once
+
+
+def test_free_shipping_threshold_compares_the_gross_subtotal_when_prices_include_tax() -> (
+    None
+):
+    totals = compute_totals(
+        [LineAmount(5_000, 1)],
+        settings(flat=499, threshold=5_000, tax_bps=2_000, included=True),
+    )
+
+    assert totals.shipping_minor == 0
+
+
+def test_a_threshold_of_one_makes_any_paid_basket_ship_free() -> None:
+    assert shipping_minor(1, settings(flat=499, threshold=1)) == 0
+
+
+def test_a_basket_of_free_items_ships_free() -> None:
+    totals = compute_totals([LineAmount(0, 2)], settings(flat=499))
+
+    assert totals.shipping_minor == 0 and totals.total_minor == 0
+
+
+def test_rejects_a_total_beyond_the_bigint_limit() -> None:
+    with pytest.raises(ValueError, match="too large"):
+        compute_totals([LineAmount(2**62, 3)], settings())

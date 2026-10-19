@@ -35,8 +35,18 @@ _COLUMNS = ", ".join((*SETTING_COLUMNS, "updated_at"))
 _SELECT = f"SELECT {_COLUMNS} FROM store_settings"
 
 
+_ENSURE_ROW = text(
+    "INSERT INTO store_settings (id) VALUES (true) ON CONFLICT (id) DO NOTHING"
+)
+
+
 class StoreSettingsRepository(BaseRepository):
+    async def _ensure_row(self) -> None:
+        """Re-create the singleton row if a support script removed it (the migration seeds it)."""
+        await self._session.execute(_ENSURE_ROW)
+
     async def get(self) -> StoreSettingsRow:
+        await self._ensure_row()
         row = (await self._session.execute(text(_SELECT))).mappings().one()
         return StoreSettingsRow(**row)
 
@@ -45,6 +55,7 @@ class StoreSettingsRepository(BaseRepository):
         unknown = set(changes) - set(SETTING_COLUMNS)
         if unknown:
             raise ValueError("Unknown store setting")
+        await self._ensure_row()
         assignments = "".join(f"{column} = :{column}, " for column in changes)
         row = (
             (

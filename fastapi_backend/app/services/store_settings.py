@@ -5,10 +5,11 @@ transaction: ``update`` validates, writes and commits once. Validation here mirr
 check constraints of ``0005`` so the client gets a curated 422 instead of a database error.
 """
 
+import logging
 from collections.abc import Mapping
 from typing import Any
 
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.store_settings import (
@@ -17,6 +18,8 @@ from app.repositories.store_settings import (
     StoreSettingsRow,
 )
 from app.services.store_totals import TotalsSettings
+
+logger = logging.getLogger(__name__)
 
 MAX_AMOUNT_MINOR = 100_000_000_000
 MAX_TAX_RATE_BPS = 10_000
@@ -96,8 +99,13 @@ class StoreSettingsService:
         try:
             row = await self._repository.update(changes)
             await self._session.commit()
-        except DBAPIError:
+        except (IntegrityError, DataError):
             await self._session.rollback()
-            # The checks above mirror the constraints; reaching here is a gap, not user input.
+            # The checks above mirror the constraints, so reaching here is a validation gap.
+            logger.exception("store settings rejected by the database")
             raise InvalidStoreSettings("The settings could not be saved") from None
+        except BaseException:
+            # Outages, deadlocks and cancellation are not the client's fault: roll back and let them propagate.
+            await self._session.rollback()
+            raise
         return row

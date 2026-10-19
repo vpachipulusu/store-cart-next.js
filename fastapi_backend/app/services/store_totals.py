@@ -4,7 +4,7 @@ Pure functions, no I/O: the caller loads ``TotalsSettings`` from the store setti
 priced lines from the catalogue. Integer arithmetic only.
 
 * **Shipping** is the flat rate, or 0 when a free-shipping threshold is set and the item
-  subtotal (before any tax added on top) reaches it. An empty basket ships nothing.
+  subtotal (before any tax added on top) reaches it. An empty basket, or one whose items are all free (subtotal 0), ships nothing.
 * **Tax** applies to the items, not to shipping, and is rounded half up per line, like
   ``store_orders.line_tax_minor``. When prices exclude tax it is added to the total; when
   prices include tax it is the part already inside the item prices and the total does not
@@ -14,7 +14,7 @@ priced lines from the catalogue. Integer arithmetic only.
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from app.services.store_orders import BPS_DENOMINATOR, line_tax_minor
+from app.services.store_orders import BPS_DENOMINATOR, MAX_MINOR, line_tax_minor
 
 
 @dataclass(frozen=True)
@@ -51,7 +51,10 @@ def shipping_minor(subtotal_minor: int, settings: TotalsSettings) -> int:
 
 
 def _included_tax_minor(gross_minor: int, tax_rate_bps: int) -> int:
-    """The tax inside a tax-inclusive amount: gross minus gross / (1 + rate), half up."""
+    """The tax inside a tax-inclusive amount: gross minus the net, with the net rounded half up.
+
+    So the tax itself rounds half down; net + tax always equals the gross.
+    """
     divisor = BPS_DENOMINATOR + tax_rate_bps
     net = (gross_minor * BPS_DENOMINATOR + divisor // 2) // divisor
     return gross_minor - net
@@ -76,10 +79,13 @@ def compute_totals(lines: Sequence[LineAmount], settings: TotalsSettings) -> Tot
         )
     shipping = shipping_minor(subtotal, settings)
     added_tax = 0 if settings.prices_include_tax else tax
+    total = subtotal + shipping + added_tax
+    if total > MAX_MINOR:
+        raise ValueError("The order total is too large")
     return Totals(
         subtotal_minor=subtotal,
         shipping_minor=shipping,
         tax_minor=tax,
-        total_minor=subtotal + shipping + added_tax,
+        total_minor=total,
         prices_include_tax=settings.prices_include_tax,
     )

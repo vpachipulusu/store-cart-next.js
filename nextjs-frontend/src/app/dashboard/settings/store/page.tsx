@@ -11,14 +11,14 @@ import { getCurrentStoreSelection } from '@/lib/stores/current';
 
 export const metadata = { title: 'Shipping and tax' };
 
-/** Used only when the platform currency cannot be read; the form still saves exact minor units. */
-const FALLBACK_CURRENCY = 'USD';
+const CURRENCY_UNAVAILABLE_MESSAGE = 'The store currency could not be read. Please try again.';
 
-async function loadCurrency(): Promise<string> {
+/** Null when the lookup fails: guessing a currency would misread amounts (JPY has no cents, KWD has three decimals). */
+async function loadCurrency(): Promise<string | null> {
   try {
     return await fetchPlatformCurrency();
   } catch {
-    return FALLBACK_CURRENCY;
+    return null;
   }
 }
 
@@ -35,14 +35,15 @@ export default async function StoreSettingsPage() {
     logger.error('Store settings page: load failed', { status: result.status });
   }
 
-  const initial: StoreSettingsValues | null = result.success
-    ? {
-        shippingFlatRateMinor: result.data.shipping_flat_rate_minor,
-        freeShippingThresholdMinor: result.data.free_shipping_threshold_minor,
-        taxRateBps: result.data.tax_rate_bps,
-        pricesIncludeTax: result.data.prices_include_tax,
-      }
-    : null;
+  const initial: StoreSettingsValues | null =
+    result.success && currency !== null
+      ? {
+          shippingFlatRateMinor: result.data.shipping_flat_rate_minor,
+          freeShippingThresholdMinor: result.data.free_shipping_threshold_minor,
+          taxRateBps: result.data.tax_rate_bps,
+          pricesIncludeTax: result.data.prices_include_tax,
+        }
+      : null;
 
   return (
     <div className="space-y-6">
@@ -53,15 +54,18 @@ export default async function StoreSettingsPage() {
           server from these settings.
         </p>
       </header>
-      {initial ? (
+      {initial && currency !== null ? (
         <StoreSettingsForm
+          key={selection.selected.id}
           initial={initial}
           currency={currency}
           exponent={currencyExponent(currency)}
         />
       ) : (
         <ProductsLoadError
-          message={result.success ? '' : storeSettingsErrorMessage(result)}
+          message={
+            result.success ? CURRENCY_UNAVAILABLE_MESSAGE : storeSettingsErrorMessage(result)
+          }
           retryHref="/dashboard/settings/store"
         />
       )}
