@@ -1,4 +1,4 @@
-"""Dependency that opens the caller's own store database for the catalogue routes (KAN-245) and the order routes (KAN-79).
+"""Dependency that opens the caller's own store database for the catalogue routes (KAN-245), the order routes (KAN-79) and the public cart (KAN-76).
 
 The store id is never taken from the request on its own: ``require_merchant`` resolves the
 ``{store_id}`` path segment against the caller's organisation memberships (404 for any
@@ -20,15 +20,19 @@ from app.core.database import SessionProvider
 from app.core.plans import Plan
 from app.models.platform.membership import MembershipRole
 from app.repositories.merchant import MerchantAccess, MerchantRepository
+from app.repositories.store_cart import StoreCartRepository
 from app.repositories.store_catalogue import StoreCatalogueRepository
 from app.repositories.store_orders import StoreOrdersRepository
 from app.repositories.store_settings import StoreSettingsRepository
+from app.repositories.storefront import StorefrontRepository
 from app.services.merchant import ALL_ROLES
 from app.services.merchant_orders import StoreOrdersService
 from app.services.plan_limits import plan_for
+from app.services.store_cart import StoreCartService
 from app.services.store_products import StoreProductsService
 from app.services.store_sessions import StoreSessionError, open_store_session
 from app.services.store_settings import StoreSettingsService
+from app.services.storefront import active_store_id
 
 logger = logging.getLogger(__name__)
 
@@ -137,3 +141,34 @@ def store_settings_service(
             raise HTTPException(503, STORE_UNAVAILABLE) from None
 
     return dependency
+
+
+async def storefront_cart_service(
+    slug: str,
+    provider: Annotated[SessionProvider, Depends(get_session_provider)],
+) -> AsyncIterator[StoreCartService]:
+    """A cart service on the database of the ACTIVE store named by the public ``{slug}`` (KAN-76).
+
+    The slug is resolved on the platform database; any slug that is not a live store (unknown,
+    malformed, reserved, suspended) is the same 404. The platform connection is released
+    before the store database is opened.
+    """
+    async with provider.session() as platform:
+        store_id = await active_store_id(StorefrontRepository(platform), slug)
+    if store_id is None:
+        raise HTTPException(404, "Store not found")
+    try:
+        async with open_store_session(store_id, provider) as session:
+            yield StoreCartService(
+                StoreCartRepository(session),
+                StoreSettingsService(StoreSettingsRepository(session), session),
+                session,
+            )
+    except StoreSessionError as error:
+        reason = type(error).__name__
+        logger.error(
+            "store database unavailable: %s",
+            reason,
+            extra={"store_id": store_id, "reason": reason},
+        )
+        raise HTTPException(503, STORE_UNAVAILABLE) from None
