@@ -24,7 +24,7 @@ type OnboardingFormProps = {
   resumeOrganizationName?: string;
 };
 
-type FieldProps = {
+export type FieldProps = {
   id: FieldName;
   label: string;
   value: string;
@@ -33,7 +33,8 @@ type FieldProps = {
   onChange: (value: string) => void;
 };
 
-function Field({ id, label, value, error, autoComplete, onChange }: FieldProps) {
+/** A labelled onboarding input with its error; also used by the dashboard "New store" dialog (KAN-254). */
+export function Field({ id, label, value, error, autoComplete, onChange }: FieldProps) {
   const errorId = `${id}-error`;
   return (
     <div className="space-y-2">

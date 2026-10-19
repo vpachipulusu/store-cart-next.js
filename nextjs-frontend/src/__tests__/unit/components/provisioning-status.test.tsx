@@ -648,3 +648,74 @@ describe('Retry setup: forbidden, pending label and focus (KAN-242 review)', () 
     expect(statusRegion()).not.toHaveFocus();
   });
 });
+
+describe('ProvisioningStatus onReady (KAN-254)', () => {
+  afterEach(() => cleanup());
+
+  it('calls onReady once when ready, even when the parent passes a new callback', () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const { rerender } = render(
+      <ProvisioningStatus
+        storeId={STORE_ID}
+        storeName="Acme Shop"
+        initialStatus="ACTIVE"
+        onReady={first}
+      />
+    );
+    rerender(
+      <ProvisioningStatus
+        storeId={STORE_ID}
+        storeName="Acme Shop"
+        initialStatus="ACTIVE"
+        onReady={second}
+      />
+    );
+
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).not.toHaveBeenCalled();
+  });
+
+  it('does not call onReady while the store is still being set up', () => {
+    const onReady = vi.fn();
+    render(
+      <ProvisioningStatus
+        storeId={STORE_ID}
+        storeName="Acme Shop"
+        initialStatus="PROVISIONING"
+        onReady={onReady}
+      />
+    );
+    expect(onReady).not.toHaveBeenCalled();
+  });
+});
+
+describe('ProvisioningStatus dialog variant (KAN-254)', () => {
+  afterEach(() => cleanup());
+
+  it('focuses the status and drops the page link and "this page" copy', () => {
+    render(
+      <ProvisioningStatus
+        storeId={STORE_ID}
+        storeName="Acme Shop"
+        initialStatus="PROVISIONING"
+        variant="dialog"
+      />
+    );
+    expect(screen.getByRole('status')).toHaveFocus();
+    expect(screen.getByText('Acme Shop is being created. This updates by itself.')).toBeVisible();
+  });
+
+  it('shows no "Open dashboard" link when ready', () => {
+    render(
+      <ProvisioningStatus
+        storeId={STORE_ID}
+        storeName="Acme Shop"
+        initialStatus="ACTIVE"
+        variant="dialog"
+      />
+    );
+    expect(screen.getByText('Your store is ready')).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'Open dashboard' })).not.toBeInTheDocument();
+  });
+});
