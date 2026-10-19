@@ -36,7 +36,8 @@ const GENERIC_ERROR = 'Something went wrong. Please try again.';
 /**
  * Suspend, unsuspend, re-run migrations and re-run provisioning for one store (KAN-63). Suspending asks first
  * because the storefront goes offline; re-running provisioning asks first because it starts a new run that counts
- * against the attempt cap (only FAILED stores, and PROVISIONING stores stuck past the threshold, are offered it). Migrations and unsuspend are safe to repeat.
+ * against the attempt cap (only FAILED stores, and PROVISIONING stores stuck past the threshold, are offered
+ * it). Migrations and unsuspend are safe to repeat.
  */
 export function StoreRowActions({
   storeId,

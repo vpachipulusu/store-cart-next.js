@@ -57,6 +57,9 @@ describe('StoreSetupState (KAN-255)', () => {
 
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith(STATUS_PAGE));
     expect(mocks.retryProvisioningAction).toHaveBeenCalledWith('store-1');
+    // Stays disabled while the progress page loads, so a second click cannot send another retry.
+    expect(screen.getByRole('button', { name: 'Retry setup' })).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent('Retrying setup');
   });
 
   it('asks to wait when the backend says setup is still running (not stuck yet)', async () => {

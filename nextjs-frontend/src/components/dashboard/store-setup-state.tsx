@@ -44,19 +44,21 @@ export function StoreSetupState({ storeId, storeName, status }: StoreSetupStateP
     inFlight.current = true;
     setRetrying(true);
     setProblem(null);
+    let problemText: string;
     try {
       const result = await retryProvisioningAction(storeId);
       if (result.success) {
+        // Stay disabled while the progress page loads: a second click would only answer "still being set up".
         router.push(statusHref);
         return;
       }
-      setProblem(retryProblem(result));
+      problemText = retryProblem(result);
     } catch {
-      setProblem(RETRY_MESSAGES.unavailable);
-    } finally {
-      inFlight.current = false;
-      setRetrying(false);
+      problemText = RETRY_MESSAGES.unavailable;
     }
+    setProblem(problemText);
+    inFlight.current = false;
+    setRetrying(false);
   }
 
   return (
@@ -70,10 +72,10 @@ export function StoreSetupState({ storeId, storeName, status }: StoreSetupStateP
       <p className="text-muted-foreground">
         {failed
           ? 'We could not finish creating the database for this store. Retry setup to try again.'
-          : 'Products, orders and store settings open once setup finishes. This usually takes under a minute.'}
+          : 'Products, orders and store settings open once setup finishes. This usually takes under a minute; view setup progress to follow it.'}
       </p>
       <div role="status" aria-live="polite" className="text-sm">
-        {problem}
+        {retrying ? 'Retrying setup…' : problem}
       </div>
       <div className="flex flex-wrap gap-3">
         <Button onClick={handleRetry} disabled={retrying}>

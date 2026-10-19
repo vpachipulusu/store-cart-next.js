@@ -23,9 +23,15 @@ vi.mock('@/lib/api/admin-stores', async () => {
 });
 vi.mock('@/lib/logger', () => ({ logger: { error: mocks.logError } }));
 vi.mock('@/app/(admin)/admin/stores/store-row-actions', () => ({
-  StoreRowActions: ({ storeId, status }: { storeId: string; status: string }) => (
-    <span data-row-actions={`${storeId}:${status}`} />
-  ),
+  StoreRowActions: ({
+    storeId,
+    status,
+    stalled,
+  }: {
+    storeId: string;
+    status: string;
+    stalled?: boolean;
+  }) => <span data-row-actions={`${storeId}:${status}`} data-stalled={String(Boolean(stalled))} />,
 }));
 
 import AdminStoresPage from '@/app/(admin)/admin/stores/page';
@@ -194,6 +200,26 @@ describe('admin stores page', () => {
     expect(markup).toContain(message);
     expect(markup).not.toContain('SECRET');
     expect(mocks.logError).toHaveBeenCalledWith('Admin stores page: list failed', { status });
+  });
+});
+
+describe('admin stores page: stuck stores (KAN-255)', () => {
+  const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+
+  it('flags only a PROVISIONING store unchanged for more than 15 minutes as stalled', async () => {
+    mocks.fetchAdminStores.mockResolvedValue(
+      storesPage([
+        { ...STORE, id: 'stuck', status: 'PROVISIONING', updated_at: minutesAgo(20) },
+        { ...STORE, id: 'fresh', status: 'PROVISIONING', updated_at: minutesAgo(5) },
+        { ...STORE, id: 'failed', status: 'FAILED', updated_at: minutesAgo(60) },
+      ])
+    );
+
+    const markup = await render(AdminStoresPage, {});
+
+    expect(markup).toContain('data-row-actions="stuck:PROVISIONING" data-stalled="true"');
+    expect(markup).toContain('data-row-actions="fresh:PROVISIONING" data-stalled="false"');
+    expect(markup).toContain('data-row-actions="failed:FAILED" data-stalled="false"');
   });
 });
 
