@@ -160,3 +160,23 @@ def test_clock_skew_outside_range_stops_startup(
     monkeypatch.setenv("FIREBASE_CLOCK_SKEW_SECONDS", value)
     with pytest.raises(ValidationError, match="FIREBASE_CLOCK_SKEW_SECONDS"):
         Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_connect_webhook_secret_must_differ_from_the_billing_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_same_value_for_both")
+    monkeypatch.setenv("STRIPE_CONNECT_WEBHOOK_SECRET", "whsec_same_value_for_both")
+    with pytest.raises(ValidationError, match="STRIPE_CONNECT_WEBHOOK_SECRET"):
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_distinct_or_unset_webhook_secrets_are_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_billing")
+    monkeypatch.setenv("STRIPE_CONNECT_WEBHOOK_SECRET", "whsec_connect")
+    assert Settings(_env_file=None).STRIPE_CONNECT_WEBHOOK_SECRET is not None  # type: ignore[call-arg]
+
+    monkeypatch.delenv("STRIPE_CONNECT_WEBHOOK_SECRET")
+    assert Settings(_env_file=None).STRIPE_CONNECT_WEBHOOK_SECRET is None  # type: ignore[call-arg]

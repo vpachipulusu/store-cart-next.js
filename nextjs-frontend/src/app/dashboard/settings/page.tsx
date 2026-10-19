@@ -7,6 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { getUserSettingsAction, updateUserSettingsAction } from '@/app/actions/user-actions';
 import { Panel } from '@/components/dashboard/overview/panel';
+import { ConnectPaymentsPanel } from '@/components/dashboard/settings/connect-payments-panel';
 import {
   FormActions,
   FormPageSkeleton,
@@ -303,6 +304,8 @@ export default function SettingsPage() {
           />
         </form>
       </Form>
+
+      <ConnectPaymentsPanel />
     </div>
   );
 }

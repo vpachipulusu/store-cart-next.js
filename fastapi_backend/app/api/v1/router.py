@@ -16,6 +16,7 @@ from app.api.v1 import (
     notifications,
     orders,
     org_billing,
+    org_connect,
     organizations,
     products,
     settings,
@@ -25,6 +26,7 @@ from app.api.v1 import (
     stores,
     totp,
     webhooks,
+    webhooks_connect,
 )
 
 api_router = APIRouter()
@@ -35,6 +37,7 @@ api_router.include_router(me_export.router)
 api_router.include_router(notifications.router)
 api_router.include_router(totp.router)
 api_router.include_router(webhooks.router)
+api_router.include_router(webhooks_connect.router)
 api_router.include_router(internal_provisioning.router)
 api_router.include_router(admin_users.router)
 api_router.include_router(admin_audit_logs.router)
@@ -42,6 +45,7 @@ api_router.include_router(admin_stores.router)
 api_router.include_router(admin_subscriptions.router)
 api_router.include_router(admin_analytics.router)
 api_router.include_router(org_billing.router)
+api_router.include_router(org_connect.router)
 
 api_router.include_router(organizations.router)
 api_router.include_router(stores.router)

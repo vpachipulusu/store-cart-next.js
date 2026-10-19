@@ -35,6 +35,16 @@ class Organization(IdMixin, TimestampMixin, Base):
     stripe_cancel_at_period_end: Mapped[bool] = mapped_column(
         server_default=text("false")
     )
+    # Stripe Connect (KAN-67): the merchant's connected account and the capability flags
+    # mirrored from `account.updated` (written only by the Connect webhook). The event
+    # time orders updates so a late, older event never overwrites newer state.
+    stripe_connect_account_id: Mapped[str | None] = mapped_column(unique=True)
+    connect_charges_enabled: Mapped[bool] = mapped_column(server_default=text("false"))
+    connect_payouts_enabled: Mapped[bool] = mapped_column(server_default=text("false"))
+    connect_details_submitted: Mapped[bool] = mapped_column(
+        server_default=text("false")
+    )
+    stripe_connect_event_at: Mapped[datetime | None]
     subscription_tier: Mapped[str] = mapped_column(server_default="free")
     subscription_status: Mapped[str] = mapped_column(server_default="inactive")
 

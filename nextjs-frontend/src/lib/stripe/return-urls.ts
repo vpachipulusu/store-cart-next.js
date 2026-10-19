@@ -47,6 +47,20 @@ export function buildCheckoutReturnUrls(): { successUrl: string; cancelUrl: stri
   };
 }
 
+export const CONNECT_RETURN_PATHS = {
+  returned: '/dashboard/settings?connect=return',
+  refresh: '/dashboard/settings?connect=refresh',
+} as const;
+
+/** Where Stripe-hosted Connect onboarding sends the merchant back to (KAN-67); built on the server. */
+export function buildConnectReturnUrls(): { returnUrl: string; refreshUrl: string } {
+  const origin = getAppOrigin();
+  return {
+    returnUrl: `${origin}${CONNECT_RETURN_PATHS.returned}`,
+    refreshUrl: `${origin}${CONNECT_RETURN_PATHS.refresh}`,
+  };
+}
+
 export function buildBillingPortalReturnUrl(): string {
   return `${getAppOrigin()}${BILLING_PORTAL_RETURN_PATH}`;
 }
