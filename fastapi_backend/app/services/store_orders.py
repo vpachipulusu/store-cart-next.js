@@ -12,6 +12,9 @@ ORM model for store tables; the SQL is explicit and every value is a bound param
   ``UPDATE``, so two concurrent moves cannot both succeed from the same status.
 * ``fulfil_order`` is the only way to reach ``fulfilled``: it stores the tracking number,
   the optional carrier and ``fulfilled_at`` in the same conditional ``UPDATE`` (KAN-79).
+* Checkout (KAN-68) prices its orders with the store settings in ``store_checkout`` and
+  writes them with ``insert_order``; ``link_checkout_session`` and ``mark_checkout_paid``
+  tie an order to its Stripe Checkout Session and confirm it at most once.
 """
 
 from collections.abc import Mapping, Sequence
@@ -107,6 +110,8 @@ class OrderRecord:
     tax_minor: int
     total_minor: int
     items: tuple[OrderItemRecord, ...]
+    shipping_minor: int = 0
+    prices_include_tax: bool = False
 
 
 def can_transition(current: OrderStatus, target: OrderStatus) -> bool:
@@ -131,7 +136,7 @@ def _is_int(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def _validate(
+def validate_order_input(
     currency: str, tax_rate_bps: int, lines: Sequence[OrderLineInput]
 ) -> None:
     if not isinstance(currency, str) or len(currency) != CURRENCY_LENGTH:
@@ -171,8 +176,9 @@ _CATALOGUE_SQL = text(
     """
 )
 _INSERT_ORDER_SQL = text(
-    "INSERT INTO orders (id, currency, subtotal_minor, tax_minor, total_minor) "
-    "VALUES (:id, :currency, :subtotal, :tax, :total)"
+    "INSERT INTO orders (id, currency, subtotal_minor, shipping_minor, tax_minor,"
+    " total_minor, prices_include_tax) "
+    "VALUES (:id, :currency, :subtotal, :shipping, :tax, :total, :included)"
 )
 _INSERT_ITEM_SQL = text(
     "INSERT INTO order_items (id, order_id, product_id, variant_id, product_name, sku,"
@@ -182,7 +188,7 @@ _INSERT_ITEM_SQL = text(
 )
 
 
-async def _load_catalogue(
+async def load_catalogue(
     session: AsyncSession, lines: Sequence[OrderLineInput]
 ) -> dict[str, RowMapping]:
     """Read the sold variants and share-lock them until the caller's transaction ends.
@@ -217,8 +223,8 @@ async def create_order(
     lines: Sequence[OrderLineInput],
 ) -> OrderRecord:
     """Create a ``pending`` order whose lines snapshot the catalogue as it is now."""
-    _validate(currency, tax_rate_bps, lines)
-    catalogue = await _load_catalogue(session, lines)
+    validate_order_input(currency, tax_rate_bps, lines)
+    catalogue = await load_catalogue(session, lines)
 
     items: list[OrderItemRecord] = []
     for line in lines:
@@ -253,14 +259,22 @@ async def create_order(
         total_minor=subtotal + tax,
         items=tuple(items),
     )
+    await insert_order(session, order)
+    return order
+
+
+async def insert_order(session: AsyncSession, order: OrderRecord) -> None:
+    """Write a priced ``pending`` order and its lines (the caller computed every amount)."""
     await session.execute(
         _INSERT_ORDER_SQL,
         {
             "id": order.id,
-            "currency": currency,
-            "subtotal": subtotal,
-            "tax": tax,
+            "currency": order.currency,
+            "subtotal": order.subtotal_minor,
+            "shipping": order.shipping_minor,
+            "tax": order.tax_minor,
             "total": order.total_minor,
+            "included": order.prices_include_tax,
         },
     )
     await session.execute(
@@ -279,10 +293,9 @@ async def create_order(
                 "tax_rate_bps": item.tax_rate_bps,
                 "tax": item.tax_minor,
             }
-            for item in items
+            for item in order.items
         ],
     )
-    return order
 
 
 _TRANSITION_SQL = text(
@@ -362,3 +375,95 @@ async def fulfil_order(
     if current is None:
         raise OrderNotFound(order_id)
     raise InvalidOrderTransition(OrderStatus(current), OrderStatus.FULFILLED)
+
+
+class PaymentOutcome(StrEnum):
+    PAID = "paid"  # this call moved the order to paid
+    ALREADY_PAID = "already_paid"  # an earlier delivery did; nothing changed
+    MISMATCH = "mismatch"  # the session does not match the order; nothing changed
+    NOT_FOUND = "not_found"
+
+
+_LINK_SESSION_SQL = text(
+    "UPDATE orders SET stripe_checkout_session_id = :session_id, updated_at = now() "
+    "WHERE id = :id AND stripe_checkout_session_id IS NULL RETURNING id"
+)
+_SESSION_OWNER_SQL = text(
+    "SELECT id FROM orders WHERE stripe_checkout_session_id = :session_id"
+)
+_MARK_PAID_SQL = text(
+    "UPDATE orders SET status = 'paid', paid_at = now(), updated_at = now(),"
+    " stripe_checkout_session_id = :session_id,"
+    " stripe_payment_intent_id = :payment_intent_id "
+    "WHERE id = :id AND status = 'pending'"
+    " AND (stripe_checkout_session_id IS NULL"
+    " OR stripe_checkout_session_id = :session_id)"
+    " AND total_minor = :amount AND currency = :currency "
+    "RETURNING id"
+)
+_PAYMENT_STATE_SQL = text(
+    "SELECT status, stripe_checkout_session_id FROM orders WHERE id = :id"
+)
+
+
+async def link_checkout_session(
+    session: AsyncSession, order_id: str, session_id: str
+) -> bool:
+    """Record the Checkout Session created for an order; false if one is already linked."""
+    linked = (
+        await session.execute(
+            _LINK_SESSION_SQL, {"id": order_id, "session_id": session_id}
+        )
+    ).first()
+    return linked is not None
+
+
+async def mark_checkout_paid(
+    session: AsyncSession,
+    *,
+    order_id: str,
+    session_id: str,
+    payment_intent_id: str | None,
+    amount_minor: int,
+    currency: str,
+) -> PaymentOutcome:
+    """Move a ``pending`` order to ``paid`` for its Checkout Session, at most once.
+
+    One conditional ``UPDATE``: the order must still be pending, be linked to this session
+    (or to none yet, when the webhook beats the link), and charge exactly its total in its
+    currency. A rerun, or a concurrent delivery that waited on the row lock, finds the order
+    paid and changes nothing. A session already linked to another order never pays this one
+    (and the unique index on the column stops two orders sharing one).
+    """
+    owner = (
+        await session.execute(_SESSION_OWNER_SQL, {"session_id": session_id})
+    ).scalar_one_or_none()
+    if owner is not None and owner != order_id:
+        return PaymentOutcome.MISMATCH
+    moved = (
+        await session.execute(
+            _MARK_PAID_SQL,
+            {
+                "id": order_id,
+                "session_id": session_id,
+                "payment_intent_id": payment_intent_id,
+                "amount": amount_minor,
+                "currency": currency,
+            },
+        )
+    ).first()
+    if moved is not None:
+        return PaymentOutcome.PAID
+    state = (
+        (await session.execute(_PAYMENT_STATE_SQL, {"id": order_id}))
+        .mappings()
+        .one_or_none()
+    )
+    if state is None:
+        return PaymentOutcome.NOT_FOUND
+    if (
+        state["status"] != OrderStatus.PENDING.value
+        and state["stripe_checkout_session_id"] == session_id
+    ):
+        return PaymentOutcome.ALREADY_PAID
+    return PaymentOutcome.MISMATCH

@@ -3,7 +3,8 @@
 A separate endpoint from the Billing webhook with its own signing secret
 (``STRIPE_CONNECT_WEBHOOK_SECRET``) and its own event ledger (``stripe_connect_events``).
 Public route: the signature is the credential. Not in the OpenAPI schema. Routing to the
-organisation and store, and once-only processing, are in ``ConnectWebhookService``.
+organisation and store, and once-only processing, are in ``ConnectWebhookService``. Checkout
+payment events (KAN-68) confirm the store's order through ``checkout_payment_handler``.
 """
 
 import json
@@ -13,8 +14,9 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
-from app.api.deps import SessionDep
+from app.api.deps import SessionDep, get_session_provider
 from app.core.config import settings
+from app.core.database import SessionProvider
 from app.core.sentry import report_exception
 from app.core.stripe_billing import StripeNotConfigured
 from app.core.stripe_connect import get_stripe_connect, stripe_livemode
@@ -26,6 +28,8 @@ from app.core.stripe_webhook_body import (
 )
 from app.repositories.connect_events import ConnectEventRepository
 from app.repositories.org_connect import OrgConnectRepository
+from app.services.store_checkout import PAYMENT_EVENT_TYPES, checkout_payment_handler
+from app.services.store_sessions import open_store_session
 from app.services.stripe_connect import ConnectWebhookService, MalformedConnectEvent
 
 logger = logging.getLogger("storecart.stripe_connect_webhook")
@@ -37,13 +41,20 @@ class WebhookAck(BaseModel):
     received: bool = True
 
 
-def get_connect_webhook_service(session: SessionDep) -> ConnectWebhookService:
+def get_connect_webhook_service(
+    session: SessionDep,
+    provider: Annotated[SessionProvider, Depends(get_session_provider)],
+) -> ConnectWebhookService:
+    payment = checkout_payment_handler(
+        lambda store_id: open_store_session(store_id, provider)
+    )
     return ConnectWebhookService(
         OrgConnectRepository(session),
         ConnectEventRepository(session),
         session,
         get_stripe_connect,
         livemode=stripe_livemode(),
+        store_handlers=dict.fromkeys(PAYMENT_EVENT_TYPES, payment),
     )
 
 

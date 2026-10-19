@@ -204,10 +204,14 @@ class HttpStripeBilling:
         data: Mapping[str, str] | None = None,
         params: Mapping[str, str] | None = None,
         idempotency_key: str | None = None,
+        stripe_account: str | None = None,
     ) -> dict[str, Any]:
         headers = {"Authorization": f"Bearer {self._key}"}
         if idempotency_key:
             headers["Idempotency-Key"] = idempotency_key
+        if stripe_account:
+            # Act on the connected account (direct charges, KAN-68).
+            headers["Stripe-Account"] = stripe_account
         try:
             if self._client is not None:
                 response = await self._send(

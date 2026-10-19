@@ -60,23 +60,21 @@ def _included_tax_minor(gross_minor: int, tax_rate_bps: int) -> int:
     return gross_minor - net
 
 
+def line_tax(line: LineAmount, settings: TotalsSettings) -> int:
+    """The tax of one line under the store's settings (added on top, or the part included)."""
+    if settings.prices_include_tax:
+        return _included_tax_minor(
+            line.unit_price_minor * line.quantity, settings.tax_rate_bps
+        )
+    return line_tax_minor(line.unit_price_minor, line.quantity, settings.tax_rate_bps)
+
+
 def compute_totals(lines: Sequence[LineAmount], settings: TotalsSettings) -> Totals:
     for line in lines:
         if line.unit_price_minor < 0 or line.quantity < 1:
             raise ValueError("A line needs a non-negative price and a quantity of 1+")
     subtotal = sum(line.unit_price_minor * line.quantity for line in lines)
-    if settings.prices_include_tax:
-        tax = sum(
-            _included_tax_minor(
-                line.unit_price_minor * line.quantity, settings.tax_rate_bps
-            )
-            for line in lines
-        )
-    else:
-        tax = sum(
-            line_tax_minor(line.unit_price_minor, line.quantity, settings.tax_rate_bps)
-            for line in lines
-        )
+    tax = sum(line_tax(line, settings) for line in lines)
     shipping = shipping_minor(subtotal, settings)
     added_tax = 0 if settings.prices_include_tax else tax
     total = subtotal + shipping + added_tax

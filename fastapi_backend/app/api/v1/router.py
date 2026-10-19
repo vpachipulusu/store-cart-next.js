@@ -9,6 +9,7 @@ from app.api.v1 import (
     auth,
     cart,
     categories,
+    checkout,
     health,
     internal_provisioning,
     me,
@@ -57,5 +58,6 @@ api_router.include_router(orders.router)
 api_router.include_router(categories.router)
 api_router.include_router(storefront.router)
 api_router.include_router(cart.router)
+api_router.include_router(checkout.router)
 api_router.include_router(settings.router)
 api_router.include_router(store_settings.router)
