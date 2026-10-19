@@ -550,8 +550,8 @@ export async function waitForSubscriptionSuccess(
 }
 
 /**
- * Verify the subscription tier on the billing page, whose "Current plan" group names the plan
- * (the redesigned dashboard no longer has a "Subscription plan" card).
+ * Navigates to the billing page (the caller ends up there) and verifies the tier in its "Current plan"
+ * group (the redesigned dashboard no longer has a "Subscription plan" card).
  */
 export async function expectSubscriptionTier(
   page: Page,

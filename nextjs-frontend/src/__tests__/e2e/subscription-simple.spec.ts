@@ -95,9 +95,9 @@ test.describe('Subscription Upgrade - Happy Path', () => {
       // Step 8: Verify subscription tier updated (read from the billing page)
       await expectSubscriptionTier(page, 'pro');
 
-      // Step 9: Verify upgrade banner is gone
-      const upgradeBanner = page.getByText(/upgrade to pro/i).first();
-      await expect(upgradeBanner).not.toBeVisible();
+      // Step 9: The billing page now offers "Change Plan", not the free tier's "Upgrade Plan" link
+      await expect(page.getByRole('link', { name: /upgrade plan/i })).toHaveCount(0);
+      await expect(page.getByRole('link', { name: /change plan/i })).toBeVisible();
 
       console.log('✅ Subscription upgrade successful!');
     });
@@ -133,8 +133,8 @@ test.describe('Subscription Upgrade - Happy Path', () => {
       await expect(subscriptionTable).toBeVisible();
 
       // Should have headers
-      await expect(page.getByRole('columnheader', { name: /customer/i })).toBeVisible();
-      await expect(page.getByRole('columnheader', { name: /email/i })).toBeVisible();
+      await expect(page.getByRole('columnheader', { name: /organisation/i })).toBeVisible();
+      await expect(page.getByRole('columnheader', { name: /slug/i })).toBeVisible();
       await expect(page.getByRole('columnheader', { name: /plan/i })).toBeVisible();
       await expect(page.getByRole('columnheader', { name: /status/i })).toBeVisible();
 
