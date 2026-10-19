@@ -95,6 +95,10 @@ export function SubscriptionSuccessHandler() {
       }
       if (polls >= MAX_POLLS) {
         clearInterval(pollInterval);
+        // One last check, so a webhook that landed during the final tick never leaves the "not updated" banner
+        // beside a Pro plan.
+        if (await checkSubscription()) return;
+        if (cancelled) return;
         setTimedOut(true);
         // Keep ?upgrade=success so the banner below stays visible: the payment went through but the plan has
         // not changed yet (the Stripe webhook can be late or failing), and the user needs to be told.

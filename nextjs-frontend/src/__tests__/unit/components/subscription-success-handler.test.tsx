@@ -123,8 +123,8 @@ describe('SubscriptionSuccessHandler', () => {
 
     await renderAndAdvance(60_000);
 
-    // The first check plus ten polls, then nothing more.
-    expect(mocks.getSubscriptionStatusAction).toHaveBeenCalledTimes(11);
+    // The first check, ten polls and one final check before giving up, then nothing more.
+    expect(mocks.getSubscriptionStatusAction).toHaveBeenCalledTimes(12);
     expect(mocks.refresh).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -154,5 +154,23 @@ describe('SubscriptionSuccessHandler', () => {
 
     expect(mocks.refresh).toHaveBeenCalledTimes(1);
     expect(screen.queryByText(/payment received/i)).not.toBeInTheDocument();
+  });
+
+  it('does one last check before giving up, so a late webhook never leaves the timeout banner beside Pro', async () => {
+    // Free for the first check and all ten polls, active on the final check.
+    mocks.getSubscriptionStatusAction.mockResolvedValue(FREE);
+    mocks.getSubscriptionStatusAction.mockResolvedValueOnce(FREE);
+    for (let i = 0; i < 10; i += 1) mocks.getSubscriptionStatusAction.mockResolvedValueOnce(FREE);
+    mocks.getSubscriptionStatusAction.mockResolvedValueOnce(PRO);
+
+    await renderAndAdvance(40_000);
+    // The activation redirect timer is scheduled once React has rendered the success state.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+
+    expect(screen.getByText(/subscription activated/i)).toBeInTheDocument();
+    expect(screen.queryByText(/payment received/i)).not.toBeInTheDocument();
+    expect(mocks.replace).toHaveBeenCalledWith('/dashboard');
   });
 });

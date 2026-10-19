@@ -104,17 +104,16 @@ this route. Check, in this order:
 
 ### How to verify
 
-- Stripe CLI (read-only): `stripe events list --type customer.subscription.created` shows `pending_webhooks`; `1` means the endpoint has not returned 2xx yet. After fixing the secret, resend with `stripe events resend <evt_id> --webhook-endpoint=<we_id>` (or the dashboard's Resend): the plan then flips without a new payment.
-- After checkout the dashboard polls for about 30 seconds. If the plan has not flipped it keeps a "Payment received" banner (it no longer disappears) telling the user to contact support if the plan still shows Free later.
-
 - In the Stripe dashboard the endpoint's recent deliveries show **200** (`{"received": true}`).
 - Run a test checkout: the organisation's plan flips from Free to Pro on the billing page after the redirect.
+- Stripe CLI (read-only): `stripe events list --type customer.subscription.created` shows `pending_webhooks`; `1` means the endpoint has not returned 2xx yet. After fixing the secret, resend with `stripe events resend <evt_id> --webhook-endpoint=<we_id>` (or the dashboard's Resend): the plan then flips without a new payment.
+- After checkout the dashboard polls for about 30 seconds. If the plan has not flipped it keeps a "Payment received" banner (it no longer disappears) telling the user to contact support if the plan still shows Free later.
 
 | Stripe delivery shows | Meaning |
 |---|---|
 | 404 | Routing (item 1) not deployed, or the endpoint URL is on another domain |
 | 503 | `STRIPE_WEBHOOK_SECRET` is unset on the FastAPI service |
-| 400 | Wrong secret: most often the `stripe listen` / `.env.e2e.local` secret instead of this endpoint's, or an endpoint from the other mode, or a rotated one. The backend log says `stripe webhook signature rejected: header=present` (or `missing`) |
+| 400 | Wrong secret: most often the `stripe listen` / `.env.e2e.local` secret instead of this endpoint's, or an endpoint from the other mode, or a rotated one; secondarily a stale or modified body. The backend log says `stripe webhook signature rejected: header=present` (or `missing`) |
 | 401 with an HTML sign-in page | Deployment Protection (item 4) |
 | 413 | Body over 1 MB (not a real Stripe event) |
 | 500 | Handler failed; Stripe retries for up to 3 days, check the backend logs (exception type only) |
