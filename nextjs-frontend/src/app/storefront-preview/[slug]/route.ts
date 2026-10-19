@@ -5,7 +5,10 @@ import { STORE_SLUG_HEADER } from '@/lib/storefront/host';
 import { renderDocument } from '@/lib/storefront/html';
 
 /**
- * Public storefront (KAN-64). Reached only through the proxy rewrite from `{slug}.<platform root domain>`.
+ * Name-only store page for the preview path `/s/{slug}` (KAN-202, temporary) and the proxy's internal 404 target.
+ * Store hosts get the full storefront under `src/app/storefront/[slug]/` (KAN-75); `/s` shares the dashboard
+ * origin, so it must keep rendering only the escaped store name (see storefront-subdomains.md). Reached only
+ * through the proxy rewrite; delete it with the preview path.
  *
  * A route handler and not a page on purpose: the app's root `loading.tsx` makes pages stream, which sends the
  * HTTP status before the lookup finishes, so a missing store would answer 200 with a not-found body. Here the

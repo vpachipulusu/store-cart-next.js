@@ -14,12 +14,15 @@ import {
   RateLimitConfig,
 } from '@/lib/middleware/rate-limit';
 import {
+  isInternalStorefrontPath,
   isStorefrontPathPreviewEnabled,
   parseStorePath,
   parseStoreSlug,
   resolvePlatformRootDomain,
   STORE_NOT_FOUND_SLUG,
   STORE_SLUG_HEADER,
+  STOREFRONT_PREVIEW_ROUTE,
+  STOREFRONT_ROUTE,
 } from '@/lib/storefront/host';
 
 /** Security headers shared by every response the proxy lets through. */
@@ -33,14 +36,39 @@ function applySecurityHeaders(response: NextResponse): void {
 /**
  * KAN-64: `{slug}.<PLATFORM_ROOT_DOMAIN>` is a store. Rewrite every path on that host under the internal
  * `/storefront/{slug}` route, so root-domain routes (dashboard, admin, API) are never reachable from a store
- * host. The proxy does not call the backend; the route looks the store up and 404s unknown or suspended ones.
+ * host. The proxy does not call the backend; the pages look the store up and 404 unknown or suspended ones.
  */
 function rewriteToStorefront(request: NextRequest, slug: string, headers: Headers): NextResponse {
   const url = request.nextUrl.clone();
-  url.pathname = `/storefront/${slug}${url.pathname === '/' ? '' : url.pathname}`;
+  url.pathname = `${STOREFRONT_ROUTE}/${slug}${url.pathname === '/' ? '' : url.pathname}`;
   headers.set(STORE_SLUG_HEADER, slug);
   const response = NextResponse.rewrite(url, { request: { headers } });
   applySecurityHeaders(response);
+  response.headers.set('Content-Security-Policy', STORE_HOST_CONTENT_SECURITY_POLICY);
+  return response;
+}
+
+/**
+ * Baseline for store hosts (KAN-75), which render merchant text: no plugins, no <base> hijack, no framing, no form
+ * posts off the host. Scripts stay as Next.js needs them (inline bootstrap), so this limits, not forbids, script.
+ */
+const STORE_HOST_CONTENT_SECURITY_POLICY =
+  "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
+
+/** The internal 404 page: a fresh URL, so no query string or trailing-slash state of the request survives. */
+function notFoundTarget(request: NextRequest): URL {
+  return new URL(`${STOREFRONT_PREVIEW_ROUTE}/${STORE_NOT_FOUND_SLUG}`, request.url);
+}
+
+/**
+ * KAN-75: the storefront pages are cached per store and cannot read request headers, so the proxy is what keeps
+ * them off the platform origin. A direct `/storefront/...` or `/storefront-preview/...` request (not a store host,
+ * not `/s`) is rewritten to the internal 404 without the slug marker.
+ */
+function rejectInternalStorefrontPath(request: NextRequest, headers: Headers): NextResponse {
+  const response = NextResponse.rewrite(notFoundTarget(request), { request: { headers } });
+  applySecurityHeaders(response);
+  response.headers.set('X-Robots-Tag', 'noindex');
   return response;
 }
 
@@ -70,17 +98,39 @@ function rewritePathPreview(
   let url: URL;
   if (slug) {
     url = request.nextUrl.clone();
-    url.pathname = `/storefront/${slug}`;
+    url.pathname = `${STOREFRONT_PREVIEW_ROUTE}/${slug}`;
     headers.set(STORE_SLUG_HEADER, slug);
   } else {
-    // A fresh URL, so no query string or trailing-slash state of the original request survives.
-    url = new URL(`/storefront/${STORE_NOT_FOUND_SLUG}`, request.url);
+    url = notFoundTarget(request);
   }
   const response = NextResponse.rewrite(url, { request: { headers } });
   applySecurityHeaders(response);
   response.headers.set('X-Robots-Tag', 'noindex');
   // /s shares the dashboard and admin origin, so nothing a store page renders may run script or load resources.
   response.headers.set('Content-Security-Policy', PREVIEW_CONTENT_SECURITY_POLICY);
+  return response;
+}
+
+/**
+ * KAN-75: per-visitor limit on store hosts, so one client cannot force unlimited cache misses (each one a backend
+ * read). Only a trusted visitor identity is limited: off Vercel every visitor would share the `unknown` bucket, so
+ * there the backend's per-store limits are the only bound.
+ */
+function limitStoreHost(request: NextRequest): NextResponse | null {
+  const identifier = getClientIdentifier(request);
+  if (identifier === 'unknown') return null;
+  const result = rateLimit(`storefront:${identifier}`, RATE_LIMIT_CONFIGS.storefront);
+  if (result.success) return null;
+  const response = new NextResponse(result.message ?? 'Too many requests', {
+    status: 429,
+    headers: {
+      ...getRateLimitHeaders(result),
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'Retry-After': String(Math.max(1, Math.ceil((result.reset - Date.now()) / 1000))),
+    },
+  });
+  applySecurityHeaders(response);
   return response;
 }
 
@@ -130,12 +180,16 @@ export async function proxy(request: NextRequest) {
     resolvePlatformRootDomain(process.env.PLATFORM_ROOT_DOMAIN)
   );
   if (storeSlug) {
-    return rewriteToStorefront(request, storeSlug, forwardedHeaders);
+    return limitStoreHost(request) ?? rewriteToStorefront(request, storeSlug, forwardedHeaders);
   }
 
   const pathPreview = parseStorePath(pathname);
   if (pathPreview) {
     return rewritePathPreview(request, pathPreview, forwardedHeaders);
+  }
+
+  if (isInternalStorefrontPath(pathname)) {
+    return rejectInternalStorefrontPath(request, forwardedHeaders);
   }
 
   // Apply rate limiting to API routes
@@ -241,5 +295,8 @@ export const config = {
      * - public files (images, etc.)
      */
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    // KAN-75: the image-suffix exclusion above must never let a direct internal storefront path skip the guard.
+    '/storefront/:path*',
+    '/storefront-preview/:path*',
   ],
 };

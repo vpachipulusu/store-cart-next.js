@@ -156,6 +156,8 @@ class AuditRecorder(Protocol):
 class StatusResult:
     status: StoreStatus
     changed: bool
+    # The store's public slug, so the frontend can refresh its cached storefront (KAN-75).
+    slug: str | None = None
 
 
 @dataclass(frozen=True)
@@ -267,7 +269,7 @@ class AdminStoresService:
         if not self._is_stuck(record):
             await self._abort(StoreConflict(), store_id)
         await self._fail_stuck(actor, record)
-        return StatusResult(StoreStatus.FAILED, changed=True)
+        return StatusResult(StoreStatus.FAILED, changed=True, slug=record.slug)
 
     def _is_stuck(self, record: StoreRecord) -> bool:
         return (
@@ -572,7 +574,7 @@ class AdminStoresService:
             await self._abort(AdminStoreNotFound(), store_id)
         if record.status is target:
             await self._safe_rollback({"store_id": store_id})
-            return StatusResult(target, changed=False)
+            return StatusResult(target, changed=False, slug=record.slug)
         if record.status is not source:
             await self._abort(StoreConflict(), store_id)
         await self._record(
@@ -583,4 +585,4 @@ class AdminStoresService:
             after={"status": target.value},
             new_status=target,
         )
-        return StatusResult(target, changed=True)
+        return StatusResult(target, changed=True, slug=record.slug)

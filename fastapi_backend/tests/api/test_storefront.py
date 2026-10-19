@@ -256,3 +256,18 @@ async def test_response_carries_no_rate_limit_headers_into_shared_caches(
     response = await client.get("/v1/storefront/acme")
 
     assert not [h for h in response.headers if h.lower().startswith("x-ratelimit")]
+
+
+async def test_a_shared_lookup_without_a_visitor_ip_is_limited_per_store() -> None:
+    """KAN-75: cached server lookups for one slug cannot fill another store's bucket."""
+    http, limiter = build(FakeStorefronts(ACME))
+
+    async with http:
+        await http.get("/v1/storefront/acme")
+        await http.get("/v1/storefront/ghost-shop")
+
+    assert isinstance(limiter, FakeRateLimiter)
+    assert [identifier for identifier, _ in limiter.hits] == [
+        "storefront:store:acme",
+        "storefront:store:ghost-shop",
+    ]

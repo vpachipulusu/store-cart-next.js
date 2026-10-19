@@ -215,6 +215,10 @@ class StoreStatusData(BaseModel):
     store_id: str
     status: StoreStatus
     changed: bool = Field(description="False when the store was already in that state.")
+    slug: str | None = Field(
+        default=None,
+        description="The store's public slug, for refreshing its cached storefront pages.",
+    )
 
 
 class StoreStatusResponse(BaseModel):
@@ -340,7 +344,10 @@ async def _change_status(
         raise _http_error(exc) from None
     return StoreStatusResponse(
         data=StoreStatusData(
-            store_id=store_id, status=result.status, changed=result.changed
+            store_id=store_id,
+            status=result.status,
+            changed=result.changed,
+            slug=result.slug,
         )
     )
 

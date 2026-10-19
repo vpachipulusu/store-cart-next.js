@@ -52,27 +52,35 @@ export interface BackendOptions {
   withSession?: boolean;
   /** Throw when BACKEND_INTERNAL_KEY is missing; for routes the backend rejects without it (sign-in). */
   requireInternalKey?: boolean;
+  /**
+   * For reads shared by every visitor inside `unstable_cache` (KAN-75 storefront catalogue): no session, no
+   * request headers read (so no `X-Client-IP`), and no `cache: 'no-store'`, which would make a cached page
+   * dynamic. Never use it for anything that depends on who is asking.
+   */
+  shared?: boolean;
 }
 
 /** A fresh client per call, so one request's session can never leak into another. */
 export async function getBackendClient({
   withSession = true,
   requireInternalKey = false,
+  shared = false,
 }: BackendOptions = {}): Promise<Client> {
-  const sessionToken = withSession ? (await cookies()).get(SESSION_COOKIE_NAME)?.value : undefined;
+  const sessionToken =
+    withSession && !shared ? (await cookies()).get(SESSION_COOKIE_NAME)?.value : undefined;
   const internalKey = process.env.BACKEND_INTERNAL_KEY;
   if (requireInternalKey && !internalKey) {
     throw notConfigured('BACKEND_INTERNAL_KEY');
   }
   // Caller headers are trusted only at Vercel's boundary, never raw X-Forwarded-For.
   const forwardedIp =
-    internalKey && process.env.VERCEL === '1'
+    internalKey && !shared && process.env.VERCEL === '1'
       ? (await headers()).get('x-vercel-forwarded-for')?.trim()
       : undefined;
   return createClient(
     createConfig({
       baseUrl: getBackendUrl(),
-      cache: 'no-store',
+      ...(shared ? {} : { cache: 'no-store' as const }),
       headers: {
         ...(sessionToken ? { [SESSION_HEADER]: sessionToken } : {}),
         ...(internalKey ? { [INTERNAL_KEY_HEADER]: internalKey } : {}),

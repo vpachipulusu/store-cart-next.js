@@ -1,4 +1,4 @@
-"""Dependency that opens the caller's own store database for the catalogue routes (KAN-245), the order routes (KAN-79), the public cart (KAN-76) and checkout (KAN-68).
+"""Dependency that opens the caller's own store database for the catalogue routes (KAN-245), the order routes (KAN-79), the public cart (KAN-76), the public catalogue (KAN-75) and checkout (KAN-68).
 
 The store id is never taken from the request on its own: ``require_merchant`` resolves the
 ``{store_id}`` path segment against the caller's organisation memberships (404 for any
@@ -18,10 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import SessionDep, get_session_provider
 from app.api.merchant import require_merchant
+from app.core.config import settings
 from app.core.database import SessionProvider
 from app.core.plans import Plan
 from app.core.stripe_checkout import StripeCheckout
 from app.models.platform.membership import MembershipRole
+from app.repositories.app_settings import AppSettingsRepository
 from app.repositories.merchant import MerchantAccess, MerchantRepository
 from app.repositories.store_cart import StoreCartRepository
 from app.repositories.store_catalogue import StoreCatalogueRepository
@@ -31,6 +33,7 @@ from app.repositories.storefront import StorefrontRepository
 from app.services.merchant import ALL_ROLES
 from app.services.merchant_orders import StoreOrdersService
 from app.services.plan_limits import plan_for
+from app.services.public_settings import PublicSettingsService
 from app.services.store_cart import StoreCartService
 from app.services.store_checkout import (
     PAYMENT_EVENT_TYPES,
@@ -44,6 +47,7 @@ from app.services.store_products import StoreProductsService
 from app.services.store_sessions import StoreSessionError, open_store_session
 from app.services.store_settings import StoreSettingsService
 from app.services.storefront import active_store_id
+from app.services.storefront_catalogue import StorefrontCatalogueService
 from app.services.stripe_connect import StoreEventHandler
 
 logger = logging.getLogger(__name__)
@@ -156,27 +160,22 @@ def store_settings_service(
     return dependency
 
 
-async def storefront_cart_service(
-    slug: str,
-    provider: Annotated[SessionProvider, Depends(get_session_provider)],
-) -> AsyncIterator[StoreCartService]:
-    """A cart service on the database of the ACTIVE store named by the public ``{slug}`` (KAN-76).
-
-    The slug is resolved on the platform database; any slug that is not a live store (unknown,
-    malformed, reserved, suspended) is the same 404. The platform connection is released
-    before the store database is opened.
-    """
-    async with provider.session() as platform:
-        store_id = await active_store_id(StorefrontRepository(platform), slug)
+async def _active_store_or_404(platform: AsyncSession, slug: str) -> str:
+    """The id of the ACTIVE store named by the public ``{slug}``; any other slug is the same 404."""
+    store_id = await active_store_id(StorefrontRepository(platform), slug)
     if store_id is None:
         raise HTTPException(404, "Store not found", headers=NO_STORE_HEADERS)
+    return store_id
+
+
+@asynccontextmanager
+async def _open_public_store(
+    store_id: str, provider: SessionProvider
+) -> AsyncIterator[AsyncSession]:
+    """The store database for a public route; a store without a usable database is a 503."""
     try:
         async with open_store_session(store_id, provider) as session:
-            yield StoreCartService(
-                StoreCartRepository(session),
-                StoreSettingsService(StoreSettingsRepository(session), session),
-                session,
-            )
+            yield session
     except StoreSessionError as error:
         reason = type(error).__name__
         logger.error(
@@ -228,3 +227,37 @@ def connect_store_handlers(provider: SessionProvider) -> dict[str, StoreEventHan
         lambda store_id: open_store_session(store_id, provider)
     )
     return dict.fromkeys(PAYMENT_EVENT_TYPES, payment)
+
+
+async def storefront_cart_service(
+    slug: str,
+    provider: Annotated[SessionProvider, Depends(get_session_provider)],
+) -> AsyncIterator[StoreCartService]:
+    """A cart service on the database of the ACTIVE store named by the public ``{slug}`` (KAN-76).
+
+    The platform connection is released before the store database is opened.
+    """
+    async with provider.session() as platform:
+        store_id = await _active_store_or_404(platform, slug)
+    async with _open_public_store(store_id, provider) as session:
+        yield _cart_service(session)
+
+
+async def storefront_catalogue_service(
+    slug: str,
+    provider: Annotated[SessionProvider, Depends(get_session_provider)],
+) -> AsyncIterator[StorefrontCatalogueService]:
+    """Public catalogue reads on the database of the ACTIVE store named by ``{slug}`` (KAN-75).
+
+    The slug and the platform currency are read in one short platform session, released before
+    the store database is opened, so a request never holds two pooled connections.
+    """
+    async with provider.session() as platform:
+        store_id = await _active_store_or_404(platform, slug)
+        currency = await PublicSettingsService(
+            AppSettingsRepository(platform)
+        ).currency()
+    async with _open_public_store(store_id, provider) as session:
+        yield StorefrontCatalogueService(
+            StoreCatalogueRepository(session), settings.R2_PUBLIC_BASE_URL, currency
+        )

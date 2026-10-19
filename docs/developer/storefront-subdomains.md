@@ -1,6 +1,6 @@
 # Storefront subdomain routing (KAN-64)
 
-`{slug}.<root domain>` shows a store's public storefront. The proxy (`src/proxy.ts`) rewrites every path on a store host to the internal route `src/app/storefront/[slug]/route.ts`, which looks the store up through `GET /v1/storefront/{slug}` (KAN-65, see [backend-storefront-lookup.md](backend-storefront-lookup.md)). Unknown, suspended and any other non-live store gets the same 404. A backend failure gives 503, never a 404.
+`{slug}.<root domain>` shows a store's public storefront. The proxy (`src/proxy.ts`) rewrites every path on a store host under the internal `src/app/storefront/[slug]/`, where the theme pages (KAN-75, [storefront-theme.md](storefront-theme.md)) look the store up through `GET /v1/storefront/{slug}` (KAN-65, see [backend-storefront-lookup.md](backend-storefront-lookup.md)). Unknown, suspended and any other non-live store gets a 404. A backend failure is an error page, never a 404. Direct `/storefront...` requests on the platform host are rewritten to the internal 404 by the proxy.
 
 ## Configuration
 
@@ -16,7 +16,7 @@ Reserved names (`www`, `app`, `admin`, `api`, ...) are never stores. The list is
 
 - Store hosts skip the proxy's edge rate limiting (the proxy rewrites before it runs). Each page view makes one backend lookup, so the only limit is the backend's `STOREFRONT_POLICY`: 120 requests per 60 s per client IP.
 - `X-Client-IP` is forwarded only on Vercel (from `x-vercel-forwarded-for`, validated, `src/lib/api/server.ts`). On any other deployment no IP is sent, so all visitors share one backend bucket and a single client can exhaust it for every store. Deploy on Vercel, or add a trusted proxy that sets the IP, before relying on this off Vercel.
-- The lookup is not cached on the Next.js side.
+- The lookup is cached per store on the Next.js side (300 s, tag `storefront:{slug}`), and those cached reads send no visitor IP; see [storefront-theme.md](storefront-theme.md).
 
 ## Local development
 
@@ -24,7 +24,7 @@ Browsers resolve `*.localhost` to loopback, so open `http://acme.localhost:3000`
 
 ## Preview-only path access: `/s/{slug}` (KAN-202, temporary)
 
-`*.vercel.app` has no wildcard subdomains, so until a custom wildcard domain exists a store can be demoed at `/s/{slug}` on the platform URL. **Remove this route once the wildcard domain is live**: delete `parseStorePath`, `isStorefrontPathPreviewEnabled`, `STORE_PATH_PREFIX` and `STORE_NOT_FOUND_SLUG` from `src/lib/storefront/host.ts`, `rewritePathPreview` and its call in `src/proxy.ts`, their unit tests (the 200 body still carries a robots `index` meta; the `X-Robots-Tag: noindex` header wins, so no change is needed there), `src/__tests__/e2e/storefront-path-preview.spec.ts` and this section.
+`*.vercel.app` has no wildcard subdomains, so until a custom wildcard domain exists a store can be demoed at `/s/{slug}` on the platform URL. **Remove this route once the wildcard domain is live**: delete `parseStorePath`, `isStorefrontPathPreviewEnabled`, `STORE_PATH_PREFIX` and `STORE_NOT_FOUND_SLUG` from `src/lib/storefront/host.ts`, `rewritePathPreview` and its call in `src/proxy.ts`, `src/app/storefront-preview/` (and `STOREFRONT_PREVIEW_ROUTE`), their unit tests (the 200 body still carries a robots `index` meta; the `X-Robots-Tag: noindex` header wins, so no change is needed there), `src/__tests__/e2e/storefront-path-preview.spec.ts` and this section.
 
 - **Gating (allow-list, fails closed):** served only when `STOREFRONT_PATH_PREVIEW` is exactly `true` AND (`VERCEL_ENV` is `preview` or `development`, OR `VERCEL_ENV` is unset and `NODE_ENV` is not `production`). Production, an unset `VERCEL_ENV` under a production build (self-hosted production, or Vercel system environment variables switched off), empty and unknown values all get the same 404. This is stricter than the story's "not production" on purpose. Local E2E uses a production build, so it needs `VERCEL_ENV=preview` too. Set the flag on the Vercel Preview environment only, never Production.
 - **Custom environments:** Vercel custom environments report `VERCEL_ENV=preview`. A production-like custom environment (for example staging with real merchant data) must never get the flag.

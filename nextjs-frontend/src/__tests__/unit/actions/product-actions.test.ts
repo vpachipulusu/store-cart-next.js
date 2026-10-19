@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   getCurrentStoreSelection: vi.fn(),
   revalidatePath: vi.fn(),
+  revalidateTag: vi.fn(),
   createStoreProduct: vi.fn(),
   updateStoreProduct: vi.fn(),
   deleteStoreProduct: vi.fn(),
@@ -14,7 +15,10 @@ const mocks = vi.hoisted(() => ({
   deleteProductImage: vi.fn(),
 }));
 
-vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidatePath }));
+vi.mock('next/cache', () => ({
+  revalidatePath: mocks.revalidatePath,
+  revalidateTag: mocks.revalidateTag,
+}));
 vi.mock('@/lib/stores/current', () => ({
   getCurrentStoreSelection: mocks.getCurrentStoreSelection,
 }));
@@ -70,7 +74,7 @@ describe('product actions', () => {
     mocks.getCurrentStoreSelection.mockResolvedValue({
       available: true,
       stores: [],
-      selected: { id: STORE, name: 'Shop' },
+      selected: { id: STORE, name: 'Shop', slug: 'shop' },
     });
     for (const key of [
       'createStoreProduct',
@@ -114,6 +118,8 @@ describe('product actions', () => {
         ],
       });
       expect(mocks.revalidatePath).toHaveBeenCalledWith('/dashboard/products');
+      // KAN-75: the store's cached storefront pages expire at once.
+      expect(mocks.revalidateTag).toHaveBeenCalledWith('storefront:shop', 'max');
     });
 
     it('rejects invalid input with field errors and never calls the backend', async () => {
@@ -293,6 +299,37 @@ describe('product actions', () => {
     it('rejects a malformed image id', async () => {
       expect((await deleteImageAction(PRODUCT, '../')).success).toBe(false);
       expect(mocks.deleteProductImage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('storefront cache (KAN-75)', () => {
+    const SOON = 'max';
+    const NOW = { expire: 0 };
+    it.each([
+      ['an edit', () => updateProductAction(PRODUCT, { ...details, status: 'active' }), SOON],
+      ['an unpublish', () => updateProductAction(PRODUCT, details), NOW],
+      ['a delete', () => deleteProductAction(PRODUCT), NOW],
+      ['a new variant', () => addVariantAction(PRODUCT, { ...variant, options: {} }), SOON],
+      [
+        'a variant edit',
+        () => updateVariantAction(PRODUCT, 'v1', { ...variant, options: {} }),
+        SOON,
+      ],
+      ['a variant delete', () => deleteVariantAction(PRODUCT, 'v1'), NOW],
+      ['an image delete', () => deleteImageAction(PRODUCT, 'i1'), SOON],
+    ])('%s refreshes the selected store by slug, not id', async (_name, run, profile) => {
+      await run();
+
+      expect(mocks.revalidateTag).toHaveBeenCalledTimes(1);
+      expect(mocks.revalidateTag).toHaveBeenCalledWith('storefront:shop', profile);
+    });
+
+    it('leaves the cache alone when the backend refuses the change', async () => {
+      mocks.updateStoreProduct.mockResolvedValue({ success: false, error: 'Nope', status: 422 });
+
+      await updateProductAction(PRODUCT, details);
+
+      expect(mocks.revalidateTag).not.toHaveBeenCalled();
     });
   });
 });

@@ -79,6 +79,7 @@ async def test_marks_a_stuck_store_failed_and_audits_it(stuck):
         "store_id": "new",
         "status": "FAILED",
         "changed": True,
+        "slug": stuck.repository.stores["new"].slug,
     }
     assert stuck.repository.stores["new"].status is StoreStatus.FAILED
     row = stuck.auditor.rows[0]

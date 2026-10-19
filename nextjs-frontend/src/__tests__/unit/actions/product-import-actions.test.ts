@@ -5,11 +5,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   getCurrentStoreSelection: vi.fn(),
   revalidatePath: vi.fn(),
+  revalidateTag: vi.fn(),
   importStoreProducts: vi.fn(),
   warn: vi.fn(),
 }));
 
-vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidatePath }));
+vi.mock('next/cache', () => ({
+  revalidatePath: mocks.revalidatePath,
+  revalidateTag: mocks.revalidateTag,
+}));
 vi.mock('@/lib/stores/current', () => ({
   getCurrentStoreSelection: mocks.getCurrentStoreSelection,
 }));
@@ -45,7 +49,7 @@ function selectStore(id = STORE) {
   mocks.getCurrentStoreSelection.mockResolvedValue({
     available: true,
     stores: [],
-    selected: { id, name: 'Shop' },
+    selected: { id, name: 'Shop', slug: 'shop' },
   });
 }
 
@@ -62,6 +66,7 @@ describe('importProductsAction', () => {
     expect(result).toEqual({ success: true, data: outcome });
     expect(mocks.importStoreProducts).toHaveBeenCalledWith(STORE, expect.any(File));
     expect(mocks.revalidatePath).toHaveBeenCalledWith('/dashboard/products');
+    expect(mocks.revalidateTag).toHaveBeenCalledWith('storefront:shop', 'max');
   });
 
   it('returns row problems as data and does not refresh when nothing was imported', async () => {
@@ -74,6 +79,7 @@ describe('importProductsAction', () => {
 
     expect(await importProductsAction(STORE, form())).toEqual({ success: true, data: rejected });
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
+    expect(mocks.revalidateTag).not.toHaveBeenCalled();
   });
 
   it('refuses a rendered store id that is no longer the selected store', async () => {

@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { refreshStorefront } from '@/lib/storefront/revalidate';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { resolveAdminAccess } from '@/lib/api/admin-access';
@@ -75,6 +76,8 @@ export async function suspendStoreAction(storeId: string): Promise<ActionRespons
   if (!result.success) return failure(result, 'Admin suspend store failed');
 
   revalidatePath(STORES_PATH);
+  // KAN-75: a suspended store's cached pages must not be served again.
+  if (result.data.slug) refreshStorefront(result.data.slug, 'remove');
   return {
     success: true,
     data: {
@@ -93,6 +96,8 @@ export async function unsuspendStoreAction(storeId: string): Promise<ActionRespo
   if (!result.success) return failure(result, 'Admin unsuspend store failed');
 
   revalidatePath(STORES_PATH);
+  // KAN-75: drop the cached "store not found" so the store is back at once.
+  if (result.data.slug) refreshStorefront(result.data.slug, 'remove');
   return {
     success: true,
     data: {

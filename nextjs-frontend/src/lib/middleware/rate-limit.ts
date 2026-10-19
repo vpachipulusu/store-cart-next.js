@@ -122,6 +122,13 @@ export const RATE_LIMIT_CONFIGS = {
     windowMs: 60 * 1000, // 1 minute
     message: 'API rate limit exceeded. Please slow down.',
   },
+  // Store-host requests per visitor (KAN-75): page views, link prefetches and cart calls. Generous for browsing,
+  // but bounds how many cache misses one client can force against the backend.
+  storefront: {
+    maxRequests: 300,
+    windowMs: 60 * 1000, // 1 minute
+    message: 'Too many requests. Please try again in a minute.',
+  },
   // General limits
   general: {
     maxRequests: 200,

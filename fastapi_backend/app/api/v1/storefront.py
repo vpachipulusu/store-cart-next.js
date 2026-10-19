@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from app.api.auth import require_internal_key
 from app.api.deps import SessionDep
-from app.api.rate_limit import RATE_LIMIT_RESPONSES, limit_by_client_ip
+from app.api.rate_limit import RATE_LIMIT_RESPONSES, limit_by_client_ip_or_store
 from app.core.errors import ErrorResponse, error_response
 from app.core.rate_limit import STOREFRONT_POLICY
 from app.repositories.storefront import StorefrontRepository
@@ -32,7 +32,9 @@ router = APIRouter(
     tags=["storefront"],
     dependencies=[
         Depends(require_internal_key),
-        Depends(limit_by_client_ip(STOREFRONT_POLICY)),
+        # KAN-75: the Next.js server's cached lookups carry no visitor IP; they are keyed by store
+        # so cache misses for made-up subdomains cannot use up the budget of real stores.
+        Depends(limit_by_client_ip_or_store(STOREFRONT_POLICY)),
     ],
     responses={
         **RATE_LIMIT_RESPONSES,

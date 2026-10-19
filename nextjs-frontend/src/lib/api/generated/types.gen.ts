@@ -2418,6 +2418,206 @@ export type ProvisioningSettingsStatus = {
 };
 
 /**
+ * PublicCategoryData
+ */
+export type PublicCategoryData = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Slug
+     */
+    slug: string;
+    /**
+     * Parent Slug
+     */
+    parent_slug: string | null;
+};
+
+/**
+ * PublicCategoryListResponse
+ */
+export type PublicCategoryListResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    /**
+     * Data
+     */
+    data: Array<PublicCategoryData>;
+};
+
+/**
+ * PublicImageData
+ */
+export type PublicImageData = {
+    /**
+     * Url
+     */
+    url: string;
+    /**
+     * Alt Text
+     */
+    alt_text: string | null;
+};
+
+/**
+ * PublicOptionData
+ */
+export type PublicOptionData = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Values
+     */
+    values: Array<PublicOptionValueData>;
+};
+
+/**
+ * PublicOptionValueData
+ */
+export type PublicOptionValueData = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Value
+     */
+    value: string;
+};
+
+/**
+ * PublicProductData
+ */
+export type PublicProductData = {
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Slug
+     */
+    slug: string;
+    /**
+     * Description
+     */
+    description: string | null;
+    /**
+     * Currency
+     */
+    currency: string;
+    /**
+     * Options
+     */
+    options: Array<PublicOptionData>;
+    /**
+     * Variants
+     */
+    variants: Array<PublicVariantData>;
+    /**
+     * Images
+     */
+    images: Array<PublicImageData>;
+    /**
+     * Categories
+     */
+    categories: Array<PublicCategoryData>;
+};
+
+/**
+ * PublicProductListResponse
+ *
+ * Like the merchant ``ProductListResponse``: the page with its currency and totals.
+ */
+export type PublicProductListResponse = {
+    /**
+     * Data
+     */
+    data: Array<PublicProductSummaryData>;
+    /**
+     * Currency
+     */
+    currency: string;
+    /**
+     * Total
+     */
+    total: number;
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Offset
+     */
+    offset: number;
+};
+
+/**
+ * PublicProductResponse
+ */
+export type PublicProductResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: PublicProductData;
+};
+
+/**
+ * PublicProductSummaryData
+ */
+export type PublicProductSummaryData = {
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Slug
+     */
+    slug: string;
+    /**
+     * Min Price Minor
+     */
+    min_price_minor: number | null;
+    /**
+     * Max Price Minor
+     */
+    max_price_minor: number | null;
+    image: PublicImageData | null;
+};
+
+/**
+ * PublicVariantData
+ */
+export type PublicVariantData = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Price Minor
+     */
+    price_minor: number;
+    /**
+     * Compare At Price Minor
+     */
+    compare_at_price_minor: number | null;
+    /**
+     * In Stock
+     */
+    in_stock: boolean;
+    /**
+     * Option Value Ids
+     */
+    option_value_ids: Array<string>;
+};
+
+/**
  * ReadyResponse
  */
 export type ReadyResponse = {
@@ -2865,6 +3065,12 @@ export type StoreStatusData = {
      * False when the store was already in that state.
      */
     changed: boolean;
+    /**
+     * Slug
+     *
+     * The store's public slug, for refreshing its cached storefront pages.
+     */
+    slug?: string | null;
 };
 
 /**
@@ -9640,6 +9846,199 @@ export type ReadStorefrontResponses = {
 };
 
 export type ReadStorefrontResponse = ReadStorefrontResponses[keyof ReadStorefrontResponses];
+
+export type ListStorefrontProductsData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Slug
+         */
+        slug: string;
+    };
+    query?: {
+        /**
+         * Category
+         *
+         * A category slug.
+         */
+        category?: string | null;
+        /**
+         * Q
+         *
+         * Title contains this text, ignoring case; trimmed, at most 100 characters.
+         */
+        q?: string | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Offset
+         */
+        offset?: number;
+    };
+    url: '/v1/storefront/{slug}/products';
+};
+
+export type ListStorefrontProductsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Unprocessable Entity
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ListStorefrontProductsError = ListStorefrontProductsErrors[keyof ListStorefrontProductsErrors];
+
+export type ListStorefrontProductsResponses = {
+    /**
+     * Successful Response
+     */
+    200: PublicProductListResponse;
+};
+
+export type ListStorefrontProductsResponse = ListStorefrontProductsResponses[keyof ListStorefrontProductsResponses];
+
+export type ReadStorefrontProductData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Product Slug
+         */
+        product_slug: string;
+        /**
+         * Slug
+         */
+        slug: string;
+    };
+    query?: never;
+    url: '/v1/storefront/{slug}/products/{product_slug}';
+};
+
+export type ReadStorefrontProductErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ReadStorefrontProductError = ReadStorefrontProductErrors[keyof ReadStorefrontProductErrors];
+
+export type ReadStorefrontProductResponses = {
+    /**
+     * Successful Response
+     */
+    200: PublicProductResponse;
+};
+
+export type ReadStorefrontProductResponse = ReadStorefrontProductResponses[keyof ReadStorefrontProductResponses];
+
+export type ListStorefrontCategoriesData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Slug
+         */
+        slug: string;
+    };
+    query?: never;
+    url: '/v1/storefront/{slug}/categories';
+};
+
+export type ListStorefrontCategoriesErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ListStorefrontCategoriesError = ListStorefrontCategoriesErrors[keyof ListStorefrontCategoriesErrors];
+
+export type ListStorefrontCategoriesResponses = {
+    /**
+     * Successful Response
+     */
+    200: PublicCategoryListResponse;
+};
+
+export type ListStorefrontCategoriesResponse = ListStorefrontCategoriesResponses[keyof ListStorefrontCategoriesResponses];
 
 export type ReadCartData = {
     body?: never;

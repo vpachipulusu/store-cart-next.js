@@ -15,7 +15,7 @@ vi.mock('@/lib/logger', () => ({
   logger: { error: (...args: unknown[]) => loggerError(...args) },
 }));
 
-import { GET } from '@/app/storefront/[slug]/route';
+import { GET } from '@/app/storefront-preview/[slug]/route';
 import { escapeHtml } from '@/lib/storefront/html';
 
 const call = (slug: string) =>
