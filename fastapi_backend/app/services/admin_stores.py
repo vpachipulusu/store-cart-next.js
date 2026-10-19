@@ -269,7 +269,7 @@ class AdminStoresService:
         if not self._is_stuck(record):
             await self._abort(StoreConflict(), store_id)
         await self._fail_stuck(actor, record)
-        return StatusResult(StoreStatus.FAILED, changed=True)
+        return StatusResult(StoreStatus.FAILED, changed=True, slug=record.slug)
 
     def _is_stuck(self, record: StoreRecord) -> bool:
         return (
