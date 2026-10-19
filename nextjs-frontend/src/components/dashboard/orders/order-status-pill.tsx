@@ -11,5 +11,10 @@ const VARIANTS: Record<OrderStatus, StatusPillVariant> = {
 
 /** The order status as a labelled pill; the text carries the meaning, the colour only supports it. */
 export function OrderStatusPill({ status }: { status: OrderStatus }) {
-  return <StatusPill variant={VARIANTS[status]}>{ORDER_STATUS_LABELS[status]}</StatusPill>;
+  // An unknown status (a newer backend) still renders, neutral and with its raw text.
+  return (
+    <StatusPill variant={VARIANTS[status] ?? 'neutral'}>
+      {ORDER_STATUS_LABELS[status] ?? status}
+    </StatusPill>
+  );
 }

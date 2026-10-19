@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
-from pydantic import BaseModel, ConfigDict, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictStr
 
 from app.api.auth import require_internal_key
 from app.api.merchant import OWNER_ADMIN
@@ -29,13 +29,13 @@ from app.core.rate_limit import API_POLICY
 from app.repositories.store_orders import OrderItemRow, OrderRow, OrderSummaryRow
 from app.services.merchant_orders import (
     DEFAULT_PAGE_SIZE,
-    MAX_ID_LENGTH,
     MAX_OFFSET,
     MAX_PAGE_SIZE,
     OrderDetail,
     StoreOrdersService,
 )
 from app.services.store_orders import (
+    MAX_ID_LENGTH,
     InvalidOrder,
     InvalidOrderTransition,
     OrderError,
@@ -56,6 +56,7 @@ router = APIRouter(
         403: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
         409: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
         503: {"model": ErrorResponse},
     },
 )
@@ -71,8 +72,9 @@ NO_STORE = {"Cache-Control": "no-store"}
 class FulfilRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    tracking_number: StrictStr
-    carrier: StrictStr | None = None
+    # Generous caps bound the request; the service enforces the real limit (100) after trimming.
+    tracking_number: Annotated[StrictStr, Field(max_length=1000)]
+    carrier: Annotated[StrictStr, Field(max_length=1000)] | None = None
 
 
 class OrderItemData(BaseModel):

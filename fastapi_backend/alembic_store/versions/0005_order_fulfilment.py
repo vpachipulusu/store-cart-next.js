@@ -8,6 +8,10 @@ columns and two CHECKs, no data rewrite.
 * A ``fulfilled`` order always has a tracking number. The columns stay set when a fulfilled
   order is later refunded. The service writes all three in the one statement that moves the
   status (``fulfil_order`` in ``app/services/store_orders.py``).
+* ``ck_orders_fulfilled_tracking`` is added NOT VALID: before this revision ``transition_order`` could set
+  ``fulfilled`` without a tracking number, so a legacy row would fail the upgrade. It is enforced for every new and
+  updated row; validating old rows is left to a later revision once they are backfilled.
+* ``ix_orders_created_at`` serves the unfiltered list (newest first, ``id`` as tiebreak).
 
 Revision ID: 0005
 Revises: 0004
@@ -42,14 +46,19 @@ def upgrade() -> None:
         "orders",
         "carrier IS NULL OR char_length(carrier) BETWEEN 1 AND 100",
     )
-    op.create_check_constraint(
-        "ck_orders_fulfilled_tracking",
+    op.execute(
+        "ALTER TABLE orders ADD CONSTRAINT ck_orders_fulfilled_tracking "
+        "CHECK (status <> 'fulfilled' OR tracking_number IS NOT NULL) NOT VALID"
+    )
+    op.create_index(
+        "ix_orders_created_at",
         "orders",
-        "status <> 'fulfilled' OR tracking_number IS NOT NULL",
+        [sa.text("created_at DESC"), sa.text("id DESC")],
     )
 
 
 def downgrade() -> None:
+    op.drop_index("ix_orders_created_at", table_name="orders")
     op.drop_constraint("ck_orders_fulfilled_tracking", "orders", type_="check")
     op.drop_constraint("ck_orders_carrier", "orders", type_="check")
     op.drop_constraint("ck_orders_tracking_number", "orders", type_="check")

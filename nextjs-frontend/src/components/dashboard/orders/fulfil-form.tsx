@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { fulfilOrderAction } from '@/app/actions/order-actions';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -18,16 +18,22 @@ export function FulfilForm({ orderId }: { orderId: string }) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [failure, setFailure] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [refreshing, startRefresh] = useTransition();
+  // Stays true after success until the refreshed page replaces this form, so a second submit cannot reach the API.
+  const submitted = useRef(false);
+  const busy = pending || refreshing;
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (pending) return;
+    if (submitted.current) return;
+    submitted.current = true;
     setFailure(null);
     const input = { trackingNumber, carrier };
     const parsed = fulfilOrderSchema.safeParse(input);
     if (!parsed.success) {
       setErrors(fieldErrors(parsed.error));
       setFailure('Check the highlighted fields and try again.');
+      submitted.current = false;
       return;
     }
     setErrors({});
@@ -37,6 +43,7 @@ export function FulfilForm({ orderId }: { orderId: string }) {
       response = await fulfilOrderAction(orderId, input);
     } catch {
       setFailure('The request failed. Please try again.');
+      submitted.current = false;
       return;
     } finally {
       setPending(false);
@@ -44,9 +51,10 @@ export function FulfilForm({ orderId }: { orderId: string }) {
     if (!response.success) {
       setErrors(response.fieldErrors ?? {});
       setFailure(response.error);
+      submitted.current = false;
       return;
     }
-    router.refresh();
+    startRefresh(() => router.refresh());
   }
 
   return (
@@ -66,7 +74,7 @@ export function FulfilForm({ orderId }: { orderId: string }) {
             maxLength={TRACKING_MAX_LENGTH}
             required
             autoComplete="off"
-            disabled={pending}
+            disabled={busy}
             aria-invalid={Boolean(errors.trackingNumber)}
             aria-describedby={describedBy}
           />
@@ -86,14 +94,14 @@ export function FulfilForm({ orderId }: { orderId: string }) {
             onChange={(event) => setCarrier(event.target.value)}
             maxLength={TRACKING_MAX_LENGTH}
             autoComplete="off"
-            disabled={pending}
+            disabled={busy}
             aria-invalid={Boolean(errors.carrier)}
             aria-describedby={describedBy}
           />
         )}
       </Field>
-      <Button type="submit" disabled={pending}>
-        {pending ? 'Marking as fulfilled…' : 'Mark as fulfilled'}
+      <Button type="submit" disabled={busy}>
+        {busy ? 'Marking as fulfilled…' : 'Mark as fulfilled'}
       </Button>
     </form>
   );

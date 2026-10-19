@@ -27,15 +27,10 @@ const trackingText = (label: string) =>
     .refine((value) => !CONTROL_CHARACTERS.test(value), `${label} contains invalid characters`);
 
 export const fulfilOrderSchema = z.object({
-  trackingNumber: z
-    .string()
-    .trim()
-    .min(1, 'Tracking number is required')
-    .max(TRACKING_MAX_LENGTH, `Tracking number must be ${TRACKING_MAX_LENGTH} characters or fewer`)
-    .refine(
-      (value) => !CONTROL_CHARACTERS.test(value),
-      'Tracking number contains invalid characters'
-    ),
+  trackingNumber: trackingText('Tracking number').refine(
+    (value) => value.length > 0,
+    'Tracking number is required'
+  ),
   /** Empty text or null both mean "no carrier". */
   carrier: trackingText('Carrier')
     .nullish()

@@ -8755,7 +8755,7 @@ export type ListOrdersErrors = {
      */
     409: ErrorResponse;
     /**
-     * Invalid request
+     * Unprocessable Entity
      */
     422: ErrorResponse;
     /**
@@ -8827,7 +8827,7 @@ export type ReadOrderErrors = {
      */
     409: ErrorResponse;
     /**
-     * Invalid request
+     * Unprocessable Entity
      */
     422: ErrorResponse;
     /**
@@ -8899,7 +8899,7 @@ export type FulfilOrderErrors = {
      */
     409: ErrorResponse;
     /**
-     * Invalid request
+     * Unprocessable Entity
      */
     422: ErrorResponse;
     /**

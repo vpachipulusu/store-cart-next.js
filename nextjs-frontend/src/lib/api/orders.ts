@@ -71,7 +71,11 @@ async function callOrder(
   if (!isObjectBody(body)) {
     return { success: false, error: ORDER_REQUEST_FAILED_MESSAGE, status: 502 };
   }
-  return { success: true, data: 'data' in body ? body.data : body };
+  const order = 'data' in body ? body.data : body;
+  if (!order || typeof order.id !== 'string' || !Array.isArray(order.items)) {
+    return { success: false, error: ORDER_REQUEST_FAILED_MESSAGE, status: 502 };
+  }
+  return { success: true, data: order };
 }
 
 export async function fetchOrders(
@@ -95,7 +99,11 @@ export async function fetchOrders(
   if (!body || typeof body !== 'object' || Array.isArray(body) || !('total' in body)) {
     return { success: false, error: ORDER_REQUEST_FAILED_MESSAGE, status: 502 };
   }
-  return { success: true, data: body as OrderListResponse };
+  const list = body as OrderListResponse;
+  if (!Array.isArray(list.data) || typeof list.total !== 'number') {
+    return { success: false, error: ORDER_REQUEST_FAILED_MESSAGE, status: 502 };
+  }
+  return { success: true, data: list };
 }
 
 export async function fetchOrder(storeId: string, orderId: string): Promise<ApiResult<OrderData>> {

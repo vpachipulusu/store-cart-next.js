@@ -12307,14 +12307,14 @@
             }
           },
           "422": {
-            "description": "Invalid request",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Entity"
           },
           "500": {
             "description": "Internal server error",
@@ -12463,14 +12463,14 @@
             }
           },
           "422": {
-            "description": "Invalid request",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Entity"
           },
           "500": {
             "description": "Internal server error",
@@ -12629,14 +12629,14 @@
             }
           },
           "422": {
-            "description": "Invalid request",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Entity"
           },
           "500": {
             "description": "Internal server error",
@@ -14697,12 +14697,14 @@
         "properties": {
           "tracking_number": {
             "type": "string",
+            "maxLength": 1000,
             "title": "Tracking Number"
           },
           "carrier": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 1000
               },
               {
                 "type": "null"

@@ -73,7 +73,7 @@ function OrderDetail({ order }: { order: OrderData }) {
   return (
     <>
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-3xl font-bold tracking-tight">Order</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Order {order.id.slice(-8)}</h1>
         <OrderStatusPill status={order.status} />
       </div>
       <p className="font-mono text-xs text-muted-foreground">{order.id}</p>

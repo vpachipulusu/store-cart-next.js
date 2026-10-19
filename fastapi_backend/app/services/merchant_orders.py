@@ -22,7 +22,6 @@ from app.services.store_orders import OrderNotFound, OrderStatus, fulfil_order
 DEFAULT_PAGE_SIZE = 25
 MAX_PAGE_SIZE = 100
 MAX_OFFSET = 100_000
-MAX_ID_LENGTH = 100
 
 
 @dataclass(frozen=True)
@@ -53,6 +52,7 @@ class StoreOrdersService:
         limit: int = DEFAULT_PAGE_SIZE,
         offset: int = 0,
     ) -> OrderPage:
+        # The router bounds these too; the service is a boundary of its own.
         limit = max(1, min(limit, MAX_PAGE_SIZE))
         offset = max(0, min(offset, MAX_OFFSET))
         status_value = status.value if status is not None else None
@@ -75,7 +75,7 @@ class StoreOrdersService:
         try:
             await fulfil_order(self._session, order_id, tracking_number, carrier)
             await self._session.commit()
-        except BaseException:
+        except Exception:
             await self._session.rollback()
             raise
         return await self.get(order_id)

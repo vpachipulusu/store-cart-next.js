@@ -1,4 +1,4 @@
-"""Dependency that opens the caller's own store database for the catalogue routes (KAN-245).
+"""Dependency that opens the caller's own store database for the catalogue routes (KAN-245) and the order routes (KAN-79).
 
 The store id is never taken from the request on its own: ``require_merchant`` resolves the
 ``{store_id}`` path segment against the caller's organisation memberships (404 for any
