@@ -7,11 +7,13 @@ stopped taking new carts kept its expired rows. A QStash schedule now calls
 * visits at most ``STORES_PER_RUN`` ACTIVE stores, picked at random so every store is reached over
   successive runs;
 * deletes at most ``EXPIRED_CARTS_PER_STORE`` expired carts in each (the rest wait for the next run);
-* stops starting new stores after ``RUN_TIME_BUDGET_SECONDS``;
+* stops starting new stores after ``RUN_TIME_BUDGET_SECONDS`` and cuts off a store still running
+  when the budget ends (counted in ``stores_failed``);
 * never lets one store stop the others: a store that cannot be opened or queried is counted in
   ``stores_failed`` and logged by exception class and store id only (never a connection string).
 """
 
+import asyncio
 import logging
 import time
 from collections.abc import Callable
@@ -68,11 +70,14 @@ async def purge_expired_carts(
     deleted = 0
     failed = 0
     for store_id in store_ids:
-        if clock() >= deadline:
+        remaining = deadline - clock()
+        if remaining <= 0:
             break
         visited += 1
         try:
-            deleted += await _purge_store(store_id, provider, batch)
+            # A store that hangs (cold database, lock wait) is cut off at the end of the budget.
+            async with asyncio.timeout(remaining):
+                deleted += await _purge_store(store_id, provider, batch)
         except Exception as exc:  # noqa: BLE001 - one store must not stop the run
             failed += 1
             logger.warning(

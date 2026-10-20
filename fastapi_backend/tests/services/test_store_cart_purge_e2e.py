@@ -7,6 +7,7 @@ throwaway local server.
 
 # ruff: noqa: F811  (pytest fixtures are imported, then named as test parameters)
 
+import asyncio
 import hashlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -169,3 +170,46 @@ async def test_a_store_that_cannot_be_opened_does_not_stop_the_others(
 async def test_the_defaults_are_bounded() -> None:
     assert 0 < store_cart_purge.EXPIRED_CARTS_PER_STORE <= 5000
     assert 0 < store_cart_purge.STORES_PER_RUN <= 200
+
+
+async def test_a_store_that_hangs_is_cut_off_at_the_budget_and_counted_failed(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def hang(store_id: str, provider: object, batch: int) -> int:
+        await asyncio.sleep(60)
+        return 0
+
+    monkeypatch.setattr(store_cart_purge, "_purge_store", hang)
+
+    summary = await asyncio.wait_for(
+        purge_expired_carts(
+            world.provider, max_stores=100, batch=10, time_budget_seconds=0.2
+        ),
+        timeout=10,
+    )
+
+    assert summary.stores == 1
+    assert summary.stores_failed == 1
+
+
+async def test_a_cart_being_written_is_skipped_not_waited_for(world: World) -> None:
+    await clear(world)
+    store_id = store_of(world, "a", "north")
+    await insert_carts(world, store_id, expired=3, live=0)
+    async with open_store_session(store_id, world.provider) as writer:
+        await writer.execute(
+            text(
+                "SELECT id FROM carts WHERE expires_at <= now() "
+                "ORDER BY id LIMIT 1 FOR UPDATE"
+            )
+        )
+
+        summary = await asyncio.wait_for(
+            purge_expired_carts(world.provider, max_stores=100, batch=10),
+            timeout=30,
+        )
+        remaining = await counts(world, store_id)
+        await writer.rollback()
+
+    assert summary.stores_failed == 0
+    assert remaining == (1, 0)
