@@ -4092,7 +4092,7 @@ export type CreateSessionErrors = {
      */
     500: ErrorResponse;
     /**
-     * Rate limiter unavailable
+     * Rate limiter unavailable, or the two-factor secret or key cannot be used (sign-in is refused)
      */
     503: ErrorResponse;
 };

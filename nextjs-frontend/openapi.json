@@ -194,7 +194,7 @@
             "description": "Forbidden"
           },
           "503": {
-            "description": "Rate limiter unavailable",
+            "description": "Rate limiter unavailable, or the two-factor secret or key cannot be used (sign-in is refused)",
             "content": {
               "application/json": {
                 "schema": {

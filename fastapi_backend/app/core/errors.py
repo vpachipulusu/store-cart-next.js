@@ -2,7 +2,7 @@
 
 import logging
 from collections.abc import Mapping
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -23,9 +23,9 @@ class ErrorResponse(BaseModel):
 
 # Machine-readable refusal codes for sign-in (KAN-257). The UI branches on ``code``, never on the message.
 # Awaiting owner confirmation of the shape; change the codes, messages and status here only.
-TOTP_REQUIRED = "totp_required"
-TOTP_INVALID = "totp_invalid"
 AuthChallengeCode = Literal["totp_required", "totp_invalid"]
+TOTP_REQUIRED: Final[AuthChallengeCode] = "totp_required"
+TOTP_INVALID: Final[AuthChallengeCode] = "totp_invalid"
 TOTP_REQUIRED_MESSAGE = "Two-factor code required"
 TOTP_INVALID_MESSAGE = "Invalid two-factor code"
 
@@ -39,7 +39,7 @@ class AuthChallengeErrorResponse(ErrorResponse):
 class CodedHTTPException(HTTPException):
     """An HTTP error whose body also carries a stable machine-readable ``code``."""
 
-    def __init__(self, status_code: int, detail: str, code: str) -> None:
+    def __init__(self, status_code: int, detail: str, code: AuthChallengeCode) -> None:
         super().__init__(status_code, detail)
         self.code = code
 

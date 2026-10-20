@@ -19,6 +19,10 @@ class TotpStateReader(Protocol):
     async def get_state(self, uid: str) -> TotpState | None: ...
 
 
+class SignInGuard(Protocol):
+    async def check(self, uid: str, code: str | None) -> None: ...
+
+
 class SignInTotpGuard:
     def __init__(
         self, reader: TotpStateReader, codec_factory: Callable[[], TotpCodec]

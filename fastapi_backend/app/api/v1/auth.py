@@ -103,6 +103,11 @@ async def current_subject(
             "description": "Invalid authentication, or a two-factor code is "
             "missing (code totp_required) or wrong (code totp_invalid)",
         },
+        503: {
+            "model": ErrorResponse,
+            "description": "Rate limiter unavailable, or the two-factor secret "
+            "or key cannot be used (sign-in is refused)",
+        },
         409: {"model": ErrorResponse, "description": "Account conflict"},
     },
     dependencies=[Depends(limit_auth_attempts())],
@@ -128,7 +133,7 @@ async def create_session(
         totp_code = (
             body.totp_code.get_secret_value() if body.totp_code is not None else None
         )
-        if body.totp_code is not None:
+        if totp_code is not None:
             # Counted before the check so a guess costs budget even when it is right.
             await enforce_rate_limit(
                 request,

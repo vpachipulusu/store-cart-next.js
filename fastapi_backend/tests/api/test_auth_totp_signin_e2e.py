@@ -36,6 +36,7 @@ pytestmark = pytest.mark.skipif(
 
 SECRET = generate_secret()
 HISTORY = "SELECT count(*) FROM login_history"
+LAST_LOGIN = "SELECT last_login_at FROM users WHERE firebase_uid = 'ada'"
 
 
 @pytest.fixture
@@ -76,7 +77,9 @@ async def test_2fa_user_without_code_gets_no_cookie_and_no_history(
     assert response.status_code == 401
     assert response.json()["code"] == "totp_required"
     assert "new-cookie" not in response.text
+    assert "set-cookie" not in response.headers
     assert await scalar(engine, HISTORY) == 0
+    assert await scalar(engine, LAST_LOGIN) is None
 
 
 async def test_wrong_code_gets_no_cookie_and_no_history(
@@ -92,7 +95,9 @@ async def test_wrong_code_gets_no_cookie_and_no_history(
     assert response.status_code == 401
     assert response.json()["code"] == "totp_invalid"
     assert "new-cookie" not in response.text
+    assert "set-cookie" not in response.headers
     assert await scalar(engine, HISTORY) == 0
+    assert await scalar(engine, LAST_LOGIN) is None
 
 
 async def test_correct_code_issues_cookie_and_records_login(
@@ -118,7 +123,9 @@ async def test_undecryptable_secret_fails_closed(
 
     assert response.status_code == 503
     assert "new-cookie" not in response.text
+    assert "set-cookie" not in response.headers
     assert await scalar(engine, HISTORY) == 0
+    assert await scalar(engine, LAST_LOGIN) is None
 
 
 async def test_user_without_2fa_and_signup_are_unchanged(

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.firebase import AuthenticationFailed, IdentityProvider, VerifiedIdentity
-from app.services.signin_totp import SignInTotpGuard
+from app.services.signin_totp import SignInGuard
 
 SESSION_EXPIRES_SECONDS = 5 * 24 * 60 * 60
 # How recent a re-authentication (ID token auth_time) must be for sensitive actions.
@@ -72,12 +72,12 @@ class AuthService:
         identity: IdentityProvider,
         repository: AuthUserRepository,
         session: AsyncSession,
-        totp_guard: SignInTotpGuard | None = None,
+        totp_guard: SignInGuard,
     ) -> None:
         self.identity = identity
         self.repository = repository
         self.session = session
-        # Wired by ``get_auth_service``; ``None`` only in tests of unrelated behaviour.
+        # Required: a service built without the second-factor guard must not exist (KAN-257).
         self.totp_guard = totp_guard
 
     async def prepare_login(self, token: str) -> VerifiedIdentity:
@@ -95,9 +95,8 @@ class AuthService:
         totp_code: str | None = None,
     ) -> str:
         # The second factor is checked before any credential is minted or login recorded (KAN-257).
-        if self.totp_guard is not None:
-            async with self.session.begin():
-                await self.totp_guard.check(identity.uid, totp_code)
+        async with self.session.begin():
+            await self.totp_guard.check(identity.uid, totp_code)
         cookie = await self.identity.create_session_cookie(
             token, SESSION_EXPIRES_SECONDS
         )
