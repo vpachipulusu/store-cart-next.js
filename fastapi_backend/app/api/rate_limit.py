@@ -25,6 +25,7 @@ from app.core.rate_limit import (
     RateLimitDecision,
     RateLimiter,
     RateLimitPolicy,
+    client_bucket,
 )
 from app.core.sentry import report_exception
 
@@ -135,41 +136,6 @@ def limit_by_subject(
     return dependency
 
 
-def client_ip(request: Request) -> str:
-    """The end-user IP forwarded by Next.js in ``X-Client-IP``.
-
-    Only a validated internal service key may establish the forwarding trust
-    boundary. Otherwise use the direct peer; ignore inbound X-Forwarded-For.
-    """
-    forwarded = (
-        request.headers.get(CLIENT_IP_HEADER, "").strip()
-        if getattr(request.state, "internal_authenticated", False)
-        else ""
-    )
-    try:
-        return str(ipaddress.ip_address(forwarded))
-    except ValueError:
-        # Missing or malformed: fall back to the direct peer so the call is still limited.
-        return request.client.host if request.client else "unknown"
-
-
-def limit_by_client_ip(policy: RateLimitPolicy) -> Callable[..., Awaitable[None]]:
-    """Dependency factory for unauthenticated routes with no user to key on.
-
-    Keyed by the forwarded client IP (see ``client_ip``). It sets rate-limit headers on
-    the injected response; a route that returns its own cacheable ``Response`` drops
-    them, so a shared cache never stores one client's counters.
-    """
-
-    async def dependency(
-        request: Request, response: Response, limiter: RateLimiterDep
-    ) -> None:
-        identifier = f"{policy.scope}:ip:{client_ip(request)}"
-        await enforce_rate_limit(request, response, limiter, policy, [identifier])
-
-    return dependency
-
-
 def forwarded_client_ip(request: Request) -> str | None:
     """The validated ``X-Client-IP`` from an internal-key caller, else None."""
     if not getattr(request.state, "internal_authenticated", False):
@@ -179,6 +145,50 @@ def forwarded_client_ip(request: Request) -> str | None:
         return str(ipaddress.ip_address(forwarded))
     except ValueError:
         return None
+
+
+def client_ip(request: Request) -> str:
+    """The end-user IP forwarded by Next.js in ``X-Client-IP``, exactly as sent (audit rows use it).
+
+    Only a validated internal service key may establish the forwarding trust boundary.
+    Otherwise use the direct peer; ignore inbound X-Forwarded-For. For rate-limit keys use
+    ``client_key``, which groups IPv6 by /64.
+    """
+    forwarded = forwarded_client_ip(request)
+    if forwarded is not None:
+        return forwarded
+    # Missing or malformed: fall back to the direct peer so the call is still limited.
+    return request.client.host if request.client else "unknown"
+
+
+def bucket_of(address: str) -> str:
+    """``client_bucket`` that leaves a non-address (the ``unknown`` peer) as it is."""
+    try:
+        return client_bucket(address)
+    except ValueError:
+        return address
+
+
+def client_key(request: Request) -> str:
+    """The rate-limit key part for the end user: IPv4 as is, IPv6 grouped by /64 (KAN-252)."""
+    return bucket_of(client_ip(request))
+
+
+def limit_by_client_ip(policy: RateLimitPolicy) -> Callable[..., Awaitable[None]]:
+    """Dependency factory for unauthenticated routes with no user to key on.
+
+    Keyed by the forwarded client IP (see ``client_key``). It sets rate-limit headers on
+    the injected response; a route that returns its own cacheable ``Response`` drops
+    them, so a shared cache never stores one client's counters.
+    """
+
+    async def dependency(
+        request: Request, response: Response, limiter: RateLimiterDep
+    ) -> None:
+        identifier = f"{policy.scope}:ip:{client_key(request)}"
+        await enforce_rate_limit(request, response, limiter, policy, [identifier])
+
+    return dependency
 
 
 def limit_by_client_ip_or_store(
@@ -196,12 +206,12 @@ def limit_by_client_ip_or_store(
     ) -> None:
         visitor = forwarded_client_ip(request)
         if visitor is not None:
-            identifier = f"{policy.scope}:ip:{visitor}"
+            identifier = f"{policy.scope}:ip:{bucket_of(visitor)}"
         elif getattr(request.state, "internal_authenticated", False):
             slug = str(request.path_params.get("slug", "")).lower()[:63]
             identifier = f"{policy.scope}:store:{slug}"
         else:
-            identifier = f"{policy.scope}:ip:{client_ip(request)}"
+            identifier = f"{policy.scope}:ip:{client_key(request)}"
         await enforce_rate_limit(request, response, limiter, policy, [identifier])
 
     return dependency
@@ -235,7 +245,7 @@ def limit_auth_attempts(
         limiter: RateLimiterDep,
         email: Annotated[str | None, Depends(email_dependency or _no_email)],
     ) -> None:
-        identifiers = [f"{AUTH_POLICY.scope}:ip:{client_ip(request)}"]
+        identifiers = [f"{AUTH_POLICY.scope}:ip:{client_key(request)}"]
         if email:
             identifiers.append(f"{AUTH_POLICY.scope}:email:{email_digest(email)}")
         await enforce_rate_limit(request, response, limiter, AUTH_POLICY, identifiers)

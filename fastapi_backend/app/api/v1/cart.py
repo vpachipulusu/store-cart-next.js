@@ -18,7 +18,13 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Path, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from app.api.auth import require_internal_key
-from app.api.rate_limit import RATE_LIMIT_RESPONSES, limit_by_client_ip
+from app.api.rate_limit import (
+    FAIL_CLOSED_RETRY_AFTER_SECONDS,
+    RATE_LIMIT_RESPONSES,
+    TOO_MANY_REQUESTS_MESSAGE,
+    UNAVAILABLE_MESSAGE,
+    limit_by_client_ip,
+)
 from app.api.store_db import NO_STORE_HEADERS, storefront_cart_service
 from app.core.errors import ErrorResponse
 from app.core.rate_limit import CART_POLICY
@@ -29,6 +35,10 @@ from app.services.store_cart import (
     ItemUnavailable,
     LineStatus,
     StoreCartService,
+)
+from app.services.store_cart_limits import (
+    CartCreationLimited,
+    CartCreationUnavailable,
 )
 
 CART_TOKEN_HEADER = "X-Cart-Token"
@@ -133,6 +143,20 @@ def _http_error(error: CartError) -> HTTPException:
     return HTTPException(status, str(error), headers=NO_STORE_HEADERS)
 
 
+def _creation_error(
+    error: CartCreationLimited | CartCreationUnavailable,
+) -> HTTPException:
+    """429 when the store's hourly cart cap is used up, 503 when it cannot be checked (KAN-252)."""
+    if isinstance(error, CartCreationLimited):
+        headers = {
+            **NO_STORE_HEADERS,
+            "Retry-After": str(error.retry_after_seconds),
+        }
+        return HTTPException(429, TOO_MANY_REQUESTS_MESSAGE, headers=headers)
+    headers = {**NO_STORE_HEADERS, "Retry-After": str(FAIL_CLOSED_RETRY_AFTER_SECONDS)}
+    return HTTPException(503, UNAVAILABLE_MESSAGE, headers=headers)
+
+
 @router.get("", response_model=CartResponse, summary="Read the cart, priced now")
 async def read_cart(
     response: Response, service: CartService, token: CartToken = None
@@ -156,6 +180,8 @@ async def add_cart_item(
         view = await service.add_item(token, body.variant_id, body.quantity)
     except CartError as error:
         raise _http_error(error) from None
+    except (CartCreationLimited, CartCreationUnavailable) as error:
+        raise _creation_error(error) from None
     return _response(view, response)
 
 
@@ -175,6 +201,8 @@ async def set_cart_item_quantity(
         view = await service.set_quantity(token, variant_id, body.quantity)
     except CartError as error:
         raise _http_error(error) from None
+    except (CartCreationLimited, CartCreationUnavailable) as error:
+        raise _creation_error(error) from None
     return _response(view, response)
 
 

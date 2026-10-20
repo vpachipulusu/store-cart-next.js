@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from app.services.store_cart_purge import PURGE_PATH
 from app.services.store_provisioning_job import FAILED_PATH, STEP_PATH
 
 VERCEL_JSON = Path(__file__).resolve().parents[3] / "vercel.json"
@@ -42,6 +43,12 @@ def _destination_service(path: str) -> str | None:
 @pytest.mark.parametrize("path", [STEP_PATH, FAILED_PATH])
 def test_provisioning_callbacks_reach_the_backend(path: str) -> None:
     assert _destination_service(path) == BACKEND_SERVICE
+
+
+def test_the_cart_purge_callback_reaches_the_backend() -> None:
+    assert _destination_service(PURGE_PATH) == BACKEND_SERVICE
+    assert _destination_service("/internal/carts") == "nextjs-frontend"
+    assert _destination_service("/internal/carts-x") == "nextjs-frontend"
 
 
 def test_everything_else_still_reaches_the_frontend() -> None:
@@ -74,6 +81,7 @@ def test_only_the_intended_public_paths_reach_the_backend() -> None:
     ]
     assert [r["source"] for r in backend_rules] == [
         "/internal/provisioning/(.*)",
+        "/internal/carts/(.*)",
         STRIPE_WEBHOOK_PATH,
         CONNECT_WEBHOOK_PATH,
     ]

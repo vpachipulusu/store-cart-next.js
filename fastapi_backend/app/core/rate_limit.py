@@ -6,6 +6,7 @@ behind the small ``RateLimiter`` protocol so tests inject an in-memory fake.
 
 import asyncio
 import contextlib
+import ipaddress
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -70,6 +71,17 @@ STOREFRONT_CATALOGUE_POLICY = RateLimitPolicy(
 # Public cart reads and writes (KAN-76): keyed by client IP, no user is attached. Writes open a
 # store database, so the cap is lower than the lookup's.
 CART_POLICY = RateLimitPolicy("cart", limit=60, window_seconds=60, fail_closed=False)
+# Cart creation per store (KAN-252): hit once for every NEW anonymous cart, keyed by store id, on top of
+# CART_POLICY. A cart row lives 30 days, so one client could otherwise fill a store's database. Fail
+# closed: a Redis outage must not lift a cap that protects storage, so a new cart is refused (503)
+# while carts that already exist keep working (they never hit this policy).
+CART_CREATE_PER_STORE_PER_HOUR = 600
+CART_CREATE_POLICY = RateLimitPolicy(
+    "cart_create",
+    limit=CART_CREATE_PER_STORE_PER_HOUR,
+    window_seconds=60 * 60,
+    fail_closed=True,
+)
 # Storefront checkout (KAN-68): keyed by client IP. Each call writes an order and calls Stripe.
 # Fail closed (KAN-256): an outage must not lift the limit on a call with a Stripe side effect.
 CHECKOUT_POLICY = RateLimitPolicy(
@@ -90,6 +102,27 @@ RETRY_PROVISIONING_POLICY = RateLimitPolicy(
 ADMIN_SYNC_POLICY = RateLimitPolicy(
     "admin_sync", limit=3, window_seconds=60, fail_closed=True
 )
+
+
+# One IPv6 subscriber usually holds a whole /64, so a per-address key would give one client 2**64 buckets.
+IPV6_GROUP_PREFIX = 64
+
+
+def client_bucket(address: str) -> str:
+    """The rate-limit key part for a client address (KAN-252).
+
+    IPv4 is unchanged. IPv6 is grouped by its /64 (``2001:db8:1:2::/64``), and an IPv4-mapped IPv6
+    address counts as the IPv4 address. Raises ``ValueError`` for anything that is not an address.
+    """
+    host = (
+        address.split("%", 1)[0] if ":" in address else address
+    )  # strip an IPv6 zone id
+    ip = ipaddress.ip_address(host)
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped is not None:
+            return str(ip.ipv4_mapped)
+        return str(ipaddress.ip_network((ip, IPV6_GROUP_PREFIX), strict=False))
+    return str(ip)
 
 
 @dataclass(frozen=True)

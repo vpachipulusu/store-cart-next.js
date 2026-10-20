@@ -19,6 +19,7 @@ from app.services.store_cart import (
     StoreCartService,
     hash_token,
 )
+from app.services.store_cart_limits import CartCreationLimited
 from app.services.store_totals import TotalsSettings
 
 TOKEN = "A" * 43
@@ -58,6 +59,7 @@ class FakeCartRepository:
         self.variants = {"v1": VariantRow("v1", 200, "active")}
         self.locked = True
         self.set_error: Exception | None = None
+        self.purge_limits: list[int] = []
 
     async def find_live_cart(self, token_hash: str) -> str | None:
         return self.carts.get(token_hash)
@@ -74,8 +76,9 @@ class FakeCartRepository:
     async def touch_cart(self, cart_id: str, *, ttl_days: int) -> None:
         return None
 
-    async def delete_expired_carts(self, *, limit: int) -> None:
-        return None
+    async def delete_expired_carts(self, *, limit: int) -> int:
+        self.purge_limits.append(limit)
+        return 0
 
     async def get_variant(self, variant_id: str) -> VariantRow | None:
         return self.variants.get(variant_id)
@@ -112,10 +115,28 @@ class FakeCartRepository:
         ]
 
 
-def build(repo: FakeCartRepository) -> tuple[StoreCartService, FakeSession]:
+class FakeCreationGuard:
+    """Admits ``allowed`` creations, then refuses like the real cap."""
+
+    def __init__(self, allowed: int | None = None) -> None:
+        self.allowed = allowed
+        self.calls = 0
+
+    async def admit(self) -> None:
+        self.calls += 1
+        if self.allowed is not None and self.calls > self.allowed:
+            raise CartCreationLimited(retry_after_seconds=30)
+
+
+def build(
+    repo: FakeCartRepository, guard: FakeCreationGuard | None = None
+) -> tuple[StoreCartService, FakeSession]:
     session = FakeSession()
     service = StoreCartService(
-        cast(StoreCartRepository, repo), FakeSettings(), cast(AsyncSession, session)
+        cast(StoreCartRepository, repo),
+        FakeSettings(),
+        cast(AsyncSession, session),
+        guard or FakeCreationGuard(),
     )
     return service, session
 
@@ -218,3 +239,65 @@ async def test_a_write_without_a_token_issues_one_and_a_write_with_one_does_not(
 
     assert second.new_token is None
     assert [line.quantity for line in second.lines] == [2]
+
+
+async def test_a_refused_creation_inserts_nothing_and_commits_nothing() -> None:
+    repo = FakeCartRepository()
+    guard = FakeCreationGuard(allowed=0)
+    service, session = build(repo, guard)
+
+    with pytest.raises(CartCreationLimited):
+        await service.add_item(None, "v1", 1)
+
+    assert repo.carts == {}
+    assert repo.items == {}
+    assert repo.purge_limits == []
+    assert session.commits == 0
+
+
+async def test_the_cap_is_checked_once_per_new_cart_and_never_for_an_existing_one() -> (
+    None
+):
+    repo = FakeCartRepository()
+    guard = FakeCreationGuard()
+    service, _ = build(repo, guard)
+
+    first = await service.add_item(None, "v1", 1)
+    await service.add_item(first.new_token, "v1", 1)
+    await service.set_quantity(first.new_token, "v1", 3)
+
+    assert guard.calls == 1
+
+
+async def test_a_request_that_would_not_create_a_cart_does_not_spend_the_cap() -> None:
+    repo = FakeCartRepository()
+    guard = FakeCreationGuard()
+    service, _ = build(repo, guard)
+
+    with pytest.raises(ItemUnavailable):
+        await service.add_item(None, "missing", 1)
+    with pytest.raises(CartConflict):
+        await service.add_item(None, "v1", 500)
+
+    assert guard.calls == 0
+    assert repo.carts == {}
+
+
+async def test_an_expired_token_that_starts_a_new_cart_is_a_creation_too() -> None:
+    repo = FakeCartRepository()
+    guard = FakeCreationGuard(allowed=0)
+    service, _ = build(repo, guard)
+
+    with pytest.raises(CartCreationLimited):
+        await service.add_item(TOKEN, "v1", 1)
+
+    assert guard.calls == 1
+
+
+async def test_the_write_time_purge_stays_bounded() -> None:
+    repo = FakeCartRepository()
+    service, _ = build(repo)
+
+    await service.add_item(None, "v1", 1)
+
+    assert repo.purge_limits == [store_cart.EXPIRED_PURGE_LIMIT]
