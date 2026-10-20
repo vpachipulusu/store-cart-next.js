@@ -31,7 +31,11 @@ async def test_each_store_is_swept_and_one_failure_does_not_stop_the_rest(
     swept: list[str] = []
 
     async def sweep_store(
-        store_id: str, provider: SessionProvider, stripe: Any, batch: int
+        store_id: str,
+        provider: SessionProvider,
+        stripe: Any,
+        batch: int,
+        deadline: float | None = None,
     ) -> int:
         if store_id == "s2":
             raise RuntimeError("password=hunter2 host=db.internal")
@@ -163,3 +167,61 @@ async def test_a_store_backlog_is_bounded_per_run(
     await sweep_checkout_orders.sweep_store("s1", object(), None, 2)  # type: ignore[arg-type]
 
     assert calls == sweep_checkout_orders.MAX_PAGES
+
+
+async def test_the_run_stops_when_its_time_budget_is_used(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    swept: list[str] = []
+
+    async def sweep_store(*args: Any, **kwargs: Any) -> int:
+        swept.append(args[0])
+        return 0
+
+    monkeypatch.setattr(
+        sweep_checkout_orders,
+        "active_store_pages",
+        lambda provider, size: _pages(["s1", "s2"]),
+    )
+    monkeypatch.setattr(sweep_checkout_orders, "sweep_store", sweep_store)
+
+    lines, failed = await sweep_active_stores(object(), None, 2, run_seconds=-1)  # type: ignore[arg-type]
+
+    assert swept == []
+    assert failed == 0
+    assert lines == ["time budget used; the remaining stores wait for the next run"]
+
+
+async def test_a_store_stops_paging_at_the_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    async def account(store_id: str, provider: Any) -> None:
+        return None
+
+    async def full_page(*args: Any, **kwargs: Any) -> Page:
+        nonlocal calls
+        calls += 1
+        return Page(2, 0)
+
+    class FakeStore:
+        async def __aenter__(self) -> object:
+            return object()
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+    monkeypatch.setattr(sweep_checkout_orders, "connected_account", account)
+    monkeypatch.setattr(
+        sweep_checkout_orders, "sweep_expired_checkout_orders", full_page
+    )
+    monkeypatch.setattr(
+        sweep_checkout_orders,
+        "open_store_session",
+        lambda store_id, provider: FakeStore(),
+    )
+
+    await sweep_checkout_orders.sweep_store("s1", object(), None, 2, deadline=-1.0)  # type: ignore[arg-type]
+
+    assert calls == 0

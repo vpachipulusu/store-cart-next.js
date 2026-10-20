@@ -4,7 +4,8 @@
 
 The backstop for a lost ``checkout.session.expired`` event; checkout also sweeps a few orders
 of its own store each time it starts. Each store is swept page by page (``--batch-size`` orders
-per page, at most ``MAX_PAGES`` pages). An order whose Stripe session is not confirmed expired
+per page, at most ``MAX_PAGES`` pages, within a ``RUN_SECONDS`` time budget for the whole
+run, so the Stripe calls of one run are bounded). An order whose Stripe session is not confirmed expired
 is left pending (see ``store_checkout_expiry``), so STRIPE_SECRET_KEY must be set for orders
 that have a session. Safe to run at any frequency. A store that cannot be reached is reported
 and skipped, the others are still swept; the exit code is 1 if any failed. Output names stores
@@ -15,6 +16,7 @@ import argparse
 import asyncio
 import contextlib
 import sys
+import time
 from collections.abc import Sequence
 
 from sqlalchemy import select
@@ -42,7 +44,8 @@ from app.services.store_migrations import (
 )
 from app.services.store_sessions import open_store_session
 
-MAX_PAGES = 50  # per store and run: a backlog beyond this waits for the next run
+MAX_PAGES = 10  # per store and run: a backlog beyond this waits for the next run
+RUN_SECONDS = 240.0  # time budget of a run; the stores left over wait for the next one
 
 
 async def connected_account(store_id: str, provider: SessionProvider) -> str | None:
@@ -61,13 +64,16 @@ async def sweep_store(
     provider: SessionProvider,
     stripe: StripeCheckout | None,
     batch: int = SWEEP_BATCH,
+    deadline: float | None = None,
 ) -> int:
-    """Cancelled orders of one store, paging until a short page or ``MAX_PAGES``."""
+    """Cancelled orders of one store: pages until a short page, ``MAX_PAGES`` or the deadline."""
     account_id = await connected_account(store_id, provider)
     cancelled = 0
     cursor: SweepCursor | None = None
     async with open_store_session(store_id, provider) as session:
         for _ in range(MAX_PAGES):
+            if deadline is not None and time.monotonic() > deadline:
+                break
             page = await sweep_expired_checkout_orders(
                 session, stripe, account_id, batch=batch, after=cursor
             )
@@ -79,15 +85,26 @@ async def sweep_store(
 
 
 async def sweep_active_stores(
-    provider: SessionProvider, stripe: StripeCheckout | None, batch_size: int
+    provider: SessionProvider,
+    stripe: StripeCheckout | None,
+    batch_size: int,
+    run_seconds: float = RUN_SECONDS,
 ) -> tuple[list[str], int]:
-    """Report lines and the number of stores that failed."""
+    """Report lines and failed stores; stops when the time budget is used."""
     lines: list[str] = []
     failed = 0
+    deadline = time.monotonic() + run_seconds
     async for page in active_store_pages(provider, DEFAULT_BATCH_SIZE):
         for store_id in page:
+            if time.monotonic() > deadline:
+                lines.append(
+                    "time budget used; the remaining stores wait for the next run"
+                )
+                return lines, failed
             try:
-                cancelled = await sweep_store(store_id, provider, stripe, batch_size)
+                cancelled = await sweep_store(
+                    store_id, provider, stripe, batch_size, deadline
+                )
             except Exception as exc:  # noqa: BLE001 - one store must not stop the rest
                 failed += 1
                 lines.append(f"FAILED store {store_id}: {safe_reason(exc)}")

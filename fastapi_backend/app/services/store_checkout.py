@@ -205,8 +205,8 @@ class CheckoutOrders(Protocol):
 
     async def view_cart(self, token: str | None) -> CartView: ...
 
-    async def sweep(self, stripe: StripeCheckout, account_id: str | None) -> None:
-        """Best effort: cancel a few of this store's long expired pending orders."""
+    async def sweep(self) -> None:
+        """Best effort: cancel a few of this store's expired orders that have no session."""
         ...
 
     async def find_cart(self, token: str | None) -> str | None: ...
@@ -403,10 +403,14 @@ class SqlCheckoutOrders:
     async def view_cart(self, token: str | None) -> CartView:
         return await self._cart.view(token)
 
-    async def sweep(self, stripe: StripeCheckout, account_id: str | None) -> None:
+    async def sweep(self) -> None:
         try:
             await sweep_expired_checkout_orders(
-                self._session, stripe, account_id, batch=START_SWEEP_BATCH
+                self._session,
+                None,
+                None,
+                batch=START_SWEEP_BATCH,
+                with_sessions=False,
             )
         except Exception as exc:  # noqa: BLE001 - the sweep must never stop a checkout
             logger.error("checkout expiry sweep failed: %s", type(exc).__name__)
@@ -563,7 +567,7 @@ class StoreCheckoutService:
             raise PaymentsNotEnabled from None
         _check_fee_rate(target)
         async with self._open_orders(target.store_id) as orders:
-            await orders.sweep(self._stripe, target.connect.stripe_connect_account_id)
+            await orders.sweep()
             view = await orders.view_cart(token)
             if not view.lines or not view.can_checkout:
                 raise CartNotReady(CART_CHANGED)

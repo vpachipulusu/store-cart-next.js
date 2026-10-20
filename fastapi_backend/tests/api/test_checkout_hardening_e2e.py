@@ -112,7 +112,11 @@ async def add_one(client: AsyncClient, token: str, variant_id: str) -> None:
 
 
 def expired_event(
-    world: World, order_id: str, session_id: str, **changes: Any
+    world: World,
+    order_id: str,
+    session_id: str,
+    event_type: str = "checkout.session.expired",
+    **changes: Any,
 ) -> dict[str, Any]:
     request = CheckoutSessionRequest(
         account_id=ACCOUNT,
@@ -129,7 +133,7 @@ def expired_event(
         world,
         request,
         session_id,
-        event_type="checkout.session.expired",
+        event_type=event_type,
         payment_status="unpaid",
     )
     event["data"]["object"].update(changes)
@@ -382,6 +386,55 @@ async def test_an_expired_event_without_a_session_id_is_acknowledged(
     assert (await order_state(world, order_id))["status"] == "pending"
 
 
+FAILED = "checkout.session.async_payment_failed"
+
+
+async def test_a_failed_async_payment_cancels_the_order_and_frees_the_cart(
+    client: AsyncClient, world: World, stripe: FakeStripeCheckout
+) -> None:
+    token = await cart_with(client, world)
+    first = (await checkout(client, token)).json()["data"]
+    session_id = (await order_state(world, first["order_id"]))[
+        "stripe_checkout_session_id"
+    ]
+
+    response = await deliver(
+        client, expired_event(world, first["order_id"], session_id, FAILED)
+    )
+
+    assert response.status_code == 200
+    assert (await order_state(world, first["order_id"]))["status"] == "cancelled"
+    again = await checkout(client, token)  # the cart is not blocked
+    assert again.status_code == 200, again.text
+    assert again.json()["data"]["order_id"] != first["order_id"]
+
+
+async def test_the_failed_payment_event_is_idempotent_and_leaves_paid_orders_alone(
+    client: AsyncClient, world: World, stripe: FakeStripeCheckout
+) -> None:
+    order_id, session_id, request = await started(client, world, stripe)
+    await deliver(client, session_event(world, request, session_id))
+    event = expired_event(world, order_id, session_id, FAILED)
+
+    responses = [await deliver(client, event), await deliver(client, event)]
+
+    assert [r.status_code for r in responses] == [200, 200]
+    assert (await order_state(world, order_id))["status"] == "paid"
+
+
+async def test_a_failed_payment_event_for_an_unknown_session_is_acknowledged(
+    client: AsyncClient, world: World, stripe: FakeStripeCheckout
+) -> None:
+    order_id, _session_id, _request = await started(client, world, stripe)
+
+    response = await deliver(
+        client, expired_event(world, order_id, "cs_test_unknown", FAILED)
+    )
+
+    assert response.status_code == 200
+    assert (await order_state(world, order_id))["status"] == "pending"
+
+
 # --- the sweep backstop -------------------------------------------------------------------
 
 
@@ -447,7 +500,7 @@ async def test_the_sweep_leaves_an_order_stripe_cannot_verify(
     assert (await order_state(world, order_id))["status"] == "pending"
 
 
-async def test_the_sweep_cancels_an_unlinked_order_without_asking_stripe(
+async def test_the_sweep_cancels_an_unlinked_order(
     client: AsyncClient, world: World, stripe: FakeStripeCheckout
 ) -> None:
     order_id, _session_id, _request = await started(client, world, stripe)
@@ -457,12 +510,10 @@ async def test_the_sweep_cancels_an_unlinked_order_without_asking_stripe(
         id=order_id,
     )
     await age(world, order_id, 120)
-    calls = len(stripe.expired)
 
     await sweep(world, stripe)
 
     assert (await order_state(world, order_id))["status"] == "cancelled"
-    assert len(stripe.expired) == calls
 
 
 async def test_the_sweep_pages_past_orders_it_left_pending(
@@ -487,17 +538,29 @@ async def test_the_sweep_pages_past_orders_it_left_pending(
     assert (await order_state(world, held))["status"] == "pending"
 
 
-async def test_starting_a_checkout_sweeps_the_stores_stale_orders(
+async def test_starting_a_checkout_sweeps_stale_unlinked_orders_without_stripe(
     client: AsyncClient, world: World, stripe: FakeStripeCheckout
 ) -> None:
-    stale, _session_id, _request = await started(client, world, stripe)
-    await age(world, stale, 180)
+    unlinked, _s1, _r1 = await started(client, world, stripe)
+    linked, _s2, _r2 = await started(client, world, stripe)
+    await run_sql(
+        world,
+        "UPDATE orders SET stripe_checkout_session_id = NULL WHERE id = :id",
+        id=unlinked,
+    )
+    await age(world, unlinked, 180)
+    await age(world, linked, 180)
+    calls = len(stripe.expired)
     token = await cart_with(client, world)
 
     response = await checkout(client, token)
 
     assert response.status_code == 200
-    assert (await order_state(world, stale))["status"] == "cancelled"
+    assert (await order_state(world, unlinked))["status"] == "cancelled"
+    assert (await order_state(world, linked))[
+        "status"
+    ] == "pending"  # the command's job
+    assert len(stripe.expired) == calls
 
 
 # --- the merchant cancels a pending order -------------------------------------------------

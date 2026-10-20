@@ -4,6 +4,7 @@ The platform reads, the store database and Stripe are in-memory fakes; the SQL i
 ``tests/api/test_checkout_e2e.py``.
 """
 
+import itertools
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import replace
@@ -172,14 +173,12 @@ class FakeOrders:
         ] = []  # answers of find_open_checkout
         self.cart_id: str | None = "cart1"
         self.sweeps = 0
-        self.sweep_accounts: list[str | None] = []
 
     async def view_cart(self, token: str | None) -> CartView:
         return self.view
 
-    async def sweep(self, stripe: Any, account_id: str | None) -> None:
+    async def sweep(self) -> None:
         self.sweeps += 1
-        self.sweep_accounts.append(account_id)
 
     async def find_cart(self, token: str | None) -> str | None:
         return self.cart_id
@@ -774,7 +773,6 @@ async def test_start_sweeps_expired_orders_first() -> None:
     await service(orders, FakeStripeCheckout()).start(SLUG, "tok", SUCCESS, CANCEL)
 
     assert orders.sweeps == 1
-    assert orders.sweep_accounts == [ACCOUNT]
 
 
 async def test_an_unchanged_cart_gets_the_open_sessions_url_and_nothing_new() -> None:
@@ -962,7 +960,7 @@ async def test_losing_a_cancel_after_expiring_the_old_session_starts_nothing() -
 async def test_a_failed_sweep_is_logged_and_rolled_back_not_raised() -> None:
     session = BrokenSession()
 
-    await sql_orders(session).sweep(FakeStripeCheckout(), ACCOUNT)
+    await sql_orders(session).sweep()
 
     assert session.rollbacks == 1
 
@@ -1045,15 +1043,16 @@ async def test_a_session_less_order_too_close_to_its_end_is_not_resumed() -> Non
     assert (stripe.requests, stripe.expired, orders.retired) == ([], [], [])
 
 
-def test_line_items_do_not_depend_on_the_order_of_the_stored_lines() -> None:
-    mug, cap, pin = item("mug", 1000, 2), item("cap", 550, 1), item("pin", 10, 1)
+@pytest.mark.parametrize("permutation", list(itertools.permutations(range(3))), ids=str)
+def test_line_items_do_not_depend_on_the_order_of_the_stored_lines(
+    permutation: tuple[int, ...],
+) -> None:
+    items = [item("mug", 1000, 2), item("cap", 550, 1), item("pin", 10, 1)]
+    reference = build_session_request(target(), order(*items), SUCCESS, CANCEL, FUTURE)
 
-    first = build_session_request(
-        target(), order(mug, cap, pin), SUCCESS, CANCEL, FUTURE
-    )
-    replay = build_session_request(
-        target(), order(pin, mug, cap), SUCCESS, CANCEL, FUTURE
+    shuffled = build_session_request(
+        target(), order(*(items[i] for i in permutation)), SUCCESS, CANCEL, FUTURE
     )
 
-    assert first == replay
-    assert [li.name for li in first.line_items] == ["cap", "mug", "pin"]
+    assert shuffled == reference
+    assert [li.name for li in reference.line_items] == ["cap", "mug", "pin"]

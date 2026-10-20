@@ -15,6 +15,7 @@ from app.core.stripe_billing import StripeError
 from app.core.stripe_checkout import ExpireOutcome
 from app.repositories.connect_events import ConnectRoute
 from app.services.store_checkout_expiry import (
+    ENDED_EVENT_TYPES,
     SESSION_LIFETIME,
     SWEEP_GRACE,
     cancel_expired_session_order,
@@ -261,3 +262,49 @@ async def test_an_empty_page_has_no_cursor() -> None:
     page = await sweep_expired_checkout_orders(SweepSession([]), None, None)  # type: ignore[arg-type]
 
     assert (page.examined, page.cancelled, page.cursor) == (0, 0, None)
+
+
+def test_a_failed_async_payment_ends_the_order_like_an_expired_session() -> None:
+    assert set(ENDED_EVENT_TYPES) == {
+        "checkout.session.expired",
+        "checkout.session.async_payment_failed",
+    }
+
+
+async def test_the_start_sweep_reads_only_orders_without_a_session() -> None:
+    session = SweepSession([candidate("o1", None)])
+
+    page = await sweep_expired_checkout_orders(
+        session,  # type: ignore[arg-type]
+        None,
+        None,
+        batch=5,
+        with_sessions=False,
+    )
+
+    assert session.params["with_sessions"] is False
+    assert page.cancelled == 1
+
+
+async def test_a_sweep_that_verifies_reads_orders_with_sessions_too() -> None:
+    session = SweepSession([])
+
+    await sweep_expired_checkout_orders(session, None, None)  # type: ignore[arg-type]
+
+    assert session.params["with_sessions"] is True
+
+
+async def test_an_unverified_order_is_logged_with_its_id_and_the_error_class(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    session = SweepSession([candidate("o1", "cs_1")])
+    stripe = SweepStripe()
+    stripe.error = StripeError("secret detail")
+
+    with caplog.at_level("WARNING"):
+        await sweep_expired_checkout_orders(session, stripe, "acct_1")  # type: ignore[arg-type]
+
+    record = next(r for r in caplog.records if "not verified" in r.getMessage())
+    assert "StripeError" in record.getMessage()
+    assert "secret detail" not in record.getMessage()
+    assert record.order_id == "o1"  # type: ignore[attr-defined]
