@@ -60,7 +60,7 @@ Registered store handlers: `checkout.session.completed` and `checkout.session.as
 
 ## Merchant cancel (KAN-256)
 
-`POST /v1/stores/{store_id}/orders/{order_id}/cancel` (OWNER or ADMIN, ACTIVE store; see [backend-orders-api.md](backend-orders-api.md)) first makes the order's session unpayable (`POST /v1/checkout/sessions/{id}/expire` with `Stripe-Account`; a 400 is followed by a read of the session to tell `expired` from `complete`), then cancels the order. Only `pending` orders: a paid order is 409 (refunds are KAN-80). `complete` is 409 and Stripe failures are 502, in both cases the order stays `pending`.
+`POST /v1/stores/{store_id}/orders/{order_id}/cancel` (OWNER or ADMIN, ACTIVE store; see [backend-orders-api.md](backend-orders-api.md)) first makes the order's session unpayable (`POST /v1/checkout/sessions/{id}/expire` with `Stripe-Account`; a 400 is followed by a read of the session to tell `expired` from `complete`), then cancels the order. Only `pending` orders: a paid order is 409 (refunds: [backend-refunds.md](backend-refunds.md)). `complete` is 409 and Stripe failures are 502, in both cases the order stays `pending`.
 
 ## Data
 

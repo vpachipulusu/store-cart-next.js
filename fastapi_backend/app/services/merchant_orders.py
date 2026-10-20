@@ -15,6 +15,7 @@ from app.repositories.store_orders import (
     OrderItemRow,
     OrderRow,
     OrderSummaryRow,
+    RefundRow,
     StoreOrdersRepository,
 )
 from app.services.store_orders import OrderNotFound, OrderStatus, fulfil_order
@@ -36,6 +37,7 @@ class OrderPage:
 class OrderDetail:
     order: OrderRow
     items: tuple[OrderItemRow, ...]
+    refunds: tuple[RefundRow, ...] = ()
 
 
 class StoreOrdersService:
@@ -67,7 +69,8 @@ class StoreOrdersService:
         if order is None:
             raise OrderNotFound(order_id)
         items = await self._repository.list_items(order_id)
-        return OrderDetail(order=order, items=tuple(items))
+        refunds = await self._repository.list_refunds(order_id)
+        return OrderDetail(order=order, items=tuple(items), refunds=tuple(refunds))
 
     async def fulfil(
         self, order_id: str, tracking_number: str, carrier: str | None

@@ -13397,6 +13397,182 @@
         }
       }
     },
+    "/v1/stores/{store_id}/orders/{order_id}/refunds": {
+      "post": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "Refund a paid order, in full or by lines",
+        "operationId": "refund_order",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "store_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Store Id"
+            }
+          },
+          {
+            "name": "X-Internal-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Key"
+            }
+          },
+          {
+            "name": "X-Session-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefundRequestBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        }
+      }
+    },
     "/v1/stores/{store_id}/categories": {
       "get": {
         "tags": [
@@ -18104,12 +18280,23 @@
             "type": "boolean",
             "title": "Oversold"
           },
+          "refunded_minor": {
+            "type": "integer",
+            "title": "Refunded Minor"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/OrderItemData"
             },
             "type": "array",
             "title": "Items"
+          },
+          "refunds": {
+            "items": {
+              "$ref": "#/components/schemas/app__api__v1__orders__RefundData"
+            },
+            "type": "array",
+            "title": "Refunds"
           }
         },
         "type": "object",
@@ -18126,7 +18313,9 @@
           "created_at",
           "updated_at",
           "oversold",
-          "items"
+          "refunded_minor",
+          "items",
+          "refunds"
         ],
         "title": "OrderData"
       },
@@ -19705,55 +19894,28 @@
         ],
         "title": "ReadyResponse"
       },
-      "RefundData": {
+      "RefundItemRequest": {
         "properties": {
-          "organization_id": {
+          "order_item_id": {
             "type": "string",
-            "title": "Organization Id"
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Order Item Id"
           },
-          "refund_id": {
-            "type": "string",
-            "title": "Refund Id"
-          },
-          "charge_id": {
-            "type": "string",
-            "title": "Charge Id"
-          },
-          "amount": {
+          "quantity": {
             "type": "integer",
-            "title": "Amount"
-          },
-          "currency": {
-            "type": "string",
-            "title": "Currency"
-          },
-          "status": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Status"
-          },
-          "already_applied": {
-            "type": "boolean",
-            "title": "Already Applied"
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Quantity"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
-          "organization_id",
-          "refund_id",
-          "charge_id",
-          "amount",
-          "currency",
-          "status",
-          "already_applied"
+          "order_item_id",
+          "quantity"
         ],
-        "title": "RefundData"
+        "title": "RefundItemRequest"
       },
       "RefundRequest": {
         "properties": {
@@ -19793,6 +19955,34 @@
         ],
         "title": "RefundRequest"
       },
+      "RefundRequestBody": {
+        "properties": {
+          "items": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/RefundItemRequest"
+                },
+                "type": "array",
+                "maxItems": 100,
+                "minItems": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Items"
+          },
+          "restock": {
+            "type": "boolean",
+            "title": "Restock",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "RefundRequestBody"
+      },
       "RefundResponse": {
         "properties": {
           "success": {
@@ -19802,7 +19992,7 @@
             "default": true
           },
           "data": {
-            "$ref": "#/components/schemas/RefundData"
+            "$ref": "#/components/schemas/app__api__v1__admin_subscriptions__RefundData"
           }
         },
         "type": "object",
@@ -21635,6 +21825,120 @@
           "token"
         ],
         "title": "VerificationRequest"
+      },
+      "app__api__v1__admin_subscriptions__RefundData": {
+        "properties": {
+          "organization_id": {
+            "type": "string",
+            "title": "Organization Id"
+          },
+          "refund_id": {
+            "type": "string",
+            "title": "Refund Id"
+          },
+          "charge_id": {
+            "type": "string",
+            "title": "Charge Id"
+          },
+          "amount": {
+            "type": "integer",
+            "title": "Amount"
+          },
+          "currency": {
+            "type": "string",
+            "title": "Currency"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "already_applied": {
+            "type": "boolean",
+            "title": "Already Applied"
+          }
+        },
+        "type": "object",
+        "required": [
+          "organization_id",
+          "refund_id",
+          "charge_id",
+          "amount",
+          "currency",
+          "status",
+          "already_applied"
+        ],
+        "title": "RefundData"
+      },
+      "app__api__v1__orders__RefundData": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "amount_minor": {
+            "type": "integer",
+            "title": "Amount Minor"
+          },
+          "currency": {
+            "type": "string",
+            "title": "Currency"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "restock": {
+            "type": "boolean",
+            "title": "Restock"
+          },
+          "restocked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restocked At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "amount_minor",
+          "currency",
+          "status",
+          "restock",
+          "restocked_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "RefundData",
+        "description": "One refund of the order; ``pending`` until Stripe confirms it (KAN-80)."
       }
     }
   }

@@ -35,6 +35,7 @@ from app.services.store_checkout_expiry import (
     ENDED_EVENT_TYPES,
     checkout_expired_handler,
 )
+from app.services.store_refunds import REFUND_EVENT_TYPES, refund_event_handler
 from app.services.store_sessions import open_store_session
 from app.services.stripe_connect import (
     ConnectWebhookService,
@@ -52,13 +53,18 @@ class WebhookAck(BaseModel):
 
 
 def store_event_handlers(provider: SessionProvider) -> dict[str, StoreEventHandler]:
-    """Payment confirmation (KAN-68), session expiry and failed async payment (KAN-256)."""
+    """Payment confirmation (KAN-68), session expiry and failed async payment (KAN-256),
+    and refund results (KAN-80)."""
     ended = checkout_expired_handler(
+        lambda store_id: open_store_session(store_id, provider)
+    )
+    refunds = refund_event_handler(
         lambda store_id: open_store_session(store_id, provider)
     )
     return {
         **connect_store_handlers(provider),
         **dict.fromkeys(ENDED_EVENT_TYPES, ended),
+        **dict.fromkeys(REFUND_EVENT_TYPES, refunds),
     }
 
 
