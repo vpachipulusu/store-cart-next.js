@@ -47,10 +47,16 @@ export function failure(error: string, status: number): Response {
 export async function guardStoreRequest(
   request: Request,
   slug: string,
-  options: { write: boolean }
+  options: { write: boolean; requireSameOrigin?: boolean }
 ): Promise<Response | null> {
   if ((await headers()).get(STORE_SLUG_HEADER) !== slug) return failure('Store not found', 404);
   if (!options.write) return null;
+  // Checkout only: a browser that sends Fetch Metadata must say the request is from this very origin. Sibling store
+  // subdomains are `same-site`, so this closes the gap the missing-Origin allowance leaves. Cart writes are unchanged.
+  const fetchSite = request.headers.get('sec-fetch-site');
+  if (options.requireSameOrigin && fetchSite !== null && fetchSite !== 'same-origin') {
+    return failure('Request not allowed', 403);
+  }
   const origin = request.headers.get('origin');
   if (origin !== null) {
     let originHost: string | null = null;

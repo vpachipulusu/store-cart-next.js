@@ -125,6 +125,11 @@ export function basketMetadata(): Metadata {
   return { title: 'Basket', robots: { index: false, follow: false } };
 }
 
+/** The checkout return pages (KAN-77): never indexed. */
+export function checkoutReturnMetadata(title: string): Metadata {
+  return { title, robots: { index: false, follow: false } };
+}
+
 /** Major-unit decimal string for structured data ("12.50"); exponent from the currency. */
 function decimalPrice(minor: number, currency: string): string {
   let digits = 2;
