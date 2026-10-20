@@ -15,8 +15,11 @@ ORM model for store tables; the SQL is explicit and every value is a bound param
 * Checkout (KAN-68) prices its orders with the store settings in ``store_checkout`` and
   writes them with ``insert_order``; ``link_checkout_session`` and ``mark_checkout_paid``
   tie an order to its Stripe Checkout Session and confirm it at most once.
+* Stock (KAN-72) is taken only when ``mark_checkout_paid`` moves an order to ``paid``, in
+  the same transaction, so a retry never takes it twice. See ``take_paid_stock``.
 """
 
+import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -27,6 +30,9 @@ from sqlalchemy import RowMapping, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ids import new_id
+from app.core.sentry import report_exception
+
+logger = logging.getLogger(__name__)
 
 CURRENCY_LENGTH = 3
 MAX_LINES = 100
@@ -398,6 +404,10 @@ async def fulfil_order(
     raise InvalidOrderTransition(OrderStatus(current), OrderStatus.FULFILLED)
 
 
+class OversoldOrder(Exception):
+    """A paid order the stock could not cover in full (Sentry only; the order stays paid)."""
+
+
 class PaymentOutcome(StrEnum):
     PAID = "paid"  # this call moved the order to paid
     ALREADY_PAID = "already_paid"  # an earlier delivery did; nothing changed
@@ -424,6 +434,15 @@ _MARK_PAID_SQL = text(
     " AND total_minor = :amount AND currency = :currency "
     "RETURNING id"
 )
+_PAID_LINES_SQL = text(
+    "SELECT id, variant_id, quantity FROM order_items WHERE order_id = :id "
+    "ORDER BY variant_id NULLS LAST, id"
+)
+_TAKE_STOCK_SQL = text(
+    "UPDATE variants SET stock = stock - :quantity, updated_at = now() "
+    "WHERE id = :variant_id AND stock >= :quantity RETURNING id"
+)
+_FLAG_OVERSOLD_SQL = text("UPDATE orders SET oversold = true WHERE id = :id")
 _PAYMENT_STATE_SQL = text(
     "SELECT paid_at, stripe_checkout_session_id FROM orders WHERE id = :id"
 )
@@ -440,6 +459,39 @@ async def link_checkout_session(
         )
     ).first()
     return linked is not None
+
+
+async def take_paid_stock(session: AsyncSession, order_id: str) -> bool:
+    """Take the quantities of a just-paid order from stock; true when every line was covered.
+
+    One conditional ``UPDATE`` per line (``stock >= quantity``), never a read then a write,
+    so concurrent orders cannot take stock below zero: a loser waits on the row lock and
+    re-checks the new value. Lines go in variant order so two orders cannot deadlock. A line
+    that stock cannot cover (or whose variant was deleted) is left untaken and the order is
+    flagged ``oversold``; it stays ``paid`` because the shopper has been charged. Does not
+    commit, and must run only in the transaction that moved the order to ``paid``.
+    """
+    lines = (await session.execute(_PAID_LINES_SQL, {"id": order_id})).mappings().all()
+    short: list[str] = []
+    for line in lines:
+        taken = (
+            await session.execute(
+                _TAKE_STOCK_SQL,
+                {"variant_id": line["variant_id"], "quantity": line["quantity"]},
+            )
+        ).first()
+        if taken is None:
+            short.append(line["id"])
+    if not short:
+        return True
+    await session.execute(_FLAG_OVERSOLD_SQL, {"id": order_id})
+    logger.error(
+        "paid order oversold: stock did not cover %d line(s)",
+        len(short),
+        extra={"order_id": order_id, "item_ids": short},
+    )
+    report_exception(OversoldOrder(order_id))
+    return False
 
 
 async def mark_checkout_paid(
@@ -477,6 +529,7 @@ async def mark_checkout_paid(
         )
     ).first()
     if moved is not None:
+        await take_paid_stock(session, order_id)
         return PaymentOutcome.PAID
     state = (
         (await session.execute(_PAYMENT_STATE_SQL, {"id": order_id}))

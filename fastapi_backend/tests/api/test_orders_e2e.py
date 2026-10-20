@@ -199,6 +199,27 @@ async def test_detail_returns_totals_and_the_purchase_snapshot(
     assert item["sku"].startswith("SKU-")
     assert data["tracking_number"] is None
     assert data["fulfilled_at"] is None
+    assert data["oversold"] is False
+
+
+async def test_an_oversold_order_is_flagged_in_detail_and_list(
+    client: AsyncClient, world: World
+) -> None:
+    store = north(world)
+    oversold_id = await place_order(client, world, store)
+    normal_id = await place_order(client, world, store)
+    async with open_store_session(store, world.provider) as session:
+        await session.execute(
+            text("UPDATE orders SET oversold = true WHERE id = :i"), {"i": oversold_id}
+        )
+        await session.commit()
+
+    detail = await client.get(orders_url(store, f"/{oversold_id}"), headers=ALICE)
+    listing = await client.get(orders_url(store), headers=ALICE)
+
+    assert detail.json()["data"]["oversold"] is True
+    flags = {row["id"]: row["oversold"] for row in listing.json()["data"]}
+    assert (flags[oversold_id], flags[normal_id]) == (True, False)
 
 
 async def test_an_unknown_order_is_a_fixed_404(

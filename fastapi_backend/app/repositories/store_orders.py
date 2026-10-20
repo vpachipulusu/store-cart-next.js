@@ -24,6 +24,7 @@ class OrderSummaryRow:
     created_at: datetime
     updated_at: datetime
     item_count: int
+    oversold: bool
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,7 @@ class OrderRow:
     fulfilled_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    oversold: bool
 
 
 @dataclass(frozen=True)
@@ -56,7 +58,7 @@ class OrderItemRow:
 _LIST_SQL = text(
     """
     SELECT o.id, o.status, o.currency, o.total_minor, o.tracking_number, o.carrier,
-           o.fulfilled_at, o.created_at, o.updated_at,
+           o.fulfilled_at, o.created_at, o.updated_at, o.oversold,
            CAST((SELECT COALESCE(sum(i.quantity), 0) FROM order_items i
                   WHERE i.order_id = o.id) AS bigint) AS item_count
       FROM orders o
@@ -71,7 +73,7 @@ _COUNT_SQL = text(
 )
 _ORDER_SQL = text(
     "SELECT id, status, currency, subtotal_minor, tax_minor, total_minor,"
-    " tracking_number, carrier, fulfilled_at, created_at, updated_at "
+    " tracking_number, carrier, fulfilled_at, created_at, updated_at, oversold "
     "FROM orders WHERE id = :id"
 )
 _ITEMS_SQL = text(

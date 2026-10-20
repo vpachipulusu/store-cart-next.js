@@ -1704,6 +1704,10 @@ export type OrderData = {
      */
     updated_at: string;
     /**
+     * Oversold
+     */
+    oversold: boolean;
+    /**
      * Items
      */
     items: Array<OrderItemData>;
@@ -1822,6 +1826,10 @@ export type OrderSummaryData = {
      * Updated At
      */
     updated_at: string;
+    /**
+     * Oversold
+     */
+    oversold: boolean;
 };
 
 /**

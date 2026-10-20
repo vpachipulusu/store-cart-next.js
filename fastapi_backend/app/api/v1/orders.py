@@ -11,7 +11,8 @@ Session first (502 when Stripe cannot be reached, 409 when the shopper already p
 Errors are curated: 404 for an unknown order, 409 when the order cannot be fulfilled from its
 current status (the message does not name the status), 422 for invalid tracking text. Bodies
 reject unknown fields. Responses carry ``Cache-Control: no-store``. Money is integer minor
-units in the currency stored on the order.
+units in the currency stored on the order. ``oversold`` (KAN-72) marks a paid order whose stock
+could not cover every line: the shopper was charged, so the merchant fulfils late or refunds.
 """
 
 import logging
@@ -160,6 +161,7 @@ class OrderSummaryData(BaseModel):
     fulfilled_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    oversold: bool
 
 
 class OrderData(BaseModel):
@@ -174,6 +176,7 @@ class OrderData(BaseModel):
     fulfilled_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    oversold: bool
     items: list[OrderItemData]
 
 
