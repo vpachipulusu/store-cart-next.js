@@ -22,11 +22,16 @@ from sqlalchemy import text
 from app.api.v1.order_refunds import get_stripe_refunds_client
 from app.core.config import settings
 from app.core.ids import new_id
-from app.core.stripe_billing import StripeError, StripeRejected
+from app.core.stripe_billing import StripeConflict, StripeError, StripeRejected
 from app.core.stripe_refunds import RefundRequest, StripeRefund
 from app.core.stripe_signature import compute_signature
 from app.services.store_migrations import migrate_store
-from app.services.store_orders import OrderLineInput, create_order, mark_checkout_paid
+from app.services.store_orders import (
+    OrderLineInput,
+    create_order,
+    fulfil_order,
+    mark_checkout_paid,
+)
 from app.services.store_sessions import open_store_session
 from tests.api.products_support import (
     as_user,
@@ -657,3 +662,213 @@ async def test_a_late_failure_after_success_is_not_applied(
     assert await status_of(world, order_id) == "refunded"
     assert await stock_of(world, variant_id) == 10
     assert [r[0] for r in await refund_rows(world, order_id)] == ["succeeded"]
+
+
+# --- retries: Idempotency-Key and a refund Stripe never confirmed ------------------------
+
+
+async def age_refunds(world: World, order_id: str) -> None:
+    async with open_store_session(north(world), world.provider) as session:
+        await session.execute(
+            text(
+                "UPDATE order_refunds SET created_at = now() - interval '10 minutes'"
+                " WHERE order_id = :o"
+            ),
+            {"o": order_id},
+        )
+        await session.commit()
+
+
+def keyed(key: str) -> dict[str, str]:
+    return {**ALICE, "Idempotency-Key": key}
+
+
+async def test_a_repeated_request_with_the_same_key_refunds_once(
+    client: AsyncClient, world: World, stripe: FakeStripeRefunds
+) -> None:
+    order_id, _, item_id = await paid_order(client, world, quantity=3)
+    body = {"items": [{"order_item_id": item_id, "quantity": 1}], "restock": True}
+
+    first = await refund(client, world, order_id, body, keyed("k-1"))
+    second = await refund(client, world, order_id, body, keyed("k-1"))
+
+    assert (first.status_code, second.status_code) == (200, 200)
+    assert len(first.json()["data"]["refunds"]) == 1
+    assert (
+        second.json()["data"]["refunds"][0]["id"]
+        == first.json()["data"]["refunds"][0]["id"]
+    )
+    assert len(stripe.requests) == 1
+    assert len(await refund_rows(world, order_id)) == 1
+
+
+async def test_a_key_used_for_a_different_refund_is_refused(
+    client: AsyncClient, world: World, stripe: FakeStripeRefunds
+) -> None:
+    order_id, _, item_id = await paid_order(client, world, quantity=3)
+    await refund(
+        client,
+        world,
+        order_id,
+        {"items": [{"order_item_id": item_id, "quantity": 1}]},
+        keyed("k-2"),
+    )
+
+    other = await refund(
+        client,
+        world,
+        order_id,
+        {"items": [{"order_item_id": item_id, "quantity": 2}]},
+        keyed("k-2"),
+    )
+
+    assert other.status_code == 409
+    assert len(stripe.requests) == 1
+
+
+async def test_the_same_key_on_another_order_is_independent(
+    client: AsyncClient, world: World, stripe: FakeStripeRefunds
+) -> None:
+    first, _, _ = await paid_order(client, world)
+    second, _, _ = await paid_order(client, world)
+
+    a = await refund(client, world, first, headers=keyed("shared"))
+    b = await refund(client, world, second, headers=keyed("shared"))
+
+    assert (a.status_code, b.status_code) == (200, 200)
+    assert len(stripe.requests) == 2
+
+
+@pytest.mark.parametrize("key", ["", "has space", "x" * 65, "bad/slash"])
+async def test_a_malformed_key_is_a_422(
+    client: AsyncClient, world: World, stripe: FakeStripeRefunds, key: str
+) -> None:
+    order_id, _, _ = await paid_order(client, world)
+
+    response = await refund(client, world, order_id, headers=keyed(key))
+
+    assert response.status_code == 422
+    assert stripe.requests == []
+
+
+async def test_a_retry_after_a_502_asks_stripe_again_and_settles_the_refund(
+    client: AsyncClient, world: World, stripe: FakeStripeRefunds
+) -> None:
+    order_id, variant_id, _ = await paid_order(client, world, quantity=3)
+    stripe.error = StripeError("down")
+    failed = await refund(client, world, order_id, {"restock": True}, keyed("k-3"))
+    assert failed.status_code == 502
+    stripe.error = None
+    stripe.status = "succeeded"
+    await age_refunds(world, order_id)
+
+    retry = await refund(client, world, order_id, {"restock": True}, keyed("k-3"))
+
+    assert retry.status_code == 200, retry.text
+    assert retry.json()["data"]["status"] == "refunded"
+    assert len(stripe.requests) == 2  # the same refund id, so the same idempotency key
+    assert len({r.refund_id for r in stripe.requests}) == 1
+    assert len(await refund_rows(world, order_id)) == 1
+    assert await stock_of(world, variant_id) == 10
+
+
+async def test_a_new_request_also_resends_an_old_unconfirmed_refund(
+    client: AsyncClient, world: World, stripe: FakeStripeRefunds
+) -> None:
+    order_id, _, item_id = await paid_order(client, world, quantity=3)
+    stripe.error = StripeError("down")
+    await refund(
+        client, world, order_id, {"items": [{"order_item_id": item_id, "quantity": 1}]}
+    )
+    stripe.error = None
+    stripe.status = "succeeded"
+    await age_refunds(world, order_id)
+
+    again = await refund(
+        client, world, order_id, {"items": [{"order_item_id": item_id, "quantity": 2}]}
+    )
+
+    assert again.status_code == 200, again.text
+    assert [r[0] for r in await refund_rows(world, order_id)] == [
+        "succeeded",
+        "succeeded",
+    ]
+    assert again.json()["data"]["status"] == "refunded"
+
+
+async def test_a_young_unconfirmed_refund_is_left_alone(
+    client: AsyncClient, world: World, stripe: FakeStripeRefunds
+) -> None:
+    order_id, _, _ = await paid_order(client, world)
+    stripe.error = StripeError("down")
+    await refund(client, world, order_id, headers=keyed("k-4"))
+    stripe.error = None
+
+    retry = await refund(client, world, order_id, headers=keyed("k-4"))
+
+    assert retry.status_code == 200
+    assert len(stripe.requests) == 1  # still in its grace period: not sent again
+
+
+async def test_a_call_still_in_flight_at_stripe_is_a_502_and_stays_pending(
+    client: AsyncClient, world: World, stripe: FakeStripeRefunds
+) -> None:
+    order_id, _, _ = await paid_order(client, world)
+    stripe.error = StripeConflict("in flight")
+
+    response = await refund(client, world, order_id)
+
+    assert response.status_code == 502
+    assert [r[0] for r in await refund_rows(world, order_id)] == ["pending"]
+
+
+@pytest.mark.parametrize("status", ["failed", "canceled"])
+async def test_a_refund_stripe_fails_at_once_is_a_409_and_frees_the_order(
+    client: AsyncClient, world: World, stripe: FakeStripeRefunds, status: str
+) -> None:
+    order_id, variant_id, _ = await paid_order(client, world)
+    stripe.status = status
+
+    response = await refund(client, world, order_id, {"restock": True})
+
+    assert response.status_code == 409
+    assert [r[0] for r in await refund_rows(world, order_id)] == ["failed"]
+    assert await stock_of(world, variant_id) == 7
+    stripe.status = "succeeded"
+    assert (await refund(client, world, order_id)).status_code == 200
+
+
+async def test_a_fulfilled_order_ends_refunded(
+    client: AsyncClient, world: World, stripe: FakeStripeRefunds
+) -> None:
+    stripe.status = "succeeded"
+    order_id, _, _ = await paid_order(client, world)
+    async with open_store_session(north(world), world.provider) as session:
+        await fulfil_order(session, order_id, "TRK-1")
+        await session.commit()
+
+    response = await refund(client, world, order_id)
+
+    assert response.status_code == 200
+    assert response.json()["data"]["status"] == "refunded"
+
+
+async def test_an_event_that_breaks_a_constraint_is_acknowledged_and_ignored(
+    client: AsyncClient, world: World, stripe: FakeStripeRefunds
+) -> None:
+    first_order, _, _ = await paid_order(client, world)
+    await refund(client, world, first_order)  # pending with a Stripe id
+    taken = stripe.by_refund[stripe.requests[-1].refund_id]
+    second_order, _, _ = await paid_order(client, world)
+    stripe.error = StripeError("down")
+    await refund(client, world, second_order)  # pending, no Stripe id
+    stripe.error = None
+    sent = stripe.requests[-1]
+    # Stripe's event for the second refund carries the id the first already holds.
+    event = refund_event(world, sent, StripeRefund(taken.id, "succeeded"))
+
+    response = await deliver(client, event)
+
+    assert response.status_code == 200
+    assert [r[0] for r in await refund_rows(world, second_order)] == ["pending"]
+    assert await status_of(world, second_order) == "paid"

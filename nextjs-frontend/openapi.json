@@ -13427,6 +13427,25 @@
             }
           },
           {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
             "name": "X-Internal-Key",
             "in": "header",
             "required": false,
@@ -13547,7 +13566,7 @@
             "description": "Not refundable, more than remains, no connected payment account, or refused by the payment provider. Nothing was refunded."
           },
           "502": {
-            "description": "The outcome is unknown: the refund may still happen. Do not repeat the request; read the order and its `refunds`."
+            "description": "The outcome is unknown: the refund may still happen. Retry with the same `Idempotency-Key` (it returns the refund already made, and asks the payment provider again for one it never confirmed), or read the order's `refunds`."
           }
         }
       }

@@ -17,6 +17,9 @@ writes the new columns, and the defaults fill them.
   ``failed``, which releases the amount). ``stripe_refund_id`` is unique: one Stripe refund
   settles one row. ``restock`` is the merchant's per-refund choice (default off) and
   ``restocked_at`` marks that the restock was applied, in the same transaction that settled it.
+* ``order_refunds.client_key`` is the caller's ``Idempotency-Key`` (unique per order): a retried
+  request returns the refund it already made. ``order_id`` and ``order_item_id`` references
+  are ``RESTRICT``: a financial record is never removed by deleting its order or line.
 * ``order_refund_items`` holds the lines (order item and quantity) a refund covers; a full
   refund lists every remaining line.
 
@@ -66,7 +69,7 @@ def upgrade() -> None:
             "order_id",
             sa.String(),
             sa.ForeignKey(
-                "orders.id", ondelete="CASCADE", name="fk_order_refunds_order"
+                "orders.id", ondelete="RESTRICT", name="fk_order_refunds_order"
             ),
             nullable=False,
         ),
@@ -76,6 +79,7 @@ def upgrade() -> None:
         sa.Column("restock", sa.Boolean(), server_default=sa.false(), nullable=False),
         sa.Column("restocked_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("stripe_refund_id", sa.String(), nullable=True),
+        sa.Column("client_key", sa.String(), nullable=True),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -100,6 +104,10 @@ def upgrade() -> None:
             name="ck_order_refunds_stripe_refund_id",
         ),
         sa.CheckConstraint(
+            "client_key IS NULL OR char_length(client_key) BETWEEN 1 AND 64",
+            name="ck_order_refunds_client_key",
+        ),
+        sa.CheckConstraint(
             "restocked_at IS NULL OR (restock AND status = 'succeeded')",
             name="ck_order_refunds_restocked_at",
         ),
@@ -112,6 +120,14 @@ def upgrade() -> None:
         ["stripe_refund_id"],
         unique=True,
         postgresql_where=sa.text("stripe_refund_id IS NOT NULL"),
+    )
+    # A client retry with the same key finds its refund instead of making another.
+    op.create_index(
+        "uq_order_refunds_order_client_key",
+        "order_refunds",
+        ["order_id", "client_key"],
+        unique=True,
+        postgresql_where=sa.text("client_key IS NOT NULL"),
     )
 
     op.create_table(
@@ -130,7 +146,7 @@ def upgrade() -> None:
             "order_item_id",
             sa.String(),
             sa.ForeignKey(
-                "order_items.id", ondelete="CASCADE", name="fk_order_refund_items_item"
+                "order_items.id", ondelete="RESTRICT", name="fk_order_refund_items_item"
             ),
             nullable=False,
         ),

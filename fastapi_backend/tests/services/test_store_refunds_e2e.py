@@ -695,3 +695,26 @@ async def test_a_refunded_order_cannot_be_refunded_again(
 
     with pytest.raises(RefundNotAllowed):
         await _reserve(world, shop, order_id)
+
+
+async def test_restocked_at_is_set_only_when_something_was_returned(
+    world: World,  # noqa: F811
+    shop: Shop,
+) -> None:
+    taken = await _paid_order(world, shop, [(shop.a, 1)])
+    untaken = await _paid_order(world, shop, [(shop.scarce, 2)])  # not taken: oversold
+
+    for order_id in (taken, untaken):
+        plan = await _reserve(world, shop, order_id, restock=True)
+        await _settle(world, shop, plan.id)
+
+    async with open_store_session(shop.store_id, world.provider) as session:
+        rows = await session.execute(
+            text(
+                "SELECT order_id, restocked_at IS NOT NULL FROM order_refunds"
+                " WHERE order_id IN (:a, :b)"
+            ),
+            {"a": taken, "b": untaken},
+        )
+        flags = {row[0]: row[1] for row in rows}
+    assert flags == {taken: True, untaken: False}

@@ -23,7 +23,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr
 
 from app.api.auth import require_internal_key
@@ -82,6 +82,18 @@ router = APIRouter(
 logger = logging.getLogger(__name__)
 
 NOT_CONFIGURED = "Payments are not configured"
+MAX_KEY_LENGTH = 64
+# Sent by the client, one per refund it intends to make; a retry with the same key returns that
+# refund instead of making another.
+IdempotencyKey = Annotated[
+    str | None,
+    Header(
+        alias="Idempotency-Key",
+        min_length=1,
+        max_length=MAX_KEY_LENGTH,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    ),
+]
 
 
 class RefundItemRequest(BaseModel):
@@ -166,7 +178,8 @@ def refund_http_error(error: OrderError) -> HTTPException:
     if isinstance(error, RefundUnavailable):
         return HTTPException(
             502,
-            "The refund could not be confirmed. Check the order before trying again.",
+            "The refund could not be confirmed. Retry with the same Idempotency-Key, or "
+            "read the order's refunds.",
             headers=NO_STORE,
         )
     return HTTPException(500, "Internal server error", headers=NO_STORE)
@@ -183,8 +196,10 @@ def refund_http_error(error: OrderError) -> HTTPException:
         },
         422: {"description": "Invalid lines or quantities."},
         502: {
-            "description": "The outcome is unknown: the refund may still happen. Do not "
-            "repeat the request; read the order and its `refunds`."
+            "description": "The outcome is unknown: the refund may still happen. Retry "
+            "with the same `Idempotency-Key` (it returns the refund already made, and "
+            "asks the payment provider again for one it never confirmed), or read the "
+            "order's `refunds`."
         },
     },
 )
@@ -193,6 +208,7 @@ async def refund_order(
     body: RefundRequestBody,
     response: Response,
     service: RefundService,
+    idempotency_key: IdempotencyKey = None,
 ) -> OrderResponse:
     no_store(response)
     lines = (
@@ -201,7 +217,9 @@ async def refund_order(
         else [RefundLineInput(i.order_item_id, i.quantity) for i in body.items]
     )
     try:
-        detail = await service.refund(order_id, lines, restock=body.restock)
+        detail = await service.refund(
+            order_id, lines, restock=body.restock, client_key=idempotency_key
+        )
     except OrderError as error:
         raise refund_http_error(error) from None
     return order_response(detail)

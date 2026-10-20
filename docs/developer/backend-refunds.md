@@ -17,13 +17,16 @@ limit (same access as fulfil).
 - `items` omitted: refund everything that remains, shipping included. With `items`: those lines only (shipping is
   refunded by a full refund only). Each line's amount is `unit_price × q` plus, when prices exclude tax, `tax × q ÷ line
   quantity` taken cumulatively, so the parts of a line add up to the line to the minor unit.
+- `Idempotency-Key` header (optional, 1-64 of `A-Za-z0-9._:-`; send one per refund you intend to make): a repeat
+  with the same key on the same order returns the refund already made (no second refund, no second Stripe call),
+  whatever the order's status is by then. The same key with different `items` is a 409. Keys are per order.
 - `restock` (strict boolean, **default false**) is the merchant's choice per refund. Only when true are the refunded
   quantities returned to variant stock.
 - Response: the order (`OrderData`) with `refunded_minor` (sum of succeeded refunds) and `refunds[]` (`id`,
   `amount_minor`, `currency`, `status` `pending|succeeded|failed`, `restock`, `restocked_at`, timestamps).
 - Errors: 404 unknown order or store; 403 STAFF; 409 not paid, no payment, more than remains, nothing left, or refused
-  by Stripe; 422 invalid lines (an item of another order, duplicates, quantity); 502 the outcome is unknown (do not
-  repeat the request, read the order); 409 also when the organisation has no connected account; 503 Stripe not configured.
+  by Stripe; 422 invalid lines (an item of another order, duplicates, quantity); 502 the outcome is unknown (retry with the same
+  `Idempotency-Key`, or read the order's `refunds[]`; see Recovery); 409 also when the organisation has no connected account; 503 Stripe not configured.
 
 ## Life of a refund
 
@@ -38,6 +41,12 @@ limit (same access as fulfil).
    the API response and the webhook can race, and a replayed or concurrent event changes nothing. `succeeded`: restock
    (if asked) in the same transaction, and the order moves to `refunded` when succeeded refunds add up to its total.
    `failed`/`canceled`, or a definite refusal when asking Stripe: the refund becomes `failed` and frees what it held.
+
+**Recovery.** Every refund request first asks Stripe again (same refund id, so the same idempotency key) for this
+order's pending refunds that Stripe never confirmed and are older than 60 seconds, and settles them with the answer.
+So after a 502, retrying the request (with the same key) or making any later refund request on the order heals a
+refund whose call never reached Stripe, instead of leaving its units and money held for ever. A refund younger than
+60 seconds may still be in flight and is left alone.
 
 An unknown outcome (timeout, 5xx, in-flight idempotency key) leaves the refund `pending` and returns 502: the refund may
 still happen, so nothing is released. If Stripe did create it, the webhook settles it. A webhook must agree with our row
@@ -64,15 +73,15 @@ the Stripe **Connect** webhook endpoint.
 
 ## Known limits
 
-- A refund made in the Stripe dashboard has no `refund_id` metadata and is acknowledged and ignored (the order is not
-  updated).
-- A refund stuck `pending` because Stripe never created it (outcome unknown, no webhook) stays reserved and blocks
-  those units and that money: there is no retry, cancel or reconcile path yet. Re-sending with the same refund id is safe
-  (the idempotency key is the refund id), so a retry endpoint or sweeper is the follow-up (sized work, owner decides).
+- A pending refund that Stripe never confirmed is only re-sent when a request for the same order arrives (see
+  Recovery); there is no background sweeper, so an order nobody touches keeps those units held.
+- Stripe refunds made outside this API (the Stripe dashboard) are not reconciled: they carry no `refund_id` metadata, so
+  the event is acknowledged and ignored and the order is not updated.
 - A refund that Stripe fails after reporting success is not reversed: the event is not applied and goes to Sentry
   (`UnappliedRefundEvent`) for a person to resolve.
-- Orders paid between the `0010` deploy and `0011` took stock but have `stock_taken = 0`, so refunding them with
-  `restock` returns nothing; restock those by hand.
+- No backfill of `stock_taken`: the migration cannot tell orders paid before the `0010` release (which never took
+  stock) from those paid after it, and guessing would restock stock that was never taken. Existing lines keep
+  `stock_taken = 0`, so refunding an order paid before `0011` with `restock` returns nothing; restock those by hand.
 - No `refund_application_fee`: the platform keeps its fee on refunded payments.
 
 Tests: `tests/services/test_store_refunds_e2e.py` (reserve, settle, restock, concurrency, oversold, deleted

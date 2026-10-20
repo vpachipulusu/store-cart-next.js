@@ -32,6 +32,7 @@ from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ids import new_id
@@ -84,6 +85,7 @@ class RefundPlan:
     currency: str
     payment_intent_id: str
     restock: bool
+    replayed: bool = False  # the caller's Idempotency-Key found this refund already
 
 
 _LOCK_ORDER_SQL = text(
@@ -104,8 +106,8 @@ _HELD_AMOUNT_SQL = text(
     "WHERE order_id = :id AND status <> 'failed'"
 )
 _INSERT_REFUND_SQL = text(
-    "INSERT INTO order_refunds (id, order_id, amount_minor, currency, restock) "
-    "VALUES (:id, :order_id, :amount, :currency, :restock)"
+    "INSERT INTO order_refunds (id, order_id, amount_minor, currency, restock, client_key) "
+    "VALUES (:id, :order_id, :amount, :currency, :restock, :client_key)"
 )
 _INSERT_REFUND_ITEM_SQL = text(
     "INSERT INTO order_refund_items (refund_id, order_item_id, quantity) "
@@ -154,8 +156,13 @@ async def reserve_refund(
     lines: Sequence[RefundLineInput] | None,
     *,
     restock: bool = False,
+    client_key: str | None = None,
 ) -> RefundPlan:
     """Insert a ``pending`` refund of ``lines`` (None: everything that remains). Does not commit.
+
+    With a ``client_key`` (the caller's ``Idempotency-Key``), a refund already made under that key
+    on this order is returned (``replayed``) and nothing is inserted, whatever the order's
+    status is by now.
 
     Raises ``OrderNotFound``, ``InvalidOrder`` (bad lines) or ``RefundNotAllowed`` (not paid,
     no payment to refund, or more than remains).
@@ -169,9 +176,13 @@ async def reserve_refund(
     )
     if order is None:
         raise OrderNotFound(order_id)
+    payment_intent = order["stripe_payment_intent_id"]
+    if client_key is not None:
+        replay = await _replayed(session, order_id, client_key, lines, payment_intent)
+        if replay is not None:
+            return replay
     if order["status"] not in REFUNDABLE_STATUSES:
         raise RefundNotAllowed("Only a paid order can be refunded")
-    payment_intent = order["stripe_payment_intent_id"]
     if payment_intent is None:
         raise RefundNotAllowed("This order has no payment to refund")
 
@@ -224,6 +235,7 @@ async def reserve_refund(
             "amount": amount,
             "currency": order["currency"],
             "restock": restock,
+            "client_key": client_key,
         },
     )
     if chosen:
@@ -242,6 +254,93 @@ async def reserve_refund(
         payment_intent_id=payment_intent,
         restock=restock,
     )
+
+
+_BY_KEY_SQL = text(
+    "SELECT id, amount_minor, currency, restock FROM order_refunds "
+    "WHERE order_id = :order_id AND client_key = :key"
+)
+_REFUND_LINES_SQL = text(
+    "SELECT order_item_id, quantity FROM order_refund_items WHERE refund_id = :id"
+)
+_UNSENT_SQL = text(
+    "SELECT r.id, r.order_id, r.amount_minor, r.currency, r.restock,"
+    " o.stripe_payment_intent_id "
+    "FROM order_refunds r JOIN orders o ON o.id = r.order_id "
+    "WHERE r.order_id = :order_id AND r.status = 'pending'"
+    " AND r.stripe_refund_id IS NULL"
+    " AND r.created_at <= now() - make_interval(secs => :grace) "
+    "ORDER BY r.created_at, r.id"
+)
+
+
+async def _replayed(
+    session: AsyncSession,
+    order_id: str,
+    client_key: str,
+    lines: Sequence[RefundLineInput] | None,
+    payment_intent: str | None,
+) -> RefundPlan | None:
+    """The refund this order already made under ``client_key``, if any (checked under the lock)."""
+    row = (
+        (await session.execute(_BY_KEY_SQL, {"order_id": order_id, "key": client_key}))
+        .mappings()
+        .one_or_none()
+    )
+    if row is None:
+        return None
+    if lines is not None:
+        stored = {
+            r["order_item_id"]: r["quantity"]
+            for r in (
+                await session.execute(_REFUND_LINES_SQL, {"id": row["id"]})
+            ).mappings()
+        }
+        if stored != {line.order_item_id: line.quantity for line in lines}:
+            raise RefundNotAllowed(
+                "This Idempotency-Key was used for a different refund"
+            )
+    return RefundPlan(
+        id=row["id"],
+        order_id=order_id,
+        amount_minor=row["amount_minor"],
+        currency=row["currency"],
+        payment_intent_id=payment_intent or "",
+        restock=row["restock"],
+        replayed=True,
+    )
+
+
+async def unsent_refunds(
+    session: AsyncSession, order_id: str, grace_seconds: float
+) -> list[RefundPlan]:
+    """Pending refunds of the order Stripe has never confirmed, older than ``grace_seconds``.
+
+    Their request may never have reached Stripe (timeout, crash after the reservation). Asking
+    Stripe again with the same idempotency key (the refund id) is safe: it either creates the
+    refund or returns the one it made. The grace keeps this off requests still in flight.
+    """
+    rows = (
+        (
+            await session.execute(
+                _UNSENT_SQL, {"order_id": order_id, "grace": grace_seconds}
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [
+        RefundPlan(
+            id=row["id"],
+            order_id=row["order_id"],
+            amount_minor=row["amount_minor"],
+            currency=row["currency"],
+            payment_intent_id=row["stripe_payment_intent_id"],
+            restock=row["restock"],
+        )
+        for row in rows
+        if row["stripe_payment_intent_id"] is not None
+    ]
 
 
 _REFUND_ORDER_SQL = text("SELECT order_id FROM order_refunds WHERE id = :id")
@@ -333,7 +432,11 @@ async def settle_refund(
 
 
 async def _restock(session: AsyncSession, refund_id: str) -> None:
-    """Return the refund's units to stock, never more than the order took. Runs once."""
+    """Return the refund's units to stock, never more than the order took. Runs once.
+
+    ``restocked_at`` is set only when some unit was returned.
+    """
+    returned_any = False
     lines = (
         (await session.execute(_RESTOCK_LINES_SQL, {"id": refund_id})).mappings().all()
     )
@@ -348,10 +451,12 @@ async def _restock(session: AsyncSession, refund_id: str) -> None:
             )
         ).first()
         if returned is not None:
+            returned_any = True
             await session.execute(
                 _MARK_RESTOCKED_ITEM_SQL, {"id": line["id"], "quantity": quantity}
             )
-    await session.execute(_MARK_RESTOCKED_SQL, {"id": refund_id})
+    if returned_any:
+        await session.execute(_MARK_RESTOCKED_SQL, {"id": refund_id})
 
 
 async def _complete_order_if_refunded(session: AsyncSession, order_id: str) -> None:
@@ -433,12 +538,22 @@ async def apply_refund_event(
         report_exception(UnappliedRefundEvent("mismatch"))
         return None
     outcome = _STRIPE_OUTCOMES.get(str(obj.get("status")))
-    if outcome is None:
-        await record_stripe_refund(session, refund_id, stripe_id)
+    try:
+        # A savepoint, so a constraint failure leaves the caller's transaction usable.
+        async with session.begin_nested():
+            if outcome is None:
+                await record_stripe_refund(session, refund_id, stripe_id)
+                return None
+            settled = await settle_refund(
+                session, refund_id, outcome, stripe_refund_id=stripe_id
+            )
+    except IntegrityError:
+        # For example a Stripe refund id already recorded on another refund: ack, do not loop.
+        logger.error(
+            "refund event violates a constraint", extra={"refund_id": refund_id}
+        )
+        report_exception(UnappliedRefundEvent("integrity"))
         return None
-    settled = await settle_refund(
-        session, refund_id, outcome, stripe_refund_id=stripe_id
-    )
     if not settled and row["status"] not in ("pending", outcome.value):
         # Stripe changed its mind after we settled (a refund failing after it succeeded, or a
         # success for a refund we released): nothing is applied, so a person must look.

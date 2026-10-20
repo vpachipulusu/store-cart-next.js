@@ -42,6 +42,7 @@ from app.services.store_refunds import (
     record_stripe_refund,
     reserve_refund,
     settle_refund,
+    unsent_refunds,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,10 @@ _REFUSED = (
     StripeForbidden,
     StripeNotProcessed,
 )
+
+
+# A pending refund younger than this may still be in flight, so it is not sent again.
+UNSENT_GRACE_SECONDS = 60.0
 
 
 class RefundUnavailable(OrderError):
@@ -84,7 +89,9 @@ class MerchantOrderRefundService:
         stripe: StripeRefunds,
         store_id: str,
         account_id: str | None,
+        unsent_grace_seconds: float = UNSENT_GRACE_SECONDS,
     ) -> None:
+        self._unsent_grace_seconds = unsent_grace_seconds
         self._orders = orders
         self._session = session
         self._stripe = stripe
@@ -97,18 +104,51 @@ class MerchantOrderRefundService:
         lines: list[RefundLineInput] | None,
         *,
         restock: bool = False,
+        client_key: str | None = None,
     ) -> OrderDetail:
         if self._account_id is None:
             raise RefundNotConnected("The payment account is not connected")
-        plan = await self._reserve(order_id, lines, restock)
-        await self._ask_stripe(plan, self._account_id)
+        await self._resend_unconfirmed(order_id, self._account_id)
+        plan = await self._reserve(order_id, lines, restock, client_key)
+        if not plan.replayed:
+            await self._ask_stripe(plan, self._account_id)
         return await self._orders.get(order_id)
 
+    async def _resend_unconfirmed(self, order_id: str, account_id: str) -> None:
+        """Ask Stripe again for this order's old refunds it never confirmed (best effort).
+
+        A request that timed out, or died after the reservation, leaves a pending refund Stripe
+        may never have seen, which would hold its units and money for ever. The refund id is the
+        idempotency key, so asking again creates the refund or returns the one that exists, and
+        the answer settles it. Failures are left for the next request.
+        """
+        try:
+            stale = await unsent_refunds(
+                self._session, order_id, self._unsent_grace_seconds
+            )
+        finally:
+            await self._session.rollback()
+        for plan in stale:
+            try:
+                await self._ask_stripe(plan, account_id)
+            except OrderError as exc:
+                logger.warning(
+                    "resent refund not settled: %s",
+                    type(exc).__name__,
+                    extra={"refund_id": plan.id},
+                )
+
     async def _reserve(
-        self, order_id: str, lines: list[RefundLineInput] | None, restock: bool
+        self,
+        order_id: str,
+        lines: list[RefundLineInput] | None,
+        restock: bool,
+        client_key: str | None,
     ) -> RefundPlan:
         try:
-            plan = await reserve_refund(self._session, order_id, lines, restock=restock)
+            plan = await reserve_refund(
+                self._session, order_id, lines, restock=restock, client_key=client_key
+            )
             await self._session.commit()
         except Exception:
             await self._session.rollback()
