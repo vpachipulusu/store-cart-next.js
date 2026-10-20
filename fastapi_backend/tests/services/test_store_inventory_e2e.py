@@ -397,3 +397,37 @@ async def test_the_payment_event_on_a_sold_out_variant_keeps_the_order_paid_and_
     )
     assert (status, await _oversold(world, shop, order[0])) == ("paid", True)
     assert [type(error) for error in reported] == [store_orders.OversoldOrder]
+
+
+async def test_a_line_asking_for_more_than_the_stock_takes_nothing_and_flags_the_order(
+    world: World,  # noqa: F811
+    shop: Shop,
+):
+    order = await _order(world, shop, [(shop.plenty, 3)])
+    async with open_store_session(shop.store_id, world.provider) as session:
+        await session.execute(
+            text("UPDATE variants SET stock = 2 WHERE id = :v"), {"v": shop.plenty}
+        )
+        await session.commit()
+
+    outcome = await _pay(world, shop, order)
+
+    assert outcome is PaymentOutcome.PAID
+    assert await _oversold(world, shop, order[0])
+    assert await _stock(world, shop, shop.plenty) == 2
+
+
+async def test_a_late_payment_of_a_cancelled_order_changes_no_stock(
+    world: World,  # noqa: F811
+    shop: Shop,
+):
+    order = await _order(world, shop, [(shop.plenty, 2)])
+    async with open_store_session(shop.store_id, world.provider) as session:
+        await transition_order(session, order[0], OrderStatus.CANCELLED)
+        await session.commit()
+
+    outcome = await _pay(world, shop, order)
+
+    assert outcome is PaymentOutcome.MISMATCH
+    assert await _stock(world, shop, shop.plenty) == 5
+    assert not await _oversold(world, shop, order[0])

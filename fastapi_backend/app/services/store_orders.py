@@ -466,15 +466,21 @@ async def take_paid_stock(session: AsyncSession, order_id: str) -> None:
 
     One conditional ``UPDATE`` per line (``stock >= quantity``), never a read then a write,
     so concurrent orders cannot take stock below zero: a loser waits on the row lock and
-    re-checks the new value. Lines go in variant order so two orders cannot deadlock. A line
-    that stock cannot cover (or whose variant was deleted) is left untaken and the order is
-    flagged ``oversold``; it stays ``paid`` because the shopper has been charged. The lines
-    that stock does cover are still taken (a refund of an oversold order restocks them by
-    hand until KAN-80). Does not commit, and must run only in the transaction that moved the order to ``paid``.
+    re-checks the new value. Lines go in variant order so two orders cannot deadlock.
+
+    A line that stock cannot cover, or whose variant was deleted, is left untaken and the
+    order is flagged ``oversold``; it stays ``paid`` because the shopper has been charged.
+    A partly covered order decrements the covered lines only, so refunding an oversold
+    order restocks those lines by hand until KAN-80.
+
+    Does not commit, and must run only in the transaction that moved the order to ``paid``.
     """
     lines = (await session.execute(_PAID_LINES_SQL, {"id": order_id})).mappings().all()
     short: list[str] = []
     for line in lines:
+        if line["variant_id"] is None:  # the variant was deleted: nothing to take from
+            short.append(line["id"])
+            continue
         taken = (
             await session.execute(
                 _TAKE_STOCK_SQL,
