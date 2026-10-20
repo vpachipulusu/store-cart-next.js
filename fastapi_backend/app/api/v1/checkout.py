@@ -64,6 +64,12 @@ router = APIRouter(
         404: {"model": ErrorResponse},
         409: {"model": ErrorResponse},
         502: {"model": ErrorResponse},
+        503: {
+            "model": ErrorResponse,
+            "description": (
+                "Rate limiter, Stripe configuration or store database unavailable"
+            ),
+        },
     },
 )
 
@@ -134,7 +140,7 @@ def _status_for(error: CheckoutError) -> int:
         "Creates a pending order priced on the server and a Stripe Checkout Session on the "
         "store's connected account, or returns the open one when the cart is unchanged since "
         "the last start. 409 when payments are not enabled, the cart is empty or has changed, "
-        "or its earlier checkout was paid; 422 when a return URL is not the store's subdomain or an allowed "
+        "or its earlier checkout is already being paid; 422 when a return URL is not the store's subdomain or an allowed "
         "app origin; 502 when Stripe fails."
     ),
 )

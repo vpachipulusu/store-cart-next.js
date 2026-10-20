@@ -116,10 +116,12 @@ class HttpStripeCheckout(HttpStripeBilling):
         """Make an open session unpayable (``POST /v1/checkout/sessions/{id}/expire``).
 
         Stripe refuses to expire a session that is not open (400). Then the session is read:
-        already expired is the wanted state, complete means the shopper paid. A session Stripe
-        does not know (404) cannot be paid. No idempotency key: expiring is idempotent by nature,
-        and Stripe would replay a 5xx for a key and block every retry. Any other failure propagates: the caller must not
-        assume the session is closed.
+        already expired is the wanted state, complete means the shopper paid. A session
+        Stripe does not know (404) cannot be paid. Any other failure propagates: the caller
+        must not assume the session is closed.
+
+        No idempotency key: expiring is idempotent by nature, and Stripe would replay a 5xx
+        for a key and block every retry.
         """
         path = f"/checkout/sessions/{session_id}"
         try:

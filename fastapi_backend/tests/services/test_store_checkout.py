@@ -172,12 +172,14 @@ class FakeOrders:
         ] = []  # answers of find_open_checkout
         self.cart_id: str | None = "cart1"
         self.sweeps = 0
+        self.sweep_accounts: list[str | None] = []
 
     async def view_cart(self, token: str | None) -> CartView:
         return self.view
 
-    async def sweep(self) -> None:
+    async def sweep(self, stripe: Any, account_id: str | None) -> None:
         self.sweeps += 1
+        self.sweep_accounts.append(account_id)
 
     async def find_cart(self, token: str | None) -> str | None:
         return self.cart_id
@@ -332,9 +334,9 @@ def test_line_items_add_up_to_the_order_total_with_tax_and_shipping() -> None:
     amounts = [
         (li.name, li.unit_amount_minor, li.quantity) for li in request.line_items
     ]
-    assert amounts == [
-        ("mug", 1000, 2),
+    assert amounts == [  # items in a stable order (variant id), then tax, then shipping
         ("cap", 550, 1),
+        ("mug", 1000, 2),
         ("Tax", 510, 1),
         ("Shipping", 499, 1),
     ]
@@ -727,6 +729,8 @@ async def test_a_storeless_payment_event_is_reported(
 # --- one open order per cart (KAN-256) ----------------------------------------------------
 
 FUTURE = datetime.now(UTC) + timedelta(minutes=20)
+RESUMABLE = datetime.now(UTC) + timedelta(minutes=40)  # Stripe still takes this expiry
+ENDING = datetime.now(UTC) + timedelta(minutes=2)  # inside the reuse margin
 PAST = datetime.now(UTC) - timedelta(minutes=1)
 
 
@@ -760,7 +764,7 @@ async def test_the_session_expires_at_the_orders_expiry() -> None:
     origin = orders.origins[0]
     assert stripe.requests[0].expires_at == int(origin.expires_at.timestamp())
     lifetime = origin.expires_at - datetime.now(UTC)
-    assert timedelta(minutes=30) < lifetime <= timedelta(minutes=36)
+    assert timedelta(minutes=55) < lifetime <= timedelta(minutes=61)
     assert (origin.cart_id, origin.fingerprint) == ("cart1", fingerprint_of(orders))
 
 
@@ -770,6 +774,7 @@ async def test_start_sweeps_expired_orders_first() -> None:
     await service(orders, FakeStripeCheckout()).start(SLUG, "tok", SUCCESS, CANCEL)
 
     assert orders.sweeps == 1
+    assert orders.sweep_accounts == [ACCOUNT]
 
 
 async def test_an_unchanged_cart_gets_the_open_sessions_url_and_nothing_new() -> None:
@@ -881,14 +886,16 @@ async def test_an_expired_unlinked_order_is_cancelled_without_a_stripe_call() ->
 
 async def test_an_open_order_without_a_url_is_resumed_with_the_same_order() -> None:
     orders = ready_orders(order(item("mug", 1000, 2)))
-    orders.open_orders = [open_order(orders, session_id=None, url=None)]
+    orders.open_orders = [
+        open_order(orders, session_id=None, url=None, expires_at=RESUMABLE)
+    ]
     stripe = FakeStripeCheckout()
 
     started = await service(orders, stripe).start(SLUG, "tok", SUCCESS, CANCEL)
 
     assert orders.created == []
     assert stripe.requests[0].order_id == "order1"
-    assert stripe.requests[0].expires_at == int(FUTURE.timestamp())
+    assert stripe.requests[0].expires_at == int(RESUMABLE.timestamp())
     assert orders.attached == [("order1", "cs_test_1")]
     assert started.checkout_url == "https://checkout.stripe.com/c/pay/cs_test_1"
 
@@ -955,7 +962,7 @@ async def test_losing_a_cancel_after_expiring_the_old_session_starts_nothing() -
 async def test_a_failed_sweep_is_logged_and_rolled_back_not_raised() -> None:
     session = BrokenSession()
 
-    await sql_orders(session).sweep()
+    await sql_orders(session).sweep(FakeStripeCheckout(), ACCOUNT)
 
     assert session.rollbacks == 1
 
@@ -1010,3 +1017,43 @@ class FailingInsertSession:
 
     async def rollback(self) -> None:
         self.rollbacks += 1
+
+
+async def test_an_open_session_about_to_end_is_not_handed_out_again() -> None:
+    orders = ready_orders()
+    orders.open_orders = [open_order(orders, expires_at=ENDING)]
+    stripe = FakeStripeCheckout()
+
+    started = await service(orders, stripe).start(SLUG, "tok", SUCCESS, CANCEL)
+
+    assert stripe.expired == [(ACCOUNT, "cs_old")]
+    assert orders.retired == ["old1"]
+    assert started.order_id == "order1"
+
+
+async def test_a_session_less_order_too_close_to_its_end_is_not_resumed() -> None:
+    # Stripe would refuse an expiry under 30 minutes ahead, and the order may have a session.
+    orders = ready_orders()
+    orders.open_orders = [
+        open_order(orders, session_id=None, url=None, expires_at=FUTURE)
+    ]
+    stripe = FakeStripeCheckout()
+
+    with pytest.raises(CheckoutUnavailable):
+        await service(orders, stripe).start(SLUG, "tok", SUCCESS, CANCEL)
+
+    assert (stripe.requests, stripe.expired, orders.retired) == ([], [], [])
+
+
+def test_line_items_do_not_depend_on_the_order_of_the_stored_lines() -> None:
+    mug, cap, pin = item("mug", 1000, 2), item("cap", 550, 1), item("pin", 10, 1)
+
+    first = build_session_request(
+        target(), order(mug, cap, pin), SUCCESS, CANCEL, FUTURE
+    )
+    replay = build_session_request(
+        target(), order(pin, mug, cap), SUCCESS, CANCEL, FUTURE
+    )
+
+    assert first == replay
+    assert [li.name for li in first.line_items] == ["cap", "mug", "pin"]

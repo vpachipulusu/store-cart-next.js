@@ -117,6 +117,7 @@ async def test_the_session_is_expired_then_the_order_cancelled_and_returned() ->
     detail = await cancel.cancel("o1")
 
     assert stripe.expired == [(ACCOUNT, "cs_1")]
+    assert session.rollbacks == 1  # no transaction held across the Stripe call
     assert session.commits == 1
     assert detail == "detail of o1"
     assert orders.read == ["o1"]
@@ -222,4 +223,4 @@ async def test_a_database_failure_rolls_back_and_propagates() -> None:
     with pytest.raises(RuntimeError):
         await cancel.cancel("o1")
 
-    assert session.rollbacks == 1
+    assert session.rollbacks == 2  # the read transaction, then the failed write

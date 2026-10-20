@@ -856,7 +856,7 @@ export const setCartItemQuantity = <ThrowOnError extends boolean = false>(option
 /**
  * Start a checkout for the cart
  *
- * Creates a pending order priced on the server and a Stripe Checkout Session on the store's connected account, or returns the open one when the cart is unchanged since the last start. 409 when payments are not enabled, the cart is empty or has changed, or its earlier checkout was paid; 422 when a return URL is not the store's subdomain or an allowed app origin; 502 when Stripe fails.
+ * Creates a pending order priced on the server and a Stripe Checkout Session on the store's connected account, or returns the open one when the cart is unchanged since the last start. 409 when payments are not enabled, the cart is empty or has changed, or its earlier checkout is already being paid; 422 when a return URL is not the store's subdomain or an allowed app origin; 502 when Stripe fails.
  */
 export const startCheckout = <ThrowOnError extends boolean = false>(options: Options<StartCheckoutData, ThrowOnError>) => (options.client ?? client).post<StartCheckoutResponses, StartCheckoutErrors, ThrowOnError>({
     url: '/v1/storefront/{slug}/checkout',

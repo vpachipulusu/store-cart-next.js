@@ -8,54 +8,83 @@ created with an explicit ``expires_at`` (``SESSION_LIFETIME``, stored on the ord
   while it is still ``pending``. One conditional ``UPDATE``: a redelivery, a paid order and
   an order linked to another session are all left alone.
 * The sweep is the backstop for a lost event and for an order that never got a session link:
-  it cancels pending orders ``SWEEP_GRACE`` past ``checkout_expires_at``. The grace covers
-  clock skew and a payment that completes at the last second (its webhook still finds the
-  order pending and pays it). Checkout runs the sweep for its own store before it starts, and
-  ``commands.sweep_checkout_orders`` runs it for every ACTIVE store.
+  it looks at pending orders ``SWEEP_GRACE`` past ``checkout_expires_at``. An order with no
+  session id is cancelled. An order with one is cancelled only after Stripe confirms the
+  session is expired (``expire_session`` answers ``EXPIRED``): a session the shopper completed
+  (a delayed payment method that is still settling, or a webhook that has not arrived) is left
+  ``pending`` for its payment event, and so is any order the sweep cannot verify (Stripe
+  error, no connected account). Checkout sweeps a few orders of its own store before it
+  starts, and ``commands.sweep_checkout_orders`` pages through every ACTIVE store.
 
-Neither calls Stripe: a session past ``expires_at`` can no longer be paid.
+No database transaction is held across a Stripe call.
 """
 
 import logging
 from collections.abc import Callable, Mapping
 from contextlib import AbstractAsyncContextManager
-from datetime import timedelta
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.sentry import report_exception
+from app.core.stripe_billing import StripeError
+from app.core.stripe_checkout import ExpireOutcome, StripeCheckout
 from app.repositories.connect_events import ConnectRoute
+from app.services.store_orders import cancel_pending_order
 from app.services.stripe_connect import StoreEventHandler
 
 logger = logging.getLogger(__name__)
 
 EXPIRED_EVENT_TYPE = "checkout.session.expired"
-# Stripe accepts an expiry from 30 minutes to 24 hours after the session is created; the extra
-# minutes cover the time between writing the order and Stripe receiving the request.
-SESSION_LIFETIME = timedelta(minutes=35)
+# Stripe accepts an expiry from 30 minutes to 24 hours after the session is created. An hour
+# leaves a long window in which a start that never learned its session can still be resumed.
+SESSION_LIFETIME = timedelta(minutes=60)
+# A session is created again for an order (same idempotency key, same ``expires_at``) only
+# while Stripe would still accept that expiry (30 minutes ahead, plus a minute of margin).
+RESUME_MIN_REMAINING = timedelta(minutes=31)
+# An open session closer to its end than this is not handed to the shopper again.
+REUSE_MARGIN = timedelta(minutes=5)
 SWEEP_GRACE = timedelta(minutes=10)
 SWEEP_BATCH = 200
+START_SWEEP_BATCH = 5  # a checkout request pays for at most this many Stripe calls
 SESSION_ID_MAX_LENGTH = 255
+_BEGINNING = datetime(1970, 1, 1, tzinfo=UTC)
 
 _CANCEL_EXPIRED_SQL = text(
     "UPDATE orders SET status = 'cancelled', updated_at = now() "
     "WHERE stripe_checkout_session_id = :session_id AND status = 'pending' "
     "RETURNING id"
 )
-_SWEEP_SQL = text(
-    "UPDATE orders SET status = 'cancelled', updated_at = now() "
-    "WHERE id IN (SELECT id FROM orders WHERE status = 'pending'"
-    " AND checkout_expires_at IS NOT NULL"
+_CANDIDATES_SQL = text(
+    "SELECT id, stripe_checkout_session_id AS session_id,"
+    " checkout_expires_at AS expires_at FROM orders "
+    "WHERE status = 'pending' AND checkout_expires_at IS NOT NULL"
     " AND checkout_expires_at < now() - make_interval(secs => :grace)"
-    " ORDER BY checkout_expires_at LIMIT :batch FOR UPDATE SKIP LOCKED) "
-    "AND status = 'pending' RETURNING id"
+    " AND (checkout_expires_at, id) > (CAST(:after_at AS timestamptz), :after_id) "
+    "ORDER BY checkout_expires_at, id LIMIT :batch"
 )
 
 
 class UnusableExpiredSession(Exception):
     """A ``checkout.session.expired`` event with no usable session id (Sentry only)."""
+
+
+@dataclass(frozen=True)
+class SweepCursor:
+    """Where the next page of the sweep starts (candidates are ordered by expiry, then id)."""
+
+    expires_at: datetime
+    order_id: str
+
+
+@dataclass(frozen=True)
+class SweepPage:
+    examined: int
+    cancelled: int
+    cursor: SweepCursor | None  # None when nothing was examined
 
 
 def _session_id(obj: Mapping[str, Any]) -> str | None:
@@ -109,18 +138,60 @@ def checkout_expired_handler(
     return handle
 
 
+async def _may_cancel(
+    stripe: StripeCheckout | None, account_id: str | None, session_id: str | None
+) -> bool:
+    """True when no payment can still arrive for the order: no session, or one Stripe expired."""
+    if session_id is None:
+        return True
+    if stripe is None or account_id is None:
+        return False
+    try:
+        outcome = await stripe.expire_session(account_id, session_id)
+    except StripeError:
+        logger.warning("expired order's session not verified; order left pending")
+        return False
+    return outcome is ExpireOutcome.EXPIRED
+
+
 async def sweep_expired_checkout_orders(
     session: AsyncSession,
+    stripe: StripeCheckout | None,
+    account_id: str | None,
     *,
     grace: timedelta = SWEEP_GRACE,
     batch: int = SWEEP_BATCH,
-) -> int:
-    """Cancel pending checkout orders whose session ended ``grace`` ago. Does not commit.
+    after: SweepCursor | None = None,
+) -> SweepPage:
+    """Cancel pending checkout orders whose session is over, one page. Commits.
 
-    At most ``batch`` orders per call, oldest first; rows another sweep holds are skipped.
-    Returns the number cancelled.
+    Reads up to ``batch`` candidates (``grace`` past their expiry, after ``after``), ends the
+    read transaction, then settles each one: see the module docstring. ``examined`` counts the
+    candidates read, so a caller pages on until it is below ``batch``.
     """
-    rows = await session.execute(
-        _SWEEP_SQL, {"grace": grace.total_seconds(), "batch": batch}
+    rows = (
+        (
+            await session.execute(
+                _CANDIDATES_SQL,
+                {
+                    "grace": grace.total_seconds(),
+                    "batch": batch,
+                    "after_at": after.expires_at if after else _BEGINNING,
+                    "after_id": after.order_id if after else "",
+                },
+            )
+        )
+        .mappings()
+        .all()
     )
-    return len(rows.all())
+    await session.rollback()  # no transaction stays open across the Stripe calls below
+    cancelled = 0
+    for row in rows:
+        if not await _may_cancel(stripe, account_id, row["session_id"]):
+            continue
+        if await cancel_pending_order(session, row["id"]):
+            cancelled += 1
+        await session.commit()
+    last = rows[-1] if rows else None
+    cursor = SweepCursor(last["expires_at"], last["id"]) if last else None
+    return SweepPage(examined=len(rows), cancelled=cancelled, cursor=cursor)

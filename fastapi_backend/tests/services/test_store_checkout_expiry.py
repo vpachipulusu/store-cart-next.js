@@ -6,15 +6,16 @@ tests cover the routing, the unusable inputs and the sweep's bounds.
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 
+from app.core.stripe_billing import StripeError
+from app.core.stripe_checkout import ExpireOutcome
 from app.repositories.connect_events import ConnectRoute
 from app.services.store_checkout_expiry import (
     SESSION_LIFETIME,
-    SWEEP_BATCH,
     SWEEP_GRACE,
     cancel_expired_session_order,
     checkout_expired_handler,
@@ -117,21 +118,146 @@ async def test_the_handler_ignores_an_event_routed_without_a_store() -> None:
     assert opened == []
 
 
-async def test_the_sweep_counts_what_it_cancelled_and_bounds_the_work() -> None:
-    session = FakeStoreSession([("o1",), ("o2",)])
+class SweepSession:
+    """Candidates for the select, a result for each conditional cancel."""
 
-    cancelled = await sweep_expired_checkout_orders(session)  # type: ignore[arg-type]
+    def __init__(self, candidates: list[dict[str, Any]], cancels: bool = True) -> None:
+        self.candidates = candidates
+        self.cancels = cancels
+        self.events: list[str] = []
+        self.params: dict[str, Any] = {}
 
-    assert cancelled == 2
-    _sql, params = session.statements[0]
-    assert params == {"grace": SWEEP_GRACE.total_seconds(), "batch": SWEEP_BATCH}
+    async def execute(self, statement: Any, params: dict[str, Any]) -> Any:
+        if "SELECT id" in str(statement):
+            self.params = params
+            return SweepRows(self.candidates)
+        self.events.append(f"cancel {params['id']}")
+        return FakeResult([("x",)] if self.cancels else [])
+
+    async def commit(self) -> None:
+        self.events.append("commit")
+
+    async def rollback(self) -> None:
+        self.events.append("rollback")
 
 
-async def test_the_sweep_accepts_its_own_grace_and_batch() -> None:
-    session = FakeStoreSession([])
+class SweepRows:
+    def __init__(self, rows: list[dict[str, Any]]) -> None:
+        self._rows = rows
 
-    await sweep_expired_checkout_orders(  # type: ignore[arg-type]
-        session, grace=timedelta(minutes=1), batch=5
+    def mappings(self) -> "SweepRows":
+        return self
+
+    def all(self) -> list[dict[str, Any]]:
+        return self._rows
+
+
+class SweepStripe:
+    def __init__(self, outcome: ExpireOutcome = ExpireOutcome.EXPIRED) -> None:
+        self.outcome = outcome
+        self.error: StripeError | None = None
+        self.expired: list[tuple[str, str]] = []
+        self.log: list[str] | None = None
+
+    async def expire_session(self, account_id: str, session_id: str) -> ExpireOutcome:
+        self.expired.append((account_id, session_id))
+        if self.log is not None:
+            self.log.append(f"expire {session_id}")
+        if self.error is not None:
+            raise self.error
+        return self.outcome
+
+    async def create_payment_session(self, request: Any) -> Any:
+        raise AssertionError("not used")
+
+
+def candidate(order_id: str, session_id: str | None) -> dict[str, Any]:
+    return {"id": order_id, "session_id": session_id, "expires_at": datetime.now(UTC)}
+
+
+async def test_the_sweep_cancels_an_order_only_after_stripe_says_the_session_expired() -> (
+    None
+):
+    session = SweepSession([candidate("o1", "cs_1")])
+    stripe = SweepStripe()
+    stripe.log = session.events
+
+    page = await sweep_expired_checkout_orders(session, stripe, "acct_1")  # type: ignore[arg-type]
+
+    assert (page.examined, page.cancelled) == (1, 1)
+    assert session.events == ["rollback", "expire cs_1", "cancel o1", "commit"]
+    assert stripe.expired == [("acct_1", "cs_1")]
+
+
+async def test_a_session_the_shopper_completed_is_left_pending() -> None:
+    session = SweepSession([candidate("o1", "cs_1")])
+
+    page = await sweep_expired_checkout_orders(
+        session,
+        SweepStripe(ExpireOutcome.COMPLETE),  # type: ignore[arg-type]
+        "acct_1",
     )
 
-    assert session.statements[0][1] == {"grace": 60.0, "batch": 5}
+    assert (page.examined, page.cancelled) == (1, 0)
+    assert "cancel o1" not in session.events
+
+
+async def test_an_order_stripe_cannot_verify_is_left_pending() -> None:
+    session = SweepSession([candidate("o1", "cs_1")])
+    stripe = SweepStripe()
+    stripe.error = StripeError("down")
+
+    page = await sweep_expired_checkout_orders(session, stripe, "acct_1")  # type: ignore[arg-type]
+
+    assert page.cancelled == 0
+    assert "cancel o1" not in session.events
+
+
+@pytest.mark.parametrize("no_stripe", ["no client", "no account"])
+async def test_a_session_cannot_be_verified_without_stripe_or_an_account(
+    no_stripe: str,
+) -> None:
+    session = SweepSession([candidate("o1", "cs_1")])
+    stripe = None if no_stripe == "no client" else SweepStripe()
+    account = "acct_1" if no_stripe == "no client" else None
+
+    page = await sweep_expired_checkout_orders(session, stripe, account)  # type: ignore[arg-type]
+
+    assert page.cancelled == 0
+
+
+async def test_an_order_with_no_session_is_cancelled_without_a_stripe_call() -> None:
+    session = SweepSession([candidate("o1", None)])
+    stripe = SweepStripe()
+
+    page = await sweep_expired_checkout_orders(session, stripe, None)  # type: ignore[arg-type]
+
+    assert page.cancelled == 1
+    assert stripe.expired == []
+
+
+async def test_an_order_that_moved_meanwhile_is_not_counted() -> None:
+    session = SweepSession([candidate("o1", None)], cancels=False)
+
+    page = await sweep_expired_checkout_orders(session, None, None)
+
+    assert (page.examined, page.cancelled) == (1, 0)
+
+
+async def test_the_page_carries_a_cursor_and_the_next_page_starts_after_it() -> None:
+    session = SweepSession([candidate("o1", None), candidate("o2", None)])
+
+    page = await sweep_expired_checkout_orders(session, None, None, batch=2)
+    assert page.cursor is not None
+    assert page.cursor.order_id == "o2"
+    await sweep_expired_checkout_orders(session, None, None, batch=2, after=page.cursor)
+
+    assert session.params["after_id"] == "o2"
+    assert session.params["batch"] == 2
+    assert session.params["grace"] == SWEEP_GRACE.total_seconds()
+
+
+async def test_an_empty_page_has_no_cursor() -> None:
+    page = await sweep_expired_checkout_orders(SweepSession([]), None, None)  # type: ignore[arg-type]
+
+    assert (page.examined, page.cancelled, page.cursor) == (0, 0, None)

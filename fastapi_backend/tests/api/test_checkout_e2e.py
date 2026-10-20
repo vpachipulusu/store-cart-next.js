@@ -63,6 +63,7 @@ class FakeStripeCheckout:
         self.requests: list[CheckoutSessionRequest] = []
         self.fail = False
         self.sessions: dict[str, StripeCheckoutSession] = {}
+        self.requests_by_key: dict[str, CheckoutSessionRequest] = {}
         self.expired: list[tuple[str, str]] = []
         self.expire_outcome = ExpireOutcome.EXPIRED
         self.expire_error: StripeError | None = None
@@ -73,12 +74,17 @@ class FakeStripeCheckout:
         self.requests.append(request)
         if self.fail:
             raise StripeRejected("Stripe request failed")
-        if request.idempotency_key not in self.sessions:
+        key = request.idempotency_key
+        if key in self.sessions:
+            if self.requests_by_key[key] != request:  # Stripe: idempotency_error (400)
+                raise StripeRejected("Stripe request failed")
+        else:
             session_id = f"cs_test_{new_id()}"
-            self.sessions[request.idempotency_key] = StripeCheckoutSession(
+            self.requests_by_key[key] = request
+            self.sessions[key] = StripeCheckoutSession(
                 id=session_id, url=f"https://checkout.stripe.com/c/pay/{session_id}"
             )
-        return self.sessions[request.idempotency_key]
+        return self.sessions[key]
 
     async def expire_session(self, account_id: str, session_id: str) -> ExpireOutcome:
         self.expired.append((account_id, session_id))
@@ -525,7 +531,7 @@ async def test_another_session_cannot_pay_an_order_linked_to_a_session(
     assert (await order_row(world, order_id))["status"] == "pending"
 
 
-async def test_a_paid_session_revives_the_order_a_sweep_cancelled(
+async def test_a_paid_session_for_a_cancelled_order_is_a_mismatch(
     client: AsyncClient, world: World, stripe: FakeStripeCheckout
 ) -> None:
     order_id, session_id, request = await started(client, world, stripe)
@@ -533,25 +539,6 @@ async def test_a_paid_session_revives_the_order_a_sweep_cancelled(
         world, "UPDATE orders SET status = 'cancelled' WHERE id = :id", id=order_id
     )
     obj = session_event(world, request, session_id)["data"]["object"]
-
-    async with open_store_session(north(world), world.provider) as session:
-        outcome = await confirm_checkout_payment(session, obj)
-        await session.commit()
-
-    assert outcome is PaymentOutcome.PAID
-    row = await order_row(world, order_id)
-    assert row["status"] == "paid"
-    assert row["paid_at"] is not None
-
-
-async def test_a_paid_session_of_another_order_does_not_revive_a_cancelled_order(
-    client: AsyncClient, world: World, stripe: FakeStripeCheckout
-) -> None:
-    order_id, _session_id, request = await started(client, world, stripe)
-    await run_sql(
-        world, "UPDATE orders SET status = 'cancelled' WHERE id = :id", id=order_id
-    )
-    obj = session_event(world, request, "cs_test_not_this_orders")["data"]["object"]
 
     async with open_store_session(north(world), world.provider) as session:
         outcome = await confirm_checkout_payment(session, obj)

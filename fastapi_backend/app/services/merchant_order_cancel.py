@@ -74,6 +74,7 @@ class MerchantOrderCancelService:
             raise OrderNotFound(order_id)
         if state["status"] != OrderStatus.PENDING.value:
             raise OrderNotCancellable("Only a pending order can be cancelled")
+        await self._session.rollback()  # no transaction open across the Stripe call
         await self._close_session(
             state["stripe_checkout_session_id"], state["checkout_expires_at"]
         )

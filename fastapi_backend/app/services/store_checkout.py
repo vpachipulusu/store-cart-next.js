@@ -42,7 +42,7 @@ import re
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
@@ -77,7 +77,10 @@ from app.services.org_billing import InvalidReturnUrl, validate_return_url
 from app.services.public_settings import PublicSettingsService
 from app.services.store_cart import CartView, hash_token, valid_token
 from app.services.store_checkout_expiry import (
+    RESUME_MIN_REMAINING,
+    REUSE_MARGIN,
     SESSION_LIFETIME,
+    START_SWEEP_BATCH,
     sweep_expired_checkout_orders,
 )
 from app.services.store_orders import (
@@ -202,8 +205,8 @@ class CheckoutOrders(Protocol):
 
     async def view_cart(self, token: str | None) -> CartView: ...
 
-    async def sweep(self) -> None:
-        """Best effort: cancel this store's long expired pending orders."""
+    async def sweep(self, stripe: StripeCheckout, account_id: str | None) -> None:
+        """Best effort: cancel a few of this store's long expired pending orders."""
         ...
 
     async def find_cart(self, token: str | None) -> str | None: ...
@@ -290,9 +293,14 @@ def build_session_request(
     account_id = target.connect.stripe_connect_account_id
     if account_id is None:
         raise ValueError("the organisation has no connected account")
+    # A stable order: a replay of an unlinked order (same idempotency key) is rebuilt from the
+    # database, and Stripe refuses a key whose parameters differ.
+    ordered = sorted(
+        order.items, key=lambda i: (i.variant_id or "", i.product_name, i.sku)
+    )
     items = [
         CheckoutLineItem(_line_name(item), item.unit_price_minor, item.quantity)
-        for item in order.items
+        for item in ordered
     ]
     if order.tax_minor and not order.prices_include_tax:
         items.append(CheckoutLineItem(TAX_LINE_NAME, order.tax_minor, 1))
@@ -395,10 +403,11 @@ class SqlCheckoutOrders:
     async def view_cart(self, token: str | None) -> CartView:
         return await self._cart.view(token)
 
-    async def sweep(self) -> None:
+    async def sweep(self, stripe: StripeCheckout, account_id: str | None) -> None:
         try:
-            await sweep_expired_checkout_orders(self._session)
-            await self._session.commit()
+            await sweep_expired_checkout_orders(
+                self._session, stripe, account_id, batch=START_SWEEP_BATCH
+            )
         except Exception as exc:  # noqa: BLE001 - the sweep must never stop a checkout
             logger.error("checkout expiry sweep failed: %s", type(exc).__name__)
             await self._rollback_quietly()
@@ -406,15 +415,21 @@ class SqlCheckoutOrders:
     async def find_cart(self, token: str | None) -> str | None:
         if token is None or not valid_token(token):
             return None
-        return await StoreCartRepository(self._session).find_live_cart(
+        cart_id = await StoreCartRepository(self._session).find_live_cart(
             hash_token(token)
         )
+        await self._session.rollback()
+        return cart_id
 
     async def find_open_checkout(self, cart_id: str) -> OpenCheckout | None:
-        return await find_open_checkout(self._session, cart_id)
+        found = await find_open_checkout(self._session, cart_id)
+        await self._session.rollback()  # no transaction open across Stripe calls
+        return found
 
     async def load_order(self, order_id: str) -> OrderRecord:
-        return await load_order(self._session, order_id)
+        order = await load_order(self._session, order_id)
+        await self._session.rollback()
+        return order
 
     async def create_order(
         self, lines: Sequence[OrderLineInput], currency: str, origin: CheckoutOrigin
@@ -464,7 +479,8 @@ class SqlCheckoutOrders:
             return
         if not linked:  # the webhook got there first, or another session is linked
             logger.warning(
-                "order already had a checkout session", extra={"order_id": order_id}
+                "checkout session not linked: order not pending or already linked",
+                extra={"order_id": order_id},
             )
 
     async def cancel_order(self, order_id: str) -> None:
@@ -547,7 +563,7 @@ class StoreCheckoutService:
             raise PaymentsNotEnabled from None
         _check_fee_rate(target)
         async with self._open_orders(target.store_id) as orders:
-            await orders.sweep()
+            await orders.sweep(self._stripe, target.connect.stripe_connect_account_id)
             view = await orders.view_cart(token)
             if not view.lines or not view.can_checkout:
                 raise CartNotReady(CART_CHANGED)
@@ -585,16 +601,23 @@ class StoreCheckoutService:
     ) -> CheckoutStarted | None:
         """The open order's checkout when it still fits the cart; None once it is retired."""
         expires_at = open_checkout.expires_at
-        live = expires_at is not None and expires_at > datetime.now(UTC)
-        if expires_at is not None and live and open_checkout.fingerprint == fingerprint:
-            if open_checkout.url is not None:
+        remaining = expires_at - datetime.now(UTC) if expires_at else None
+        live = remaining is not None and remaining > timedelta(0)
+        if (
+            expires_at is not None
+            and remaining is not None
+            and open_checkout.fingerprint == fingerprint
+        ):
+            if open_checkout.url is not None and remaining > REUSE_MARGIN:
                 return CheckoutStarted(open_checkout.order_id, open_checkout.url)
-            # The first start never learned its session: ask for it again. The idempotency
-            # key is the order's, so Stripe returns the session it may already have made.
-            order = await orders.load_order(open_checkout.order_id)
-            return await self._open_session(
-                target, orders, order, success, cancel, expires_at
-            )
+            if open_checkout.url is None and remaining >= RESUME_MIN_REMAINING:
+                # The first start never learned its session: ask for it again. The
+                # idempotency key and ``expires_at`` are the order's, so Stripe returns the
+                # session it may already have made.
+                order = await orders.load_order(open_checkout.order_id)
+                return await self._open_session(
+                    target, orders, order, success, cancel, expires_at
+                )
         await self._retire(target, orders, open_checkout, live=live)
         return None
 

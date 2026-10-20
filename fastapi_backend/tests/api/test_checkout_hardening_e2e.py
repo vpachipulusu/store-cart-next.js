@@ -25,7 +25,13 @@ from app.core.stripe_checkout import (
 )
 from app.services.store_checkout_expiry import sweep_expired_checkout_orders
 from app.services.store_sessions import open_store_session
-from tests.api.products_support import as_user
+from tests.api.products_support import (
+    as_user,
+    create_product,
+    simple_payload,
+    unique,
+    variant_payload,
+)
 from tests.api.test_checkout_e2e import (  # noqa: F401  (fixtures and helpers)
     ACCOUNT,
     CANCEL,
@@ -53,8 +59,8 @@ pytestmark = [
 
 ALICE = as_user("alice")
 AMY = as_user("amy")
-LIFETIME_FLOOR = timedelta(minutes=30)  # Stripe's minimum session life
-LIFETIME_CEILING = timedelta(minutes=40)
+LIFETIME_FLOOR = timedelta(minutes=55)
+LIFETIME_CEILING = timedelta(minutes=65)
 
 
 async def order_state(world: World, order_id: str) -> dict[str, Any]:
@@ -379,44 +385,113 @@ async def test_an_expired_event_without_a_session_id_is_acknowledged(
 # --- the sweep backstop -------------------------------------------------------------------
 
 
+async def sweep(world: World, stripe: FakeStripeCheckout) -> int:
+    async with open_store_session(north(world), world.provider) as session:
+        page = await sweep_expired_checkout_orders(session, stripe, ACCOUNT)
+    return page.cancelled
+
+
+async def age(world: World, order_id: str, minutes: int) -> None:
+    await run_sql(
+        world,
+        "UPDATE orders SET checkout_expires_at = now() - make_interval(mins => :minutes)"
+        " WHERE id = :id",
+        id=order_id,
+        minutes=minutes,
+    )
+
+
 async def test_the_sweep_cancels_only_pending_orders_long_past_their_expiry(
     client: AsyncClient, world: World, stripe: FakeStripeCheckout
 ) -> None:
-    stale, _s1, _r1 = await started(client, world, stripe)
+    stale, stale_session, _r1 = await started(client, world, stripe)
     grace, _s2, _r2 = await started(client, world, stripe)
     fresh, _s3, _r3 = await started(client, world, stripe)
     paid, session_id, request = await started(client, world, stripe)
     await deliver(client, session_event(world, request, session_id))
     for order_id, minutes in ((stale, 120), (grace, 1), (paid, 120)):
-        await run_sql(
-            world,
-            "UPDATE orders SET checkout_expires_at = now() - make_interval(mins => :minutes)"
-            " WHERE id = :id",
-            id=order_id,
-            minutes=minutes,
-        )
+        await age(world, order_id, minutes)
 
-    async with open_store_session(north(world), world.provider) as session:
-        cancelled = await sweep_expired_checkout_orders(session)
-        await session.commit()
+    cancelled = await sweep(world, stripe)
 
     assert cancelled >= 1
+    assert (ACCOUNT, stale_session) in stripe.expired  # verified at Stripe first
     assert (await order_state(world, stale))["status"] == "cancelled"
     assert (await order_state(world, grace))["status"] == "pending"
     assert (await order_state(world, fresh))["status"] == "pending"
     assert (await order_state(world, paid))["status"] == "paid"
 
 
+async def test_the_sweep_leaves_an_order_whose_session_was_completed(
+    client: AsyncClient, world: World, stripe: FakeStripeCheckout
+) -> None:
+    # A delayed payment method: completed but not yet paid, no expired event will ever come.
+    order_id, _session_id, _request = await started(client, world, stripe)
+    await age(world, order_id, 120)
+    stripe.expire_outcome = ExpireOutcome.COMPLETE
+
+    await sweep(world, stripe)
+
+    assert (await order_state(world, order_id))["status"] == "pending"
+
+
+async def test_the_sweep_leaves_an_order_stripe_cannot_verify(
+    client: AsyncClient, world: World, stripe: FakeStripeCheckout
+) -> None:
+    order_id, _session_id, _request = await started(client, world, stripe)
+    await age(world, order_id, 120)
+    stripe.expire_error = StripeError("down")
+
+    await sweep(world, stripe)
+
+    assert (await order_state(world, order_id))["status"] == "pending"
+
+
+async def test_the_sweep_cancels_an_unlinked_order_without_asking_stripe(
+    client: AsyncClient, world: World, stripe: FakeStripeCheckout
+) -> None:
+    order_id, _session_id, _request = await started(client, world, stripe)
+    await run_sql(
+        world,
+        "UPDATE orders SET stripe_checkout_session_id = NULL WHERE id = :id",
+        id=order_id,
+    )
+    await age(world, order_id, 120)
+    calls = len(stripe.expired)
+
+    await sweep(world, stripe)
+
+    assert (await order_state(world, order_id))["status"] == "cancelled"
+    assert len(stripe.expired) == calls
+
+
+async def test_the_sweep_pages_past_orders_it_left_pending(
+    client: AsyncClient, world: World, stripe: FakeStripeCheckout
+) -> None:
+    held, _s1, _r1 = await started(client, world, stripe)
+    later, _s2, _r2 = await started(client, world, stripe)
+    await age(world, held, 180)
+    await age(world, later, 120)
+    stripe.expire_outcome = ExpireOutcome.COMPLETE  # the oldest stays pending
+
+    async with open_store_session(north(world), world.provider) as session:
+        first = await sweep_expired_checkout_orders(session, stripe, ACCOUNT, batch=1)
+        assert first.cursor is not None
+        stripe.expire_outcome = ExpireOutcome.EXPIRED
+        second = await sweep_expired_checkout_orders(
+            session, stripe, ACCOUNT, batch=1, after=first.cursor
+        )
+
+    assert (first.examined, first.cancelled) == (1, 0)
+    assert second.examined == 1
+    assert (await order_state(world, held))["status"] == "pending"
+
+
 async def test_starting_a_checkout_sweeps_the_stores_stale_orders(
     client: AsyncClient, world: World, stripe: FakeStripeCheckout
 ) -> None:
     stale, _session_id, _request = await started(client, world, stripe)
-    await run_sql(
-        world,
-        "UPDATE orders SET checkout_expires_at = now() - interval '3 hours'"
-        " WHERE id = :id",
-        id=stale,
-    )
+    await age(world, stale, 180)
     token = await cart_with(client, world)
 
     response = await checkout(client, token)
@@ -566,3 +641,53 @@ async def test_an_order_of_another_store_cannot_be_cancelled_through_this_one(
 
     assert response.status_code == 404
     assert (await order_state(world, order_id))["status"] == "pending"
+
+
+async def test_replaying_an_unlinked_order_sends_stripe_the_same_request(
+    client: AsyncClient, world: World, stripe: FakeStripeCheckout
+) -> None:
+    # Two distinct variants: the lines come back from the database in id order, which is not
+    # the order they were first sent in. The key's parameters must still match.
+    first_product = await create_product(
+        client,
+        north(world),
+        "alice",
+        simple_payload(
+            status="active",
+            variants=[variant_payload(unique(), price_minor=1200, stock=10)],
+        ),
+    )
+    second_product = await create_product(
+        client,
+        north(world),
+        "alice",
+        simple_payload(
+            status="active",
+            variants=[variant_payload(unique(), price_minor=800, stock=10)],
+        ),
+    )
+    token: str | None = None
+    for product in (second_product, first_product):  # added in the reverse of id order
+        response = await client.post(
+            f"/v1/storefront/{SLUG}/cart/items",
+            json={"variant_id": product["variants"][0]["id"], "quantity": 1},
+            headers={"X-Cart-Token": token} if token else {},
+        )
+        assert response.status_code == 200, response.text
+        token = token or response.json()["data"]["cart_token"]
+    first = (await checkout(client, token)).json()["data"]
+    await run_sql(
+        world,
+        "UPDATE orders SET stripe_checkout_session_id = NULL,"
+        " stripe_checkout_url = NULL WHERE id = :id",
+        id=first["order_id"],
+    )
+
+    second = await checkout(client, token)
+
+    assert second.status_code == 200, second.text
+    assert second.json()["data"] == first
+    sent = [r for r in stripe.requests if r.order_id == first["order_id"]]
+    assert len(sent) == 2
+    assert sent[0] == sent[1]
+    assert (await order_state(world, first["order_id"]))["status"] == "pending"

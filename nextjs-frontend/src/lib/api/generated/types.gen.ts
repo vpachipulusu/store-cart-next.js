@@ -10454,7 +10454,7 @@ export type StartCheckoutErrors = {
      */
     502: ErrorResponse;
     /**
-     * Rate limiter unavailable
+     * Rate limiter, Stripe configuration or store database unavailable
      */
     503: ErrorResponse;
 };
