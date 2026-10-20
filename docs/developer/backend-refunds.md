@@ -19,7 +19,8 @@ limit (same access as fulfil).
   quantity` taken cumulatively, so the parts of a line add up to the line to the minor unit.
 - `Idempotency-Key` header (optional, 1-64 of `A-Za-z0-9._:-`; send one per refund you intend to make): a repeat
   with the same key on the same order returns the refund already made (no second refund, no second Stripe call),
-  whatever the order's status is by then. The same key with different `items` is a 409. Keys are per order.
+  whatever the order's status is by then. The whole request is compared (full vs lines, the lines, `restock`; a hash
+  stored in `client_fingerprint`): any difference under the same key is a 409. Keys are per order.
 - `restock` (strict boolean, **default false**) is the merchant's choice per refund. Only when true are the refunded
   quantities returned to variant stock.
 - Response: the order (`OrderData`) with `refunded_minor` (sum of succeeded refunds) and `refunds[]` (`id`,
@@ -46,7 +47,11 @@ limit (same access as fulfil).
 order's pending refunds that Stripe never confirmed and are older than 60 seconds, and settles them with the answer.
 So after a 502, retrying the request (with the same key) or making any later refund request on the order heals a
 refund whose call never reached Stripe, instead of leaving its units and money held for ever. A refund younger than
-60 seconds may still be in flight and is left alone.
+60 seconds may still be in flight and is left alone. Nothing older than **23 hours** is re-sent (Stripe forgets
+idempotency keys after 24 hours, so asking again could refund twice or be rejected as "already refunded"): it stays
+`pending`, is logged and reported to Sentry (`UnreconciledRefund`) for manual reconciliation. A refusal of a re-send
+never releases the hold either (the first call may have gone through); only the first ask, or Stripe saying the refund
+failed, releases it.
 
 An unknown outcome (timeout, 5xx, in-flight idempotency key) leaves the refund `pending` and returns 502: the refund may
 still happen, so nothing is released. If Stripe did create it, the webhook settles it. A webhook must agree with our row
@@ -75,6 +80,8 @@ the Stripe **Connect** webhook endpoint.
 
 - A pending refund that Stripe never confirmed is only re-sent when a request for the same order arrives (see
   Recovery); there is no background sweeper, so an order nobody touches keeps those units held.
+- A pending refund that Stripe acknowledged but whose webhook never arrives (or one older than 23 hours that Stripe
+  never confirmed) needs ops reconciliation against Stripe: it is not settled automatically.
 - Stripe refunds made outside this API (the Stripe dashboard) are not reconciled: they carry no `refund_id` metadata, so
   the event is acknowledged and ignored and the order is not updated.
 - A refund that Stripe fails after reporting success is not reversed: the event is not applied and goes to Sentry

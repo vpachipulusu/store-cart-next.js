@@ -24,6 +24,8 @@ tax, ``tax * q // quantity`` taken cumulatively, so the parts of a line add up t
 the minor unit. Shipping is refunded only by a full (remaining) refund.
 """
 
+import hashlib
+import json
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
@@ -106,8 +108,9 @@ _HELD_AMOUNT_SQL = text(
     "WHERE order_id = :id AND status <> 'failed'"
 )
 _INSERT_REFUND_SQL = text(
-    "INSERT INTO order_refunds (id, order_id, amount_minor, currency, restock, client_key) "
-    "VALUES (:id, :order_id, :amount, :currency, :restock, :client_key)"
+    "INSERT INTO order_refunds (id, order_id, amount_minor, currency, restock, client_key,"
+    " client_fingerprint) "
+    "VALUES (:id, :order_id, :amount, :currency, :restock, :client_key, :fingerprint)"
 )
 _INSERT_REFUND_ITEM_SQL = text(
     "INSERT INTO order_refund_items (refund_id, order_item_id, quantity) "
@@ -178,7 +181,9 @@ async def reserve_refund(
         raise OrderNotFound(order_id)
     payment_intent = order["stripe_payment_intent_id"]
     if client_key is not None:
-        replay = await _replayed(session, order_id, client_key, lines, payment_intent)
+        replay = await _replayed(
+            session, order_id, client_key, lines, restock, payment_intent
+        )
         if replay is not None:
             return replay
     if order["status"] not in REFUNDABLE_STATUSES:
@@ -236,6 +241,9 @@ async def reserve_refund(
             "currency": order["currency"],
             "restock": restock,
             "client_key": client_key,
+            "fingerprint": (
+                None if client_key is None else request_fingerprint(lines, restock)
+            ),
         },
     )
     if chosen:
@@ -257,11 +265,16 @@ async def reserve_refund(
 
 
 _BY_KEY_SQL = text(
-    "SELECT id, amount_minor, currency, restock FROM order_refunds "
+    "SELECT id, amount_minor, currency, restock, client_fingerprint FROM order_refunds "
     "WHERE order_id = :order_id AND client_key = :key"
 )
-_REFUND_LINES_SQL = text(
-    "SELECT order_item_id, quantity FROM order_refund_items WHERE refund_id = :id"
+# Stripe forgets an idempotency key after 24 hours: asking again later could create a second
+# refund (or be rejected as already refunded), so nothing older than this is ever re-sent.
+RESEND_MAX_AGE_HOURS = 23
+_STALE_UNSENT_SQL = text(
+    "SELECT count(*) FROM order_refunds WHERE order_id = :order_id"
+    " AND status = 'pending' AND stripe_refund_id IS NULL"
+    " AND created_at <= now() - make_interval(hours => :hours)"
 )
 _UNSENT_SQL = text(
     "SELECT r.id, r.order_id, r.amount_minor, r.currency, r.restock,"
@@ -269,9 +282,26 @@ _UNSENT_SQL = text(
     "FROM order_refunds r JOIN orders o ON o.id = r.order_id "
     "WHERE r.order_id = :order_id AND r.status = 'pending'"
     " AND r.stripe_refund_id IS NULL"
-    " AND r.created_at <= now() - make_interval(secs => :grace) "
+    " AND r.created_at <= now() - make_interval(secs => :grace)"
+    " AND r.created_at > now() - make_interval(hours => :hours) "
     "ORDER BY r.created_at, r.id"
 )
+
+
+def request_fingerprint(lines: Sequence[RefundLineInput] | None, restock: bool) -> str:
+    """A hash of the refund a caller asked for: full or which lines (order-free), and restock.
+
+    Stored with the ``Idempotency-Key`` so a retry that changes anything is refused.
+    """
+    shape = {
+        "items": (
+            None
+            if lines is None
+            else sorted((line.order_item_id, line.quantity) for line in lines)
+        ),
+        "restock": restock,
+    }
+    return hashlib.sha256(json.dumps(shape, separators=(",", ":")).encode()).hexdigest()
 
 
 async def _replayed(
@@ -279,6 +309,7 @@ async def _replayed(
     order_id: str,
     client_key: str,
     lines: Sequence[RefundLineInput] | None,
+    restock: bool,
     payment_intent: str | None,
 ) -> RefundPlan | None:
     """The refund this order already made under ``client_key``, if any (checked under the lock)."""
@@ -289,17 +320,8 @@ async def _replayed(
     )
     if row is None:
         return None
-    if lines is not None:
-        stored = {
-            r["order_item_id"]: r["quantity"]
-            for r in (
-                await session.execute(_REFUND_LINES_SQL, {"id": row["id"]})
-            ).mappings()
-        }
-        if stored != {line.order_item_id: line.quantity for line in lines}:
-            raise RefundNotAllowed(
-                "This Idempotency-Key was used for a different refund"
-            )
+    if row["client_fingerprint"] != request_fingerprint(lines, restock):
+        raise RefundNotAllowed("This Idempotency-Key was used for a different refund")
     return RefundPlan(
         id=row["id"],
         order_id=order_id,
@@ -323,7 +345,12 @@ async def unsent_refunds(
     rows = (
         (
             await session.execute(
-                _UNSENT_SQL, {"order_id": order_id, "grace": grace_seconds}
+                _UNSENT_SQL,
+                {
+                    "order_id": order_id,
+                    "grace": grace_seconds,
+                    "hours": RESEND_MAX_AGE_HOURS,
+                },
             )
         )
         .mappings()
@@ -341,6 +368,18 @@ async def unsent_refunds(
         for row in rows
         if row["stripe_payment_intent_id"] is not None
     ]
+
+
+async def count_stale_unconfirmed(session: AsyncSession, order_id: str) -> int:
+    """Pending refunds never confirmed by Stripe and too old to re-send (needs manual reconciliation)."""
+    return int(
+        (
+            await session.execute(
+                _STALE_UNSENT_SQL,
+                {"order_id": order_id, "hours": RESEND_MAX_AGE_HOURS},
+            )
+        ).scalar_one()
+    )
 
 
 _REFUND_ORDER_SQL = text("SELECT order_id FROM order_refunds WHERE id = :id")

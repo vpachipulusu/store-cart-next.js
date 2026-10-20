@@ -90,14 +90,15 @@ async def _refund(connection: AsyncConnection, order_id: str, **over: Any) -> st
         "restocked": False,  # whether restocked_at is set
         "stripe": None,
         "key": None,
+        "fp": "0" * 64 if over.get("key") else None,
         **over,
     }
     await connection.execute(
         text(
             "INSERT INTO order_refunds (id, order_id, amount_minor, currency, status,"
-            " restock, restocked_at, stripe_refund_id, client_key)"
+            " restock, restocked_at, stripe_refund_id, client_key, client_fingerprint)"
             " VALUES (:id, :o, :amount, 'GBP', :status, :restock,"
-            " CASE WHEN :restocked THEN now() END, :stripe, :key)"
+            " CASE WHEN :restocked THEN now() END, :stripe, :key, :fp)"
         ),
         values,
     )
@@ -247,3 +248,21 @@ async def test_downgrade_is_clean_and_keeps_orders(
         await connection.run_sync(_to("head", down=False))  # and up again
 
     assert (left_over, orders) == (0, 1)
+
+
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"key": "k", "fp": None},  # a key needs its fingerprint
+        {"key": None, "fp": "0" * 64},  # and a fingerprint needs its key
+        {"key": "k", "fp": "short"},
+    ],
+)
+async def test_a_client_key_and_its_fingerprint_go_together(
+    at_0011: tuple[AsyncEngine, str, str], over: dict[str, Any]
+) -> None:
+    engine, order_id, _ = at_0011
+
+    with pytest.raises(IntegrityError):
+        async with engine.begin() as connection:
+            await _refund(connection, order_id, **over)

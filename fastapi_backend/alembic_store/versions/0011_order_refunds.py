@@ -18,7 +18,8 @@ writes the new columns, and the defaults fill them.
   settles one row. ``restock`` is the merchant's per-refund choice (default off) and
   ``restocked_at`` marks that the restock was applied, in the same transaction that settled it.
 * ``order_refunds.client_key`` is the caller's ``Idempotency-Key`` (unique per order): a retried
-  request returns the refund it already made. ``order_id`` and ``order_item_id`` references
+  request returns the refund it already made. ``client_fingerprint`` is a hash of the request
+  shape (full or which lines, and ``restock``), so a retry that changes anything is refused.``order_id`` and ``order_item_id`` references
   are ``RESTRICT``: a financial record is never removed by deleting its order or line.
 * ``order_refund_items`` holds the lines (order item and quantity) a refund covers; a full
   refund lists every remaining line.
@@ -80,6 +81,7 @@ def upgrade() -> None:
         sa.Column("restocked_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("stripe_refund_id", sa.String(), nullable=True),
         sa.Column("client_key", sa.String(), nullable=True),
+        sa.Column("client_fingerprint", sa.String(), nullable=True),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -106,6 +108,11 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "client_key IS NULL OR char_length(client_key) BETWEEN 1 AND 64",
             name="ck_order_refunds_client_key",
+        ),
+        sa.CheckConstraint(
+            "(client_key IS NULL) = (client_fingerprint IS NULL)"
+            " AND (client_fingerprint IS NULL OR char_length(client_fingerprint) = 64)",
+            name="ck_order_refunds_client_fingerprint",
         ),
         sa.CheckConstraint(
             "restocked_at IS NULL OR (restock AND status = 'succeeded')",

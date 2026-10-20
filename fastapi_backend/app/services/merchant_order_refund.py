@@ -24,6 +24,7 @@ import logging
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.sentry import report_exception
 from app.core.stripe_billing import (
     StripeConflict,
     StripeError,
@@ -39,6 +40,7 @@ from app.services.store_refunds import (
     RefundLineInput,
     RefundOutcome,
     RefundPlan,
+    count_stale_unconfirmed,
     record_stripe_refund,
     reserve_refund,
     settle_refund,
@@ -61,6 +63,10 @@ _REFUSED = (
 
 # A pending refund younger than this may still be in flight, so it is not sent again.
 UNSENT_GRACE_SECONDS = 60.0
+
+
+class UnreconciledRefund(Exception):
+    """A pending refund Stripe never confirmed is too old to re-send (Sentry only)."""
 
 
 class RefundUnavailable(OrderError):
@@ -126,11 +132,21 @@ class MerchantOrderRefundService:
             stale = await unsent_refunds(
                 self._session, order_id, self._unsent_grace_seconds
             )
+            too_old = await count_stale_unconfirmed(self._session, order_id)
         finally:
             await self._session.rollback()
+        if too_old:
+            # Stripe forgets idempotency keys after 24 hours, so these are not re-sent: asking
+            # again could refund twice. They stay pending until someone reconciles them.
+            logger.error(
+                "pending refunds too old to resend: %d",
+                too_old,
+                extra={"order_id": order_id},
+            )
+            report_exception(UnreconciledRefund(order_id))
         for plan in stale:
             try:
-                await self._ask_stripe(plan, account_id)
+                await self._ask_stripe(plan, account_id, resend=True)
             except OrderError as exc:
                 logger.warning(
                     "resent refund not settled: %s",
@@ -155,7 +171,9 @@ class MerchantOrderRefundService:
             raise
         return plan
 
-    async def _ask_stripe(self, plan: RefundPlan, account_id: str) -> None:
+    async def _ask_stripe(
+        self, plan: RefundPlan, account_id: str, *, resend: bool = False
+    ) -> None:
         request = RefundRequest(
             account_id=account_id,
             payment_intent_id=plan.payment_intent_id,
@@ -170,6 +188,10 @@ class MerchantOrderRefundService:
             raise RefundUnavailable("The refund is being processed") from None
         except _REFUSED as exc:
             logger.warning("refund refused by stripe: %s", type(exc).__name__)
+            if resend:
+                # A refusal of a re-send may mean "already refunded" (the first call did go
+                # through), so the hold is kept for the webhook or a person to settle.
+                raise RefundUnavailable("The refund could not be confirmed") from None
             await self._settle(plan, RefundOutcome.FAILED, None)
             raise RefundRefused("Stripe could not refund this payment") from None
         except StripeError as exc:

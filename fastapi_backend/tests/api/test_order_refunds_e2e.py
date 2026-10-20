@@ -872,3 +872,83 @@ async def test_an_event_that_breaks_a_constraint_is_acknowledged_and_ignored(
     assert response.status_code == 200
     assert [r[0] for r in await refund_rows(world, second_order)] == ["pending"]
     assert await status_of(world, second_order) == "paid"
+
+
+# --- key replays compare the whole request; resends have an age bound ----------------------
+
+
+async def test_a_retry_without_items_does_not_return_an_earlier_partial_refund(
+    client: AsyncClient, world: World, stripe: FakeStripeRefunds
+) -> None:
+    order_id, _, item_id = await paid_order(client, world, quantity=3)
+    await refund(
+        client,
+        world,
+        order_id,
+        {"items": [{"order_item_id": item_id, "quantity": 1}]},
+        keyed("k-5"),
+    )
+
+    full = await refund(client, world, order_id, headers=keyed("k-5"))
+
+    assert full.status_code == 409
+    assert len(stripe.requests) == 1
+
+
+async def test_a_retry_that_flips_restock_is_refused(
+    client: AsyncClient, world: World, stripe: FakeStripeRefunds
+) -> None:
+    order_id, _, _ = await paid_order(client, world)
+    await refund(client, world, order_id, {"restock": False}, keyed("k-6"))
+
+    flipped = await refund(client, world, order_id, {"restock": True}, keyed("k-6"))
+    same = await refund(client, world, order_id, {"restock": False}, keyed("k-6"))
+
+    assert (flipped.status_code, same.status_code) == (409, 200)
+    assert len(stripe.requests) == 1
+
+
+async def test_an_old_unconfirmed_refund_is_not_sent_again(
+    client: AsyncClient, world: World, stripe: FakeStripeRefunds
+) -> None:
+    order_id, _, _ = await paid_order(client, world)
+    stripe.error = StripeError("down")
+    await refund(client, world, order_id, headers=keyed("k-7"))
+    stripe.error = None
+    stripe.status = "succeeded"
+    async with open_store_session(north(world), world.provider) as session:
+        await session.execute(
+            text(
+                "UPDATE order_refunds SET created_at = now() - interval '30 hours'"
+                " WHERE order_id = :o"
+            ),
+            {"o": order_id},
+        )
+        await session.commit()
+
+    retry = await refund(client, world, order_id, headers=keyed("k-7"))
+    another = await refund(client, world, order_id)
+
+    assert retry.status_code == 200
+    assert another.status_code == 409  # the old refund still holds everything
+    assert len(stripe.requests) == 1  # Stripe may have forgotten the key: never re-sent
+    assert [r[0] for r in await refund_rows(world, order_id)] == ["pending"]
+
+
+async def test_a_refused_resend_keeps_the_hold(
+    client: AsyncClient, world: World, stripe: FakeStripeRefunds
+) -> None:
+    order_id, variant_id, _ = await paid_order(client, world)
+    stripe.error = StripeError("down")
+    await refund(client, world, order_id, {"restock": True}, keyed("k-8"))
+    await age_refunds(world, order_id)
+    stripe.error = StripeRejected(
+        "already refunded"
+    )  # the first call may have gone through
+
+    retry = await refund(client, world, order_id, {"restock": True}, keyed("k-8"))
+
+    assert retry.status_code == 200  # the replay itself
+    assert len(stripe.requests) == 2  # the resend was attempted
+    assert [r[0] for r in await refund_rows(world, order_id)] == ["pending"]
+    assert await stock_of(world, variant_id) == 7
