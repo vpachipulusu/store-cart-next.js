@@ -278,6 +278,28 @@ describe('BasketView checkout', () => {
     );
   });
 
+  it('announces the redirect before leaving and clears it when checkout fails', async () => {
+    const user = userEvent.setup();
+    let announcedAtAssign = '';
+    assign.mockImplementation(() => {
+      announcedAtAssign = screen.getByRole('status').textContent ?? '';
+    });
+    mocks.readCart.mockResolvedValue({ ok: true, cart: cartWith(1) });
+    mocks.startCheckout
+      .mockResolvedValueOnce({ ok: false, error: 'Too many requests.' })
+      .mockResolvedValueOnce({ ok: true, url: STRIPE_URL });
+    render(<BasketView currency="GBP" />);
+
+    await user.click(await screen.findByRole('button', { name: 'Checkout' }));
+    await screen.findByRole('alert');
+    expect(screen.getByRole('status')).toHaveTextContent('');
+
+    await user.click(screen.getByRole('button', { name: 'Checkout' }));
+
+    await waitFor(() => expect(assign).toHaveBeenCalledWith(STRIPE_URL));
+    expect(announcedAtAssign).toBe('Redirecting to payment…');
+  });
+
   it('freezes the basket once checkout has started', async () => {
     const user = userEvent.setup();
     mocks.readCart.mockResolvedValue({ ok: true, cart: cartWith(1) });

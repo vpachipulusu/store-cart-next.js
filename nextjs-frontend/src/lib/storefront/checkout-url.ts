@@ -6,6 +6,10 @@
 const STRIPE_CHECKOUT_HOST = 'checkout.stripe.com';
 
 /**
+ * The single-host allowlist is intentional: Checkout Sessions (direct charges on a connected account included) are
+ * always hosted on `checkout.stripe.com`. Another Stripe host, a custom domain or a subdomain is refused on purpose, so
+ * widening this needs a decision, not a tweak.
+ *
  * True only for an https URL on exactly `checkout.stripe.com` (no userinfo, no port). The backend returns this URL
  * and the shopper's browser is sent to it, so anything else is never followed.
  */

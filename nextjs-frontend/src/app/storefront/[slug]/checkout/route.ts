@@ -16,7 +16,10 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<Response> {
   const { slug } = await params;
-  const blocked = await guardStoreRequest(request, slug, { write: true });
+  const blocked = await guardStoreRequest(request, slug, {
+    write: true,
+    requireSameOrigin: true,
+  });
   if (blocked) return blocked;
   const result = await beginCheckout(slug);
   if (result.success) return jsonResponse({ success: true, data: result.data }, 200);

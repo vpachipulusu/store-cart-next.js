@@ -172,10 +172,12 @@ export function BasketView({ currency }: { currency: string }) {
     isCheckingOutRef.current = true;
     setIsCheckingOut(true);
     setError(null);
+    setMessage('Redirecting to payment…'); // announced before the page is left
     const reply = await startCheckout();
     if (!reply.ok) {
       isCheckingOutRef.current = false;
       setIsCheckingOut(false);
+      setMessage('');
       setError(reply.error);
       return;
     }

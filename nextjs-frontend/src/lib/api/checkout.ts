@@ -6,7 +6,11 @@ import { startCheckout } from './generated';
 import { cartCookieName, isCartToken } from '@/lib/storefront/cart-cookie';
 import { checkoutReturnUrls, isStripeCheckoutUrl } from '@/lib/storefront/checkout-url';
 import { logger } from '@/lib/logger';
-import { isValidStoreSlug } from '@/lib/storefront/host';
+import {
+  DEFAULT_PLATFORM_ROOT_DOMAIN,
+  isValidStoreSlug,
+  resolvePlatformRootDomain,
+} from '@/lib/storefront/host';
 import { originFor } from '@/lib/storefront/store-origin';
 
 /**
@@ -53,6 +57,16 @@ export type CheckoutStart = ApiResult<{ checkoutUrl: string }>;
 export async function beginCheckout(slug: string): Promise<CheckoutStart> {
   if (!isValidStoreSlug(slug)) {
     return { success: false, error: CHECKOUT_NOT_FOUND_MESSAGE, status: 404 };
+  }
+  // A production deployment whose PLATFORM_ROOT_DOMAIN is unset or invalid would send Stripe back to localhost.
+  if (
+    process.env.VERCEL_ENV === 'production' &&
+    resolvePlatformRootDomain(process.env.PLATFORM_ROOT_DOMAIN) === DEFAULT_PLATFORM_ROOT_DOMAIN
+  ) {
+    logger.error('Storefront checkout refused: PLATFORM_ROOT_DOMAIN is not set to a real domain', {
+      slug,
+    });
+    return { success: false, error: CHECKOUT_PAYMENTS_UNAVAILABLE_MESSAGE, status: 503 };
   }
   const cookieValue = (await cookies()).get(cartCookieName(slug))?.value;
   const { successUrl, cancelUrl } = checkoutReturnUrls(originFor(slug));

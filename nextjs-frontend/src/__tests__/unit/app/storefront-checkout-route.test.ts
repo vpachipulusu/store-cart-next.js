@@ -59,6 +59,18 @@ describe('storefront checkout route', () => {
     expect(api.beginCheckout).not.toHaveBeenCalled();
   });
 
+  it.each(['cross-site', 'same-site'])('refuses a Sec-Fetch-Site of %s', async (site) => {
+    const response = await POST(post({ 'sec-fetch-site': site }), slugParams);
+
+    expect(response.status).toBe(403);
+    expect(api.beginCheckout).not.toHaveBeenCalled();
+  });
+
+  it('accepts a same-origin Sec-Fetch-Site and a request without the header', async () => {
+    expect((await POST(post({ 'sec-fetch-site': 'same-origin' }), slugParams)).status).toBe(200);
+    expect((await POST(post(), slugParams)).status).toBe(200);
+  });
+
   it.each([404, 409, 422, 429, 502, 503])('passes a %i with its message', async (status) => {
     api.beginCheckout.mockResolvedValue({ success: false, error: 'Shopper message', status });
 

@@ -133,6 +133,36 @@ describe('beginCheckout', () => {
     });
   });
 
+  it('refuses to build localhost return URLs on a production deployment', async () => {
+    vi.stubEnv('VERCEL_ENV', 'production');
+    vi.stubEnv('PLATFORM_ROOT_DOMAIN', '');
+
+    const result = await beginCheckout('acme');
+
+    expect(result).toEqual({
+      success: false,
+      error: CHECKOUT_PAYMENTS_UNAVAILABLE_MESSAGE,
+      status: 503,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(log.error).toHaveBeenCalledTimes(1);
+  });
+
+  it('still starts checkout in production when the root domain is set', async () => {
+    vi.stubEnv('VERCEL_ENV', 'production');
+    fetchMock.mockResolvedValue(ok(STRIPE_URL));
+
+    await expect(beginCheckout('acme')).resolves.toMatchObject({ success: true });
+    expect(log.error).not.toHaveBeenCalled();
+  });
+
+  it('keeps the localhost default outside production (local development and e2e)', async () => {
+    vi.stubEnv('PLATFORM_ROOT_DOMAIN', '');
+    fetchMock.mockResolvedValue(ok(STRIPE_URL));
+
+    await expect(beginCheckout('acme')).resolves.toMatchObject({ success: true });
+  });
+
   it('logs the backend status for operators, never the cart token', async () => {
     jar.set('sc_cart_acme', TOKEN);
     fetchMock.mockResolvedValue(json({ success: false, error: 'boom' }, 502));
