@@ -137,7 +137,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SessionRequest"
+                "$ref": "#/components/schemas/SignInRequest"
               }
             }
           }
@@ -174,14 +174,14 @@
             }
           },
           "401": {
+            "description": "Invalid authentication, or a two-factor code is missing (code totp_required) or wrong (code totp_invalid)",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "$ref": "#/components/schemas/AuthChallengeErrorResponse"
                 }
               }
-            },
-            "description": "Unauthorized"
+            }
           },
           "403": {
             "content": {
@@ -15757,6 +15757,41 @@
         ],
         "title": "AuditLogPageResponse"
       },
+      "AuthChallengeErrorResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": false,
+            "title": "Success",
+            "default": false
+          },
+          "error": {
+            "type": "string",
+            "title": "Error"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "totp_required",
+                  "totp_invalid"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          }
+        },
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "title": "AuthChallengeErrorResponse",
+        "description": "401 body of sign-in: ``code`` says whether a two-factor code is missing or wrong."
+      },
       "AvatarRequest": {
         "properties": {
           "avatar_url": {
@@ -20079,6 +20114,37 @@
           "data"
         ],
         "title": "SettingsResponse"
+      },
+      "SignInRequest": {
+        "properties": {
+          "id_token": {
+            "type": "string",
+            "maxLength": 16384,
+            "minLength": 1,
+            "format": "password",
+            "title": "Id Token",
+            "writeOnly": true
+          },
+          "totp_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "format": "password",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Totp Code"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id_token"
+        ],
+        "title": "SignInRequest"
       },
       "StoreData": {
         "properties": {

@@ -54,6 +54,12 @@ class RateLimitPolicy:
 
 # Numbers match RATE_LIMIT_CONFIGS in nextjs-frontend/src/lib/middleware/rate-limit.ts.
 AUTH_POLICY = RateLimitPolicy("auth", limit=5, window_seconds=15 * 60, fail_closed=True)
+# Two-factor code attempts at sign-in (KAN-257): keyed by user, hit once per request that carries a
+# code, before the code is checked, so a guess is counted even when it is right. Tighter than AUTH_POLICY
+# alone (which is per email and IP); 6-digit codes must not be guessable. Fail closed (ADR-007).
+TOTP_SIGNIN_POLICY = RateLimitPolicy(
+    "totp_signin", limit=5, window_seconds=15 * 60, fail_closed=True
+)
 API_POLICY = RateLimitPolicy("api", limit=100, window_seconds=60, fail_closed=False)
 WEBHOOK_POLICY = RateLimitPolicy(
     "webhook", limit=200, window_seconds=60, fail_closed=False

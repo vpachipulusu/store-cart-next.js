@@ -11,8 +11,11 @@ from app.core.firebase import (
     IdentityProviderUnavailable,
     VerifiedIdentity,
 )
+from app.core.totp import TotpCodec
 from app.repositories.auth import AuthRepository
+from app.repositories.totp import TotpRepository
 from app.services.auth import AuthService
+from app.services.signin_totp import SignInTotpGuard
 
 
 def require_internal_key(
@@ -40,7 +43,16 @@ def require_internal_key(
 def get_auth_service(
     _internal: Annotated[None, Depends(require_internal_key)], session: SessionDep
 ) -> AuthService:
-    return AuthService(FirebaseIdentityProvider(), AuthRepository(session), session)
+    def codec() -> TotpCodec:
+        key = settings.TOTP_ENCRYPTION_KEY
+        return TotpCodec(key.get_secret_value() if key else None)
+
+    return AuthService(
+        FirebaseIdentityProvider(),
+        AuthRepository(session),
+        session,
+        SignInTotpGuard(TotpRepository(session), codec),
+    )
 
 
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]

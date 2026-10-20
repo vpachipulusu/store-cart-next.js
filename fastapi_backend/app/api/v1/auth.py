@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -22,14 +23,23 @@ from app.api.rate_limit import (
     limit_by_client_ip,
     limit_by_subject,
 )
-from app.core.errors import ErrorResponse
+from app.core.errors import (
+    AuthChallengeErrorResponse,
+    ErrorResponse,
+    totp_invalid,
+    totp_required,
+)
 from app.core.firebase import (
     AuthenticationFailed,
     IdentityProviderUnavailable,
     VerifiedIdentity,
 )
-from app.core.rate_limit import API_POLICY, AUTH_POLICY
+from app.core.rate_limit import API_POLICY, AUTH_POLICY, TOTP_SIGNIN_POLICY
+from app.core.totp import TotpUnavailable
 from app.services.auth import SESSION_EXPIRES_SECONDS, AccountConflict
+from app.services.signin_totp import TotpInvalid, TotpRequired
+
+logger = logging.getLogger("storecart.auth")
 
 router = APIRouter(
     prefix="/v1/auth",
@@ -45,6 +55,11 @@ router = APIRouter(
 
 class SessionRequest(BaseModel):
     id_token: SecretStr = Field(min_length=1, max_length=16384)
+
+
+class SignInRequest(SessionRequest):
+    # Plain bounded text, not a 6-digit pattern: a malformed code is refused as totp_invalid (401), not 422.
+    totp_code: SecretStr | None = Field(default=None, max_length=64)
 
 
 class SessionData(BaseModel):
@@ -83,12 +98,17 @@ async def current_subject(
     response_model=SessionResponse,
     responses={
         **RATE_LIMIT_FAIL_CLOSED_RESPONSES,
+        401: {
+            "model": AuthChallengeErrorResponse,
+            "description": "Invalid authentication, or a two-factor code is "
+            "missing (code totp_required) or wrong (code totp_invalid)",
+        },
         409: {"model": ErrorResponse, "description": "Account conflict"},
     },
     dependencies=[Depends(limit_auth_attempts())],
 )
 async def create_session(
-    body: SessionRequest,
+    body: SignInRequest,
     request: Request,
     response: Response,
     service: AuthServiceDep,
@@ -105,16 +125,37 @@ async def create_session(
             AUTH_POLICY,
             [f"{AUTH_POLICY.scope}:email:{email_digest(identity.email)}"],
         )
+        totp_code = (
+            body.totp_code.get_secret_value() if body.totp_code is not None else None
+        )
+        if body.totp_code is not None:
+            # Counted before the check so a guess costs budget even when it is right.
+            await enforce_rate_limit(
+                request,
+                response,
+                limiter,
+                TOTP_SIGNIN_POLICY,
+                [f"{TOTP_SIGNIN_POLICY.scope}:user:{identity.uid}"],
+            )
         cookie = await service.create_session(
             token,
             identity,
             client_ip(request),
             request.headers.get("user-agent", "")[:512] or None,
+            totp_code,
         )
     except (AuthenticationFailed, IdentityProviderUnavailable) as exc:
         raise auth_error(exc) from None
     except AccountConflict:
         raise HTTPException(409, "Account conflict") from None
+    except TotpRequired:
+        raise totp_required() from None
+    except TotpInvalid:
+        raise totp_invalid() from None
+    except TotpUnavailable:
+        # 2FA is on but its secret or key is unusable: refuse (fail closed). Never log the code or secret.
+        logger.error("two-factor secret unusable at sign-in, refusing session")
+        raise HTTPException(503, "Service temporarily unavailable") from None
     return SessionResponse(
         data=SessionData(session_cookie=cookie, expires_in=SESSION_EXPIRES_SECONDS)
     )
