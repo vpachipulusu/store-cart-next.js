@@ -14,7 +14,7 @@ from app.core.firebase import AuthenticationFailed, IdentityProviderUnavailable
 from app.core.rate_limit import API_POLICY
 from app.main import create_app
 from app.services.auth import AuthService
-from tests.api.test_auth import FakeIdentity, FakeRepository, FakeSession
+from tests.api.test_auth import FakeIdentity, FakeRepository, FakeSession, NoTotpGuard
 from tests.fakes import FakeRateLimiter, RaisingRateLimiter, as_limiter
 
 KEY = "test-internal-key-that-is-at-least-32-chars"
@@ -25,7 +25,7 @@ HEADERS = {"X-Internal-Key": KEY, "X-Session-Token": "cookie"}
 def context(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "BACKEND_INTERNAL_KEY", SecretStr(KEY))
     identity, repository = FakeIdentity(), FakeRepository()
-    service = AuthService(identity, repository, FakeSession())  # type: ignore[arg-type]
+    service = AuthService(identity, repository, FakeSession(), NoTotpGuard())  # type: ignore[arg-type]
     limiter = FakeRateLimiter()
     app = create_app()
     app.dependency_overrides[get_auth_service] = lambda: service

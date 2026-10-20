@@ -278,6 +278,26 @@ export type AuditLogPageResponse = {
 };
 
 /**
+ * AuthChallengeErrorResponse
+ *
+ * 401 body of sign-in: ``code`` says whether a two-factor code is missing or wrong.
+ */
+export type AuthChallengeErrorResponse = {
+    /**
+     * Success
+     */
+    success?: false;
+    /**
+     * Error
+     */
+    error: string;
+    /**
+     * Code
+     */
+    code?: 'totp_required' | 'totp_invalid' | null;
+};
+
+/**
  * AvatarRequest
  */
 export type AvatarRequest = {
@@ -2891,6 +2911,16 @@ export type SettingsResponse = {
 };
 
 /**
+ * SignInRequest
+ */
+export type SignInRequest = {
+    /**
+     * Totp Code
+     */
+    totp_code?: null;
+};
+
+/**
  * StoreData
  */
 export type StoreData = {
@@ -3835,6 +3865,20 @@ export type VerificationRequest = {
     token: string;
 };
 
+/**
+ * SignInRequest
+ */
+export type SignInRequestWritable = {
+    /**
+     * Id Token
+     */
+    id_token: string;
+    /**
+     * Totp Code
+     */
+    totp_code?: string | null;
+};
+
 export type HealthCheckData = {
     body?: never;
     path?: never;
@@ -4010,7 +4054,7 @@ export type ReadSessionResponses = {
 export type ReadSessionResponse = ReadSessionResponses[keyof ReadSessionResponses];
 
 export type CreateSessionData = {
-    body: SessionRequest;
+    body: SignInRequestWritable;
     headers?: {
         /**
          * X-Internal-Key
@@ -4024,9 +4068,9 @@ export type CreateSessionData = {
 
 export type CreateSessionErrors = {
     /**
-     * Unauthorized
+     * Invalid authentication, or a two-factor code is missing (code totp_required) or wrong (code totp_invalid)
      */
-    401: ErrorResponse;
+    401: AuthChallengeErrorResponse;
     /**
      * Forbidden
      */
@@ -4048,7 +4092,7 @@ export type CreateSessionErrors = {
      */
     500: ErrorResponse;
     /**
-     * Rate limiter unavailable
+     * Rate limiter unavailable, or the two-factor secret or key cannot be used (sign-in is refused)
      */
     503: ErrorResponse;
 };
