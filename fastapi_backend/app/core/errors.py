@@ -2,9 +2,9 @@
 
 import logging
 from collections.abc import Mapping
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -21,6 +21,37 @@ class ErrorResponse(BaseModel):
     error: str
 
 
+# Machine-readable refusal codes for sign-in (KAN-257). The UI branches on ``code``, never on the message.
+# Owner-accepted shape: 401 with one of these codes. Change the codes, messages and status here only.
+AuthChallengeCode = Literal["totp_required", "totp_invalid"]
+TOTP_REQUIRED: Final[AuthChallengeCode] = "totp_required"
+TOTP_INVALID: Final[AuthChallengeCode] = "totp_invalid"
+TOTP_REQUIRED_MESSAGE = "Two-factor code required"
+TOTP_INVALID_MESSAGE = "Invalid two-factor code"
+
+
+class AuthChallengeErrorResponse(ErrorResponse):
+    """401 body of sign-in: ``code`` says whether a two-factor code is missing or wrong."""
+
+    code: AuthChallengeCode | None = None
+
+
+class CodedHTTPException(HTTPException):
+    """An HTTP error whose body also carries a stable machine-readable ``code``."""
+
+    def __init__(self, status_code: int, detail: str, code: AuthChallengeCode) -> None:
+        super().__init__(status_code, detail)
+        self.code = code
+
+
+def totp_required() -> CodedHTTPException:
+    return CodedHTTPException(401, TOTP_REQUIRED_MESSAGE, TOTP_REQUIRED)
+
+
+def totp_invalid() -> CodedHTTPException:
+    return CodedHTTPException(401, TOTP_INVALID_MESSAGE, TOTP_INVALID)
+
+
 # Declared on the app so the generated client types match the runtime body
 # (this also replaces FastAPI's default HTTPValidationError for 422).
 ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
@@ -33,20 +64,23 @@ INVALID_REQUEST_MESSAGE = "Invalid request"
 
 
 def error_response(
-    status_code: int, message: str, headers: Mapping[str, str] | None = None
+    status_code: int,
+    message: str,
+    headers: Mapping[str, str] | None = None,
+    code: str | None = None,
 ) -> JSONResponse:
-    return JSONResponse(
-        status_code=status_code,
-        content={"success": False, "error": message},
-        headers=headers,
-    )
+    content: dict[str, Any] = {"success": False, "error": message}
+    if code is not None:
+        content["code"] = code
+    return JSONResponse(status_code=status_code, content=content, headers=headers)
 
 
 async def http_exception_handler(
     _request: Request, exc: StarletteHTTPException
 ) -> JSONResponse:
     message = exc.detail if isinstance(exc.detail, str) else "Error"
-    return error_response(exc.status_code, message, exc.headers)
+    code = exc.code if isinstance(exc, CodedHTTPException) else None
+    return error_response(exc.status_code, message, exc.headers, code)
 
 
 async def validation_exception_handler(

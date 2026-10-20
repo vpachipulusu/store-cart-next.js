@@ -17,6 +17,18 @@ class TotpRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    async def get_state(self, uid: str) -> TotpState | None:
+        """Read the TOTP state without locking (sign-in reads it; it never writes)."""
+        result = await self.session.execute(
+            select(User.id, User.two_factor_enabled, User.two_factor_secret).where(
+                User.firebase_uid == uid
+            )
+        )
+        row = result.one_or_none()
+        if row is None:
+            return None
+        return TotpState(row.id, row.two_factor_enabled, row.two_factor_secret)
+
     async def lock_user(self, uid: str) -> TotpState | None:
         result = await self.session.execute(
             select(User.id, User.two_factor_enabled, User.two_factor_secret)

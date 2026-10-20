@@ -278,6 +278,26 @@ export type AuditLogPageResponse = {
 };
 
 /**
+ * AuthChallengeErrorResponse
+ *
+ * 401 body of sign-in: ``code`` says whether a two-factor code is missing or wrong.
+ */
+export type AuthChallengeErrorResponse = {
+    /**
+     * Success
+     */
+    success?: false;
+    /**
+     * Error
+     */
+    error: string;
+    /**
+     * Code
+     */
+    code?: 'totp_required' | 'totp_invalid' | null;
+};
+
+/**
  * AvatarRequest
  */
 export type AvatarRequest = {
@@ -1708,17 +1728,9 @@ export type OrderData = {
      */
     oversold: boolean;
     /**
-     * Refunded Minor
-     */
-    refunded_minor: number;
-    /**
      * Items
      */
     items: Array<OrderItemData>;
-    /**
-     * Refunds
-     */
-    refunds: Array<AppApiV1OrdersRefundData>;
 };
 
 /**
@@ -2646,17 +2658,37 @@ export type ReadyResponse = {
 };
 
 /**
- * RefundItemRequest
+ * RefundData
  */
-export type RefundItemRequest = {
+export type RefundData = {
     /**
-     * Order Item Id
+     * Organization Id
      */
-    order_item_id: string;
+    organization_id: string;
     /**
-     * Quantity
+     * Refund Id
      */
-    quantity: number;
+    refund_id: string;
+    /**
+     * Charge Id
+     */
+    charge_id: string;
+    /**
+     * Amount
+     */
+    amount: number;
+    /**
+     * Currency
+     */
+    currency: string;
+    /**
+     * Status
+     */
+    status: string | null;
+    /**
+     * Already Applied
+     */
+    already_applied: boolean;
 };
 
 /**
@@ -2678,20 +2710,6 @@ export type RefundRequest = {
 };
 
 /**
- * RefundRequestBody
- */
-export type RefundRequestBody = {
-    /**
-     * Items
-     */
-    items?: Array<RefundItemRequest> | null;
-    /**
-     * Restock
-     */
-    restock?: boolean;
-};
-
-/**
  * RefundResponse
  */
 export type RefundResponse = {
@@ -2699,7 +2717,7 @@ export type RefundResponse = {
      * Success
      */
     success?: true;
-    data: AppApiV1AdminSubscriptionsRefundData;
+    data: RefundData;
 };
 
 /**
@@ -2890,6 +2908,16 @@ export type SettingsResponse = {
      */
     success?: true;
     data: SettingsData;
+};
+
+/**
+ * SignInRequest
+ */
+export type SignInRequest = {
+    /**
+     * Totp Code
+     */
+    totp_code?: null;
 };
 
 /**
@@ -3838,77 +3866,17 @@ export type VerificationRequest = {
 };
 
 /**
- * RefundData
+ * SignInRequest
  */
-export type AppApiV1AdminSubscriptionsRefundData = {
+export type SignInRequestWritable = {
     /**
-     * Organization Id
+     * Id Token
      */
-    organization_id: string;
+    id_token: string;
     /**
-     * Refund Id
+     * Totp Code
      */
-    refund_id: string;
-    /**
-     * Charge Id
-     */
-    charge_id: string;
-    /**
-     * Amount
-     */
-    amount: number;
-    /**
-     * Currency
-     */
-    currency: string;
-    /**
-     * Status
-     */
-    status: string | null;
-    /**
-     * Already Applied
-     */
-    already_applied: boolean;
-};
-
-/**
- * RefundData
- *
- * One refund of the order; ``pending`` until Stripe confirms it (KAN-80).
- */
-export type AppApiV1OrdersRefundData = {
-    /**
-     * Id
-     */
-    id: string;
-    /**
-     * Amount Minor
-     */
-    amount_minor: number;
-    /**
-     * Currency
-     */
-    currency: string;
-    /**
-     * Status
-     */
-    status: 'pending' | 'succeeded' | 'failed';
-    /**
-     * Restock
-     */
-    restock: boolean;
-    /**
-     * Restocked At
-     */
-    restocked_at: string | null;
-    /**
-     * Created At
-     */
-    created_at: string;
-    /**
-     * Updated At
-     */
-    updated_at: string;
+    totp_code?: string | null;
 };
 
 export type HealthCheckData = {
@@ -4086,7 +4054,7 @@ export type ReadSessionResponses = {
 export type ReadSessionResponse = ReadSessionResponses[keyof ReadSessionResponses];
 
 export type CreateSessionData = {
-    body: SessionRequest;
+    body: SignInRequestWritable;
     headers?: {
         /**
          * X-Internal-Key
@@ -4100,9 +4068,9 @@ export type CreateSessionData = {
 
 export type CreateSessionErrors = {
     /**
-     * Unauthorized
+     * Invalid authentication, or a two-factor code is missing (code totp_required) or wrong (code totp_invalid)
      */
-    401: ErrorResponse;
+    401: AuthChallengeErrorResponse;
     /**
      * Forbidden
      */
@@ -4124,7 +4092,7 @@ export type CreateSessionErrors = {
      */
     500: ErrorResponse;
     /**
-     * Rate limiter unavailable
+     * Rate limiter unavailable, or the two-factor secret or key cannot be used (sign-in is refused)
      */
     503: ErrorResponse;
 };
@@ -9898,82 +9866,6 @@ export type CancelOrderResponses = {
 };
 
 export type CancelOrderResponse = CancelOrderResponses[keyof CancelOrderResponses];
-
-export type RefundOrderData = {
-    body: RefundRequestBody;
-    headers?: {
-        /**
-         * X-Internal-Key
-         */
-        'X-Internal-Key'?: string | null;
-        /**
-         * X-Session-Token
-         */
-        'X-Session-Token'?: string | null;
-    };
-    path: {
-        /**
-         * Order Id
-         */
-        order_id: string;
-        /**
-         * Store Id
-         */
-        store_id: string;
-    };
-    query?: never;
-    url: '/v1/stores/{store_id}/orders/{order_id}/refunds';
-};
-
-export type RefundOrderErrors = {
-    /**
-     * Unauthorized
-     */
-    401: ErrorResponse;
-    /**
-     * Forbidden
-     */
-    403: ErrorResponse;
-    /**
-     * Not Found
-     */
-    404: ErrorResponse;
-    /**
-     * Not refundable, more than remains, no connected payment account, or refused by the payment provider. Nothing was refunded.
-     */
-    409: unknown;
-    /**
-     * Invalid lines or quantities.
-     */
-    422: unknown;
-    /**
-     * Rate limit exceeded
-     */
-    429: ErrorResponse;
-    /**
-     * Internal server error
-     */
-    500: ErrorResponse;
-    /**
-     * The outcome is unknown: the refund may still happen. Do not repeat the request; read the order and its `refunds`.
-     */
-    502: unknown;
-    /**
-     * Service Unavailable
-     */
-    503: ErrorResponse;
-};
-
-export type RefundOrderError = RefundOrderErrors[keyof RefundOrderErrors];
-
-export type RefundOrderResponses = {
-    /**
-     * Successful Response
-     */
-    200: OrderResponse;
-};
-
-export type RefundOrderResponse = RefundOrderResponses[keyof RefundOrderResponses];
 
 export type ListCategoriesData = {
     body?: never;

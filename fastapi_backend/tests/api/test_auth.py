@@ -52,6 +52,13 @@ class FakeIdentity:
         self.calls.append(f"revoke:{uid}")
 
 
+class NoTotpGuard:
+    """Second-factor guard for tests that are not about 2FA: nothing to enforce."""
+
+    async def check(self, uid: str, code: str | None) -> None:
+        return None
+
+
 class FakeSession:
     def __init__(self) -> None:
         self.committed = False
@@ -64,6 +71,7 @@ class FakeSession:
             self.committed = True
         except Exception:
             self.rolled_back = True
+            self.committed = False  # committed means: the latest transaction committed
             raise
 
 
@@ -95,7 +103,7 @@ def auth_context(monkeypatch: pytest.MonkeyPatch):
         SecretStr("next-internal-key-that-is-at-least-32-chars"),
     )
     identity, session, repository = FakeIdentity(), FakeSession(), FakeRepository()
-    service = AuthService(identity, repository, session)
+    service = AuthService(identity, repository, session, NoTotpGuard())
     app = create_app()
     app.dependency_overrides[get_auth_service] = lambda: service
     limiter = FakeRateLimiter()

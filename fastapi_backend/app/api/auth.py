@@ -11,8 +11,11 @@ from app.core.firebase import (
     IdentityProviderUnavailable,
     VerifiedIdentity,
 )
+from app.core.totp import TotpCodec
 from app.repositories.auth import AuthRepository
+from app.repositories.totp import TotpRepository
 from app.services.auth import AuthService
+from app.services.signin_totp import SignInTotpGuard
 
 
 def require_internal_key(
@@ -37,10 +40,21 @@ def require_internal_key(
     request.state.internal_authenticated = True
 
 
+def totp_codec() -> TotpCodec:
+    """Built lazily: only a 2FA user needs the key, so a deployment without it still signs in the rest."""
+    key = settings.TOTP_ENCRYPTION_KEY
+    return TotpCodec(key.get_secret_value() if key else None)
+
+
 def get_auth_service(
     _internal: Annotated[None, Depends(require_internal_key)], session: SessionDep
 ) -> AuthService:
-    return AuthService(FirebaseIdentityProvider(), AuthRepository(session), session)
+    return AuthService(
+        FirebaseIdentityProvider(),
+        AuthRepository(session),
+        session,
+        SignInTotpGuard(TotpRepository(session), totp_codec),
+    )
 
 
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]

@@ -3,6 +3,7 @@ import pytest
 from app.core.config import settings
 from app.core.firebase import AuthenticationFailed
 from app.services.auth import REAUTH_MAX_AGE_SECONDS, AuthService, is_recent_auth
+from tests.api.test_auth import NoTotpGuard
 
 NOW = 1_000_000.0
 SKEW = 10
@@ -60,7 +61,7 @@ async def test_prepare_login_uses_the_shared_freshness_rule(
     monkeypatch, offset, accepted
 ):
     monkeypatch.setattr("app.services.auth.time.time", lambda: NOW)
-    service = AuthService(_Identity(int(NOW) + offset), None, None)  # type: ignore[arg-type]
+    service = AuthService(_Identity(int(NOW) + offset), None, None, NoTotpGuard())  # type: ignore[arg-type]
     if accepted:
         assert (await service.prepare_login("token")).uid == "u"
     else:
