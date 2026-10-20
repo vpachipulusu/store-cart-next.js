@@ -35,6 +35,7 @@ from app.services.store_migrations import migrate_store
 from app.services.store_orders import PaymentOutcome
 from app.services.store_sessions import open_store_session
 from tests.api.products_support import (
+    as_user,
     create_product,
     simple_payload,
     unique,
@@ -618,3 +619,51 @@ async def test_the_webhook_can_pay_an_order_before_its_session_is_linked(
     assert response.status_code == 200
     row = await order_row(world, order_id)
     assert (row["status"], row["stripe_checkout_session_id"]) == ("paid", session_id)
+
+
+async def variant_stock(world: World, order_id: str) -> int:
+    async with open_store_session(north(world), world.provider) as session:
+        value = await session.scalar(
+            text(
+                "SELECT v.stock FROM variants v JOIN order_items i"
+                " ON i.variant_id = v.id WHERE i.order_id = :id"
+            ),
+            {"id": order_id},
+        )
+    assert isinstance(value, int)
+    return value
+
+
+async def test_a_redelivered_payment_event_takes_stock_once(
+    client: AsyncClient, world: World, stripe: FakeStripeCheckout
+) -> None:
+    order_id, session_id, request = await started(client, world, stripe)
+    event = session_event(world, request, session_id)
+
+    responses = [await deliver(client, event) for _ in range(2)]
+
+    assert [r.status_code for r in responses] == [200, 200]
+    assert await variant_stock(world, order_id) == 8  # 10 in stock, 2 ordered
+
+
+async def test_a_sold_out_paid_order_shows_oversold_to_the_merchant(
+    client: AsyncClient, world: World, stripe: FakeStripeCheckout
+) -> None:
+    order_id, session_id, request = await started(client, world, stripe)
+    await run_sql(
+        world,
+        "UPDATE variants SET stock = 0 WHERE id IN"
+        " (SELECT variant_id FROM order_items WHERE order_id = :id)",
+        id=order_id,
+    )
+
+    response = await deliver(client, session_event(world, request, session_id))
+
+    assert response.status_code == 200
+    assert (await order_row(world, order_id))["status"] == "paid"
+    url = f"/v1/stores/{north(world)}/orders"
+    detail = await client.get(f"{url}/{order_id}", headers=as_user("alice"))
+    listing = await client.get(url, headers=as_user("alice"))
+    assert detail.json()["data"]["oversold"] is True
+    flags = {row["id"]: row["oversold"] for row in listing.json()["data"]}
+    assert flags[order_id] is True

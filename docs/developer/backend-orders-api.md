@@ -16,8 +16,8 @@ limited by subject). Responses carry `Cache-Control: no-store`; errors use the u
 
 | Method and path | Role | Result |
 | --------------- | ---- | ------ |
-| `GET ""` | any member | page of summaries, newest first: `limit` (1-100, default 25), `offset`, filter `status`; `total` ignores paging. Each row has `item_count` (sum of quantities), `currency`, `total_minor`, `tracking_number`, `carrier`, `fulfilled_at` |
-| `GET /{order_id}` | any member | the order with its items (the purchase snapshot), totals, tracking data |
+| `GET ""` | any member | page of summaries, newest first: `limit` (1-100, default 25), `offset`, filter `status`; `total` ignores paging. Each row has `item_count` (sum of quantities), `currency`, `total_minor`, `tracking_number`, `carrier`, `fulfilled_at`, `oversold` |
+| `GET /{order_id}` | any member | the order with its items (the purchase snapshot), totals, tracking data, `oversold` (KAN-72: a paid order the stock could not cover in full; the shopper was charged, so fulfil late or refund) |
 | `POST /{order_id}/fulfil` | OWNER, ADMIN | body `{tracking_number, carrier?}`; moves a `paid` order to `fulfilled`; returns the order |
 | `POST /{order_id}/cancel` | OWNER, ADMIN | no body (KAN-256); cancels a `pending` order after expiring its Stripe Checkout Session on the connected account; returns the order |
 

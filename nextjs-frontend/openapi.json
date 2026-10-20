@@ -18100,6 +18100,10 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "oversold": {
+            "type": "boolean",
+            "title": "Oversold"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/OrderItemData"
@@ -18121,6 +18125,7 @@
           "fulfilled_at",
           "created_at",
           "updated_at",
+          "oversold",
           "items"
         ],
         "title": "OrderData"
@@ -18298,6 +18303,10 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "oversold": {
+            "type": "boolean",
+            "title": "Oversold"
           }
         },
         "type": "object",
@@ -18311,7 +18320,8 @@
           "carrier",
           "fulfilled_at",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "oversold"
         ],
         "title": "OrderSummaryData"
       },

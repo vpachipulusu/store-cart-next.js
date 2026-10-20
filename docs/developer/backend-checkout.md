@@ -72,9 +72,15 @@ Store migration `0008_order_checkout` (expand-only): `orders.shipping_minor` (de
 2. Vercel, FastAPI service: set `PLATFORM_ROOT_DOMAIN` to the same host as the frontend's (for example `storecart.com`; name only in tickets). Without it the store's own return URLs are refused (422).
 3. Stripe Dashboard, Connect webhook endpoint (`/webhooks/stripe-connect`, events on **Connected accounts**): add `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.expired` and `checkout.session.async_payment_failed` (KAN-256).
 
+## Stock when paid (KAN-72)
+
+`mark_checkout_paid` takes the order's quantities from `variants.stock` in the same transaction as the `paid` update, once (a webhook retry changes nothing). A line the stock cannot cover leaves the order `paid` with `orders.oversold = true`, an error log and a Sentry event; the webhook still succeeds. Store migration `0010_order_oversold` adds the flag.
+
+**Owner step:** run `migrate-stores` so every store database reaches `0010` before deploying this code; without the column the paid update path fails on `oversold`.
+
 ## Known limits (not in this story)
 
-- Stock is not reserved or decremented at payment, and the cart is not emptied after payment (KAN-77 or a follow-up).
+- Stock is not reserved by the cart or the pending order. It is decremented when the order is paid and an oversold order is flagged (KAN-72, [backend-store-orders.md](backend-store-orders.md)); the cart is not emptied after payment (KAN-77 or a follow-up).
 - A first start whose Stripe outcome stayed unknown leaves a `pending` order with no session id. It is resumed for the same cart while at least 31 minutes remain; after that it is neither resumed, cancelled by the merchant nor replaced after a cart change (502) until it expires, because it may have a session at Stripe.
 - **Delayed payment methods** (SEPA/ACH debit, bank transfer) are not requested: `payment_method_types` is not sent, so they are offered only if the merchant enabled them in their Stripe dashboard. Such a session completes unpaid and later fires `async_payment_succeeded`; the order stays `pending` meanwhile and the sweep leaves it alone (a completed session never answers `EXPIRED`).
 - **Connected account changes.** The sweep, the merchant cancel and a replaced order read the organisation's *current* connected account. If it was reconnected to a different account after an order was created, Stripe answers 404 for the old session and 404 counts as expired, so that order can be cancelled while its session on the old account is still payable. Orders do not store their account id yet.

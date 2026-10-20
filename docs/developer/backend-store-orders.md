@@ -68,6 +68,27 @@ conditional `UPDATE ... WHERE status = 'paid'` writes the status, the (trimmed) 
 (`OrderNotFound`, `InvalidOrderTransition`) plus `InvalidOrder` for tracking text that is blank, over 100 characters or
 has control characters.
 
+## Stock and oversell protection (KAN-72, revision `0010`)
+
+Stock lives on `variants.stock` (CHECK `stock >= 0`). It is not reserved by a cart or a `pending` order; it is taken
+**only when an order becomes `paid`**. `mark_checkout_paid` calls `take_paid_stock(session, order_id)` right after its
+conditional `UPDATE ... status = 'paid'` succeeded, in the same transaction, so:
+
+- A webhook retry (`ALREADY_PAID`), a mismatch or an unknown order never touches stock, and a rolled-back payment
+  update rolls the stock back with it.
+- Each line is one `UPDATE variants SET stock = stock - :n WHERE id = :v AND stock >= :n` (never read then write).
+  Concurrent orders for the last unit queue on the row lock; the loser re-checks and finds too little. Lines go in
+  variant id order so two orders cannot deadlock.
+- A line that stock cannot cover, or whose variant was deleted (`order_items.variant_id` is NULL), is left untaken. The
+  order **stays `paid`** (the shopper was charged), `orders.oversold` is set to true, an error is logged with the order
+  and item ids and an `OversoldOrder` event goes to Sentry. The webhook still succeeds. Other lines of the same order
+  are still taken, so refunding an oversold order must restock those lines by hand until KAN-80.
+- `oversold` is returned by the merchant order API (list and detail). Resolving it (fulfil late, or refund and restock)
+  is the merchant's job; refunds and restock are KAN-80, and cancelling a paid order does not restock.
+
+Revision `0010` adds `orders.oversold boolean NOT NULL DEFAULT false` and the partial index `ix_orders_oversold`
+(expand-only; existing orders get false because stock was never decremented before). Downgrade drops both.
+
 ## Rules for callers (checkout and order routes)
 
 - **Totals are enforced by the service only.** The database checks `total = subtotal + tax` on the order row, but nothing
@@ -87,5 +108,6 @@ has control characters.
 
 `tests/services/test_store_orders.py` (rule matrix, tax rounding, no database), `test_store_orders_schema_e2e.py`
 (constraints, snapshot survival, SET NULL, downgrade, upgrade of a populated 0003 store) and
+`test_store_inventory_e2e.py` (KAN-72: decrement on paid, retry, mismatch, short and deleted lines, racing orders), `test_store_oversold_schema_e2e.py` (migration 0010) and
 `test_store_orders_e2e.py` (service through `open_store_session`, real concurrent transitions with `asyncio.gather`, the `FOR SHARE` lock, limits at their boundaries, isolation between two stores).
 The e2e files need `TEST_DATABASE_URL` (see [backend-store-migrations.md](backend-store-migrations.md#testing)).
