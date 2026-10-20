@@ -461,15 +461,16 @@ async def link_checkout_session(
     return linked is not None
 
 
-async def take_paid_stock(session: AsyncSession, order_id: str) -> bool:
-    """Take the quantities of a just-paid order from stock; true when every line was covered.
+async def take_paid_stock(session: AsyncSession, order_id: str) -> None:
+    """Take the quantities of a just-paid order from stock, flagging it when a line is short.
 
     One conditional ``UPDATE`` per line (``stock >= quantity``), never a read then a write,
     so concurrent orders cannot take stock below zero: a loser waits on the row lock and
     re-checks the new value. Lines go in variant order so two orders cannot deadlock. A line
     that stock cannot cover (or whose variant was deleted) is left untaken and the order is
-    flagged ``oversold``; it stays ``paid`` because the shopper has been charged. Does not
-    commit, and must run only in the transaction that moved the order to ``paid``.
+    flagged ``oversold``; it stays ``paid`` because the shopper has been charged. The lines
+    that stock does cover are still taken (a refund of an oversold order restocks them by
+    hand until KAN-80). Does not commit, and must run only in the transaction that moved the order to ``paid``.
     """
     lines = (await session.execute(_PAID_LINES_SQL, {"id": order_id})).mappings().all()
     short: list[str] = []
@@ -483,7 +484,7 @@ async def take_paid_stock(session: AsyncSession, order_id: str) -> bool:
         if taken is None:
             short.append(line["id"])
     if not short:
-        return True
+        return
     await session.execute(_FLAG_OVERSOLD_SQL, {"id": order_id})
     logger.error(
         "paid order oversold: stock did not cover %d line(s)",
@@ -491,7 +492,6 @@ async def take_paid_stock(session: AsyncSession, order_id: str) -> bool:
         extra={"order_id": order_id, "item_ids": short},
     )
     report_exception(OversoldOrder(order_id))
-    return False
 
 
 async def mark_checkout_paid(

@@ -15,6 +15,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ids import new_id
+from app.services import store_orders
+from app.services.store_checkout import confirm_checkout_payment
 from app.services.store_migrations import migrate_store
 from app.services.store_orders import (
     OrderLineInput,
@@ -44,6 +46,7 @@ class Shop:
     store_id: str
     scarce: str  # one unit
     plenty: str  # five units
+    spare: str  # five units
 
 
 async def _variant(session: AsyncSession, product_id: str, sku: str, stock: int) -> str:
@@ -74,8 +77,9 @@ async def shop(world: World) -> AsyncIterator[Shop]:  # noqa: F811
         )
         scarce = await _variant(session, product_id, "TEE-A", 1)
         plenty = await _variant(session, product_id, "TEE-B", 5)
+        spare = await _variant(session, product_id, "TEE-C", 5)
         await session.commit()
-    yield Shop(store_id, scarce, plenty)
+    yield Shop(store_id, scarce, plenty, spare)
 
 
 async def _order(
@@ -272,3 +276,124 @@ async def test_cancelling_a_pending_order_never_touches_stock(
         await session.commit()
 
     assert await _stock(world, shop, shop.plenty) == 5
+
+
+async def test_concurrent_deliveries_of_one_order_take_stock_once(
+    world: World,  # noqa: F811
+    shop: Shop,
+):
+    order = await _order(world, shop, [(shop.plenty, 2)])
+
+    outcomes = await asyncio.gather(_pay(world, shop, order), _pay(world, shop, order))
+
+    assert sorted(outcome.value for outcome in outcomes) == ["already_paid", "paid"]
+    assert await _stock(world, shop, shop.plenty) == 3
+
+
+async def test_a_rolled_back_payment_leaves_the_order_pending_and_stock_untaken(
+    world: World,  # noqa: F811
+    shop: Shop,
+):
+    order_id, total = await _order(world, shop, [(shop.plenty, 2)])
+    async with open_store_session(shop.store_id, world.provider) as session:
+        await mark_checkout_paid(
+            session,
+            order_id=order_id,
+            session_id="cs_rolled_back",
+            payment_intent_id=None,
+            amount_minor=total,
+            currency="GBP",
+        )
+        await session.rollback()
+
+    status = await _scalar(
+        world, shop, "SELECT status FROM orders WHERE id = :o", o=order_id
+    )
+    assert status == "pending"
+    assert await _stock(world, shop, shop.plenty) == 5
+
+
+async def test_orders_with_the_same_variants_in_opposite_order_do_not_deadlock(
+    world: World,  # noqa: F811
+    shop: Shop,
+):
+    forward = await _order(world, shop, [(shop.plenty, 1), (shop.spare, 1)])
+    backward = await _order(world, shop, [(shop.spare, 1), (shop.plenty, 1)])
+
+    outcomes = await asyncio.gather(
+        *(_pay(world, shop, order) for order in (forward, backward) * 3)
+    )
+
+    assert set(outcomes) == {PaymentOutcome.PAID, PaymentOutcome.ALREADY_PAID}
+    assert await _stock(world, shop, shop.plenty) == 3
+    assert await _stock(world, shop, shop.spare) == 3
+
+
+async def test_a_raced_multi_line_loser_still_takes_its_covered_line(
+    world: World,  # noqa: F811
+    shop: Shop,
+):
+    winner = await _order(world, shop, [(shop.scarce, 1)])
+    loser = await _order(world, shop, [(shop.scarce, 1), (shop.plenty, 2)])
+
+    await _pay(world, shop, winner)
+    await _pay(world, shop, loser)
+
+    assert not await _oversold(world, shop, winner[0])
+    assert await _oversold(world, shop, loser[0])
+    assert await _stock(world, shop, shop.plenty) == 3
+
+
+async def _confirm(world: World, shop: Shop, order: tuple[str, int]) -> None:  # noqa: F811
+    order_id, total = order
+    async with open_store_session(shop.store_id, world.provider) as session:
+        await confirm_checkout_payment(
+            session,
+            {
+                "id": f"cs_{order_id}",
+                "payment_status": "paid",
+                "metadata": {"order_id": order_id},
+                "amount_total": total,
+                "currency": "gbp",
+                "payment_intent": None,
+            },
+        )
+        await session.commit()
+
+
+async def test_the_payment_event_takes_stock_and_a_redelivery_does_not(
+    world: World,  # noqa: F811
+    shop: Shop,
+):
+    order = await _order(world, shop, [(shop.plenty, 2)])
+
+    await _confirm(world, shop, order)
+    await _confirm(world, shop, order)
+
+    assert await _stock(world, shop, shop.plenty) == 3
+    assert not await _oversold(world, shop, order[0])
+
+
+async def test_the_payment_event_on_a_sold_out_variant_keeps_the_order_paid_and_reports_it(
+    world: World,  # noqa: F811
+    shop: Shop,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    reported: list[BaseException] = []
+    monkeypatch.setattr(store_orders, "report_exception", reported.append)
+    order = await _order(world, shop, [(shop.scarce, 1)])
+    clean = await _order(world, shop, [(shop.plenty, 1)])
+    async with open_store_session(shop.store_id, world.provider) as session:
+        await session.execute(
+            text("UPDATE variants SET stock = 0 WHERE id = :v"), {"v": shop.scarce}
+        )
+        await session.commit()
+
+    await _confirm(world, shop, order)
+    await _confirm(world, shop, clean)
+
+    status = await _scalar(
+        world, shop, "SELECT status FROM orders WHERE id = :o", o=order[0]
+    )
+    assert (status, await _oversold(world, shop, order[0])) == ("paid", True)
+    assert [type(error) for error in reported] == [store_orders.OversoldOrder]
