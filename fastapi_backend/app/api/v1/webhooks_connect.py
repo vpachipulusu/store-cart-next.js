@@ -4,7 +4,9 @@ A separate endpoint from the Billing webhook with its own signing secret
 (``STRIPE_CONNECT_WEBHOOK_SECRET``) and its own event ledger (``stripe_connect_events``).
 Public route: the signature is the credential. Not in the OpenAPI schema. Routing to the
 organisation and store, and once-only processing, are in ``ConnectWebhookService``. Checkout
-payment events (KAN-68) confirm the store's order through ``checkout_payment_handler``.
+payment events (KAN-68) confirm the store's order through ``checkout_payment_handler``;
+``checkout.session.expired`` and ``checkout.session.async_payment_failed`` (KAN-256) cancel
+the order still waiting on that session.
 """
 
 import json
@@ -29,7 +31,16 @@ from app.core.stripe_webhook_body import (
 )
 from app.repositories.connect_events import ConnectEventRepository
 from app.repositories.org_connect import OrgConnectRepository
-from app.services.stripe_connect import ConnectWebhookService, MalformedConnectEvent
+from app.services.store_checkout_expiry import (
+    ENDED_EVENT_TYPES,
+    checkout_expired_handler,
+)
+from app.services.store_sessions import open_store_session
+from app.services.stripe_connect import (
+    ConnectWebhookService,
+    MalformedConnectEvent,
+    StoreEventHandler,
+)
 
 logger = logging.getLogger("storecart.stripe_connect_webhook")
 
@@ -38,6 +49,17 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"], include_in_schema=Fals
 
 class WebhookAck(BaseModel):
     received: bool = True
+
+
+def store_event_handlers(provider: SessionProvider) -> dict[str, StoreEventHandler]:
+    """Payment confirmation (KAN-68), session expiry and failed async payment (KAN-256)."""
+    ended = checkout_expired_handler(
+        lambda store_id: open_store_session(store_id, provider)
+    )
+    return {
+        **connect_store_handlers(provider),
+        **dict.fromkeys(ENDED_EVENT_TYPES, ended),
+    }
 
 
 def get_connect_webhook_service(
@@ -50,7 +72,7 @@ def get_connect_webhook_service(
         session,
         get_stripe_connect,
         livemode=stripe_livemode(),
-        store_handlers=connect_store_handlers(provider),
+        store_handlers=store_event_handlers(provider),
     )
 
 

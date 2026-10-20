@@ -1,7 +1,7 @@
 # Backend merchant order API (KAN-79)
 
-List, detail and manual fulfilment of the orders in one store database ([backend-store-orders.md](backend-store-orders.md),
-store revisions `0004` and `0005`). Order creation (checkout), payment, cancel and refund routes are other stories.
+List, detail, manual fulfilment and cancelling of pending orders in one store database ([backend-store-orders.md](backend-store-orders.md),
+store revisions `0004` and `0005`). Order creation (checkout) and payment are [backend-checkout.md](backend-checkout.md); refunds are another story.
 
 Code: `app/api/v1/orders.py` (router and schemas), `app/api/store_db.py` (`store_orders_service`, opens the store
 database), `app/services/merchant_orders.py` (reads, the fulfil transaction), `app/repositories/store_orders.py` (SQL),
@@ -19,10 +19,13 @@ limited by subject). Responses carry `Cache-Control: no-store`; errors use the u
 | `GET ""` | any member | page of summaries, newest first: `limit` (1-100, default 25), `offset`, filter `status`; `total` ignores paging. Each row has `item_count` (sum of quantities), `currency`, `total_minor`, `tracking_number`, `carrier`, `fulfilled_at` |
 | `GET /{order_id}` | any member | the order with its items (the purchase snapshot), totals, tracking data |
 | `POST /{order_id}/fulfil` | OWNER, ADMIN | body `{tracking_number, carrier?}`; moves a `paid` order to `fulfilled`; returns the order |
+| `POST /{order_id}/cancel` | OWNER, ADMIN | no body (KAN-256); cancels a `pending` order after expiring its Stripe Checkout Session on the connected account; returns the order |
 
 Errors: 404 `Order not found` (an unknown id and an id of another store are the same), 409 `Only a paid order can be
 fulfilled` (it never names the current status), 422 for blank, over-long (100) or control-character tracking text, 403
 for STAFF and for a suspended store, 503 `Store database is not available`.
+
+Cancel errors (`app/services/merchant_order_cancel.py`): 409 `Only a pending order can be cancelled` (paid, fulfilled, already cancelled), 409 `The order's payment is being processed` (the shopper already paid the session; the webhook is about to mark it paid), 502 `The payment page could not be closed. Try again.` (Stripe unreachable or refusing, no connected account, or a session that may exist but is unknown and not yet expired). On every error the order stays `pending`.
 
 ## Tenant isolation
 
@@ -34,5 +37,5 @@ caller's own store, and with a sibling store.
 
 ## Out of scope
 
-Customer details, shipping addresses and shipping cost are not in the order model yet. Cancel and refund have no route
-(the status flow allows them, see [backend-store-orders.md](backend-store-orders.md#status-flow-ac-2)).
+Customer details, shipping addresses and shipping cost are not in the order model yet. Refund has no route, and a paid
+order cannot be cancelled here (the status flow allows it, see [backend-store-orders.md](backend-store-orders.md#status-flow-ac-2)).

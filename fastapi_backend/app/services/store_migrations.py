@@ -234,7 +234,7 @@ def _failure(
     return kind(store_id, reason)
 
 
-async def _active_store_pages(
+async def active_store_pages(
     provider: SessionProvider, batch_size: int
 ) -> AsyncIterator[list[str]]:
     """Ids of ACTIVE stores in id order, ``batch_size`` at a time (keyset paging)."""
@@ -301,7 +301,7 @@ async def migrate_active_stores(
 
     skipped = await _count_skipped(platform)
     migrated, failure = await migrate_pages(
-        _active_store_pages(platform, batch_size), migrate
+        active_store_pages(platform, batch_size), migrate
     )
     return MigrationReport(
         migrated=migrated,

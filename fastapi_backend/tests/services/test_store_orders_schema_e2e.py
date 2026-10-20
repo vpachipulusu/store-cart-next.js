@@ -364,7 +364,7 @@ async def test_a_store_at_0003_with_data_reaches_head_through_the_migrate_path(
         async with engine.connect() as connection:
             products = await scalar(connection, "SELECT count(*) FROM products")
             orders = await scalar(connection, "SELECT to_regclass('orders')")
-        assert await world.stamped_revision(database) == "0008"  # head
+        assert await world.stamped_revision(database) == "0009"  # head
         assert products == 1
         assert orders is not None
     finally:

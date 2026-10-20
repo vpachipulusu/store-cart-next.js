@@ -20,6 +20,15 @@ Checkout Session:
    replayed as is). If it stays unknown the order is left ``pending`` (the webhook can still pay
    it). Any failure while building the request after the order was written cancels it too.
 
+One open order per cart (KAN-256): a cart has at most one ``pending`` checkout order (a partial
+unique index enforces it). Starting again for an unchanged cart (same lines, prices, totals and
+return URLs: the order's fingerprint) returns the open session's URL without a new order or
+session; if the first start never learned its session, it is created again with the same
+idempotency key, so Stripe hands back the one it made. A changed cart first expires the old
+session at Stripe, then cancels the old order, then writes the new one: a session that may
+still be payable is never left behind a cancelled order. Sessions carry an explicit
+``expires_at`` (``store_checkout_expiry``), which also ends orders whose shopper walked away.
+
 ``confirm_checkout_payment`` is the Connect webhook side (``checkout.session.completed`` and
 ``checkout.session.async_payment_succeeded``): it marks the order paid in the store database
 with one conditional update keyed on the order and the unique session id, so the at-least-once
@@ -27,14 +36,17 @@ store side effect is idempotent under duplicate and concurrent deliveries.
 """
 
 import asyncio
+import hashlib
 import logging
 import re
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import SessionProvider
@@ -52,6 +64,7 @@ from app.core.stripe_billing import (
 from app.core.stripe_checkout import (
     CheckoutLineItem,
     CheckoutSessionRequest,
+    ExpireOutcome,
     StripeCheckout,
     StripeCheckoutSession,
 )
@@ -59,22 +72,34 @@ from app.repositories.app_settings import AppSettingsRepository
 from app.repositories.checkout import CheckoutRepository
 from app.repositories.connect_events import ConnectRoute
 from app.repositories.org_connect import ConnectRecord
+from app.repositories.store_cart import StoreCartRepository
 from app.services.org_billing import InvalidReturnUrl, validate_return_url
 from app.services.public_settings import PublicSettingsService
-from app.services.store_cart import CartView
+from app.services.store_cart import CartView, hash_token, valid_token
+from app.services.store_checkout_expiry import (
+    RESUME_MIN_REMAINING,
+    REUSE_MARGIN,
+    SESSION_LIFETIME,
+    START_SWEEP_BATCH,
+    sweep_expired_checkout_orders,
+)
 from app.services.store_orders import (
     BPS_DENOMINATOR,
+    CheckoutOrigin,
     InvalidOrder,
+    OpenCheckout,
     OrderItemRecord,
     OrderLineInput,
     OrderRecord,
     OrderStatus,
     PaymentOutcome,
+    cancel_pending_order,
+    find_open_checkout,
     insert_order,
     link_checkout_session,
     load_catalogue,
+    load_order,
     mark_checkout_paid,
-    transition_order,
     validate_order_input,
 )
 from app.services.store_totals import (
@@ -100,6 +125,9 @@ SHIPPING_LINE_NAME = "Shipping"
 PAID_STATUS = "paid"
 CART_CHANGED = "Your cart has changed. Review it and try again."
 SESSION_ATTEMPTS = 2
+OPEN_ORDER_ATTEMPTS = 3  # lost races for the cart's one open order before giving up
+OPEN_CHECKOUT_INDEX = "uq_orders_open_checkout_per_cart"
+CART_FOREIGN_KEY = "fk_orders_cart"
 CONFLICT_RETRY_DELAY_SECONDS = 0.5
 ROOT_DOMAIN_PATTERN = re.compile(
     r"(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*"
@@ -138,6 +166,17 @@ class CheckoutUnavailable(CheckoutError):
         super().__init__("Payment could not be started. Try again.")
 
 
+class PaymentInProgress(CheckoutError):
+    """The cart's earlier checkout was paid or is being paid (HTTP 409)."""
+
+    def __init__(self) -> None:
+        super().__init__("Your payment is being processed. Check back in a moment.")
+
+
+class OpenOrderExists(Exception):
+    """The cart already has a pending order (the unique index said so)."""
+
+
 class UnappliedCheckoutPayment(Exception):
     """A paid Checkout Session that changed no order: money taken, order not paid (Sentry only)."""
 
@@ -166,13 +205,31 @@ class CheckoutOrders(Protocol):
 
     async def view_cart(self, token: str | None) -> CartView: ...
 
-    async def create_order(
-        self, lines: Sequence[OrderLineInput], currency: str
-    ) -> OrderRecord: ...
+    async def sweep(self) -> None:
+        """Best effort: cancel a few of this store's expired orders that have no session."""
+        ...
 
-    async def attach_session(self, order_id: str, session_id: str) -> None: ...
+    async def find_cart(self, token: str | None) -> str | None: ...
+
+    async def find_open_checkout(self, cart_id: str) -> OpenCheckout | None: ...
+
+    async def load_order(self, order_id: str) -> OrderRecord: ...
+
+    async def create_order(
+        self, lines: Sequence[OrderLineInput], currency: str, origin: CheckoutOrigin
+    ) -> OrderRecord:
+        """Raises ``OpenOrderExists`` when the cart already has a pending order."""
+        ...
+
+    async def attach_session(
+        self, order_id: str, session_id: str, url: str
+    ) -> None: ...
 
     async def cancel_order(self, order_id: str) -> None: ...
+
+    async def cancel_pending(self, order_id: str) -> bool:
+        """Cancel a pending order and report whether it was (errors propagate)."""
+        ...
 
 
 OpenOrders = Callable[[str], AbstractAsyncContextManager[CheckoutOrders]]
@@ -226,15 +283,24 @@ def _line_name(item: OrderItemRecord) -> str:
 
 
 def build_session_request(
-    target: CheckoutTarget, order: OrderRecord, success_url: str, cancel_url: str
+    target: CheckoutTarget,
+    order: OrderRecord,
+    success_url: str,
+    cancel_url: str,
+    expires_at: datetime | None = None,
 ) -> CheckoutSessionRequest:
     """The Checkout Session for ``order``: items, then tax added on top, then shipping."""
     account_id = target.connect.stripe_connect_account_id
     if account_id is None:
         raise ValueError("the organisation has no connected account")
+    # A stable order: a replay of an unlinked order (same idempotency key) is rebuilt from the
+    # database, and Stripe refuses a key whose parameters differ.
+    ordered = sorted(
+        order.items, key=lambda i: (i.variant_id or "", i.product_name, i.sku)
+    )
     items = [
         CheckoutLineItem(_line_name(item), item.unit_price_minor, item.quantity)
-        for item in order.items
+        for item in ordered
     ]
     if order.tax_minor and not order.prices_include_tax:
         items.append(CheckoutLineItem(TAX_LINE_NAME, order.tax_minor, 1))
@@ -253,7 +319,20 @@ def build_session_request(
         success_url=success_url,
         cancel_url=cancel_url,
         idempotency_key=f"sc-checkout-{target.store_id}-{order.id}",
+        expires_at=int(expires_at.timestamp()) if expires_at else None,
     )
+
+
+def checkout_fingerprint(
+    view: CartView, currency: str, success_url: str, cancel_url: str
+) -> str:
+    """What an open session was built for; the same value means it can be reused as is."""
+    lines = sorted(
+        f"{line.variant_id}:{line.quantity}:{line.unit_price_minor}"
+        for line in view.lines
+    )
+    parts = [currency, str(view.totals.total_minor), success_url, cancel_url, *lines]
+    return hashlib.sha256("\n".join(parts).encode()).hexdigest()
 
 
 async def price_checkout_order(
@@ -324,24 +403,75 @@ class SqlCheckoutOrders:
     async def view_cart(self, token: str | None) -> CartView:
         return await self._cart.view(token)
 
+    async def sweep(self) -> None:
+        try:
+            await sweep_expired_checkout_orders(
+                self._session,
+                None,
+                None,
+                batch=START_SWEEP_BATCH,
+                with_sessions=False,
+            )
+        except Exception as exc:  # noqa: BLE001 - the sweep must never stop a checkout
+            logger.error("checkout expiry sweep failed: %s", type(exc).__name__)
+            await self._rollback_quietly()
+
+    async def find_cart(self, token: str | None) -> str | None:
+        if token is None or not valid_token(token):
+            return None
+        cart_id = await StoreCartRepository(self._session).find_live_cart(
+            hash_token(token)
+        )
+        await self._session.rollback()
+        return cart_id
+
+    async def find_open_checkout(self, cart_id: str) -> OpenCheckout | None:
+        found = await find_open_checkout(self._session, cart_id)
+        await self._session.rollback()  # no transaction open across Stripe calls
+        return found
+
+    async def load_order(self, order_id: str) -> OrderRecord:
+        order = await load_order(self._session, order_id)
+        await self._session.rollback()
+        return order
+
     async def create_order(
-        self, lines: Sequence[OrderLineInput], currency: str
+        self, lines: Sequence[OrderLineInput], currency: str, origin: CheckoutOrigin
     ) -> OrderRecord:
         settings = await self._settings.totals_settings()
         order = await price_checkout_order(
             self._session, currency=currency, lines=lines, settings=settings
         )
-        await insert_order(self._session, order)
-        await self._session.commit()
+        try:
+            await insert_order(self._session, order, origin)
+            await self._session.commit()
+        except IntegrityError as error:
+            await self._rollback_quietly()
+            if OPEN_CHECKOUT_INDEX in str(error.orig):
+                raise OpenOrderExists from None
+            if CART_FOREIGN_KEY in str(error.orig):  # the cart expired and was purged
+                raise InvalidOrder("The cart is gone") from None
+            raise
         return order
 
-    async def attach_session(self, order_id: str, session_id: str) -> None:
+    async def cancel_pending(self, order_id: str) -> bool:
+        try:
+            cancelled = await cancel_pending_order(self._session, order_id)
+            await self._session.commit()
+        except Exception:
+            await self._rollback_quietly()
+            raise
+        return cancelled
+
+    async def attach_session(self, order_id: str, session_id: str, url: str) -> None:
         """Best effort: the webhook also accepts an order with no session linked yet.
 
         So a failure here must not cost the shopper the checkout URL Stripe already made.
         """
         try:
-            linked = await link_checkout_session(self._session, order_id, session_id)
+            linked = await link_checkout_session(
+                self._session, order_id, session_id, url
+            )
             await self._session.commit()
         except Exception as exc:  # noqa: BLE001 - logged; the webhook can still link it
             logger.error(
@@ -353,13 +483,14 @@ class SqlCheckoutOrders:
             return
         if not linked:  # the webhook got there first, or another session is linked
             logger.warning(
-                "order already had a checkout session", extra={"order_id": order_id}
+                "checkout session not linked: order not pending or already linked",
+                extra={"order_id": order_id},
             )
 
     async def cancel_order(self, order_id: str) -> None:
         """Best effort: a failure here must not hide why the checkout stopped."""
         try:
-            await transition_order(self._session, order_id, OrderStatus.CANCELLED)
+            await cancel_pending_order(self._session, order_id)
             await self._session.commit()
         except Exception as exc:  # noqa: BLE001 - the original failure is the one to report
             logger.error(
@@ -436,20 +567,121 @@ class StoreCheckoutService:
             raise PaymentsNotEnabled from None
         _check_fee_rate(target)
         async with self._open_orders(target.store_id) as orders:
-            order = await self._create_order(orders, token, target.currency)
-            try:
-                request = build_session_request(target, order, success, cancel)
-            except ValueError as exc:
-                # Written but unpayable: never leave it pending.
-                logger.error(
-                    "checkout request could not be built: %s",
-                    exc,
-                    extra={"order_id": order.id},
+            await orders.sweep()
+            view = await orders.view_cart(token)
+            if not view.lines or not view.can_checkout:
+                raise CartNotReady(CART_CHANGED)
+            cart_id = await orders.find_cart(token)
+            if cart_id is None:
+                raise CartNotReady(CART_CHANGED)
+            fingerprint = checkout_fingerprint(view, target.currency, success, cancel)
+            for _ in range(OPEN_ORDER_ATTEMPTS):
+                open_checkout = await orders.find_open_checkout(cart_id)
+                if open_checkout is not None:
+                    reused = await self._reuse_or_retire(
+                        target, orders, open_checkout, fingerprint, success, cancel
+                    )
+                    if reused is not None:
+                        return reused
+                expires_at = datetime.now(UTC) + SESSION_LIFETIME
+                origin = CheckoutOrigin(cart_id, fingerprint, expires_at)
+                try:
+                    order = await self._create_order(orders, view, target, origin)
+                except OpenOrderExists:
+                    continue  # lost a race for the cart's one open order: look again
+                return await self._open_session(
+                    target, orders, order, success, cancel, expires_at
                 )
-                await orders.cancel_order(order.id)
+        raise CheckoutUnavailable
+
+    async def _reuse_or_retire(
+        self,
+        target: CheckoutTarget,
+        orders: CheckoutOrders,
+        open_checkout: OpenCheckout,
+        fingerprint: str,
+        success: str,
+        cancel: str,
+    ) -> CheckoutStarted | None:
+        """The open order's checkout when it still fits the cart; None once it is retired."""
+        expires_at = open_checkout.expires_at
+        remaining = expires_at - datetime.now(UTC) if expires_at else None
+        live = remaining is not None and remaining > timedelta(0)
+        if (
+            expires_at is not None
+            and remaining is not None
+            and open_checkout.fingerprint == fingerprint
+        ):
+            if open_checkout.url is not None and remaining > REUSE_MARGIN:
+                return CheckoutStarted(open_checkout.order_id, open_checkout.url)
+            if open_checkout.url is None and remaining >= RESUME_MIN_REMAINING:
+                # The first start never learned its session: ask for it again. The
+                # idempotency key and ``expires_at`` are the order's, so Stripe returns the
+                # session it may already have made.
+                order = await orders.load_order(open_checkout.order_id)
+                return await self._open_session(
+                    target, orders, order, success, cancel, expires_at
+                )
+        await self._retire(target, orders, open_checkout, live=live)
+        return None
+
+    async def _retire(
+        self,
+        target: CheckoutTarget,
+        orders: CheckoutOrders,
+        open_checkout: OpenCheckout,
+        *,
+        live: bool,
+    ) -> None:
+        """Make the open order's session unpayable, then cancel the order, in that order.
+
+        Cancelling first could leave a payable session behind a cancelled order. An order
+        whose session is unknown while its expiry has not passed may still have one at Stripe,
+        so it is neither cancelled nor replaced until it expires.
+        """
+        account_id = target.connect.stripe_connect_account_id
+        if open_checkout.session_id is not None and account_id is not None:
+            try:
+                outcome = await self._stripe.expire_session(
+                    account_id, open_checkout.session_id
+                )
+            except StripeError:
+                logger.warning(
+                    "open checkout session not expired; checkout refused",
+                    extra={"order_id": open_checkout.order_id},
+                )
                 raise CheckoutUnavailable from None
-            created = await self._create_session(orders, order.id, request)
-            await orders.attach_session(order.id, created.id)
+            if outcome is ExpireOutcome.COMPLETE:
+                raise PaymentInProgress
+        elif live:
+            raise CheckoutUnavailable
+        if not await orders.cancel_pending(open_checkout.order_id):
+            # Paid or cancelled by someone else since the read: never start a second order
+            # on top of that. The shopper retries and sees the settled state.
+            raise CheckoutUnavailable
+
+    async def _open_session(
+        self,
+        target: CheckoutTarget,
+        orders: CheckoutOrders,
+        order: OrderRecord,
+        success: str,
+        cancel: str,
+        expires_at: datetime,
+    ) -> CheckoutStarted:
+        try:
+            request = build_session_request(target, order, success, cancel, expires_at)
+        except ValueError as exc:
+            # Written but unpayable: never leave it pending.
+            logger.error(
+                "checkout request could not be built: %s",
+                exc,
+                extra={"order_id": order.id},
+            )
+            await orders.cancel_order(order.id)
+            raise CheckoutUnavailable from None
+        created = await self._create_session(orders, order.id, request)
+        await orders.attach_session(order.id, created.id, created.url)
         return CheckoutStarted(order_id=order.id, checkout_url=created.url)
 
     async def _create_session(
@@ -488,14 +720,15 @@ class StoreCheckoutService:
         raise CheckoutUnavailable
 
     async def _create_order(
-        self, orders: CheckoutOrders, token: str | None, currency: str
+        self,
+        orders: CheckoutOrders,
+        view: CartView,
+        target: CheckoutTarget,
+        origin: CheckoutOrigin,
     ) -> OrderRecord:
-        view = await orders.view_cart(token)
-        if not view.lines or not view.can_checkout:
-            raise CartNotReady(CART_CHANGED)
         lines = [OrderLineInput(line.variant_id, line.quantity) for line in view.lines]
         try:
-            order = await orders.create_order(lines, currency)
+            order = await orders.create_order(lines, target.currency, origin)
         except InvalidOrder:
             raise CartNotReady(CART_CHANGED) from None
         if order.total_minor <= 0:

@@ -17,6 +17,8 @@ ALLOWED = {
     "services/store_sessions.py": "defines the opener",
     "services/store_migrations.py": "tenant isolation e2e: migration runner stays inside its database",
     "api/store_db.py": "tests/api/test_products_e2e.py: every product route, two stores (KAN-245)",
+    "api/v1/orders.py": "tests/api/test_checkout_hardening_e2e.py: cancel route, sibling and foreign store 404 (KAN-256)",
+    "api/v1/webhooks_connect.py": "tests/api/test_checkout_hardening_e2e.py: expired event only touches the routed store (KAN-256)",
 }
 
 
