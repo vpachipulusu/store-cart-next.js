@@ -13,6 +13,10 @@ from app.api.deps import get_rate_limiter
 from app.api.store_db import storefront_cart_service
 from app.main import create_app
 from app.services.store_cart import CartConflict, CartView, ItemUnavailable
+from app.services.store_cart_limits import (
+    CartCreationLimited,
+    CartCreationUnavailable,
+)
 from app.services.store_totals import Totals
 from tests.fakes import FakeRateLimiter, as_limiter
 
@@ -106,3 +110,31 @@ async def test_a_variant_id_outside_the_id_alphabet_is_rejected(
 
     assert put.status_code in (404, 422)
     assert added.status_code == 422
+
+
+async def test_a_refused_creation_is_429_with_retry_after_and_never_cached() -> None:
+    error = CartCreationLimited(retry_after_seconds=42)
+    async with client_for(StubCart(error)) as client:
+        response = await client.post(
+            "/v1/storefront/acme/cart/items", json={"variant_id": "v1", "quantity": 1}
+        )
+
+    assert response.status_code == 429
+    assert response.json() == {"success": False, "error": "Too many requests"}
+    assert response.headers["Retry-After"] == "42"
+    assert response.headers["Cache-Control"] == "no-store"
+
+
+async def test_creation_with_the_limiter_down_is_503_with_retry_after() -> None:
+    async with client_for(StubCart(CartCreationUnavailable())) as client:
+        response = await client.put(
+            "/v1/storefront/acme/cart/items/v1", json={"quantity": 1}
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "success": False,
+        "error": "Service temporarily unavailable",
+    }
+    assert response.headers["Retry-After"] == "5"
+    assert response.headers["Cache-Control"] == "no-store"

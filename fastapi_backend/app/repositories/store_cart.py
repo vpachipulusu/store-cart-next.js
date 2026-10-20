@@ -9,8 +9,9 @@ names, prices and stock are always the current ones.
 """
 
 from dataclasses import dataclass
+from typing import Any, cast
 
-from sqlalchemy import text
+from sqlalchemy import CursorResult, text
 
 from app.repositories.base import BaseRepository
 
@@ -100,9 +101,9 @@ class StoreCartRepository(BaseRepository):
             {"id": cart_id, "ttl_days": ttl_days},
         )
 
-    async def delete_expired_carts(self, *, limit: int) -> None:
-        """Remove up to ``limit`` expired carts (their items cascade)."""
-        await self._session.execute(
+    async def delete_expired_carts(self, *, limit: int) -> int:
+        """Remove up to ``limit`` expired carts (their items cascade); returns how many."""
+        result = await self._session.execute(
             text(
                 "DELETE FROM carts WHERE id IN ("
                 "SELECT id FROM carts WHERE expires_at <= now() "
@@ -110,6 +111,7 @@ class StoreCartRepository(BaseRepository):
             ),
             {"limit": limit},
         )
+        return cast("CursorResult[Any]", result).rowcount
 
     async def get_variant(self, variant_id: str) -> VariantRow | None:
         row = (

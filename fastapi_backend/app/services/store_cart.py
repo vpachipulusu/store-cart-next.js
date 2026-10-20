@@ -13,6 +13,9 @@ can never name a price.
   take a row lock on the cart so two requests on one cart serialise. Stock is not reserved.
 * An unknown, malformed or expired token reads as an empty cart; a write with one starts
   a new cart and returns its token once, in ``CartView.new_token``.
+* Starting a cart is the only abusable write (it needs no account and the row lives 30 days), so it
+  asks the ``CartCreationGuard`` (per-store hourly cap, KAN-252) after the request has been
+  validated and before anything is inserted. A refused request creates nothing.
 """
 
 import hashlib
@@ -28,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ids import new_id
 from app.repositories.store_cart import CartLineRow, StoreCartRepository, VariantRow
+from app.services.store_cart_limits import CartCreationGuard
 from app.services.store_orders import SELLABLE_PRODUCT_STATUS
 from app.services.store_totals import LineAmount, Totals, TotalsSettings, compute_totals
 
@@ -165,10 +169,12 @@ class StoreCartService:
         repository: StoreCartRepository,
         settings: CartSettings,
         session: AsyncSession,
+        creation_guard: CartCreationGuard,
     ) -> None:
         self._repository = repository
         self._settings = settings
         self._session = session
+        self._creation_guard = creation_guard
 
     async def view(self, token: str | None) -> CartView:
         """The priced cart; empty when the token is missing, unknown or expired."""
@@ -210,21 +216,30 @@ class StoreCartService:
         self, token: str | None, variant_id: str, new_quantity: Callable[[int], int]
     ) -> CartView:
         cart_id = await self._find(token)
+        if cart_id is not None and not await self._repository.lock_cart(cart_id):
+            cart_id = None  # expired or purged between the lookup and the lock
+        current = (
+            await self._repository.get_quantity(cart_id, variant_id) if cart_id else 0
+        )
+        quantity = new_quantity(current)
+        if not 1 <= quantity <= MAX_QUANTITY:
+            raise CartConflict(f"Quantity must be 1 to {MAX_QUANTITY}")
+        _check_sellable(await self._repository.get_variant(variant_id), quantity)
+        if (
+            cart_id is not None
+            and current == 0
+            and await self._repository.count_items(cart_id) >= MAX_LINES
+        ):
+            raise CartConflict(f"A cart holds at most {MAX_LINES} different items")
         issued: str | None = None
-        if cart_id is None or not await self._repository.lock_cart(cart_id):
+        if cart_id is None:
+            await self._creation_guard.admit()
             await self._repository.delete_expired_carts(limit=EXPIRED_PURGE_LIMIT)
             issued = secrets.token_urlsafe(32)
             cart_id = new_id()
             await self._repository.insert_cart(
                 cart_id=cart_id, token_hash=hash_token(issued), ttl_days=CART_TTL_DAYS
             )
-        current = await self._repository.get_quantity(cart_id, variant_id)
-        quantity = new_quantity(current)
-        if not 1 <= quantity <= MAX_QUANTITY:
-            raise CartConflict(f"Quantity must be 1 to {MAX_QUANTITY}")
-        _check_sellable(await self._repository.get_variant(variant_id), quantity)
-        if current == 0 and await self._repository.count_items(cart_id) >= MAX_LINES:
-            raise CartConflict(f"A cart holds at most {MAX_LINES} different items")
         try:
             await self._repository.set_item(cart_id, variant_id, quantity)
             await self._repository.touch_cart(cart_id, ttl_days=CART_TTL_DAYS)

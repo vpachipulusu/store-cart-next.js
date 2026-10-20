@@ -6,7 +6,7 @@ is an allowlist (``status == ACTIVE``): any other status, now or added later, is
 
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.models.platform.store import Store, StoreStatus
 from app.repositories.base import BaseRepository
@@ -39,3 +39,16 @@ class StorefrontRepository(BaseRepository):
             )
         ).one_or_none()
         return str(row.id) if row else None
+
+    async def sample_active_store_ids(self, limit: int) -> list[str]:
+        """Up to ``limit`` ACTIVE stores that have a database, in random order (scheduled jobs)."""
+        rows = await self._session.execute(
+            select(Store.id)
+            .where(
+                Store.status == StoreStatus.ACTIVE,
+                Store.connection_string_encrypted.is_not(None),
+            )
+            .order_by(func.random())
+            .limit(limit)
+        )
+        return [str(store_id) for store_id in rows.scalars()]

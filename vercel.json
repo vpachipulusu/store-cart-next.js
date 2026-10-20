@@ -34,6 +34,12 @@
       }
     },
     {
+      "source": "/internal/carts/(.*)",
+      "destination": {
+        "service": "fastapi_backend"
+      }
+    },
+    {
       "source": "/webhooks/stripe",
       "destination": {
         "service": "fastapi_backend"

@@ -16,11 +16,12 @@ from typing import Annotated
 from fastapi import Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import SessionDep, get_session_provider
+from app.api.deps import SessionDep, get_rate_limiter, get_session_provider
 from app.api.merchant import require_merchant
 from app.core.config import settings
 from app.core.database import SessionProvider
 from app.core.plans import Plan
+from app.core.rate_limit import CART_CREATE_POLICY, RateLimiter
 from app.core.stripe_checkout import StripeCheckout
 from app.models.platform.membership import MembershipRole
 from app.repositories.app_settings import AppSettingsRepository
@@ -35,6 +36,11 @@ from app.services.merchant_orders import StoreOrdersService
 from app.services.plan_limits import plan_for
 from app.services.public_settings import PublicSettingsService
 from app.services.store_cart import StoreCartService
+from app.services.store_cart_limits import (
+    CartCreationGuard,
+    CartCreationUnavailable,
+    RateLimitedCartCreation,
+)
 from app.services.store_checkout import (
     PAYMENT_EVENT_TYPES,
     CheckoutOrders,
@@ -186,11 +192,21 @@ async def _open_public_store(
         raise HTTPException(503, STORE_UNAVAILABLE, headers=NO_STORE_HEADERS) from None
 
 
-def _cart_service(session: AsyncSession) -> StoreCartService:
+class NoCartCreation:
+    """For callers that only read or price an existing cart (checkout): starting one is refused."""
+
+    async def admit(self) -> None:
+        raise CartCreationUnavailable
+
+
+def _cart_service(
+    session: AsyncSession, creation: CartCreationGuard
+) -> StoreCartService:
     return StoreCartService(
         StoreCartRepository(session),
         StoreSettingsService(StoreSettingsRepository(session), session),
         session,
+        creation,
     )
 
 
@@ -212,7 +228,7 @@ def storefront_checkout_service(
         async with open_store_session(store_id, provider) as session:
             yield SqlCheckoutOrders(
                 session,
-                _cart_service(session),
+                _cart_service(session, NoCartCreation()),
                 StoreSettingsService(StoreSettingsRepository(session), session),
             )
 
@@ -232,15 +248,18 @@ def connect_store_handlers(provider: SessionProvider) -> dict[str, StoreEventHan
 async def storefront_cart_service(
     slug: str,
     provider: Annotated[SessionProvider, Depends(get_session_provider)],
+    limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
 ) -> AsyncIterator[StoreCartService]:
     """A cart service on the database of the ACTIVE store named by the public ``{slug}`` (KAN-76).
 
-    The platform connection is released before the store database is opened.
+    The platform connection is released before the store database is opened. Starting a cart
+    counts against the store's hourly creation cap (KAN-252), keyed by the resolved store id.
     """
     async with provider.session() as platform:
         store_id = await _active_store_or_404(platform, slug)
+    creation = RateLimitedCartCreation(limiter, store_id, CART_CREATE_POLICY)
     async with _open_public_store(store_id, provider) as session:
-        yield _cart_service(session)
+        yield _cart_service(session, creation)
 
 
 async def storefront_catalogue_service(
