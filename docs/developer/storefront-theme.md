@@ -1,6 +1,6 @@
 # Storefront theme pages (KAN-75)
 
-A store host `{slug}.<root domain>` shows one theme: home, categories, products, search and a basket. The proxy rewrites the host to `src/app/storefront/[slug]/...` (see [storefront-subdomains.md](storefront-subdomains.md)); the cart routes are [backend-storefront-cart.md](backend-storefront-cart.md). Checkout is KAN-77.
+A store host `{slug}.<root domain>` shows one theme: home, categories, products, search and a basket. The proxy rewrites the host to `src/app/storefront/[slug]/...` (see [storefront-subdomains.md](storefront-subdomains.md)); the cart routes are [backend-storefront-cart.md](backend-storefront-cart.md). Checkout is below (KAN-77).
 
 ## Pages
 
@@ -38,6 +38,14 @@ Shared reads go through `src/lib/api/storefront-catalogue.ts`: `unstable_cache` 
 - The `/s/{slug}` preview now targets `src/app/storefront-preview/[slug]/route.ts` (name only, CSP `default-src 'none'`), never the theme.
 - Store hosts get `object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`.
 - The search page is dynamic and can answer 200 (with `noindex`) for a missing store because the root `loading.tsx` streams; the cached pages answer 404.
+
+## Checkout handoff (KAN-77)
+
+The basket's **Checkout** button posts to the store's own `/checkout` route handler (`src/app/storefront/[slug]/checkout/route.ts`), which calls `beginCheckout` (`src/lib/api/checkout.ts`): it reads the httpOnly cart cookie, sends `success_url`/`cancel_url` on the store origin (`/checkout/success`, `/checkout/cancel`) to `POST /v1/storefront/{slug}/checkout` ([backend-checkout.md](backend-checkout.md)) and returns the Stripe `checkoutUrl`. Only an https URL on exactly `checkout.stripe.com` is ever followed (`isStripeCheckoutUrl`, checked on the server and in the browser). Backend errors become fixed shopper messages (409 basket changed, 422 return URL, 404 store, 502/503 payments unavailable, 429 too many requests) and are logged with the status, never the cart token.
+
+- The order is confirmed only by the Connect webhook (KAN-69). The success page marks nothing paid, reads no query, cookie or header, and only says the order is being confirmed; both return pages are `noindex` and `no-store`.
+- Known limits: the basket is not cleared after payment (no shopper-facing order read yet); every Checkout call makes a new pending order and session (the button guards one click per page load); the success URL carries no order id (it is unknown before the call); checkout from the `/s/{slug}` path preview is not supported (the return URLs are on the store host).
+- Tests: `unit/{api/checkout,storefront/checkout-url,storefront/checkout-client,app/storefront-checkout-route,app/storefront-checkout-pages}` and the Checkout cases in `unit/components/storefront.test.tsx`. E2E: `src/__tests__/e2e/storefront-checkout.spec.ts` (Stripe stubbed in the browser; same `E2E_BACKEND_DIR` setup as the cart spec; run with `--no-deps` when no test login is available).
 
 ## Tests
 

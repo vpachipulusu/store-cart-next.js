@@ -11,6 +11,7 @@ import {
   type CartReply,
 } from '@/lib/storefront/cart-client';
 import { formatMoney } from '@/lib/storefront/catalogue';
+import { startCheckout } from '@/lib/storefront/checkout-client';
 import { productPath } from '@/lib/storefront/seo';
 import { parseQuantity } from './add-to-cart';
 
@@ -118,13 +119,16 @@ function BasketLine({ line, currency, isBusy, onChange }: LineProps) {
 
 /**
  * The shopper's basket for this store, read from the cart route after the page loads. Prices and stock come from
- * the backend on every call. Checkout is a later story (KAN-77), so there is no checkout button yet.
+ * the backend on every call. Checkout (KAN-77) asks the store's checkout route for a Stripe Checkout URL and goes
+ * there; the order is confirmed only by the backend webhook, never by this page.
  */
 export function BasketView({ currency }: { currency: string }) {
   const [cart, setCart] = useState<Cart | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [isBusy, setIsBusy] = useState(false);
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const isCheckingOutRef = useRef(false);
   const summaryRef = useRef<HTMLHeadingElement>(null);
   const continueRef = useRef<HTMLAnchorElement>(null);
 
@@ -150,11 +154,43 @@ export function BasketView({ currency }: { currency: string }) {
     };
   }, []);
 
+  // Coming back from Stripe with the back button restores this page from the browser cache, mid-redirect.
+  useEffect(() => {
+    function handlePageShow(event: PageTransitionEvent) {
+      if (!event.persisted) return;
+      isCheckingOutRef.current = false;
+      setIsCheckingOut(false);
+      void load(); // the basket may have changed while the shopper was away
+    }
+    window.addEventListener('pageshow', handlePageShow);
+    return () => window.removeEventListener('pageshow', handlePageShow);
+  }, [load]);
+
+  /** One click, one order: the backend makes a new order and session on every call, so a second call is refused here. */
+  async function handleCheckout(): Promise<void> {
+    if (isCheckingOutRef.current || isBusy || cart?.can_checkout !== true) return;
+    isCheckingOutRef.current = true;
+    setIsCheckingOut(true);
+    setError(null);
+    setMessage('Redirecting to payment…'); // announced before the page is left
+    const reply = await startCheckout();
+    if (!reply.ok) {
+      isCheckingOutRef.current = false;
+      setIsCheckingOut(false);
+      setMessage('');
+      setError(reply.error);
+      return;
+    }
+    window.location.assign(reply.url);
+  }
+
   async function handleChange(
     change: () => Promise<CartReply>,
     done: string,
     isRemoval: boolean
   ): Promise<boolean> {
+    // Once checkout has started, the basket is what Stripe was given: no more changes.
+    if (isCheckingOutRef.current) return false;
     setIsBusy(true);
     const reply = await change();
     setIsBusy(false);
@@ -220,13 +256,13 @@ export function BasketView({ currency }: { currency: string }) {
 
   return (
     <div className="grid gap-10 lg:grid-cols-[1fr_20rem]">
-      <ul className="divide-y border-y" aria-busy={isBusy}>
+      <ul className="divide-y border-y" aria-busy={isBusy || isCheckingOut}>
         {cart.lines.map((line) => (
           <BasketLine
             key={line.variant_id}
             line={line}
             currency={currency}
-            isBusy={isBusy}
+            isBusy={isBusy || isCheckingOut}
             onChange={handleChange}
           />
         ))}
@@ -262,7 +298,21 @@ export function BasketView({ currency }: { currency: string }) {
             <dd>{formatMoney(cart.total_minor, currency)}</dd>
           </div>
         </dl>
-        <p className="mt-4 text-sm text-muted-foreground">Checkout is coming soon.</p>
+        <Button
+          type="button"
+          variant="accent"
+          size="lg"
+          className="mt-6 w-full aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+          aria-disabled={!cart.can_checkout || isCheckingOut || isBusy}
+          onClick={() => void handleCheckout()}
+        >
+          {isCheckingOut ? 'Redirecting to payment…' : 'Checkout'}
+        </Button>
+        {cart.can_checkout ? null : (
+          <p className="mt-3 text-sm text-muted-foreground">
+            Fix the items marked above to continue to checkout.
+          </p>
+        )}
       </section>
       <div className="lg:col-span-2">{announcements}</div>
     </div>

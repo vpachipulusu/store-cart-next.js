@@ -1,21 +1,24 @@
 /** KAN-75: the storefront's interactive pieces: option picking and add to basket, the basket, the header count. */
 import { act } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-const mocks = vi.hoisted(() => ({
+const cartMocks = vi.hoisted(() => ({
   readCart: vi.fn(),
   addToCart: vi.fn(),
   setQuantity: vi.fn(),
   removeLine: vi.fn(),
 }));
+const checkoutMocks = vi.hoisted(() => ({ startCheckout: vi.fn() }));
+const mocks = { ...cartMocks, ...checkoutMocks };
 
+vi.mock('@/lib/storefront/checkout-client', () => checkoutMocks);
 vi.mock('@/lib/storefront/cart-client', async () => {
   const actual = await vi.importActual<typeof import('@/lib/storefront/cart-client')>(
     '@/lib/storefront/cart-client'
   );
-  return { ...actual, ...mocks };
+  return { ...actual, ...cartMocks };
 });
 
 import { AddToCart, parseQuantity } from '@/components/storefront/add-to-cart';
@@ -228,6 +231,165 @@ describe('BasketView', () => {
     await user.click(await screen.findByRole('button', { name: 'Try again' }));
 
     expect(await screen.findByText('Your basket is empty.')).toBeInTheDocument();
+  });
+});
+
+describe('BasketView checkout', () => {
+  const STRIPE_URL = 'https://checkout.stripe.com/c/pay/cs_test_1';
+  const assign = vi.fn();
+  const originalLocation = Object.getOwnPropertyDescriptor(window, 'location');
+
+  beforeEach(() => {
+    assign.mockReset();
+    mocks.startCheckout.mockReset();
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...window.location, assign },
+    });
+  });
+
+  afterEach(() => {
+    if (originalLocation) Object.defineProperty(window, 'location', originalLocation);
+  });
+
+  const notReady = { ...cartWith(1), can_checkout: false };
+
+  it('sends the shopper to Stripe and a second click makes no second order', async () => {
+    const user = userEvent.setup();
+    let resolveCheckout: (reply: { ok: true; url: string }) => void = () => undefined;
+    mocks.readCart.mockResolvedValue({ ok: true, cart: cartWith(1) });
+    mocks.startCheckout.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCheckout = resolve;
+      })
+    );
+    render(<BasketView currency="GBP" />);
+
+    const button = await screen.findByRole('button', { name: 'Checkout' });
+    await user.click(button);
+    await user.click(screen.getByRole('button', { name: 'Redirecting to payment…' }));
+    resolveCheckout({ ok: true, url: STRIPE_URL });
+
+    await waitFor(() => expect(assign).toHaveBeenCalledWith(STRIPE_URL));
+    expect(mocks.startCheckout).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Redirecting to payment…' })).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
+  });
+
+  it('announces the redirect before leaving and clears it when checkout fails', async () => {
+    const user = userEvent.setup();
+    let announcedAtAssign = '';
+    assign.mockImplementation(() => {
+      announcedAtAssign = screen.getByRole('status').textContent ?? '';
+    });
+    mocks.readCart.mockResolvedValue({ ok: true, cart: cartWith(1) });
+    mocks.startCheckout
+      .mockResolvedValueOnce({ ok: false, error: 'Too many requests.' })
+      .mockResolvedValueOnce({ ok: true, url: STRIPE_URL });
+    render(<BasketView currency="GBP" />);
+
+    await user.click(await screen.findByRole('button', { name: 'Checkout' }));
+    await screen.findByRole('alert');
+    expect(screen.getByRole('status')).toHaveTextContent('');
+
+    await user.click(screen.getByRole('button', { name: 'Checkout' }));
+
+    await waitFor(() => expect(assign).toHaveBeenCalledWith(STRIPE_URL));
+    expect(announcedAtAssign).toBe('Redirecting to payment…');
+  });
+
+  it('freezes the basket once checkout has started', async () => {
+    const user = userEvent.setup();
+    mocks.readCart.mockResolvedValue({ ok: true, cart: cartWith(1) });
+    mocks.startCheckout.mockReturnValue(new Promise(() => undefined));
+    render(<BasketView currency="GBP" />);
+
+    await user.click(await screen.findByRole('button', { name: 'Checkout' }));
+    await user.click(screen.getByRole('button', { name: 'Remove Blue Mug' }));
+
+    expect(mocks.removeLine).not.toHaveBeenCalled();
+  });
+
+  it('shows the shopper message, clears it on the next attempt and allows another try', async () => {
+    const user = userEvent.setup();
+    mocks.readCart.mockResolvedValue({ ok: true, cart: cartWith(1) });
+    mocks.startCheckout
+      .mockResolvedValueOnce({ ok: false, error: 'Too many requests.' })
+      .mockReturnValueOnce(new Promise(() => undefined));
+    render(<BasketView currency="GBP" />);
+
+    await user.click(await screen.findByRole('button', { name: 'Checkout' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Too many requests.');
+    expect(assign).not.toHaveBeenCalled();
+    const retry = screen.getByRole('button', { name: 'Checkout' });
+    expect(retry).not.toHaveAttribute('aria-disabled', 'true');
+
+    await user.click(retry);
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(mocks.startCheckout).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-enables checkout and re-reads the basket when the page returns from the cache', async () => {
+    const user = userEvent.setup();
+    mocks.readCart.mockResolvedValue({ ok: true, cart: cartWith(1) });
+    mocks.startCheckout.mockResolvedValue({ ok: true, url: STRIPE_URL });
+    render(<BasketView currency="GBP" />);
+    await user.click(await screen.findByRole('button', { name: 'Checkout' }));
+    expect(screen.getByRole('button', { name: 'Redirecting to payment…' })).toBeInTheDocument();
+    const readsBefore = mocks.readCart.mock.calls.length;
+
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: false }));
+    });
+    expect(screen.getByRole('button', { name: 'Redirecting to payment…' })).toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+    });
+
+    const button = await screen.findByRole('button', { name: 'Checkout' });
+    expect(button).not.toHaveAttribute('aria-disabled', 'true');
+    await waitFor(() => expect(mocks.readCart.mock.calls.length).toBeGreaterThan(readsBefore));
+  });
+
+  it('does not offer checkout while the basket is not ready', async () => {
+    const user = userEvent.setup();
+    mocks.readCart.mockResolvedValue({ ok: true, cart: notReady });
+    render(<BasketView currency="GBP" />);
+
+    const button = await screen.findByRole('button', { name: 'Checkout' });
+    await user.click(button);
+
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByText('Fix the items marked above to continue to checkout.')).toBeVisible();
+    expect(mocks.startCheckout).not.toHaveBeenCalled();
+  });
+
+  it('shows no hint when the basket is ready', async () => {
+    mocks.readCart.mockResolvedValue({ ok: true, cart: cartWith(1) });
+    render(<BasketView currency="GBP" />);
+
+    await screen.findByRole('button', { name: 'Checkout' });
+
+    expect(screen.queryByText(/Fix the items marked above/)).toBeNull();
+  });
+
+  it('ignores Checkout while a quantity change is still being saved', async () => {
+    const user = userEvent.setup();
+    mocks.readCart.mockResolvedValue({ ok: true, cart: cartWith(1) });
+    mocks.setQuantity.mockReturnValue(new Promise(() => undefined));
+    render(<BasketView currency="GBP" />);
+    const quantity = await screen.findByLabelText('Quantity of Blue Mug');
+    await user.clear(quantity);
+    await user.type(quantity, '3{Enter}');
+
+    await user.click(screen.getByRole('button', { name: 'Checkout' }));
+
+    expect(mocks.startCheckout).not.toHaveBeenCalled();
   });
 });
 
