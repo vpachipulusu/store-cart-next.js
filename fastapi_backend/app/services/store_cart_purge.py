@@ -7,8 +7,8 @@ stopped taking new carts kept its expired rows. A QStash schedule now calls
 * visits at most ``STORES_PER_RUN`` ACTIVE stores, picked at random so every store is reached over
   successive runs;
 * deletes at most ``EXPIRED_CARTS_PER_STORE`` expired carts in each (the rest wait for the next run);
-* stops starting new stores after ``RUN_TIME_BUDGET_SECONDS`` and cuts off a store still running
-  when the budget ends (counted in ``stores_failed``);
+* stops starting new stores after ``RUN_TIME_BUDGET_SECONDS`` and cuts off any store still running after ``PER_STORE_SECONDS``
+  or when the budget ends (counted in ``stores_failed``);
 * never lets one store stop the others: a store that cannot be opened or queried is counted in
   ``stores_failed`` and logged by exception class and store id only (never a connection string).
 """
@@ -32,6 +32,8 @@ STORES_PER_RUN = 50
 EXPIRED_CARTS_PER_STORE = 1000
 # A run stops starting new stores after this long, so it ends before a serverless time limit.
 RUN_TIME_BUDGET_SECONDS = 20.0
+# One store may use at most this long, so a store that hangs cannot use up the whole run budget.
+PER_STORE_SECONDS = 5.0
 
 
 @dataclass(frozen=True)
@@ -54,6 +56,7 @@ async def purge_expired_carts(
     max_stores: int = STORES_PER_RUN,
     batch: int = EXPIRED_CARTS_PER_STORE,
     time_budget_seconds: float = RUN_TIME_BUDGET_SECONDS,
+    per_store_seconds: float = PER_STORE_SECONDS,
     clock: Callable[[], float] = time.monotonic,
 ) -> PurgeSummary:
     """One bounded purge run over a random sample of ACTIVE stores.
@@ -75,8 +78,8 @@ async def purge_expired_carts(
             break
         visited += 1
         try:
-            # A store that hangs (cold database, lock wait) is cut off at the end of the budget.
-            async with asyncio.timeout(remaining):
+            # A store that hangs (cold database, lock wait) is cut off, so the others still run.
+            async with asyncio.timeout(min(remaining, per_store_seconds)):
                 deleted += await _purge_store(store_id, provider, batch)
         except Exception as exc:  # noqa: BLE001 - one store must not stop the run
             failed += 1

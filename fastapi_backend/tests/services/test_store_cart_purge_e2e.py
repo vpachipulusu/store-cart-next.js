@@ -170,9 +170,14 @@ async def test_a_store_that_cannot_be_opened_does_not_stop_the_others(
 async def test_the_defaults_are_bounded() -> None:
     assert 0 < store_cart_purge.EXPIRED_CARTS_PER_STORE <= 5000
     assert 0 < store_cart_purge.STORES_PER_RUN <= 200
+    assert (
+        0
+        < store_cart_purge.PER_STORE_SECONDS
+        < store_cart_purge.RUN_TIME_BUDGET_SECONDS
+    )
 
 
-async def test_a_store_that_hangs_is_cut_off_at_the_budget_and_counted_failed(
+async def test_a_hanging_store_is_cut_off_per_store_and_the_others_still_run(
     world: World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def hang(store_id: str, provider: object, batch: int) -> int:
@@ -183,13 +188,17 @@ async def test_a_store_that_hangs_is_cut_off_at_the_budget_and_counted_failed(
 
     summary = await asyncio.wait_for(
         purge_expired_carts(
-            world.provider, max_stores=100, batch=10, time_budget_seconds=0.2
+            world.provider,
+            max_stores=100,
+            batch=10,
+            time_budget_seconds=60.0,
+            per_store_seconds=0.05,
         ),
-        timeout=10,
+        timeout=30,
     )
 
-    assert summary.stores == 1
-    assert summary.stores_failed == 1
+    assert summary.stores >= 2
+    assert summary.stores_failed == summary.stores
 
 
 async def test_a_cart_being_written_is_skipped_not_waited_for(world: World) -> None:
