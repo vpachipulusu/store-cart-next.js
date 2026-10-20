@@ -21,13 +21,13 @@ the reservation.
 
 import logging
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.stripe_billing import (
     StripeConflict,
     StripeError,
     StripeForbidden,
-    StripeNotConfigured,
     StripeNotFound,
     StripeNotProcessed,
     StripeRejected,
@@ -55,7 +55,6 @@ _REFUSED = (
     StripeNotFound,
     StripeForbidden,
     StripeNotProcessed,
-    StripeNotConfigured,
 )
 
 
@@ -63,8 +62,18 @@ class RefundUnavailable(OrderError):
     """Stripe could not be asked, or its answer is unknown (HTTP 502)."""
 
 
+class RefundNotConnected(OrderError):
+    """The organisation has no connected payment account; nothing was reserved (HTTP 409)."""
+
+
 class RefundRefused(OrderError):
     """Stripe refused the refund; nothing was refunded (HTTP 409)."""
+
+
+def _after_stripe(plan: RefundPlan) -> RefundUnavailable:
+    """Stripe answered but we could not store it: the refund stays pending; the webhook settles it."""
+    logger.error("refund answer not stored", extra={"refund_id": plan.id})
+    return RefundUnavailable("The refund could not be confirmed")
 
 
 class MerchantOrderRefundService:
@@ -90,7 +99,7 @@ class MerchantOrderRefundService:
         restock: bool = False,
     ) -> OrderDetail:
         if self._account_id is None:
-            raise RefundUnavailable("The payment account is not connected")
+            raise RefundNotConnected("The payment account is not connected")
         plan = await self._reserve(order_id, lines, restock)
         await self._ask_stripe(plan, self._account_id)
         return await self._orders.get(order_id)
@@ -146,6 +155,9 @@ class MerchantOrderRefundService:
                 self._session, plan.id, outcome, stripe_refund_id=stripe_refund_id
             )
             await self._session.commit()
+        except SQLAlchemyError:
+            await self._session.rollback()
+            raise _after_stripe(plan) from None
         except Exception:
             await self._session.rollback()
             raise
@@ -154,6 +166,9 @@ class MerchantOrderRefundService:
         try:
             await record_stripe_refund(self._session, plan.id, stripe_refund_id)
             await self._session.commit()
+        except SQLAlchemyError:
+            await self._session.rollback()
+            raise _after_stripe(plan) from None
         except Exception:
             await self._session.rollback()
             raise

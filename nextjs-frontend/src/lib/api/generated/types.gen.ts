@@ -9939,13 +9939,13 @@ export type RefundOrderErrors = {
      */
     404: ErrorResponse;
     /**
-     * Conflict
+     * Not refundable, more than remains, no connected payment account, or refused by the payment provider. Nothing was refunded.
      */
-    409: ErrorResponse;
+    409: unknown;
     /**
-     * Unprocessable Entity
+     * Invalid lines or quantities.
      */
-    422: ErrorResponse;
+    422: unknown;
     /**
      * Rate limit exceeded
      */
@@ -9955,9 +9955,9 @@ export type RefundOrderErrors = {
      */
     500: ErrorResponse;
     /**
-     * Bad Gateway
+     * The outcome is unknown: the refund may still happen. Do not repeat the request; read the order and its `refunds`.
      */
-    502: ErrorResponse;
+    502: unknown;
     /**
      * Service Unavailable
      */

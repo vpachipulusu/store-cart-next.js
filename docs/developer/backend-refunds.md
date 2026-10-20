@@ -23,7 +23,7 @@ limit (same access as fulfil).
   `amount_minor`, `currency`, `status` `pending|succeeded|failed`, `restock`, `restocked_at`, timestamps).
 - Errors: 404 unknown order or store; 403 STAFF; 409 not paid, no payment, more than remains, nothing left, or refused
   by Stripe; 422 invalid lines (an item of another order, duplicates, quantity); 502 the outcome is unknown (do not
-  repeat the request, read the order) or no connected account; 503 Stripe not configured.
+  repeat the request, read the order); 409 also when the organisation has no connected account; 503 Stripe not configured.
 
 ## Life of a refund
 
@@ -66,8 +66,13 @@ the Stripe **Connect** webhook endpoint.
 
 - A refund made in the Stripe dashboard has no `refund_id` metadata and is acknowledged and ignored (the order is not
   updated).
-- A refund stuck `pending` because Stripe never created it (outcome unknown, no webhook) stays reserved: there is no
-  retry or cancel endpoint yet.
+- A refund stuck `pending` because Stripe never created it (outcome unknown, no webhook) stays reserved and blocks
+  those units and that money: there is no retry, cancel or reconcile path yet. Re-sending with the same refund id is safe
+  (the idempotency key is the refund id), so a retry endpoint or sweeper is the follow-up (sized work, owner decides).
+- A refund that Stripe fails after reporting success is not reversed: the event is not applied and goes to Sentry
+  (`UnappliedRefundEvent`) for a person to resolve.
+- Orders paid between the `0010` deploy and `0011` took stock but have `stock_taken = 0`, so refunding them with
+  `restock` returns nothing; restock those by hand.
 - No `refund_application_fee`: the platform keeps its fee on refunded payments.
 
 Tests: `tests/services/test_store_refunds_e2e.py` (reserve, settle, restock, concurrency, oversold, deleted

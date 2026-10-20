@@ -376,7 +376,7 @@ _STRIPE_OUTCOMES: Mapping[str, RefundOutcome] = {
     "canceled": RefundOutcome.FAILED,
 }
 _REFUND_ROW_SQL = text(
-    "SELECT r.order_id, r.amount_minor, r.currency, r.stripe_refund_id,"
+    "SELECT r.order_id, r.amount_minor, r.currency, r.stripe_refund_id, r.status,"
     " o.stripe_payment_intent_id "
     "FROM order_refunds r JOIN orders o ON o.id = r.order_id WHERE r.id = :id"
 )
@@ -424,10 +424,7 @@ async def apply_refund_event(
         or amount != row["amount_minor"]
         or currency is None
         or currency.upper() != row["currency"]
-        or (
-            payment_intent is not None
-            and payment_intent != row["stripe_payment_intent_id"]
-        )
+        or payment_intent != row["stripe_payment_intent_id"]
         or row["stripe_refund_id"] not in (None, stripe_id)
     ):
         logger.error(
@@ -439,7 +436,18 @@ async def apply_refund_event(
     if outcome is None:
         await record_stripe_refund(session, refund_id, stripe_id)
         return None
-    return await settle_refund(session, refund_id, outcome, stripe_refund_id=stripe_id)
+    settled = await settle_refund(
+        session, refund_id, outcome, stripe_refund_id=stripe_id
+    )
+    if not settled and row["status"] not in ("pending", outcome.value):
+        # Stripe changed its mind after we settled (a refund failing after it succeeded, or a
+        # success for a refund we released): nothing is applied, so a person must look.
+        logger.error(
+            "refund event contradicts a settled refund",
+            extra={"refund_id": refund_id, "stored": row["status"]},
+        )
+        report_exception(UnappliedRefundEvent("contradicts settled refund"))
+    return settled
 
 
 def refund_event_handler(

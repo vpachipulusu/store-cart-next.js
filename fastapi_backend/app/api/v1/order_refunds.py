@@ -44,6 +44,7 @@ from app.repositories.org_connect import OrgConnectRepository
 from app.repositories.store_orders import StoreOrdersRepository
 from app.services.merchant_order_refund import (
     MerchantOrderRefundService,
+    RefundNotConnected,
     RefundRefused,
     RefundUnavailable,
 )
@@ -152,6 +153,10 @@ def refund_http_error(error: OrderError) -> HTTPException:
         return HTTPException(404, "Order not found", headers=NO_STORE)
     if isinstance(error, RefundNotAllowed):
         return HTTPException(409, str(error), headers=NO_STORE)
+    if isinstance(error, RefundNotConnected):
+        return HTTPException(
+            409, "Connect your payment account to refund orders", headers=NO_STORE
+        )
     if isinstance(error, RefundRefused):
         return HTTPException(
             409, "The payment provider could not refund this payment", headers=NO_STORE
@@ -171,6 +176,17 @@ def refund_http_error(error: OrderError) -> HTTPException:
     "/{order_id}/refunds",
     response_model=OrderResponse,
     summary="Refund a paid order, in full or by lines",
+    responses={
+        409: {
+            "description": "Not refundable, more than remains, no connected payment "
+            "account, or refused by the payment provider. Nothing was refunded."
+        },
+        422: {"description": "Invalid lines or quantities."},
+        502: {
+            "description": "The outcome is unknown: the refund may still happen. Do not "
+            "repeat the request; read the order and its `refunds`."
+        },
+    },
 )
 async def refund_order(
     order_id: OrderId,

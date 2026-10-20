@@ -23,6 +23,7 @@ from app.services.store_orders import (
     OrderNotFound,
     OrderStatus,
     create_order,
+    fulfil_order,
     mark_checkout_paid,
     transition_order,
 )
@@ -96,14 +97,30 @@ async def _paid_order(
     world: World,  # noqa: F811
     shop: Shop,
     lines: list[tuple[str, int]],
+    *,
+    tax_bps: int = TAX_BPS,
+    shipping: int = 0,
+    included: bool = False,
+    fulfilled: bool = False,
 ) -> str:
-    """An order paid through ``mark_checkout_paid`` (so stock is taken); returns its id."""
+    """An order paid through ``mark_checkout_paid`` (so stock is taken); returns its id.
+
+    ``shipping`` and ``included`` (prices include tax) mimic what checkout writes.
+    """
     async with open_store_session(shop.store_id, world.provider) as session:
         order = await create_order(
             session,
             currency="GBP",
-            tax_rate_bps=TAX_BPS,
+            tax_rate_bps=tax_bps,
             lines=[OrderLineInput(variant_id=v, quantity=q) for v, q in lines],
+        )
+        total = order.subtotal_minor + shipping + (0 if included else order.tax_minor)
+        await session.execute(
+            text(
+                "UPDATE orders SET shipping_minor = :s, prices_include_tax = :i,"
+                " total_minor = :t WHERE id = :o"
+            ),
+            {"s": shipping, "i": included, "t": total, "o": order.id},
         )
         await session.commit()
     async with open_store_session(shop.store_id, world.provider) as session:
@@ -112,9 +129,11 @@ async def _paid_order(
             order_id=order.id,
             session_id=f"cs_{order.id}",
             payment_intent_id=f"pi_{order.id}",
-            amount_minor=order.total_minor,
+            amount_minor=total,
             currency="GBP",
         )
+        if fulfilled:
+            await fulfil_order(session, order.id, "TRK-1")
         await session.commit()
     return order.id
 
@@ -523,3 +542,156 @@ async def test_duplicate_or_empty_line_lists_are_refused(
         await _reserve(world, shop, order_id, [line, line])
     with pytest.raises(InvalidOrder):
         await _reserve(world, shop, order_id, [])
+
+
+# --- amounts: rounding, inclusive prices, shipping ------------------------------------------
+
+
+async def test_partial_amounts_add_up_to_the_total_when_tax_does_not_divide(
+    world: World,  # noqa: F811
+    shop: Shop,
+) -> None:
+    # 3 x 1000 at 13.33%: tax 400, which three equal parts cannot split.
+    order_id = await _paid_order(world, shop, [(shop.a, 3)], tax_bps=1333)
+    items = await _items(world, shop, order_id)
+
+    amounts = []
+    for _ in range(3):
+        plan = await _reserve(
+            world, shop, order_id, [RefundLineInput(items[shop.a], 1)]
+        )
+        amounts.append(plan.amount_minor)
+        await _settle(world, shop, plan.id)
+
+    assert amounts == [1133, 1133, 1134]
+    assert await _status(world, shop, order_id) == "refunded"
+
+
+async def test_two_then_one_also_adds_up(
+    world: World,  # noqa: F811
+    shop: Shop,
+) -> None:
+    order_id = await _paid_order(world, shop, [(shop.a, 3)], tax_bps=1333)
+    items = await _items(world, shop, order_id)
+
+    first = await _reserve(world, shop, order_id, [RefundLineInput(items[shop.a], 2)])
+    await _settle(world, shop, first.id)
+    second = await _reserve(world, shop, order_id, [RefundLineInput(items[shop.a], 1)])
+
+    assert first.amount_minor == 2266
+    assert first.amount_minor + second.amount_minor == 3400
+
+
+async def test_prices_that_include_tax_are_not_taxed_again(
+    world: World,  # noqa: F811
+    shop: Shop,
+) -> None:
+    order_id = await _paid_order(world, shop, [(shop.a, 3)], included=True)
+    items = await _items(world, shop, order_id)
+
+    part = await _reserve(world, shop, order_id, [RefundLineInput(items[shop.a], 2)])
+    await _settle(world, shop, part.id)
+    rest = await _reserve(world, shop, order_id)
+
+    assert part.amount_minor == 2 * PRICE
+    assert rest.amount_minor == PRICE
+    await _settle(world, shop, rest.id)
+    assert await _status(world, shop, order_id) == "refunded"
+
+
+async def test_shipping_is_refunded_only_by_a_full_refund(
+    world: World,  # noqa: F811
+    shop: Shop,
+) -> None:
+    order_id = await _paid_order(world, shop, [(shop.a, 2)], shipping=499)
+    items = await _items(world, shop, order_id)
+    lines_total = 2 * PRICE + 2 * PRICE * TAX_BPS // 10_000
+
+    everything = await _reserve(
+        world, shop, order_id, [RefundLineInput(items[shop.a], 2)]
+    )
+    await _settle(world, shop, everything.id)
+    assert everything.amount_minor == lines_total
+    assert await _status(world, shop, order_id) == "paid"  # shipping is left
+
+    shipping_only = await _reserve(world, shop, order_id)
+    assert shipping_only.amount_minor == 499
+    await _settle(world, shop, shipping_only.id)
+    assert await _status(world, shop, order_id) == "refunded"
+
+
+async def test_a_full_refund_includes_shipping(
+    world: World,  # noqa: F811
+    shop: Shop,
+) -> None:
+    order_id = await _paid_order(world, shop, [(shop.a, 2)], shipping=499)
+
+    plan = await _reserve(world, shop, order_id)
+
+    assert plan.amount_minor == 2 * PRICE + 2 * PRICE * TAX_BPS // 10_000 + 499
+
+
+# --- restock bounds ---------------------------------------------------------------------
+
+
+async def test_a_line_that_was_not_taken_restocks_nothing(
+    world: World,  # noqa: F811
+    shop: Shop,
+) -> None:
+    # scarce has 1 unit and the line wants 2: it is not taken (all or nothing per line).
+    order_id = await _paid_order(world, shop, [(shop.scarce, 2)])
+
+    plan = await _reserve(world, shop, order_id, restock=True)
+    await _settle(world, shop, plan.id)
+
+    assert await _stock(world, shop, shop.scarce) == 1
+    async with open_store_session(shop.store_id, world.provider) as session:
+        restocked = await session.scalar(
+            text("SELECT restocked_quantity FROM order_items WHERE order_id = :o"),
+            {"o": order_id},
+        )
+    assert restocked == 0
+
+
+async def test_only_the_refund_that_asks_for_it_restocks(
+    world: World,  # noqa: F811
+    shop: Shop,
+) -> None:
+    order_id = await _paid_order(world, shop, [(shop.a, 3)])
+    items = await _items(world, shop, order_id)
+
+    first = await _reserve(world, shop, order_id, [RefundLineInput(items[shop.a], 1)])
+    await _settle(world, shop, first.id)
+    second = await _reserve(
+        world, shop, order_id, [RefundLineInput(items[shop.a], 2)], restock=True
+    )
+    await _settle(world, shop, second.id)
+
+    assert await _stock(world, shop, shop.a) == 9  # 7 + the 2 of the restocking refund
+
+
+# --- order status -----------------------------------------------------------------------
+
+
+async def test_a_fulfilled_order_can_be_refunded(
+    world: World,  # noqa: F811
+    shop: Shop,
+) -> None:
+    order_id = await _paid_order(world, shop, [(shop.a, 1)], fulfilled=True)
+
+    plan = await _reserve(world, shop, order_id)
+    await _settle(world, shop, plan.id)
+
+    assert await _status(world, shop, order_id) == "refunded"
+
+
+async def test_a_refunded_order_cannot_be_refunded_again(
+    world: World,  # noqa: F811
+    shop: Shop,
+) -> None:
+    order_id = await _paid_order(world, shop, [(shop.a, 1)])
+    plan = await _reserve(world, shop, order_id)
+    await _settle(world, shop, plan.id)
+
+    with pytest.raises(RefundNotAllowed):
+        await _reserve(world, shop, order_id)

@@ -13481,14 +13481,7 @@
             }
           },
           "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Unprocessable Entity"
+            "description": "Invalid lines or quantities."
           },
           "500": {
             "description": "Internal server error",
@@ -13551,24 +13544,10 @@
             "description": "Not Found"
           },
           "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflict"
+            "description": "Not refundable, more than remains, no connected payment account, or refused by the payment provider. Nothing was refunded."
           },
           "502": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad Gateway"
+            "description": "The outcome is unknown: the refund may still happen. Do not repeat the request; read the order and its `refunds`."
           }
         }
       }

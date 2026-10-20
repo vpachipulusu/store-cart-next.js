@@ -472,7 +472,7 @@ async def test_an_unknown_outcome_is_a_502_and_keeps_the_refund_pending(
     assert len(stripe.requests) == 1
 
 
-async def test_no_connected_account_is_a_502_and_reserves_nothing(
+async def test_no_connected_account_is_a_409_and_reserves_nothing(
     client: AsyncClient, world: World, stripe: FakeStripeRefunds
 ) -> None:
     order_id, _, _ = await paid_order(client, world)
@@ -482,7 +482,7 @@ async def test_no_connected_account_is_a_502_and_reserves_nothing(
     finally:
         await set_account(world, ACCOUNT)
 
-    assert response.status_code == 502
+    assert response.status_code == 409
     assert await refund_rows(world, order_id) == []
     assert stripe.requests == []
 
@@ -621,3 +621,39 @@ async def test_a_line_of_another_order_is_a_422(
 
     assert response.status_code == 422
     assert stripe.requests == []
+
+
+async def test_an_event_without_the_payment_intent_changes_nothing(
+    client: AsyncClient, world: World, stripe: FakeStripeRefunds
+) -> None:
+    order_id, variant_id, _ = await paid_order(client, world, quantity=3)
+    await refund(client, world, order_id, {"restock": True})
+    [sent] = stripe.requests
+    event = refund_event(world, sent, stripe.by_refund[sent.refund_id])
+    del event["data"]["object"]["payment_intent"]
+
+    response = await deliver(client, event)
+
+    assert response.status_code == 200
+    assert await status_of(world, order_id) == "paid"
+    assert await stock_of(world, variant_id) == 7
+
+
+async def test_a_late_failure_after_success_is_not_applied(
+    client: AsyncClient, world: World, stripe: FakeStripeRefunds
+) -> None:
+    order_id, variant_id, _ = await paid_order(client, world, quantity=3)
+    await refund(client, world, order_id, {"restock": True})
+    [sent] = stripe.requests
+    created = stripe.by_refund[sent.refund_id]
+    await deliver(client, refund_event(world, sent, created))
+
+    late = await deliver(
+        client,
+        refund_event(world, sent, created, status="failed", event_type="refund.failed"),
+    )
+
+    assert late.status_code == 200
+    assert await status_of(world, order_id) == "refunded"
+    assert await stock_of(world, variant_id) == 10
+    assert [r[0] for r in await refund_rows(world, order_id)] == ["succeeded"]
