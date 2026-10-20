@@ -100,7 +100,7 @@ async def test_2fa_user_without_code_is_refused_totp_required(auth_context):
 
 @pytest.mark.parametrize(
     "code",
-    ["12345", "1234567", "abcdef", "", " 123456", "123 456", "١٢٣٤٥٦"],
+    ["12345", "1234567", "abcdef", " 123456", "123 456", "١٢٣٤٥٦"],
 )
 async def test_malformed_code_is_refused_totp_invalid(auth_context, code):
     app, identity, _, repository, *_ = wire(auth_context, enabled_state())
@@ -112,6 +112,14 @@ async def test_well_formed_wrong_code_is_refused_totp_invalid(auth_context):
     app, identity, _, repository, *_ = wire(auth_context, enabled_state())
     response = await sign_in(app, totp_code=wrong_code())
     assert_refused(response, identity, repository, "totp_invalid")
+
+
+async def test_blank_code_is_treated_as_missing_and_spends_no_budget(auth_context):
+    app, identity, _, repository, *_ = wire(auth_context, enabled_state())
+    limiter = only_totp_limits(app)
+    response = await sign_in(app, totp_code="")
+    assert_refused(response, identity, repository, "totp_required")
+    assert limiter.inner.hits == []
 
 
 async def test_explicit_null_code_is_treated_as_missing(auth_context):

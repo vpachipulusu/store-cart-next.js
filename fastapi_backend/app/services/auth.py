@@ -95,6 +95,8 @@ class AuthService:
         totp_code: str | None = None,
     ) -> str:
         # The second factor is checked before any credential is minted or login recorded (KAN-257).
+        # This read is its own transaction, separate from the later sync + record_login (benign); nothing
+        # before it may autobegin the session, or this begin() raises.
         async with self.session.begin():
             await self.totp_guard.check(identity.uid, totp_code)
         cookie = await self.identity.create_session_cookie(

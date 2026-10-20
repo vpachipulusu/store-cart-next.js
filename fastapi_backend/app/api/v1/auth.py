@@ -2,7 +2,7 @@ import logging
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, field_validator
 
 from app.api.auth import (
     AuthServiceDep,
@@ -60,6 +60,12 @@ class SessionRequest(BaseModel):
 class SignInRequest(SessionRequest):
     # Plain bounded text, not a 6-digit pattern: a malformed code is refused as totp_invalid (401), not 422.
     totp_code: SecretStr | None = Field(default=None, max_length=64)
+
+    @field_validator("totp_code")
+    @classmethod
+    def blank_code_is_missing(cls, value: SecretStr | None) -> SecretStr | None:
+        # A blank field means "no code": totp_required, and it spends no rate-limit budget.
+        return None if value is not None and not value.get_secret_value() else value
 
 
 class SessionData(BaseModel):

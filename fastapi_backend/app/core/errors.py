@@ -22,7 +22,7 @@ class ErrorResponse(BaseModel):
 
 
 # Machine-readable refusal codes for sign-in (KAN-257). The UI branches on ``code``, never on the message.
-# Awaiting owner confirmation of the shape; change the codes, messages and status here only.
+# Owner-accepted shape: 401 with one of these codes. Change the codes, messages and status here only.
 AuthChallengeCode = Literal["totp_required", "totp_invalid"]
 TOTP_REQUIRED: Final[AuthChallengeCode] = "totp_required"
 TOTP_INVALID: Final[AuthChallengeCode] = "totp_invalid"
