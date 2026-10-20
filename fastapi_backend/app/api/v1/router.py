@@ -17,6 +17,7 @@ from app.api.v1 import (
     me_export,
     media,
     notifications,
+    order_refunds,
     orders,
     org_billing,
     org_connect,
@@ -60,6 +61,7 @@ api_router.include_router(media.router)
 api_router.include_router(product_import.router)
 api_router.include_router(products.router)
 api_router.include_router(orders.router)
+api_router.include_router(order_refunds.router)
 api_router.include_router(categories.router)
 api_router.include_router(storefront.router)
 api_router.include_router(storefront_catalogue.router)

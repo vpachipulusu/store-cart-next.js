@@ -82,9 +82,11 @@ conditional `UPDATE ... status = 'paid'` succeeded, in the same transaction, so:
 - A line that stock cannot cover, or whose variant was deleted (`order_items.variant_id` is NULL), is left untaken. The
   order **stays `paid`** (the shopper was charged), `orders.oversold` is set to true, an error is logged with the order
   and item ids and an `OversoldOrder` event goes to Sentry. The webhook still succeeds. Other lines of the same order
-  are still taken, so refunding an oversold order must restock those lines by hand until KAN-80.
+  are still taken (`order_items.stock_taken` records which), so a refund with `restock` returns only what was taken (KAN-80,
+  [backend-refunds.md](backend-refunds.md)).
 - `oversold` is returned by the merchant order API (list and detail). Resolving it (fulfil late, or refund and restock)
-  is the merchant's job; refunds and restock are KAN-80, and cancelling a paid order does not restock.
+  is the merchant's job; refunds and the optional restock are KAN-80 ([backend-refunds.md](backend-refunds.md)), and
+  cancelling a paid order does not restock.
 
 Revision `0010` adds `orders.oversold boolean NOT NULL DEFAULT false` and the partial index `ix_orders_oversold`
 (expand-only; existing orders get false because stock was never decremented before). Downgrade drops both.

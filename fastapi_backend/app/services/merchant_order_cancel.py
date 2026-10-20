@@ -12,7 +12,7 @@ account), and only then is the order cancelled, with one conditional ``UPDATE``:
   Stripe, so it is not cancelled yet (502); once it has expired it is, and so is an order that
   never went through checkout (no expiry).
 
-Only pending orders can be cancelled here: refunding a paid order is KAN-80.
+Only pending orders can be cancelled here: refunding a paid order is ``merchant_order_refund``.
 """
 
 import logging

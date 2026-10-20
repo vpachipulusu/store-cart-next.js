@@ -18,7 +18,7 @@ could not cover every line: the shopper was charged, so the merchant fulfils lat
 import logging
 from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictStr
@@ -41,6 +41,7 @@ from app.repositories.store_orders import (
     OrderItemRow,
     OrderRow,
     OrderSummaryRow,
+    RefundRow,
     StoreOrdersRepository,
 )
 from app.services.merchant_order_cancel import (
@@ -150,6 +151,19 @@ class OrderItemData(BaseModel):
     tax_minor: int
 
 
+class RefundData(BaseModel):
+    """One refund of the order; ``pending`` until Stripe confirms it (KAN-80)."""
+
+    id: str
+    amount_minor: int
+    currency: str
+    status: Literal["pending", "succeeded", "failed"]
+    restock: bool
+    restocked_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
 class OrderSummaryData(BaseModel):
     id: str
     status: OrderStatus
@@ -177,7 +191,9 @@ class OrderData(BaseModel):
     created_at: datetime
     updated_at: datetime
     oversold: bool
+    refunded_minor: int
     items: list[OrderItemData]
+    refunds: list[RefundData]
 
 
 class OrderResponse(BaseModel):
@@ -199,15 +215,18 @@ def _item(row: OrderItemRow) -> OrderItemData:
     return OrderItemData(**vars(row))
 
 
-def _order(order: OrderRow, items: tuple[OrderItemRow, ...]) -> OrderData:
+def _order(
+    order: OrderRow, items: tuple[OrderItemRow, ...], refunds: tuple[RefundRow, ...]
+) -> OrderData:
     return OrderData(
         **{**vars(order), "status": OrderStatus(order.status)},
         items=[_item(i) for i in items],
+        refunds=[RefundData(**vars(r)) for r in refunds],
     )
 
 
-def _response(detail: OrderDetail) -> OrderResponse:
-    return OrderResponse(data=_order(detail.order, detail.items))
+def order_response(detail: OrderDetail) -> OrderResponse:
+    return OrderResponse(data=_order(detail.order, detail.items, detail.refunds))
 
 
 def http_error(error: OrderError) -> HTTPException:
@@ -270,7 +289,7 @@ async def read_order(
         detail = await service.get(order_id)
     except OrderError as error:
         raise http_error(error) from None
-    return _response(detail)
+    return order_response(detail)
 
 
 @router.post(
@@ -289,7 +308,7 @@ async def fulfil_order(
         detail = await service.fulfil(order_id, body.tracking_number, body.carrier)
     except OrderError as error:
         raise http_error(error) from None
-    return _response(detail)
+    return order_response(detail)
 
 
 @router.post(
@@ -307,4 +326,4 @@ async def cancel_order(
         detail = await service.cancel(order_id)
     except OrderError as error:
         raise cancel_http_error(error) from None
-    return _response(detail)
+    return order_response(detail)

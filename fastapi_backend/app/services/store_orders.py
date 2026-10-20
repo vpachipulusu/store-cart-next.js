@@ -442,6 +442,9 @@ _TAKE_STOCK_SQL = text(
     "UPDATE variants SET stock = stock - :quantity, updated_at = now() "
     "WHERE id = :variant_id AND stock >= :quantity RETURNING id"
 )
+_RECORD_TAKEN_SQL = text(
+    "UPDATE order_items SET stock_taken = :quantity WHERE id = :id"
+)
 _FLAG_OVERSOLD_SQL = text("UPDATE orders SET oversold = true WHERE id = :id")
 _PAYMENT_STATE_SQL = text(
     "SELECT paid_at, stripe_checkout_session_id FROM orders WHERE id = :id"
@@ -470,8 +473,8 @@ async def take_paid_stock(session: AsyncSession, order_id: str) -> None:
 
     A line that stock cannot cover, or whose variant was deleted, is left untaken and the
     order is flagged ``oversold``; it stays ``paid`` because the shopper has been charged.
-    A partly covered order decrements the covered lines only, so refunding an oversold
-    order restocks those lines by hand until KAN-80.
+    A partly covered order decrements the covered lines only. Each taken line records
+    ``stock_taken``, so a refund (KAN-80) restocks what was taken and nothing else.
 
     Does not commit, and must run only in the transaction that moved the order to ``paid``.
     """
@@ -489,6 +492,10 @@ async def take_paid_stock(session: AsyncSession, order_id: str) -> None:
         ).first()
         if taken is None:
             short.append(line["id"])
+        else:  # remembered so a refund restocks no more than was taken (KAN-80)
+            await session.execute(
+                _RECORD_TAKEN_SQL, {"id": line["id"], "quantity": line["quantity"]}
+            )
     if not short:
         return
     await session.execute(_FLAG_OVERSOLD_SQL, {"id": order_id})

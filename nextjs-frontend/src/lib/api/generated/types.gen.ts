@@ -1728,9 +1728,17 @@ export type OrderData = {
      */
     oversold: boolean;
     /**
+     * Refunded Minor
+     */
+    refunded_minor: number;
+    /**
      * Items
      */
     items: Array<OrderItemData>;
+    /**
+     * Refunds
+     */
+    refunds: Array<AppApiV1OrdersRefundData>;
 };
 
 /**
@@ -2658,37 +2666,17 @@ export type ReadyResponse = {
 };
 
 /**
- * RefundData
+ * RefundItemRequest
  */
-export type RefundData = {
+export type RefundItemRequest = {
     /**
-     * Organization Id
+     * Order Item Id
      */
-    organization_id: string;
+    order_item_id: string;
     /**
-     * Refund Id
+     * Quantity
      */
-    refund_id: string;
-    /**
-     * Charge Id
-     */
-    charge_id: string;
-    /**
-     * Amount
-     */
-    amount: number;
-    /**
-     * Currency
-     */
-    currency: string;
-    /**
-     * Status
-     */
-    status: string | null;
-    /**
-     * Already Applied
-     */
-    already_applied: boolean;
+    quantity: number;
 };
 
 /**
@@ -2710,6 +2698,20 @@ export type RefundRequest = {
 };
 
 /**
+ * RefundRequestBody
+ */
+export type RefundRequestBody = {
+    /**
+     * Items
+     */
+    items?: Array<RefundItemRequest> | null;
+    /**
+     * Restock
+     */
+    restock?: boolean;
+};
+
+/**
  * RefundResponse
  */
 export type RefundResponse = {
@@ -2717,7 +2719,7 @@ export type RefundResponse = {
      * Success
      */
     success?: true;
-    data: RefundData;
+    data: AppApiV1AdminSubscriptionsRefundData;
 };
 
 /**
@@ -3863,6 +3865,80 @@ export type VerificationRequest = {
      * Token
      */
     token: string;
+};
+
+/**
+ * RefundData
+ */
+export type AppApiV1AdminSubscriptionsRefundData = {
+    /**
+     * Organization Id
+     */
+    organization_id: string;
+    /**
+     * Refund Id
+     */
+    refund_id: string;
+    /**
+     * Charge Id
+     */
+    charge_id: string;
+    /**
+     * Amount
+     */
+    amount: number;
+    /**
+     * Currency
+     */
+    currency: string;
+    /**
+     * Status
+     */
+    status: string | null;
+    /**
+     * Already Applied
+     */
+    already_applied: boolean;
+};
+
+/**
+ * RefundData
+ *
+ * One refund of the order; ``pending`` until Stripe confirms it (KAN-80).
+ */
+export type AppApiV1OrdersRefundData = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Amount Minor
+     */
+    amount_minor: number;
+    /**
+     * Currency
+     */
+    currency: string;
+    /**
+     * Status
+     */
+    status: 'pending' | 'succeeded' | 'failed';
+    /**
+     * Restock
+     */
+    restock: boolean;
+    /**
+     * Restocked At
+     */
+    restocked_at: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
 };
 
 /**
@@ -9866,6 +9942,86 @@ export type CancelOrderResponses = {
 };
 
 export type CancelOrderResponse = CancelOrderResponses[keyof CancelOrderResponses];
+
+export type RefundOrderData = {
+    body: RefundRequestBody;
+    headers?: {
+        /**
+         * Idempotency-Key
+         */
+        'Idempotency-Key'?: string | null;
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Order Id
+         */
+        order_id: string;
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/stores/{store_id}/orders/{order_id}/refunds';
+};
+
+export type RefundOrderErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Not refundable, more than remains, no connected payment account, or refused by the payment provider. Nothing was refunded.
+     */
+    409: unknown;
+    /**
+     * Invalid lines or quantities.
+     */
+    422: unknown;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * The outcome is unknown: the refund may still happen. Retry with the same `Idempotency-Key` (it returns the refund already made, and asks the payment provider again for one it never confirmed), or read the order's `refunds`.
+     */
+    502: unknown;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type RefundOrderError = RefundOrderErrors[keyof RefundOrderErrors];
+
+export type RefundOrderResponses = {
+    /**
+     * Successful Response
+     */
+    200: OrderResponse;
+};
+
+export type RefundOrderResponse = RefundOrderResponses[keyof RefundOrderResponses];
 
 export type ListCategoriesData = {
     body?: never;

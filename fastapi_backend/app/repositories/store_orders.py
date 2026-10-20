@@ -41,6 +41,19 @@ class OrderRow:
     created_at: datetime
     updated_at: datetime
     oversold: bool
+    refunded_minor: int
+
+
+@dataclass(frozen=True)
+class RefundRow:
+    id: str
+    amount_minor: int
+    currency: str
+    status: str
+    restock: bool
+    restocked_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
 
 
 @dataclass(frozen=True)
@@ -73,8 +86,15 @@ _COUNT_SQL = text(
 )
 _ORDER_SQL = text(
     "SELECT id, status, currency, subtotal_minor, tax_minor, total_minor,"
-    " tracking_number, carrier, fulfilled_at, created_at, updated_at, oversold "
+    " tracking_number, carrier, fulfilled_at, created_at, updated_at, oversold,"
+    " CAST((SELECT COALESCE(sum(r.amount_minor), 0) FROM order_refunds r"
+    " WHERE r.order_id = orders.id AND r.status = 'succeeded') AS bigint)"
+    " AS refunded_minor "
     "FROM orders WHERE id = :id"
+)
+_REFUNDS_SQL = text(
+    "SELECT id, amount_minor, currency, status, restock, restocked_at, created_at,"
+    " updated_at FROM order_refunds WHERE order_id = :id ORDER BY created_at, id"
 )
 _ITEMS_SQL = text(
     "SELECT id, product_name, sku, variant_label, unit_price_minor, quantity,"
@@ -119,3 +139,11 @@ class StoreOrdersRepository:
             (await self._session.execute(_ITEMS_SQL, {"id": order_id})).mappings().all()
         )
         return [OrderItemRow(**row) for row in rows]
+
+    async def list_refunds(self, order_id: str) -> list[RefundRow]:
+        rows = (
+            (await self._session.execute(_REFUNDS_SQL, {"id": order_id}))
+            .mappings()
+            .all()
+        )
+        return [RefundRow(**row) for row in rows]

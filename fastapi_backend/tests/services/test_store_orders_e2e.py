@@ -454,6 +454,8 @@ async def test_the_persisted_rows_match_the_returned_order(
         "quantity": 3,
         "tax_rate_bps": 1999,
         "tax_minor": item.tax_minor,
+        "stock_taken": 0,
+        "restocked_quantity": 0,
     }
 
 
