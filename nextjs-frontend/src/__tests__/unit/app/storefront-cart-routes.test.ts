@@ -46,6 +46,15 @@ describe('storefront cart routes', () => {
     expect(api.fetchCart).toHaveBeenCalledWith('acme');
   });
 
+  it('does not apply the checkout-only Sec-Fetch-Site rule to cart writes', async () => {
+    const response = await POST(
+      write('POST', { variantId: 'v1', quantity: 1 }, { 'sec-fetch-site': 'same-site' }),
+      slugParams
+    );
+
+    expect(response.status).toBe(200);
+  });
+
   it('is a 404 unless the proxy rewrote to this same slug', async () => {
     headerGet.mockReturnValue(null);
     expect((await GET(new Request('http://x/cart'), slugParams)).status).toBe(404);
