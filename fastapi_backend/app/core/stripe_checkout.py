@@ -10,6 +10,7 @@ and no-secret logging. Tests inject a fake ``StripeCheckout``.
 """
 
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Protocol
 
 from app.core.config import settings
@@ -17,6 +18,8 @@ from app.core.stripe_billing import (
     HttpStripeBilling,
     StripeError,
     StripeNotConfigured,
+    StripeNotFound,
+    StripeRejected,
     require_text,
 )
 
@@ -41,6 +44,7 @@ class CheckoutSessionRequest:
     success_url: str
     cancel_url: str
     idempotency_key: str
+    expires_at: int | None = None  # Unix seconds; None leaves Stripe's 24 hour default
 
 
 @dataclass(frozen=True)
@@ -49,10 +53,19 @@ class StripeCheckoutSession:
     url: str
 
 
+class ExpireOutcome(StrEnum):
+    EXPIRED = "expired"  # the session can no longer be paid (now, or already)
+    COMPLETE = "complete"  # the shopper paid it: the order must not be cancelled
+
+
 class StripeCheckout(Protocol):
     async def create_payment_session(
         self, request: CheckoutSessionRequest
     ) -> StripeCheckoutSession: ...
+
+    async def expire_session(
+        self, account_id: str, session_id: str
+    ) -> ExpireOutcome: ...
 
 
 def session_form(request: CheckoutSessionRequest) -> dict[str, str]:
@@ -73,6 +86,8 @@ def session_form(request: CheckoutSessionRequest) -> dict[str, str]:
         data[f"{prefix}[price_data][currency]"] = request.currency
         data[f"{prefix}[price_data][unit_amount]"] = str(line.unit_amount_minor)
         data[f"{prefix}[price_data][product_data][name]"] = line.name[:MAX_NAME_LENGTH]
+    if request.expires_at is not None:
+        data["expires_at"] = str(request.expires_at)
     if request.application_fee_minor:
         data["payment_intent_data[application_fee_amount]"] = str(
             request.application_fee_minor
@@ -96,6 +111,35 @@ class HttpStripeCheckout(HttpStripeBilling):
         if not url.startswith("https://"):
             raise StripeError("Stripe response was unusable")
         return StripeCheckoutSession(id=session_id, url=url)
+
+    async def expire_session(self, account_id: str, session_id: str) -> ExpireOutcome:
+        """Make an open session unpayable (``POST /v1/checkout/sessions/{id}/expire``).
+
+        Stripe refuses to expire a session that is not open (400). Then the session is read:
+        already expired is the wanted state, complete means the shopper paid. A session Stripe
+        does not know (404) cannot be paid. No idempotency key: expiring is idempotent by nature,
+        and Stripe would replay a 5xx for a key and block every retry. Any other failure propagates: the caller must not
+        assume the session is closed.
+        """
+        path = f"/checkout/sessions/{session_id}"
+        try:
+            await self._call(
+                "POST",
+                f"{path}/expire",
+                data={},
+                stripe_account=account_id,
+            )
+        except StripeNotFound:
+            return ExpireOutcome.EXPIRED
+        except StripeRejected:
+            body = await self._call("GET", path, stripe_account=account_id)
+            status = body.get("status")
+            if status == "expired":
+                return ExpireOutcome.EXPIRED
+            if status == "complete":
+                return ExpireOutcome.COMPLETE
+            raise
+        return ExpireOutcome.EXPIRED
 
 
 def get_stripe_checkout() -> StripeCheckout:

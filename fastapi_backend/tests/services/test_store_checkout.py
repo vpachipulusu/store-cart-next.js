@@ -7,9 +7,11 @@ The platform reads, the store database and Stripe are in-memory fakes; the SQL i
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.core.stripe_billing import (
     StripeConflict,
@@ -17,7 +19,11 @@ from app.core.stripe_billing import (
     StripeNotProcessed,
     StripeRejected,
 )
-from app.core.stripe_checkout import CheckoutSessionRequest, StripeCheckoutSession
+from app.core.stripe_checkout import (
+    CheckoutSessionRequest,
+    ExpireOutcome,
+    StripeCheckoutSession,
+)
 from app.repositories.connect_events import ConnectRoute
 from app.repositories.org_connect import ConnectRecord
 from app.services import store_checkout
@@ -28,11 +34,14 @@ from app.services.store_checkout import (
     CheckoutTarget,
     CheckoutUnavailable,
     InvalidCheckoutUrl,
+    OpenOrderExists,
+    PaymentInProgress,
     PaymentsNotEnabled,
     PlatformCheckoutTargets,
     SqlCheckoutOrders,
     StoreCheckoutService,
     build_session_request,
+    checkout_fingerprint,
     checkout_payment_handler,
     checkout_return_origins,
     confirm_checkout_payment,
@@ -40,7 +49,9 @@ from app.services.store_checkout import (
     platform_fee_minor,
 )
 from app.services.store_orders import (
+    CheckoutOrigin,
     InvalidOrder,
+    OpenCheckout,
     OrderItemRecord,
     OrderLineInput,
     OrderRecord,
@@ -150,32 +161,67 @@ class FakeOrders:
         self.view = view
         self.priced = priced
         self.created: list[tuple[tuple[OrderLineInput, ...], str]] = []
+        self.origins: list[CheckoutOrigin] = []
         self.attached: list[tuple[str, str]] = []
+        self.urls: list[str] = []
         self.cancelled: list[str] = []
-        self.create_error: Exception | None = None
+        self.retired: list[str] = []
+        self.create_errors: list[Exception] = []  # raised in order, one per call
+        self.open_orders: list[
+            OpenCheckout | None
+        ] = []  # answers of find_open_checkout
+        self.cart_id: str | None = "cart1"
+        self.sweeps = 0
 
     async def view_cart(self, token: str | None) -> CartView:
         return self.view
 
-    async def create_order(
-        self, lines: Sequence[OrderLineInput], currency: str
-    ) -> OrderRecord:
-        self.created.append((tuple(lines), currency))
-        if self.create_error is not None:
-            raise self.create_error
+    async def sweep(self) -> None:
+        self.sweeps += 1
+
+    async def find_cart(self, token: str | None) -> str | None:
+        return self.cart_id
+
+    async def find_open_checkout(self, cart_id: str) -> OpenCheckout | None:
+        return self.open_orders.pop(0) if self.open_orders else None
+
+    async def load_order(self, order_id: str) -> OrderRecord:
         return self.priced
 
-    async def attach_session(self, order_id: str, session_id: str) -> None:
+    async def create_order(
+        self, lines: Sequence[OrderLineInput], currency: str, origin: CheckoutOrigin
+    ) -> OrderRecord:
+        self.created.append((tuple(lines), currency))
+        self.origins.append(origin)
+        if self.create_errors:
+            raise self.create_errors.pop(0)
+        return self.priced
+
+    async def attach_session(self, order_id: str, session_id: str, url: str) -> None:
         self.attached.append((order_id, session_id))
+        self.urls.append(url)
 
     async def cancel_order(self, order_id: str) -> None:
         self.cancelled.append(order_id)
+
+    async def cancel_pending(self, order_id: str) -> bool:
+        self.retired.append(order_id)
+        return True
 
 
 class FakeStripeCheckout:
     def __init__(self) -> None:
         self.requests: list[CheckoutSessionRequest] = []
         self.errors: list[StripeError] = []  # raised in order, one per call
+        self.expired: list[tuple[str, str]] = []
+        self.expire_outcome = ExpireOutcome.EXPIRED
+        self.expire_error: StripeError | None = None
+
+    async def expire_session(self, account_id: str, session_id: str) -> ExpireOutcome:
+        self.expired.append((account_id, session_id))
+        if self.expire_error is not None:
+            raise self.expire_error
+        return self.expire_outcome
 
     async def create_payment_session(
         self, request: CheckoutSessionRequest
@@ -543,7 +589,9 @@ async def test_a_failed_cancel_is_logged_and_rolled_back_not_raised() -> None:
 async def test_a_failed_session_link_does_not_lose_the_checkout_url() -> None:
     session = BrokenSession()
 
-    await sql_orders(session).attach_session("order1", "cs_test_1")
+    await sql_orders(session).attach_session(
+        "order1", "cs_test_1", "https://checkout.stripe.com/c/pay/cs_test_1"
+    )
 
     assert session.rollbacks == 1
 
@@ -628,7 +676,7 @@ async def test_a_request_that_cannot_be_built_cancels_the_written_order() -> Non
 
 async def test_a_catalogue_change_after_the_cart_view_is_a_changed_cart() -> None:
     orders = ready_orders()
-    orders.create_error = InvalidOrder("An item is not available")
+    orders.create_errors = [InvalidOrder("An item is not available")]
     stripe = FakeStripeCheckout()
 
     with pytest.raises(CartNotReady):
@@ -674,3 +722,291 @@ async def test_a_storeless_payment_event_is_reported(
     await handler(ConnectRoute("org1", ACCOUNT, None), paid_object())
 
     assert [str(error) for error in reported] == ["no store"]
+
+
+# --- one open order per cart (KAN-256) ----------------------------------------------------
+
+FUTURE = datetime.now(UTC) + timedelta(minutes=20)
+PAST = datetime.now(UTC) - timedelta(minutes=1)
+
+
+def fingerprint_of(orders: FakeOrders) -> str:
+    return checkout_fingerprint(orders.view, "GBP", SUCCESS, CANCEL)
+
+
+def open_order(
+    orders: FakeOrders,
+    *,
+    fingerprint: str | None = None,
+    session_id: str | None = "cs_old",
+    url: str | None = "https://checkout.stripe.com/c/pay/cs_old",
+    expires_at: datetime | None = FUTURE,
+) -> OpenCheckout:
+    return OpenCheckout(
+        order_id="old1",
+        fingerprint=fingerprint if fingerprint is not None else fingerprint_of(orders),
+        session_id=session_id,
+        url=url,
+        expires_at=expires_at,
+    )
+
+
+async def test_the_session_expires_at_the_orders_expiry() -> None:
+    orders = ready_orders()
+    stripe = FakeStripeCheckout()
+
+    await service(orders, stripe).start(SLUG, "tok", SUCCESS, CANCEL)
+
+    origin = orders.origins[0]
+    assert stripe.requests[0].expires_at == int(origin.expires_at.timestamp())
+    lifetime = origin.expires_at - datetime.now(UTC)
+    assert timedelta(minutes=30) < lifetime <= timedelta(minutes=36)
+    assert (origin.cart_id, origin.fingerprint) == ("cart1", fingerprint_of(orders))
+
+
+async def test_start_sweeps_expired_orders_first() -> None:
+    orders = ready_orders()
+
+    await service(orders, FakeStripeCheckout()).start(SLUG, "tok", SUCCESS, CANCEL)
+
+    assert orders.sweeps == 1
+
+
+async def test_an_unchanged_cart_gets_the_open_sessions_url_and_nothing_new() -> None:
+    orders = ready_orders()
+    orders.open_orders = [open_order(orders)]
+    stripe = FakeStripeCheckout()
+
+    started = await service(orders, stripe).start(SLUG, "tok", SUCCESS, CANCEL)
+
+    assert started == store_checkout.CheckoutStarted(
+        "old1", "https://checkout.stripe.com/c/pay/cs_old"
+    )
+    assert (orders.created, stripe.requests, stripe.expired) == ([], [], [])
+
+
+async def test_a_changed_cart_expires_the_old_session_and_cancels_its_order() -> None:
+    orders = ready_orders()
+    orders.open_orders = [open_order(orders, fingerprint="a-different-cart")]
+    stripe = FakeStripeCheckout()
+
+    started = await service(orders, stripe).start(SLUG, "tok", SUCCESS, CANCEL)
+
+    assert stripe.expired == [(ACCOUNT, "cs_old")]
+    assert orders.retired == ["old1"]
+    assert started.order_id == "order1"
+    assert len(stripe.requests) == 1
+
+
+async def test_different_return_urls_replace_the_open_order() -> None:
+    orders = ready_orders()
+    orders.open_orders = [
+        open_order(
+            orders,
+            fingerprint=checkout_fingerprint(
+                orders.view, "GBP", SUCCESS, "https://north.example.com/other"
+            ),
+        )
+    ]
+    stripe = FakeStripeCheckout()
+
+    await service(orders, stripe).start(SLUG, "tok", SUCCESS, CANCEL)
+
+    assert orders.retired == ["old1"]
+    assert stripe.expired == [(ACCOUNT, "cs_old")]
+
+
+async def test_an_expired_open_order_is_replaced_even_for_an_unchanged_cart() -> None:
+    orders = ready_orders()
+    orders.open_orders = [open_order(orders, expires_at=PAST)]
+    stripe = FakeStripeCheckout()
+
+    await service(orders, stripe).start(SLUG, "tok", SUCCESS, CANCEL)
+
+    assert orders.retired == ["old1"]
+    assert len(stripe.requests) == 1
+
+
+async def test_an_old_session_that_was_paid_blocks_a_new_checkout() -> None:
+    orders = ready_orders()
+    orders.open_orders = [open_order(orders, fingerprint="a-different-cart")]
+    stripe = FakeStripeCheckout()
+    stripe.expire_outcome = ExpireOutcome.COMPLETE
+
+    with pytest.raises(PaymentInProgress):
+        await service(orders, stripe).start(SLUG, "tok", SUCCESS, CANCEL)
+
+    assert (orders.retired, orders.created, stripe.requests) == ([], [], [])
+
+
+async def test_an_old_session_that_cannot_be_expired_blocks_a_new_checkout() -> None:
+    orders = ready_orders()
+    orders.open_orders = [open_order(orders, fingerprint="a-different-cart")]
+    stripe = FakeStripeCheckout()
+    stripe.expire_error = StripeError("down")
+
+    with pytest.raises(CheckoutUnavailable):
+        await service(orders, stripe).start(SLUG, "tok", SUCCESS, CANCEL)
+
+    assert (orders.retired, orders.created, stripe.requests) == ([], [], [])
+
+
+async def test_a_live_unlinked_order_is_not_replaced_while_its_session_may_exist() -> (
+    None
+):
+    orders = ready_orders()
+    orders.open_orders = [
+        open_order(orders, fingerprint="a-different-cart", session_id=None, url=None)
+    ]
+    stripe = FakeStripeCheckout()
+
+    with pytest.raises(CheckoutUnavailable):
+        await service(orders, stripe).start(SLUG, "tok", SUCCESS, CANCEL)
+
+    assert (orders.retired, orders.created, stripe.expired) == ([], [], [])
+
+
+async def test_an_expired_unlinked_order_is_cancelled_without_a_stripe_call() -> None:
+    orders = ready_orders()
+    orders.open_orders = [
+        open_order(orders, session_id=None, url=None, expires_at=PAST)
+    ]
+    stripe = FakeStripeCheckout()
+
+    await service(orders, stripe).start(SLUG, "tok", SUCCESS, CANCEL)
+
+    assert orders.retired == ["old1"]
+    assert stripe.expired == []
+
+
+async def test_an_open_order_without_a_url_is_resumed_with_the_same_order() -> None:
+    orders = ready_orders(order(item("mug", 1000, 2)))
+    orders.open_orders = [open_order(orders, session_id=None, url=None)]
+    stripe = FakeStripeCheckout()
+
+    started = await service(orders, stripe).start(SLUG, "tok", SUCCESS, CANCEL)
+
+    assert orders.created == []
+    assert stripe.requests[0].order_id == "order1"
+    assert stripe.requests[0].expires_at == int(FUTURE.timestamp())
+    assert orders.attached == [("order1", "cs_test_1")]
+    assert started.checkout_url == "https://checkout.stripe.com/c/pay/cs_test_1"
+
+
+async def test_losing_the_race_for_the_open_order_reuses_the_winner() -> None:
+    orders = ready_orders()
+    orders.create_errors = [OpenOrderExists()]
+    orders.open_orders = [None, open_order(orders)]
+    stripe = FakeStripeCheckout()
+
+    started = await service(orders, stripe).start(SLUG, "tok", SUCCESS, CANCEL)
+
+    assert started.order_id == "old1"
+    assert stripe.requests == []
+
+
+async def test_giving_up_after_repeated_lost_races() -> None:
+    orders = ready_orders()
+    orders.create_errors = [OpenOrderExists()] * 3
+
+    with pytest.raises(CheckoutUnavailable):
+        await service(orders, FakeStripeCheckout()).start(SLUG, "tok", SUCCESS, CANCEL)
+
+
+async def test_a_cart_with_no_live_row_cannot_check_out() -> None:
+    orders = ready_orders()
+    orders.cart_id = None
+
+    with pytest.raises(CartNotReady):
+        await service(orders, FakeStripeCheckout()).start(SLUG, "tok", SUCCESS, CANCEL)
+
+
+def test_the_fingerprint_changes_with_lines_totals_and_urls() -> None:
+    base = cart(cart_line("v-mug", 1000, 2))
+    reference = checkout_fingerprint(base, "GBP", SUCCESS, CANCEL)
+
+    assert reference == checkout_fingerprint(base, "GBP", SUCCESS, CANCEL)
+    assert reference != checkout_fingerprint(
+        cart(cart_line("v-mug", 1000, 3)), "GBP", SUCCESS, CANCEL
+    )
+    assert reference != checkout_fingerprint(
+        cart(cart_line("v-mug", 1100, 2)), "GBP", SUCCESS, CANCEL
+    )
+    assert reference != checkout_fingerprint(base, "USD", SUCCESS, CANCEL)
+    assert reference != checkout_fingerprint(base, "GBP", CANCEL, SUCCESS)
+
+
+async def test_losing_a_cancel_after_expiring_the_old_session_starts_nothing() -> None:
+    orders = ready_orders()
+    orders.open_orders = [open_order(orders, fingerprint="a-different-cart")]
+    stripe = FakeStripeCheckout()
+
+    async def lost(order_id: str) -> bool:
+        return False  # paid or cancelled by someone else in between
+
+    orders.cancel_pending = lost  # type: ignore[method-assign]
+
+    with pytest.raises(CheckoutUnavailable):
+        await service(orders, stripe).start(SLUG, "tok", SUCCESS, CANCEL)
+
+    assert (orders.created, stripe.requests) == ([], [])
+
+
+async def test_a_failed_sweep_is_logged_and_rolled_back_not_raised() -> None:
+    session = BrokenSession()
+
+    await sql_orders(session).sweep()
+
+    assert session.rollbacks == 1
+
+
+async def test_a_failed_pending_cancel_is_rolled_back_and_raised() -> None:
+    session = BrokenSession()
+
+    with pytest.raises(RuntimeError):
+        await sql_orders(session).cancel_pending("order1")
+
+    assert session.rollbacks == 1
+
+
+async def test_a_purged_cart_is_a_changed_cart_and_other_violations_propagate() -> None:
+    def violation(constraint: str) -> IntegrityError:
+        return IntegrityError("INSERT", {}, Exception(f"violates {constraint}"))
+
+    async def priced(*args: Any, **kwargs: Any) -> OrderRecord:
+        return order(item("mug", 1000, 1))
+
+    origin = CheckoutOrigin("cart1", "fp", FUTURE)
+    lines = [OrderLineInput("v-mug", 1)]
+    for constraint, expected in (
+        ("uq_orders_open_checkout_per_cart", OpenOrderExists),
+        ("fk_orders_cart", InvalidOrder),
+        ("something_else", IntegrityError),
+    ):
+        session = FailingInsertSession(violation(constraint))
+        orders = SqlCheckoutOrders(session, None, StubSettings())  # type: ignore[arg-type]
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(store_checkout, "price_checkout_order", priced)
+            with pytest.raises(expected):
+                await orders.create_order(lines, "GBP", origin)
+        assert session.rollbacks == 1
+
+
+class StubSettings:
+    async def totals_settings(self) -> Any:
+        return None
+
+
+class FailingInsertSession:
+    def __init__(self, error: IntegrityError) -> None:
+        self.error = error
+        self.rollbacks = 0
+
+    async def execute(self, *args: Any, **kwargs: Any) -> Any:
+        raise self.error
+
+    async def commit(self) -> None:
+        raise AssertionError("nothing to commit")
+
+    async def rollback(self) -> None:
+        self.rollbacks += 1

@@ -22,8 +22,12 @@ from sqlalchemy import text
 from app.api.v1.checkout import get_stripe_checkout_client
 from app.core.config import settings
 from app.core.ids import new_id
-from app.core.stripe_billing import StripeRejected
-from app.core.stripe_checkout import CheckoutSessionRequest, StripeCheckoutSession
+from app.core.stripe_billing import StripeError, StripeRejected
+from app.core.stripe_checkout import (
+    CheckoutSessionRequest,
+    ExpireOutcome,
+    StripeCheckoutSession,
+)
 from app.core.stripe_signature import compute_signature
 from app.services import store_checkout
 from app.services.store_checkout import confirm_checkout_payment
@@ -53,9 +57,15 @@ T0 = 1_800_000_000
 
 
 class FakeStripeCheckout:
+    """Stripe: a session per idempotency key (a replay returns the first), and expiry."""
+
     def __init__(self) -> None:
         self.requests: list[CheckoutSessionRequest] = []
         self.fail = False
+        self.sessions: dict[str, StripeCheckoutSession] = {}
+        self.expired: list[tuple[str, str]] = []
+        self.expire_outcome = ExpireOutcome.EXPIRED
+        self.expire_error: StripeError | None = None
 
     async def create_payment_session(
         self, request: CheckoutSessionRequest
@@ -63,10 +73,18 @@ class FakeStripeCheckout:
         self.requests.append(request)
         if self.fail:
             raise StripeRejected("Stripe request failed")
-        session_id = f"cs_test_{new_id()}"
-        return StripeCheckoutSession(
-            id=session_id, url=f"https://checkout.stripe.com/c/pay/{session_id}"
-        )
+        if request.idempotency_key not in self.sessions:
+            session_id = f"cs_test_{new_id()}"
+            self.sessions[request.idempotency_key] = StripeCheckoutSession(
+                id=session_id, url=f"https://checkout.stripe.com/c/pay/{session_id}"
+            )
+        return self.sessions[request.idempotency_key]
+
+    async def expire_session(self, account_id: str, session_id: str) -> ExpireOutcome:
+        self.expired.append((account_id, session_id))
+        if self.expire_error is not None:
+            raise self.expire_error
+        return self.expire_outcome
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
@@ -507,7 +525,7 @@ async def test_another_session_cannot_pay_an_order_linked_to_a_session(
     assert (await order_row(world, order_id))["status"] == "pending"
 
 
-async def test_a_paid_session_for_a_cancelled_order_is_a_mismatch(
+async def test_a_paid_session_revives_the_order_a_sweep_cancelled(
     client: AsyncClient, world: World, stripe: FakeStripeCheckout
 ) -> None:
     order_id, session_id, request = await started(client, world, stripe)
@@ -515,6 +533,25 @@ async def test_a_paid_session_for_a_cancelled_order_is_a_mismatch(
         world, "UPDATE orders SET status = 'cancelled' WHERE id = :id", id=order_id
     )
     obj = session_event(world, request, session_id)["data"]["object"]
+
+    async with open_store_session(north(world), world.provider) as session:
+        outcome = await confirm_checkout_payment(session, obj)
+        await session.commit()
+
+    assert outcome is PaymentOutcome.PAID
+    row = await order_row(world, order_id)
+    assert row["status"] == "paid"
+    assert row["paid_at"] is not None
+
+
+async def test_a_paid_session_of_another_order_does_not_revive_a_cancelled_order(
+    client: AsyncClient, world: World, stripe: FakeStripeCheckout
+) -> None:
+    order_id, _session_id, request = await started(client, world, stripe)
+    await run_sql(
+        world, "UPDATE orders SET status = 'cancelled' WHERE id = :id", id=order_id
+    )
+    obj = session_event(world, request, "cs_test_not_this_orders")["data"]["object"]
 
     async with open_store_session(north(world), world.provider) as session:
         outcome = await confirm_checkout_payment(session, obj)

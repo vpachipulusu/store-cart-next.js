@@ -19,6 +19,7 @@ ORM model for store tables; the SQL is explicit and every value is a bound param
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from types import MappingProxyType
 
@@ -177,8 +178,10 @@ _CATALOGUE_SQL = text(
 )
 _INSERT_ORDER_SQL = text(
     "INSERT INTO orders (id, currency, subtotal_minor, shipping_minor, tax_minor,"
-    " total_minor, prices_include_tax) "
-    "VALUES (:id, :currency, :subtotal, :shipping, :tax, :total, :included)"
+    " total_minor, prices_include_tax, cart_id, checkout_fingerprint,"
+    " checkout_expires_at) "
+    "VALUES (:id, :currency, :subtotal, :shipping, :tax, :total, :included, :cart_id,"
+    " :fingerprint, :expires_at)"
 )
 _INSERT_ITEM_SQL = text(
     "INSERT INTO order_items (id, order_id, product_id, variant_id, product_name, sku,"
@@ -263,11 +266,29 @@ async def create_order(
     return order
 
 
-async def insert_order(session: AsyncSession, order: OrderRecord) -> None:
-    """Write a priced ``pending`` order and its lines (the caller computed every amount)."""
+@dataclass(frozen=True)
+class CheckoutOrigin:
+    """Where a checkout order came from: the cart, what it was sent for, and when it lapses."""
+
+    cart_id: str
+    fingerprint: str
+    expires_at: datetime
+
+
+async def insert_order(
+    session: AsyncSession, order: OrderRecord, origin: CheckoutOrigin | None = None
+) -> None:
+    """Write a priced ``pending`` order and its lines (the caller computed every amount).
+
+    A checkout order carries its ``origin``; with one open order per cart enforced by a
+    partial unique index, a second open order for the cart raises ``IntegrityError``.
+    """
     await session.execute(
         _INSERT_ORDER_SQL,
         {
+            "cart_id": origin.cart_id if origin else None,
+            "fingerprint": origin.fingerprint if origin else None,
+            "expires_at": origin.expires_at if origin else None,
             "id": order.id,
             "currency": order.currency,
             "subtotal": order.subtotal_minor,
@@ -385,7 +406,8 @@ class PaymentOutcome(StrEnum):
 
 
 _LINK_SESSION_SQL = text(
-    "UPDATE orders SET stripe_checkout_session_id = :session_id, updated_at = now() "
+    "UPDATE orders SET stripe_checkout_session_id = :session_id,"
+    " stripe_checkout_url = :url, updated_at = now() "
     "WHERE id = :id AND stripe_checkout_session_id IS NULL RETURNING id"
 )
 _SESSION_OWNER_SQL = text(
@@ -395,9 +417,10 @@ _MARK_PAID_SQL = text(
     "UPDATE orders SET status = 'paid', paid_at = now(), updated_at = now(),"
     " stripe_checkout_session_id = :session_id,"
     " stripe_payment_intent_id = :payment_intent_id "
-    "WHERE id = :id AND status = 'pending'"
-    " AND (stripe_checkout_session_id IS NULL"
-    " OR stripe_checkout_session_id = :session_id)"
+    "WHERE id = :id"
+    " AND ((status = 'pending' AND (stripe_checkout_session_id IS NULL"
+    " OR stripe_checkout_session_id = :session_id))"
+    " OR (status = 'cancelled' AND stripe_checkout_session_id = :session_id))"
     " AND total_minor = :amount AND currency = :currency "
     "RETURNING id"
 )
@@ -407,12 +430,12 @@ _PAYMENT_STATE_SQL = text(
 
 
 async def link_checkout_session(
-    session: AsyncSession, order_id: str, session_id: str
+    session: AsyncSession, order_id: str, session_id: str, url: str | None = None
 ) -> bool:
-    """Record the Checkout Session created for an order; false if one is already linked."""
+    """Record the Checkout Session (and its page) of an order; false if one is already linked."""
     linked = (
         await session.execute(
-            _LINK_SESSION_SQL, {"id": order_id, "session_id": session_id}
+            _LINK_SESSION_SQL, {"id": order_id, "session_id": session_id, "url": url}
         )
     ).first()
     return linked is not None
@@ -432,7 +455,12 @@ async def mark_checkout_paid(
     One conditional ``UPDATE``: the order must still be pending, be linked to this session
     (or to none yet, when the webhook beats the link), and charge exactly its total in its
     currency. A rerun, or a concurrent delivery that waited on the row lock, finds the order
-    paid and changes nothing. A session already linked to another order never pays this one
+    paid and changes nothing.
+
+    A cancelled order linked to this very session is paid too (KAN-256): the shopper paid
+    it, so the cancel lost a race (the sweep ran before a late or delayed-method payment
+    event arrived). Every other cancel closes the session at Stripe first, so a paid session
+    on a cancelled order is never a merchant's or a replacement's cancel. A session already linked to another order never pays this one
     (and the unique index on the column stops two orders sharing one).
     """
     owner = (
@@ -468,3 +496,79 @@ async def mark_checkout_paid(
     ):
         return PaymentOutcome.ALREADY_PAID
     return PaymentOutcome.MISMATCH
+
+
+@dataclass(frozen=True)
+class OpenCheckout:
+    """The pending checkout order of a cart, as far as its session is known."""
+
+    order_id: str
+    fingerprint: str | None
+    session_id: str | None
+    url: str | None
+    expires_at: datetime | None
+
+
+_OPEN_CHECKOUT_SQL = text(
+    "SELECT id, checkout_fingerprint, stripe_checkout_session_id,"
+    " stripe_checkout_url, checkout_expires_at FROM orders "
+    "WHERE cart_id = :cart_id AND status = 'pending'"
+)
+_ORDER_SQL = text(
+    "SELECT id, status, currency, subtotal_minor, shipping_minor, tax_minor,"
+    " total_minor, prices_include_tax FROM orders WHERE id = :id"
+)
+_ORDER_ITEMS_SQL = text(
+    "SELECT id, product_id, variant_id, product_name, sku, variant_label,"
+    " unit_price_minor, quantity, tax_rate_bps, tax_minor "
+    "FROM order_items WHERE order_id = :id ORDER BY id"
+)
+_CANCEL_PENDING_SQL = text(
+    "UPDATE orders SET status = 'cancelled', updated_at = now() "
+    "WHERE id = :id AND status = 'pending' RETURNING id"
+)
+
+
+async def find_open_checkout(
+    session: AsyncSession, cart_id: str
+) -> OpenCheckout | None:
+    """The cart's pending order, if any (the unique index allows at most one)."""
+    row = (
+        (await session.execute(_OPEN_CHECKOUT_SQL, {"cart_id": cart_id}))
+        .mappings()
+        .first()
+    )
+    if row is None:
+        return None
+    return OpenCheckout(
+        order_id=row["id"],
+        fingerprint=row["checkout_fingerprint"],
+        session_id=row["stripe_checkout_session_id"],
+        url=row["stripe_checkout_url"],
+        expires_at=row["checkout_expires_at"],
+    )
+
+
+async def load_order(session: AsyncSession, order_id: str) -> OrderRecord:
+    """An order with its lines, as it was priced. Raises ``OrderNotFound``."""
+    row = (await session.execute(_ORDER_SQL, {"id": order_id})).mappings().first()
+    if row is None:
+        raise OrderNotFound(order_id)
+    items = (await session.execute(_ORDER_ITEMS_SQL, {"id": order_id})).mappings().all()
+    return OrderRecord(
+        id=row["id"],
+        status=OrderStatus(row["status"]),
+        currency=row["currency"],
+        subtotal_minor=row["subtotal_minor"],
+        tax_minor=row["tax_minor"],
+        total_minor=row["total_minor"],
+        items=tuple(OrderItemRecord(**dict(item)) for item in items),
+        shipping_minor=row["shipping_minor"],
+        prices_include_tax=row["prices_include_tax"],
+    )
+
+
+async def cancel_pending_order(session: AsyncSession, order_id: str) -> bool:
+    """Cancel an order that is still ``pending``; false when it already moved. Does not commit."""
+    moved = (await session.execute(_CANCEL_PENDING_SQL, {"id": order_id})).first()
+    return moved is not None
