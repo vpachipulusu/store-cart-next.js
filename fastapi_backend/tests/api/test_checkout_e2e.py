@@ -22,8 +22,12 @@ from sqlalchemy import text
 from app.api.v1.checkout import get_stripe_checkout_client
 from app.core.config import settings
 from app.core.ids import new_id
-from app.core.stripe_billing import StripeRejected
-from app.core.stripe_checkout import CheckoutSessionRequest, StripeCheckoutSession
+from app.core.stripe_billing import StripeError, StripeRejected
+from app.core.stripe_checkout import (
+    CheckoutSessionRequest,
+    ExpireOutcome,
+    StripeCheckoutSession,
+)
 from app.core.stripe_signature import compute_signature
 from app.services import store_checkout
 from app.services.store_checkout import confirm_checkout_payment
@@ -53,9 +57,16 @@ T0 = 1_800_000_000
 
 
 class FakeStripeCheckout:
+    """Stripe: a session per idempotency key (a replay returns the first), and expiry."""
+
     def __init__(self) -> None:
         self.requests: list[CheckoutSessionRequest] = []
         self.fail = False
+        self.sessions: dict[str, StripeCheckoutSession] = {}
+        self.requests_by_key: dict[str, CheckoutSessionRequest] = {}
+        self.expired: list[tuple[str, str]] = []
+        self.expire_outcome = ExpireOutcome.EXPIRED
+        self.expire_error: StripeError | None = None
 
     async def create_payment_session(
         self, request: CheckoutSessionRequest
@@ -63,10 +74,23 @@ class FakeStripeCheckout:
         self.requests.append(request)
         if self.fail:
             raise StripeRejected("Stripe request failed")
-        session_id = f"cs_test_{new_id()}"
-        return StripeCheckoutSession(
-            id=session_id, url=f"https://checkout.stripe.com/c/pay/{session_id}"
-        )
+        key = request.idempotency_key
+        if key in self.sessions:
+            if self.requests_by_key[key] != request:  # Stripe: idempotency_error (400)
+                raise StripeRejected("Stripe request failed")
+        else:
+            session_id = f"cs_test_{new_id()}"
+            self.requests_by_key[key] = request
+            self.sessions[key] = StripeCheckoutSession(
+                id=session_id, url=f"https://checkout.stripe.com/c/pay/{session_id}"
+            )
+        return self.sessions[key]
+
+    async def expire_session(self, account_id: str, session_id: str) -> ExpireOutcome:
+        self.expired.append((account_id, session_id))
+        if self.expire_error is not None:
+            raise self.expire_error
+        return self.expire_outcome
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")

@@ -19,7 +19,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.auth import require_internal_key
 from app.api.deps import get_session_provider
-from app.api.rate_limit import RATE_LIMIT_RESPONSES, limit_by_client_ip
+from app.api.rate_limit import (
+    RATE_LIMIT_FAIL_CLOSED_RESPONSES,
+    limit_by_client_ip,
+)
 from app.api.store_db import (
     NO_STORE_HEADERS,
     STORE_UNAVAILABLE,
@@ -38,6 +41,7 @@ from app.services.store_checkout import (
     CheckoutStoreNotFound,
     CheckoutUnavailable,
     InvalidCheckoutUrl,
+    PaymentInProgress,
     PaymentsNotEnabled,
     StoreCheckoutService,
 )
@@ -55,12 +59,17 @@ router = APIRouter(
         Depends(limit_by_client_ip(CHECKOUT_POLICY)),
     ],
     responses={
-        **RATE_LIMIT_RESPONSES,
+        **RATE_LIMIT_FAIL_CLOSED_RESPONSES,
         401: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
         409: {"model": ErrorResponse},
         502: {"model": ErrorResponse},
-        503: {"model": ErrorResponse},
+        503: {
+            "model": ErrorResponse,
+            "description": (
+                "Rate limiter, Stripe configuration or store database unavailable"
+            ),
+        },
     },
 )
 
@@ -114,7 +123,7 @@ class CheckoutResponse(BaseModel):
 def _status_for(error: CheckoutError) -> int:
     if isinstance(error, CheckoutStoreNotFound):
         return 404
-    if isinstance(error, PaymentsNotEnabled | CartNotReady):
+    if isinstance(error, PaymentsNotEnabled | CartNotReady | PaymentInProgress):
         return 409
     if isinstance(error, InvalidCheckoutUrl):
         return 422
@@ -129,8 +138,9 @@ def _status_for(error: CheckoutError) -> int:
     summary="Start a checkout for the cart",
     description=(
         "Creates a pending order priced on the server and a Stripe Checkout Session on the "
-        "store's connected account. 409 when payments are not enabled or the cart is empty "
-        "or has changed; 422 when a return URL is not the store's subdomain or an allowed "
+        "store's connected account, or returns the open one when the cart is unchanged since "
+        "the last start. 409 when payments are not enabled, the cart is empty or has changed, "
+        "or its earlier checkout is already being paid; 422 when a return URL is not the store's subdomain or an allowed "
         "app origin; 502 when Stripe fails."
     ),
 )

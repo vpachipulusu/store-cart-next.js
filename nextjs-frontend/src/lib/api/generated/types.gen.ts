@@ -9567,6 +9567,10 @@ export type ListOrdersErrors = {
      */
     500: ErrorResponse;
     /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
      * Service Unavailable
      */
     503: ErrorResponse;
@@ -9638,6 +9642,10 @@ export type ReadOrderErrors = {
      * Internal server error
      */
     500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
     /**
      * Service Unavailable
      */
@@ -9711,6 +9719,10 @@ export type FulfilOrderErrors = {
      */
     500: ErrorResponse;
     /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
      * Service Unavailable
      */
     503: ErrorResponse;
@@ -9726,6 +9738,82 @@ export type FulfilOrderResponses = {
 };
 
 export type FulfilOrderResponse = FulfilOrderResponses[keyof FulfilOrderResponses];
+
+export type CancelOrderData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Order Id
+         */
+        order_id: string;
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: never;
+    url: '/v1/stores/{store_id}/orders/{order_id}/cancel';
+};
+
+export type CancelOrderErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Unprocessable Entity
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type CancelOrderError = CancelOrderErrors[keyof CancelOrderErrors];
+
+export type CancelOrderResponses = {
+    /**
+     * Successful Response
+     */
+    200: OrderResponse;
+};
+
+export type CancelOrderResponse = CancelOrderResponses[keyof CancelOrderResponses];
 
 export type ListCategoriesData = {
     body?: never;
@@ -10366,7 +10454,7 @@ export type StartCheckoutErrors = {
      */
     502: ErrorResponse;
     /**
-     * Service Unavailable
+     * Rate limiter, Stripe configuration or store database unavailable
      */
     503: ErrorResponse;
 };
