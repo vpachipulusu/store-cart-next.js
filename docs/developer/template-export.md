@@ -227,7 +227,7 @@ Tests follow their subject, as in the frontend. `tests/conftest.py`, `_worker_db
 
 1. `scripts/export-template.sh <target-dir>` copies the core and module paths from a clean `git archive` of
    `main`, skips the StoreCart-only paths, and runs the brand and Jira-key scrub
-   (`StoreCart` → `Your App`, `storecart` → `app`, `KAN-\d+` references removed from comments; 61 and 403
+   (`StoreCart` → `Your App`, `storecart` → `yourapp`, `KAN-\d+` references removed from comments; 61 and 403
    hits today).
 2. The *trimmed* files are then edited by hand in the export (not in StoreCart): routers, models, nav items,
    dashboard shell, proxy, config, `.env.example`s, docs. This is the sized part of the work.
@@ -241,6 +241,15 @@ Tests follow their subject, as in the frontend. `tests/conftest.py`, `_worker_db
 6. Fresh history: `git init`, one commit, push to the empty public repo **after the owner has seen the
    final file list**. Then: template flag, `CI gate` branch protection, Dependabot; add the Jira label
    `template-candidate` to KAN-145 and document the sync procedure in `docs/developer/template-sync.md`.
+   Lessons from the first export (2026-10-24):
+   - A copy made on Windows loses the executable bit. Before the first commit run
+     `git update-index --chmod=+x scripts/compose-smoke.sh fastapi_backend/start.sh`, or the compose
+     smoke job fails with "Permission denied".
+   - The frontend CI job runs `npm audit --omit=dev --audit-level=high` on the fresh clone; run it locally
+     first. Advisories published after StoreCart's last green run fail the template even when StoreCart
+     has not changed (Next.js 16.4.0 and zod 3 both did).
+   - Step 4 must include the Postgres-backed tests (`TEST_DATABASE_URL`) and the Alembic cycle: the
+     no-database run passes while e2e fixtures still truncate removed tables.
 
 ## Open decisions for the owner
 
