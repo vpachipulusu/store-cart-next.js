@@ -17,6 +17,7 @@ If you are setting up a machine for the first time, start with [getting-started.
 | [dashboard-store-scope.md](dashboard-store-scope.md) | You scope a dashboard page, action or API call to the selected store      |
 | [admin-settings.md](admin-settings.md)               | You work on the admin settings page, currency, language or feature flags  |
 | [known-issues.md](known-issues.md)                   | Something is broken and you want to know whether it is already tracked    |
+| [template-export.md](template-export.md)             | You work on the boilerplate template export (KAN-145): file classification |
 
 ## Related sources
 
