@@ -147,7 +147,7 @@ while IFS= read -r file; do
     -e 's/StoreCart API/Your App API/g' \
     -e 's/StoreCart/Your App/g' \
     -e 's/storecart\.atlassian\.net\/browse\/KAN-[0-9]+//g' \
-    -e 's/storecart/your-app/g' \
+    -e 's/storecart/yourapp/g' \
     -e 's#vpachipulusu/store-cart-next\.js#your-org/your-app#g' \
     -e 's/ ?\(KAN-[0-9]+(, ?KAN-[0-9]+)*\)//g' \
     -e 's/KAN-[0-9]+(, ?KAN-[0-9]+)*:? ?//g' \
