@@ -45,7 +45,7 @@ STORECART_ONLY=(
   # root
   .claude/plans .claude/PRPs .claude/progress .claude/skills .claude/CLAUDE.md
   .github/workflows/migrate-stores.yml .github/CODEOWNERS .github/ISSUE_TEMPLATE/story.md
-  AGENTS.md PROJECT-CONTEXT.md README.md
+  AGENTS.md PROJECT-CONTEXT.md README.md scripts/export-template.sh
   # docs
   docs/adr/0005-per-store-database-access.md docs/adr/0009-email-with-resend.md
   docs/adr/0010-accounts-and-payments-model.md docs/design docs/user-guide
@@ -58,7 +58,7 @@ STORECART_ONLY=(
   docs/developer/legacy-browser-regressions.md docs/developer/known-issues.md docs/developer/template-export.md
   # frontend
   "nextjs-frontend/scripts/foundation-done-check*"
-  "nextjs-frontend/src/app/(admin)/admin/stores"
+  "nextjs-frontend/src/app/\(admin\)/admin/stores"
   nextjs-frontend/src/app/actions/admin-store-actions.ts nextjs-frontend/src/app/actions/connect-actions.ts
   nextjs-frontend/src/app/actions/onboarding-actions.ts nextjs-frontend/src/app/actions/order-actions.ts
   nextjs-frontend/src/app/actions/product-actions.ts nextjs-frontend/src/app/actions/product-import-actions.ts
