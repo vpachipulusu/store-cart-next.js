@@ -30,11 +30,71 @@ KAN-115 measured the shared-project option and found it acceptable. One project 
 a single large merchant later; the provisioner and the session provider already hide the topology. E7 (KAN-52)
 may refine it.
 
-**Isolation limit in the shared project:** with one Neon role serving every store database, isolation is per
-database, not per credential. A wrong store-to-database mapping, or a leaked privileged connection string,
-exposes all stores in the project. The application chooses the database (`get_store_session`, with the backend
-authorizing the store id). E7 should decide whether to create a role per store (`CREATE ROLE` plus
-`REVOKE CONNECT ON DATABASE ... FROM PUBLIC`) so the database enforces it too.
+### One Postgres role per store (KAN-238, decided 2026-10-25)
+
+**Decision:** every store database is owned by its own login role, `store_<store id>` (the database's name),
+and `PUBLIC` loses `CONNECT` (and `TEMPORARY`) on it. The store's connection string signs in as that role, so
+one store's credential cannot open another store's database: Postgres refuses it (`42501`), whatever the
+application does. One credential per store; it stays in `stores.connection_string_encrypted`.
+
+**Before:** every store string carried the shared `NEON_ROLE_NAME` password, so isolation was per database, not
+per credential. A wrong store-to-database mapping, or one leaked store string, exposed every store in the
+project. Copying an encrypted string onto another store's row already failed (the store id is bound into the
+AES-GCM associated data, KAN-53); a plaintext leak did not.
+
+**How it is built** (`app/services/store_roles.py`, used by both provisioners):
+
+- The role is created with SQL (`CREATE ROLE ... LOGIN PASSWORD ...`), not the Neon roles API: API roles join
+  `neon_superuser` (`pg_read_all_data`, `pg_write_all_data`, `CREATEDB`, `CREATEROLE`, `BYPASSRLS`), SQL roles
+  get only the default `PUBLIC` privileges (Neon docs, *Manage roles*). The store role has no attribute but
+  `LOGIN`.
+- The password is `secrets.token_urlsafe(32)` (about 256 bits; Neon asks for 60). DDL takes no bind parameters,
+  so names are checked against `^store_[a-z0-9]{8,40}$` and quoted, and the password is checked against its
+  URL-safe alphabet and quoted as a literal. Neon refuses pre-hashed passwords, so the plaintext is sent; it is
+  never logged and never placed in an exception.
+- Then, as the provisioning role, in one transaction: `GRANT store_<id> TO CURRENT_USER`, `ALTER DATABASE ...
+  OWNER TO store_<id>`, `REVOKE CONNECT, TEMPORARY ON DATABASE ... FROM PUBLIC`. On Postgres 16+ a `CREATEROLE`
+  role gets `ADMIN` on the roles it creates but not membership; the grant gives it `SET` (needed to hand the
+  database over) and, for a normal `INHERIT` role, the owner's privileges, so the provisioning role keeps
+  access for migrations-by-hand, re-runs and deletion. The `public` schema is owned by `pg_database_owner`
+  (Postgres 15+), so it follows the database owner. Requires Postgres 16+ (Neon projects run 16 or 17).
+- Neon: the API still creates the database; the role SQL runs over the direct (unpooled) endpoint. Local
+  (`STORE_DB_PROVIDER=local`, development only): `CREATE DATABASE`, then the same SQL.
+- `create_database` is idempotent and **rotates**: a re-run keeps the database, role and data and sets a new
+  password, so the caller stores the string it gets back (the provisioning job always replaces the stored
+  string). Deleting a store drops its role too (Neon: `REASSIGN OWNED BY` *the store role* to the provisioning
+  role, then `DROP ROLE`, before the API deletes the database).
+- `get_store_session` refuses a decrypted string whose database is not `store_<id>` or whose user is another
+  store's role. A string still on the shared role is accepted with a warning until the backfill below has run.
+- The store role owns its schema, so the store migrations (`migrate_stores`, which use the store's own string)
+  keep working. Separate migration and runtime roles would need a platform model change; not done here.
+- The topology stays hidden: callers still see only `DatabaseProvisioner.create_database(store_id)` (a string)
+  and `get_store_session(store_id)`. Moving a store to its own Neon project later changes neither.
+
+**Threat model.** It stops: one leaked store string, a wrong row-to-database mapping, and a bug that opens a
+store session with another store's string, from reaching any other store's data. It does not stop:
+
+- **The provisioning credential is still privileged.** `NEON_ROLE_NAME` (and `NEON_API_KEY`) can create roles
+  and is a member of every store role. Anyone holding it reaches every store. It lives only in the backend's
+  environment and never in a store row.
+- **The platform database.** A store role can *connect* to any database where `PUBLIC` keeps `CONNECT`, which
+  includes the platform database when it shares the Neon project (or, locally, the same server). It can read
+  nothing there: platform tables belong to the platform role and grant nothing to `PUBLIC`, and since Postgres
+  15 `PUBLIC` cannot create objects in `public`. It could see catalog metadata (table names, role names). The
+  owner may close this with `REVOKE CONNECT ON DATABASE <platform> FROM PUBLIC` (owner step; not automated).
+- Compute is still shared (see Topology). Rotation of a store's password is a re-run of `create_database`; there
+  is no scheduled rotation.
+
+**Migration path for existing stores.** `uv run python -m commands.backfill_store_roles [--store-id ID ...]`
+(an owner step, run once per environment with that environment's `DATABASE_URL` and `STORE_DB_ENCRYPTION_KEY`).
+For each provisioned store, under the store row lock, it connects with the store's current (shared role) string
+switched to the direct endpoint and, in one transaction: creates the role, moves the database and every object
+the shared role owns in it (schemas, tables with their indexes and owned sequences, views, materialized views,
+sequences, functions, types and domains, including `store_alembic_version`) to the role, revokes `PUBLIC`
+`CONNECT`, checks `pg_shdepend` that the shared role owns nothing left in that database (else it rolls back),
+then re-encrypts the new string onto the row. It never uses `REASSIGN OWNED BY` the shared role, which would
+also move every other database that role owns. Stores already on their role are skipped, so a re-run is safe;
+it stops at the first failure. The few existing test stores may simply be archived and recreated instead.
 
 **Why it was provisional:** the cost is connection setup per store on serverless, plus running migrations
 across many databases. The **KAN-115 spike** measured the connection cost (below). The numbers are low enough

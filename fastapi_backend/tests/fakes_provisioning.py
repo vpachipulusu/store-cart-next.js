@@ -1,6 +1,14 @@
-"""Fakes for the store database provisioners (KAN-55): a Neon API and an AsyncEngine."""
+"""Fakes for the store database provisioners (KAN-55): a Neon API and an AsyncEngine.
+
+KAN-238: the fake engine also understands the store role SQL from ``store_roles``
+(roles, their passwords, database owners and the PUBLIC revoke), and the fake Neon
+provisioner runs that SQL on a fake admin connection.
+"""
 
 import json
+import re
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from types import TracebackType
 from typing import Any, Self, cast
 
@@ -10,10 +18,11 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from app.services.store_provisioning import NeonDatabaseProvisioner
+from app.services.store_provisioning import AdminConnection, NeonDatabaseProvisioner
 
 API_KEY = "neon-secret-api-key-123"
 NEON_URI = "postgresql://owner:hunter2@ep-x-pooler.neon.tech/store_x?sslmode=require"
+NEON_DIRECT_URI = "postgresql://owner:hunter2@ep-x.neon.tech/store_x?sslmode=require"
 NEON_BASE = "https://neon.test/api/v2"
 DB_PATH = "/api/v2/projects/proj-1/branches/br-1/databases"
 URI_PATH = "/api/v2/projects/proj-1/connection_uri"
@@ -45,14 +54,22 @@ class FakeNeon:
             self.databases.remove(name)
             return httpx.Response(200, json={})
         if request.method == "GET" and path == URI_PATH:
-            return httpx.Response(200, json={"uri": NEON_URI})
+            pooled = request.url.params["pooled"] == "true"
+            uri = NEON_URI if pooled else NEON_DIRECT_URI
+            database = request.url.params["database_name"]
+            return httpx.Response(200, json={"uri": uri.replace("store_x", database)})
         return httpx.Response(500, json={})
 
-    def provisioner(self) -> NeonDatabaseProvisioner:
-        return neon_with(self.handle)
+    def provisioner(
+        self, engine: "FakeEngine | None" = None
+    ) -> NeonDatabaseProvisioner:
+        return neon_with(self.handle, engine)
 
 
-def neon_with(handler: Any) -> NeonDatabaseProvisioner:
+def neon_with(
+    handler: Any, engine: "FakeEngine | None" = None
+) -> NeonDatabaseProvisioner:
+    """A Neon provisioner on a mocked API; its admin SQL runs on ``engine`` (a fake)."""
     return NeonDatabaseProvisioner(
         API_KEY,
         "proj-1",
@@ -60,7 +77,24 @@ def neon_with(handler: Any) -> NeonDatabaseProvisioner:
         "owner",
         base_url=NEON_BASE,
         client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        admin_connection=fake_admin_connection(engine or FakeEngine()),
     )
+
+
+def fake_admin_connection(engine: "FakeEngine") -> AdminConnection:
+    """Stands in for ``store_sessions.open_admin_connection``; records each URI."""
+
+    @asynccontextmanager
+    async def admin_connection(uri: str) -> AsyncIterator[Any]:
+        engine.admin_uris.append(uri)
+        async with engine.begin() as connection:
+            yield connection
+
+    return cast(AdminConnection, admin_connection)
+
+
+_ROLE = re.compile(r'^(CREATE|ALTER) ROLE "([^"]+)" WITH LOGIN PASSWORD \'([^\']+)\'$')
+_OWNER = re.compile(r'^ALTER DATABASE "([^"]+)" OWNER TO "([^"]+)"$')
 
 
 class FakeResult:
@@ -110,6 +144,38 @@ class FakeConnection:
             return None
         raise AssertionError(f"unexpected statement: {sql}")
 
+    async def scalar(self, statement: Any, params: dict[str, Any] | None = None) -> Any:
+        sql = str(statement)
+        self._engine.statements.append(sql)
+        if sql.startswith("SELECT 1 FROM pg_roles"):
+            assert params is not None
+            return 1 if params["role"] in self._engine.roles else None
+        raise AssertionError(f"unexpected scalar: {sql}")
+
+    async def exec_driver_sql(self, sql: str) -> None:
+        engine = self._engine
+        if role := _ROLE.match(sql):
+            engine.fail_if("role")
+            verb, name, password = role.groups()
+            assert (verb == "ALTER") == (name in engine.roles), sql
+            engine.roles[name] = password
+            engine.statements.append(f"{verb} ROLE {name} PASSWORD <redacted>")
+            return
+        engine.statements.append(sql)
+        if owner := _OWNER.match(sql):
+            database, name = owner.groups()
+            assert name in engine.roles
+            engine.owners[database] = name
+        elif sql.startswith("DROP ROLE IF EXISTS "):
+            engine.fail_if("drop_role")
+            engine.roles.pop(sql.removeprefix("DROP ROLE IF EXISTS ").strip('"'), None)
+        elif sql.startswith("DROP ROLE "):
+            engine.roles.pop(sql.removeprefix("DROP ROLE ").strip('"'))
+        elif sql.startswith(("GRANT ", "REVOKE ", "REASSIGN OWNED ", "DROP OWNED ")):
+            return
+        else:
+            raise AssertionError(f"unexpected statement: {sql}")
+
 
 class FakeEngine:
     """Just enough of AsyncEngine for LocalDatabaseProvisioner; records statements."""
@@ -123,6 +189,9 @@ class FakeEngine:
         self.dialect = asyncpg.dialect()
         self.url = make_url("postgresql+asyncpg://admin:s3cret@db.local:5432/platform")
         self.isolation_levels: list[str] = []
+        self.roles: dict[str, str] = {}  # role name -> current password
+        self.owners: dict[str, str] = {}  # database -> owning role
+        self.admin_uris: list[str] = []
 
     def fail_if(self, operation: str) -> None:
         if operation in self.fail:
@@ -137,6 +206,10 @@ class FakeEngine:
         return self
 
     def connect(self) -> FakeConnection:
+        return FakeConnection(self)
+
+    def begin(self) -> FakeConnection:
+        """A transaction: the fake does not roll back, which no test relies on."""
         return FakeConnection(self)
 
     def as_engine(self) -> AsyncEngine:

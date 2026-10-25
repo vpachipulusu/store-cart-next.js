@@ -1,17 +1,64 @@
-# Backend store database provisioning (KAN-55)
+# Backend store database provisioning (KAN-55, KAN-238)
 
-Each store has its own database (ADR-005). `app.services.store_provisioning` creates it. It is **not wired into store
-creation or onboarding yet**; a later ticket calls `create_database(store_id)` and saves the result with
+Each store has its own database and its own Postgres role (ADR-005). `app.services.store_provisioning` creates them;
+the provisioning job (`store_provisioning_job`, KAN-56) calls `create_database(store_id)` and saves the result with
 `store_secrets.set_connection_string` (KAN-53).
 
 ## Interface
 
 ```python
 provisioner = get_database_provisioner(settings)       # chosen by STORE_DB_PROVIDER
-connection_string = await provisioner.create_database(store_id)   # idempotent, returns a secret
+connection_string = await provisioner.create_database(store_id)   # idempotent, rotates, returns a secret
 await provisioner.database_exists(store_id)
-await provisioner.delete_database(store_id)            # no-op when absent (cleanup)
+await provisioner.delete_database(store_id)            # drops database and role; no-op when absent
 ```
+
+## One role per store (KAN-238)
+
+The database **and** its owning login role are named `store_<store id>`. `app.services.store_roles.apply_store_role`
+runs, as the provisioning role and in one transaction:
+
+```sql
+CREATE ROLE "store_<id>" WITH LOGIN PASSWORD '<generated>';   -- ALTER ROLE ... on a re-run
+GRANT "store_<id>" TO CURRENT_USER;                           -- SET membership (Postgres 16+)
+ALTER DATABASE "store_<id>" OWNER TO "store_<id>";
+REVOKE CONNECT, TEMPORARY ON DATABASE "store_<id>" FROM PUBLIC;
+```
+
+- The returned connection string signs in as `store_<id>`; no other store's role (and no `PUBLIC` member) can connect
+  to that database. The provisioning role keeps access through its membership.
+- **Every call sets a new password** (`secrets.token_urlsafe(32)`), so a re-run rotates it and the previous string stops
+  working. Store the string `create_database` returns; the provisioning job always replaces the stored one. Do not run
+  `create_database` for the same store concurrently: the last password set and the last string saved could differ (the
+  job runs one step at a time; a store left broken this way is fixed by re-running provisioning).
+- The role is created with SQL, never with the Neon roles API (API roles join `neon_superuser`). It has only `LOGIN`.
+- Identifiers are validated and quoted; the password is validated against its URL-safe alphabet and quoted as a literal
+  (DDL takes no bind parameters, and Neon refuses pre-hashed passwords). It is never logged or put in an exception;
+  failures log the exception class name only.
+- `get_store_session` refuses a decrypted string whose database is not `store_<id>` or whose user is another store's
+  role (`StoreDatabaseUnavailable`). A string still on the shared role opens with a warning until the backfill has run.
+- Engines are built only in `store_sessions.py`: the Neon provisioner and the backfill reach a store database through
+  `store_sessions.open_admin_connection`.
+
+### Existing stores: `commands.backfill_store_roles` (owner step)
+
+Stores provisioned before KAN-238 still connect as the shared role. Run once per environment, after deploying KAN-238,
+with that environment's `DATABASE_URL` and `STORE_DB_ENCRYPTION_KEY` (never from CI or a deploy):
+
+```bash
+uv run python -m commands.backfill_store_roles                 # every provisioned store, in id order
+uv run python -m commands.backfill_store_roles --store-id <id> # one store (repeatable)
+```
+
+Per store, under the store row lock and in one transaction on the store database (direct endpoint): create the role,
+`apply_store_role`, then `move_owned_objects`, which gives the role every schema, table (with its indexes and owned
+sequences), view, materialized view, sequence, function and type the shared role owns there, including
+`store_alembic_version`, and rolls back if `pg_shdepend` still lists anything owned by the shared role in that database
+(extensions excepted). Then the new string is encrypted onto the row. It never runs `REASSIGN OWNED BY` the shared role
+(that would move every database the role owns). Stores already on their own role and stores with no database are
+skipped; it stops at the first failure and exits 1. Output names store ids only.
+
+The few current test stores may instead be archived and recreated: new stores get their role at provisioning.
 
 Both providers implement the `DatabaseProvisioner` protocol. The database is named `store_<store id>`. The id must match
 `^[a-z0-9]{8,40}$` (cuid and cuid2 ids do), otherwise `InvalidStoreId` is raised before anything reaches the database or
@@ -29,7 +76,7 @@ never logged or placed in an exception; underlying driver and HTTP errors are dr
 | `NEON_API_KEY`      | Neon API key (secret). Required only when `neon` is selected.                                        |
 | `NEON_PROJECT_ID`   | Neon project that holds store databases. Required for `neon`.                                        |
 | `NEON_BRANCH_ID`    | Branch (for example `br-...`) the databases are created on. Required for `neon`.                     |
-| `NEON_ROLE_NAME`    | Role that owns the new databases and appears in the returned connection string. Required for `neon`. |
+| `NEON_ROLE_NAME`    | Provisioning role: creates each database and its store role (needs `CREATEROLE`, which Neon project roles have). Required for `neon`. |
 | `NEON_API_BASE_URL` | Optional. Defaults to `https://console.neon.tech/api/v2`. Must be `https` on `neon.tech`.            |
 
 The `NEON_*` values stay optional at startup. Selecting `neon` without the required ones fails when the provisioner is
@@ -40,14 +87,14 @@ startup (https and a `neon.tech` host only) so the Bearer key can never go over 
 
 `LocalDatabaseProvisioner` reuses the **platform engine** (`app.core.database.engine`) for an `AUTOCOMMIT` admin
 connection, because ruff `TID251` forbids creating engines outside `database.py` and `store_sessions.py`. It runs
-`CREATE DATABASE "store_<id>"` after checking `pg_database`, and `DROP DATABASE IF EXISTS ... WITH (FORCE)` on delete
-(Postgres 13+). The `DATABASE_URL` role therefore needs `CREATEDB` (the Docker superuser has it). The returned string is
-the platform URL with the database swapped, so it reuses the same host and credentials; it carries no `sslmode`.
+`CREATE DATABASE "store_<id>"` after checking `pg_database`, then the store role SQL above in a transaction. On delete it
+runs `DROP DATABASE IF EXISTS ... WITH (FORCE)` (Postgres 13+) and `DROP ROLE IF EXISTS "store_<id>"`. The `DATABASE_URL`
+role therefore needs `CREATEDB` and `CREATEROLE` (the Docker superuser has both). The returned string is the platform URL
+with the database, user and password swapped; it carries no `sslmode`.
 
-**Development only.** Because every store connection string carries the platform role's credentials, a leaked store
-string would expose the platform database. `get_database_provisioner` therefore refuses `STORE_DB_PROVIDER=local`
-outside local and test (and Vercel preview/development), raising `ProvisionerNotConfigured`. **Production must use Neon**
-(or, later, a per-store role).
+**Development only.** Store roles live on the same server as the platform database and the admin connection is the
+platform role. `get_database_provisioner` therefore refuses `STORE_DB_PROVIDER=local` outside local and test (and Vercel
+preview/development), raising `ProvisionerNotConfigured`. **Production must use Neon.**
 
 ## Neon provider
 
@@ -57,14 +104,18 @@ outside local and test (and Vercel preview/development), raising `ProvisionerNot
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | exists / idempotency | `GET /projects/{NEON_PROJECT_ID}/branches/{NEON_BRANCH_ID}/databases`                                                     |
 | create               | `POST` the same path, body `{"database": {"name": "store_<id>", "owner_name": NEON_ROLE_NAME}}`; `409` counts as created |
-| connection string    | `GET /projects/{NEON_PROJECT_ID}/connection_uri?branch_id=&database_name=&role_name=&pooled=true`, field `uri`            |
-| delete               | `DELETE /projects/{NEON_PROJECT_ID}/branches/{NEON_BRANCH_ID}/databases/store_<id>`; `404` is fine                       |
+| admin connection     | the same `connection_uri` with `pooled=false`: the store role SQL runs as `NEON_ROLE_NAME` over the direct endpoint       |
+| connection string    | `GET /projects/{NEON_PROJECT_ID}/connection_uri?branch_id=&database_name=&role_name=&pooled=true`, field `uri`, with the user and password swapped for the store role |
+| delete               | if the database exists: `REASSIGN OWNED BY "store_<id>" TO CURRENT_USER`, `DROP OWNED`, `DROP ROLE` on the direct endpoint; then `DELETE /projects/{NEON_PROJECT_ID}/branches/{NEON_BRANCH_ID}/databases/store_<id>`; `404` is fine |
 
 The pooled URI matches the session factory, which turns off asyncpg's statement cache for PgBouncer (KAN-54). Neon runs
 these changes as asynchronous operations; a locked branch answers with an error that surfaces as `ProvisioningFailed`, and
 the caller may retry because `create_database` is idempotent.
 
-**Partial failure.** `create_database` is two calls (create, then fetch the connection URI). If the create succeeds but
+Neon applies a new database asynchronously; if the admin connection runs before the database is reachable it fails as
+`ProvisioningFailed` and the job retries.
+
+**Partial failure.** `create_database` is several calls (create, admin URI, role SQL, pooled URI). If the create succeeds but
 the URI call fails, an empty database is left behind and `ProvisioningFailed` is raised. The caller must retry
 `create_database` (it finds the database and only fetches the URI) or call `delete_database` to clean up. Tests use `httpx.MockTransport`; the real API is not called.
 
@@ -76,10 +127,17 @@ the URI call fails, an empty database is left behind and `ProvisioningFailed` is
   idempotency, the concurrent-create race, wrapped driver and connection errors), the factory and the settings validators.
 - `tests/services/test_store_provisioning_contract.py`: the same behaviours run over both providers.
 - `tests/services/test_store_provisioning_e2e.py`: the local provider on a real Postgres. Needs `TEST_DATABASE_URL`
-  (database name ending `_test`, role with `CREATEDB`); skipped otherwise, and CI does not run it.
+  (database name ending `_test`, role with `CREATEDB` and `CREATEROLE`); skipped otherwise.
+- `tests/services/test_store_roles_e2e.py` (KAN-238): on a real Postgres, as a non-superuser `CREATEDB CREATEROLE`
+  role (Neon's shape): store A's credential is refused on store B's database (`42501`), a re-run rotates the password
+  (old one `28P01`), role attributes, ownership and the `PUBLIC` revoke, delete drops the role, a store role reads
+  nothing in the platform database, and the backfill (every object moved, other databases of the shared role untouched,
+  re-run skipped, failures stop the run). Names carry `k238` and an epoch; stale ones are swept.
+- `tests/services/test_store_roles.py`, `tests/services/test_store_role_backfill.py`,
+  `tests/commands/test_backfill_store_roles.py`: validation, quoting, reports, exit codes.
 
 ```bash
 docker run -d --name kan55-pg -e POSTGRES_PASSWORD=pw -e POSTGRES_DB=kan55_test -p 55455:5432 postgres:17
-TEST_DATABASE_URL=postgresql+asyncpg://postgres:pw@localhost:55455/kan55_test uv run pytest tests/services/test_store_provisioning_e2e.py
+TEST_DATABASE_URL=postgresql+asyncpg://postgres:pw@localhost:55455/kan55_test uv run pytest tests/services/test_store_provisioning_e2e.py tests/services/test_store_roles_e2e.py
 docker rm -f kan55-pg
 ```

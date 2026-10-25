@@ -3,6 +3,7 @@ import logging
 
 import httpx
 import pytest
+from sqlalchemy.engine import make_url
 
 from app.services.store_provisioning import (
     InvalidStoreId,
@@ -12,9 +13,12 @@ from app.services.store_provisioning import (
 )
 from tests.fakes_provisioning import (
     API_KEY,
+    NEON_DIRECT_URI,
     NEON_URI,
     URI_PATH,
+    FakeEngine,
     FakeNeon,
+    fake_admin_connection,
     neon_with,
 )
 
@@ -42,12 +46,21 @@ def test_database_name_rejects_unsafe_ids(bad: str) -> None:
         database_name_for(bad)
 
 
+def assert_store_role_uri(uri: str, engine: FakeEngine) -> None:
+    """Pooled host and options from Neon, signed in as the store role."""
+    url, pooled = make_url(uri), make_url(NEON_URI)
+    assert (url.host, url.query) == (pooled.host, pooled.query)
+    assert url.username == NAME
+    assert url.password == engine.roles[NAME]
+    assert "hunter2" not in uri
+
+
 async def test_neon_creates_database_and_returns_pooled_uri() -> None:
-    fake = FakeNeon()
+    fake, engine = FakeNeon(), FakeEngine()
 
-    uri = await fake.provisioner().create_database(STORE_ID)
+    uri = await fake.provisioner(engine).create_database(STORE_ID)
 
-    assert uri == NEON_URI
+    assert_store_role_uri(uri, engine)
     assert fake.databases == [f"store_{STORE_ID}"]
     post = next(r for r in fake.requests if r.method == "POST")
     assert json.loads(post.content) == {
@@ -60,19 +73,71 @@ async def test_neon_creates_database_and_returns_pooled_uri() -> None:
     assert uri_request.url.params["role_name"] == "owner"
 
 
-async def test_neon_create_is_idempotent() -> None:
-    fake = FakeNeon(existing=(f"store_{STORE_ID}",))
+async def test_neon_sets_up_the_store_role_over_the_direct_endpoint() -> None:
+    fake, engine = FakeNeon(), FakeEngine()
 
-    uri = await fake.provisioner().create_database(STORE_ID)
+    await fake.provisioner(engine).create_database(STORE_ID)
 
-    assert uri == NEON_URI
+    assert engine.admin_uris == [NEON_DIRECT_URI.replace("store_x", NAME)]
+    direct = next(r for r in fake.requests if r.url.path == URI_PATH)
+    assert direct.url.params["pooled"] == "false"
+    assert engine.statements[1:] == [
+        f"CREATE ROLE {NAME} PASSWORD <redacted>",
+        f'GRANT "{NAME}" TO CURRENT_USER',
+        f'ALTER DATABASE "{NAME}" OWNER TO "{NAME}"',
+        f'REVOKE CONNECT, TEMPORARY ON DATABASE "{NAME}" FROM PUBLIC',
+    ]
+    assert engine.owners == {NAME: NAME}
+
+
+async def test_neon_create_is_idempotent_and_rotates_the_password() -> None:
+    fake, engine = FakeNeon(existing=(f"store_{STORE_ID}",)), FakeEngine()
+    provisioner = fake.provisioner(engine)
+
+    first = await provisioner.create_database(STORE_ID)
+    second = await provisioner.create_database(STORE_ID)
+
     assert not [r for r in fake.requests if r.method == "POST"]
+    assert make_url(first).password != make_url(second).password
+    assert_store_role_uri(second, engine)
+    assert f"ALTER ROLE {NAME} PASSWORD <redacted>" in engine.statements
 
 
 async def test_neon_conflict_on_create_counts_as_created() -> None:
-    fake = FakeNeon(post_status=409)
+    fake, engine = FakeNeon(post_status=409), FakeEngine()
 
-    assert await fake.provisioner().create_database(STORE_ID) == NEON_URI
+    assert_store_role_uri(
+        await fake.provisioner(engine).create_database(STORE_ID), engine
+    )
+
+
+async def test_neon_role_sql_failure_carries_no_secret(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    engine = FakeEngine()
+    engine.fail.add("role")
+
+    with caplog.at_level(logging.DEBUG), pytest.raises(ProvisioningFailed) as caught:
+        await FakeNeon().provisioner(engine).create_database(STORE_ID)
+
+    shown = f"{caught.value!s} {caplog.text}"
+    assert "s3cret" not in shown
+    assert "hunter2" not in shown
+    assert "PASSWORD" not in shown
+    assert caught.value.__cause__ is None
+
+
+async def test_neon_delete_drops_the_store_role_before_the_database() -> None:
+    fake, engine = FakeNeon(), FakeEngine()
+    provisioner = fake.provisioner(engine)
+    await provisioner.create_database(STORE_ID)
+
+    await provisioner.delete_database(STORE_ID)
+
+    assert NAME not in engine.roles
+    assert f'REASSIGN OWNED BY "{NAME}" TO CURRENT_USER' in engine.statements
+    assert fake.requests[-1].method == "DELETE"
+    assert fake.databases == []
 
 
 async def test_neon_exists_and_delete() -> None:
@@ -168,6 +233,7 @@ async def test_neon_quotes_ids_once_in_paths_and_not_in_query() -> None:
         "owner",
         base_url="https://neon.test/api/v2",
         client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
+        admin_connection=fake_admin_connection(FakeEngine()),
     )
 
     await provisioner.create_database(STORE_ID)

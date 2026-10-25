@@ -24,24 +24,50 @@ STORE_ID = "clx1abcd2efgh3ijkl4mnop5"
 NAME = f"store_{STORE_ID}"
 
 
-async def test_create_runs_quoted_create_database() -> None:
+async def test_create_runs_quoted_create_database_then_the_store_role_sql() -> None:
     engine = FakeEngine()
 
     uri = await LocalDatabaseProvisioner(engine.as_engine()).create_database(STORE_ID)
 
-    assert engine.statements[-1] == f'CREATE DATABASE "{NAME}"'
+    assert f'CREATE DATABASE "{NAME}"' in engine.statements
+    assert engine.statements[-4:] == [
+        f"CREATE ROLE {NAME} PASSWORD <redacted>",
+        f'GRANT "{NAME}" TO CURRENT_USER',
+        f'ALTER DATABASE "{NAME}" OWNER TO "{NAME}"',
+        f'REVOKE CONNECT, TEMPORARY ON DATABASE "{NAME}" FROM PUBLIC',
+    ]
     assert engine.databases == {NAME}
+    assert engine.owners == {NAME: NAME}
     assert set(engine.isolation_levels) == {"AUTOCOMMIT"}
-    assert uri == f"postgresql+asyncpg://admin:s3cret@db.local:5432/{NAME}"
+    password = engine.roles[NAME]
+    assert uri == f"postgresql+asyncpg://{NAME}:{password}@db.local:5432/{NAME}"
+    assert "s3cret" not in uri
 
 
-async def test_create_is_idempotent_when_database_exists() -> None:
+async def test_create_is_idempotent_when_database_exists_and_rotates() -> None:
     engine = FakeEngine(databases=(NAME,))
+    engine.roles[NAME] = "old-password"
 
     uri = await LocalDatabaseProvisioner(engine.as_engine()).create_database(STORE_ID)
 
     assert not [s for s in engine.statements if s.startswith("CREATE")]
+    assert f"ALTER ROLE {NAME} PASSWORD <redacted>" in engine.statements
+    assert engine.roles[NAME] != "old-password"
     assert uri.endswith(f"/{NAME}")
+
+
+async def test_role_sql_failure_carries_no_secret(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    engine = FakeEngine()
+    engine.fail.add("role")
+
+    with caplog.at_level(logging.DEBUG), pytest.raises(ProvisioningFailed) as caught:
+        await LocalDatabaseProvisioner(engine.as_engine()).create_database(STORE_ID)
+
+    assert "s3cret" not in f"{caught.value!s} {caplog.text}"
+    assert "PASSWORD" not in caplog.text
+    assert caught.value.__cause__ is None
 
 
 async def test_create_survives_a_concurrent_creator() -> None:
@@ -103,8 +129,21 @@ async def test_delete_drops_quoted_name_and_missing_is_fine() -> None:
     await provisioner.delete_database(STORE_ID)
     await provisioner.delete_database(STORE_ID)
 
-    assert engine.statements[0] == f'DROP DATABASE IF EXISTS "{NAME}" WITH (FORCE)'
+    assert engine.statements[:2] == [
+        f'DROP DATABASE IF EXISTS "{NAME}" WITH (FORCE)',
+        f'DROP ROLE IF EXISTS "{NAME}"',
+    ]
     assert engine.databases == set()
+
+
+async def test_delete_drops_the_store_role() -> None:
+    engine = FakeEngine()
+    provisioner = LocalDatabaseProvisioner(engine.as_engine())
+    await provisioner.create_database(STORE_ID)
+
+    await provisioner.delete_database(STORE_ID)
+
+    assert engine.roles == {}
 
 
 async def test_delete_failure_is_wrapped() -> None:

@@ -3,6 +3,7 @@
 from collections.abc import Callable
 
 import pytest
+from sqlalchemy.engine import make_url
 
 from app.services.store_provisioning import (
     DatabaseProvisioner,
@@ -39,13 +40,15 @@ async def test_create_returns_a_connection_string_and_database_exists(
     assert await provisioner.database_exists(STORE_ID) is True
 
 
-async def test_create_twice_returns_the_same_connection_string(
+async def test_create_twice_keeps_the_database_and_rotates_the_credential(
     provisioner: DatabaseProvisioner,
 ) -> None:
-    first = await provisioner.create_database(STORE_ID)
-    second = await provisioner.create_database(STORE_ID)
+    first = make_url(await provisioner.create_database(STORE_ID))
+    second = make_url(await provisioner.create_database(STORE_ID))
 
-    assert first == second
+    assert first.database == second.database == f"store_{STORE_ID}"
+    assert first.username == second.username == f"store_{STORE_ID}"
+    assert first.password != second.password
 
 
 async def test_delete_twice_leaves_no_database_and_no_error(

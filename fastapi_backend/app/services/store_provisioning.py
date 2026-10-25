@@ -2,9 +2,9 @@
 
 ``DatabaseProvisioner`` is the interface; ``LocalDatabaseProvisioner`` creates a database
 on the Docker Postgres and ``NeonDatabaseProvisioner`` creates one through the Neon API.
-``get_database_provisioner`` picks one from ``STORE_DB_PROVIDER``. Nothing here is wired
-into store creation yet: a later ticket calls ``create_database`` and stores the result
-with ``store_secrets.set_connection_string``.
+``get_database_provisioner`` picks one from ``STORE_DB_PROVIDER``. The provisioning job
+(``store_provisioning_job``) calls ``create_database`` and stores the result with
+``store_secrets.set_connection_string``.
 
 Rules shared by both providers:
 
@@ -15,30 +15,51 @@ Rules shared by both providers:
   secret: it is never logged and never placed in an exception.
 * Errors carry only the store id. The Neon API key never leaves the Authorization header.
 * No provider creates an engine (ruff TID251). The local provider reuses the platform
-  engine for its admin connection, which needs the CREATEDB privilege.
+  engine for its admin connection, which needs CREATEDB and CREATEROLE; the Neon provider
+  opens its admin connection through ``store_sessions.open_admin_connection``.
+* KAN-238: every store database is owned by its own login role ``store_<id>`` (see
+  ``store_roles``), PUBLIC cannot connect to it, and the returned string signs in as that
+  role. Each ``create_database`` call sets a fresh password, so a re-run rotates it and
+  the caller must store the string it returns (the previous one stops working).
 """
 
 import logging
 import re
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from typing import Any, Protocol
 from urllib.parse import quote
 
 import httpx
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from app.core.config import Settings
+from app.services.store_roles import (
+    STORE_NAME_PREFIX,
+    apply_store_role,
+    drop_store_role,
+    new_role_password,
+    release_store_database,
+    with_role,
+)
+from app.services.store_sessions import open_admin_connection
 
 logger = logging.getLogger("storecart.store_provisioning")
 
 # Ids are 24 character cuid2 values; legacy ids are cuid (25 characters).
 _STORE_ID_PATTERN = re.compile(r"^[a-z0-9]{8,40}$")
-DATABASE_NAME_PREFIX = "store_"
+DATABASE_NAME_PREFIX = STORE_NAME_PREFIX
 REQUEST_TIMEOUT_SECONDS = 30.0
 # Driver errors that must never escape raw: SQLAlchemy wraps DBAPI errors, but a refused
 # or reset connect can surface as an OSError.
 _LOCAL_ERRORS = (SQLAlchemyError, OSError)
+# Admin SQL errors: driver errors, a refused connect, or a rejected name or password
+# (UnsafeRoleInput is a ValueError).
+_ADMIN_ERRORS = (SQLAlchemyError, OSError, ValueError)
+
+AdminConnection = Callable[[str], AbstractAsyncContextManager[AsyncConnection]]
 
 
 class ProvisioningError(Exception):
@@ -87,17 +108,21 @@ def database_name_for(store_id: str) -> str:
     return f"{DATABASE_NAME_PREFIX}{store_id}"
 
 
+# The store's login role has the same name as its database.
+role_name_for = database_name_for
+
+
 class DatabaseProvisioner(Protocol):
     """Creates, finds and removes the database of one store."""
 
     async def create_database(self, store_id: str) -> str:
-        """Ensure the store's database exists; return its connection string (secret)."""
+        """Ensure the store's database and role exist; return a fresh string (secret)."""
 
     async def database_exists(self, store_id: str) -> bool:
         """Whether the store's database exists."""
 
     async def delete_database(self, store_id: str) -> None:
-        """Drop the store's database; a no-op when it does not exist."""
+        """Drop the store's database and role; a no-op when they do not exist."""
 
 
 class LocalDatabaseProvisioner:
@@ -109,8 +134,11 @@ class LocalDatabaseProvisioner:
     def _quoted(self, name: str) -> str:
         return self._engine.dialect.identifier_preparer.quote_identifier(name)
 
-    def _connection_string(self, name: str) -> str:
-        return self._engine.url.set(database=name).render_as_string(hide_password=False)
+    def _connection_string(self, name: str, password: str) -> str:
+        server = self._engine.url.set(database=name).render_as_string(
+            hide_password=False
+        )
+        return with_role(server, name, password)
 
     def _admin(self) -> AsyncEngine:
         return self._engine.execution_options(isolation_level="AUTOCOMMIT")
@@ -130,8 +158,7 @@ class LocalDatabaseProvisioner:
         except _LOCAL_ERRORS:
             raise ProvisioningFailed(store_id) from None
 
-    async def create_database(self, store_id: str) -> str:
-        name = database_name_for(store_id)
+    async def _ensure_database(self, store_id: str, name: str) -> None:
         try:
             if not await self._exists(name):
                 async with self._admin().connect() as connection:
@@ -142,12 +169,27 @@ class LocalDatabaseProvisioner:
             # A concurrent caller may have created it between the check and CREATE.
             try:
                 if await self._exists(name):
-                    return self._connection_string(name)
+                    return
             except _LOCAL_ERRORS:
                 pass
             logger.error("local database creation failed", extra={"store_id": store_id})
             raise ProvisioningFailed(store_id) from None
-        return self._connection_string(name)
+
+    async def create_database(self, store_id: str) -> str:
+        name = database_name_for(store_id)
+        await self._ensure_database(store_id, name)
+        password = new_role_password()
+        try:
+            async with self._engine.begin() as connection:
+                await apply_store_role(connection, name, name, password)
+        except _ADMIN_ERRORS as exc:
+            logger.error(
+                "local store role setup failed: %s",
+                type(exc).__name__,
+                extra={"store_id": store_id},
+            )
+            raise ProvisioningFailed(store_id) from None
+        return self._connection_string(name, password)
 
     async def delete_database(self, store_id: str) -> None:
         name = database_name_for(store_id)
@@ -156,6 +198,7 @@ class LocalDatabaseProvisioner:
                 await connection.execute(
                     text(f"DROP DATABASE IF EXISTS {self._quoted(name)} WITH (FORCE)")
                 )
+                await drop_store_role(connection, name)
         except _LOCAL_ERRORS:
             logger.error("local database deletion failed", extra={"store_id": store_id})
             raise ProvisioningFailed(store_id) from None
@@ -169,7 +212,11 @@ class NeonDatabaseProvisioner:
     * ``GET    {base}/projects/{project}/branches/{branch}/databases``
     * ``POST   {base}/projects/{project}/branches/{branch}/databases``
     * ``DELETE {base}/projects/{project}/branches/{branch}/databases/{name}``
-    * ``GET    {base}/projects/{project}/connection_uri`` (pooled)
+    * ``GET    {base}/projects/{project}/connection_uri`` (pooled, and unpooled for
+      the admin connection that sets up the store role)
+
+    The store role is created with SQL, not the roles API: roles from the API join
+    ``neon_superuser`` (read and write on every database), roles from SQL do not.
     """
 
     def __init__(
@@ -181,6 +228,7 @@ class NeonDatabaseProvisioner:
         *,
         base_url: str,
         client: httpx.AsyncClient | None = None,
+        admin_connection: AdminConnection = open_admin_connection,
     ) -> None:
         self._api_key = api_key
         self._project = project_id
@@ -188,6 +236,7 @@ class NeonDatabaseProvisioner:
         self._role = role_name
         self._base = base_url.rstrip("/")
         self._client = client
+        self._admin_connection = admin_connection
 
     @property
     def _databases_path(self) -> str:
@@ -247,7 +296,9 @@ class NeonDatabaseProvisioner:
     async def database_exists(self, store_id: str) -> bool:
         return await self._exists(store_id, database_name_for(store_id))
 
-    async def _connection_uri(self, store_id: str, name: str) -> str:
+    async def _connection_uri(
+        self, store_id: str, name: str, *, pooled: bool = True
+    ) -> str:
         response = await self._request(
             store_id,
             "GET",
@@ -256,7 +307,7 @@ class NeonDatabaseProvisioner:
                 "branch_id": self._branch,
                 "database_name": name,
                 "role_name": self._role,
-                "pooled": "true",
+                "pooled": "true" if pooled else "false",
             },
         )
         if response.status_code != 200:
@@ -281,10 +332,45 @@ class NeonDatabaseProvisioner:
             # 409: created concurrently, which is the state we want.
             if response.status_code not in (200, 201, 409):
                 raise self._fail(store_id, response)
-        return await self._connection_uri(store_id, name)
+        # DDL goes over the direct endpoint, never through the pooler.
+        admin_uri = await self._connection_uri(store_id, name, pooled=False)
+        password = new_role_password()
+        await self._run_admin(
+            store_id,
+            admin_uri,
+            lambda connection: apply_store_role(connection, name, name, password),
+        )
+        pooled_uri = await self._connection_uri(store_id, name)
+        return with_role(pooled_uri, name, password)
+
+    async def _run_admin(
+        self,
+        store_id: str,
+        admin_uri: str,
+        work: Callable[[AsyncConnection], Any],
+    ) -> None:
+        try:
+            async with self._admin_connection(admin_uri) as connection:
+                await work(connection)
+        except _ADMIN_ERRORS as exc:
+            logger.error(
+                "neon store role SQL failed: %s",
+                type(exc).__name__,
+                extra={"store_id": store_id},
+            )
+            raise ProvisioningFailed(store_id) from None
 
     async def delete_database(self, store_id: str) -> None:
         name = database_name_for(store_id)
+        if await self._exists(store_id, name):
+            # The store role owns the database; hand it back and drop the role while
+            # the database still exists to connect to.
+            admin_uri = await self._connection_uri(store_id, name, pooled=False)
+            await self._run_admin(
+                store_id,
+                admin_uri,
+                lambda connection: release_store_database(connection, name, name),
+            )
         response = await self._request(
             store_id, "DELETE", f"{self._databases_path}/{quote(name, safe='')}"
         )
@@ -298,8 +384,8 @@ def get_database_provisioner(
     """Provisioner chosen by ``settings.STORE_DB_PROVIDER`` ("local" or "neon").
 
     Raises ProvisionerNotConfigured when "neon" is selected without its variables, and
-    when "local" is selected outside local/test: the local provider hands every store
-    the platform role's credentials, so it is development only.
+    when "local" is selected outside local/test: the local provider administers store
+    roles as the platform role, on the platform's own server, so it is development only.
     ``engine`` defaults to the platform engine (imported lazily).
     """
     if settings.STORE_DB_PROVIDER == "local":
@@ -307,8 +393,9 @@ def get_database_provisioner(
             raise ProvisionerNotConfigured(
                 "local",
                 ("STORE_DB_PROVIDER",),
-                "the local provisioner is development only (it reuses the platform "
-                "role's credentials); set STORE_DB_PROVIDER=neon outside local and test",
+                "the local provisioner is development only (it administers store "
+                "roles as the platform role); set STORE_DB_PROVIDER=neon outside local "
+                "and test",
             )
         if engine is None:
             from app.core.database import engine as platform_engine

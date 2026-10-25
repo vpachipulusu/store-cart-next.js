@@ -13,7 +13,8 @@ Rules:
 
 * Idempotent: every step first checks the store is still ``PROVISIONING`` (a duplicate or
   late delivery is a no-op), the provisioner and the migration runner are idempotent, and
-  an existing connection string is never overwritten.
+  the string ``create_database`` returns always replaces the stored one: each call sets a
+  new password on the store's role (KAN-238), so the previous string no longer works.
 * Retries: a transient failure raises ``StepFailed``; the route answers 500 and QStash
   redelivers with backoff (a provider that is not configured yet is retried too). A
   permanent one (bad id, unusable encryption key) marks the store ``FAILED`` at once. When the retries run out QStash calls the failure callback,
@@ -353,11 +354,11 @@ class StepRunner:
             store = await _locked_provisioning_store(session, store_id)
             if store is None:
                 return
-            if store.connection_string_encrypted is None:
-                try:
-                    store_secrets.set_connection_string(store, connection_string)
-                except (StoreSecretUnavailable, ValueError):
-                    raise StepAbandoned from None
+            # Always replace: the call above rotated the store role's password.
+            try:
+                store_secrets.set_connection_string(store, connection_string)
+            except (StoreSecretUnavailable, ValueError):
+                raise StepAbandoned from None
             store.database_ref = database_name
             await session.commit()
 

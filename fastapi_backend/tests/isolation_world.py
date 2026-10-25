@@ -296,6 +296,9 @@ async def open_world(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[World]:
             await drop_databases(
                 server, [database_name_for(sid) for sid in built.provisioned]
             )
+            # KAN-238: each provisioned store also has its own role.
+            for sid in built.provisioned:
+                await built.provisioner.delete_database(sid)
 
         cleanup.push_async_callback(delete_store_databases)
         monkeypatch.setattr(store_secrets, "get_codec", lambda: built.codec)
