@@ -31,9 +31,9 @@ export function imageFileError(file: { type: string; size: number }): string | n
 }
 
 export const presignRequestSchema = z.object({
-  contentType: z.enum(IMAGE_CONTENT_TYPES, { errorMap: () => ({ message: WRONG_TYPE_MESSAGE }) }),
+  contentType: z.enum(IMAGE_CONTENT_TYPES, { error: WRONG_TYPE_MESSAGE }),
   sizeBytes: z
-    .number({ invalid_type_error: EMPTY_FILE_MESSAGE, required_error: EMPTY_FILE_MESSAGE })
+    .number({ error: EMPTY_FILE_MESSAGE })
     .int(EMPTY_FILE_MESSAGE)
     .min(1, EMPTY_FILE_MESSAGE)
     .max(MAX_IMAGE_BYTES, TOO_LARGE_MESSAGE),
@@ -41,7 +41,7 @@ export const presignRequestSchema = z.object({
 export type PresignRequest = z.infer<typeof presignRequestSchema>;
 
 /** Empty alt text means "none" (null); anything else is trimmed and must stay printable. */
-export const altTextSchema: z.ZodType<string | null, z.ZodTypeDef, unknown> = z.preprocess(
+export const altTextSchema: z.ZodType<string | null, unknown> = z.preprocess(
   (value) => value ?? '',
   z
     .string()

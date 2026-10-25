@@ -181,7 +181,7 @@ describe('profile actions', () => {
 
     expect(result).toEqual({
       success: false,
-      error: 'String must contain at most 500 character(s)',
+      error: 'Too big: expected string to have <=500 characters',
     });
     expect(mocks.patchProfile).not.toHaveBeenCalled();
   });
@@ -258,7 +258,7 @@ describe('settings actions', () => {
 
     expect(result).toEqual({
       success: false,
-      error: 'String must contain at least 2 character(s)',
+      error: 'Too small: expected string to have >=2 characters',
     });
     expect(mocks.patchSettings).not.toHaveBeenCalled();
   });
