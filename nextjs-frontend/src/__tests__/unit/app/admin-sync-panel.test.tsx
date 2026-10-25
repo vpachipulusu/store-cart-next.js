@@ -105,7 +105,8 @@ describe('SyncPanel', () => {
     await user.click(screen.getByRole('button', { name: /check against stripe/i }));
     await screen.findByText(/Read 5 Stripe subscriptions/);
 
-    await user.click(screen.getByRole('button', { name: /check against stripe/i }));
+    // The report can render before the async transition settles; wait for the button to come back.
+    await user.click(await screen.findByRole('button', { name: /check against stripe/i }));
 
     expect(screen.getByRole('button', { name: /checking/i })).toBeDisabled();
     finish({ success: false, error: 'Something went wrong.' });
