@@ -44,14 +44,16 @@ export const passwordSchema = z
 /**
  * Sign up validation schema
  */
-export const signUpSchema = z.object({
-  email: emailSchema,
-  password: passwordSchema,
-  confirmPassword: z.string(),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "Passwords don't match",
-  path: ['confirmPassword'],
-});
+export const signUpSchema = z
+  .object({
+    email: emailSchema,
+    password: passwordSchema,
+    confirmPassword: z.string(),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords don't match",
+    path: ['confirmPassword'],
+  });
 
 /**
  * Login validation schema
@@ -65,11 +67,11 @@ export const loginSchema = z.object({
  * Profile update validation schema
  */
 export const profileUpdateSchema = z.object({
-  displayName: z.string().max(100).optional(),
-  bio: z.string().max(500).optional(),
-  location: z.string().max(100).optional(),
-  website: z.string().url().optional().or(z.literal('')),
-  phoneNumber: z.string().max(20).optional(),
+  displayName: z.string().max(100, 'Display name must be 100 characters or fewer').optional(),
+  bio: z.string().max(500, 'Bio must be 500 characters or fewer').optional(),
+  location: z.string().max(100, 'Location must be 100 characters or fewer').optional(),
+  website: z.string().url('Must be a valid URL').optional().or(z.literal('')),
+  phoneNumber: z.string().max(20, 'Phone number must be 20 characters or fewer').optional(),
 });
 
 /**
@@ -78,6 +80,9 @@ export const profileUpdateSchema = z.object({
 export const userSettingsSchema = z.object({
   theme: z.enum(['light', 'dark', 'system']),
   emailNotifications: z.boolean(),
-  language: z.string().min(2).max(5),
+  language: z
+    .string()
+    .min(2, 'Language must be 2 to 5 characters')
+    .max(5, 'Language must be 2 to 5 characters'),
   timezone: z.string(),
 });

@@ -176,12 +176,12 @@ describe('profile actions', () => {
     expect(JSON.stringify(result)).not.toContain('JBSWY3DPEHPK3PXP');
   });
 
-  it('updateUserProfileAction pins the real zod validation message without calling the API', async () => {
+  it('updateUserProfileAction returns the schema length message without calling the API', async () => {
     const result = await updateUserProfileAction({ bio: 'x'.repeat(501) } as never);
 
     expect(result).toEqual({
       success: false,
-      error: 'Too big: expected string to have <=500 characters',
+      error: 'Bio must be 500 characters or fewer',
     });
     expect(mocks.patchProfile).not.toHaveBeenCalled();
   });
@@ -248,7 +248,7 @@ describe('settings actions', () => {
     expect(result.success).toBe(true);
   });
 
-  it('updateUserSettingsAction pins the real zod validation message', async () => {
+  it('updateUserSettingsAction returns the schema length message', async () => {
     const result = await updateUserSettingsAction({
       theme: 'dark',
       emailNotifications: true,
@@ -258,7 +258,7 @@ describe('settings actions', () => {
 
     expect(result).toEqual({
       success: false,
-      error: 'Too small: expected string to have >=2 characters',
+      error: 'Language must be 2 to 5 characters',
     });
     expect(mocks.patchSettings).not.toHaveBeenCalled();
   });
