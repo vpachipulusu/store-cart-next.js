@@ -15,6 +15,7 @@ from app.core.database import (
 )
 from app.core.rate_limit import DisabledRateLimiter, RateLimiter, UpstashRateLimiter
 from app.repositories.health import HealthRepository
+from app.services.email import DisabledEmailSender, EmailSender, ResendEmailSender
 from app.services.health import HealthService
 from app.services.media_uploads import (
     Boto3UploadSigner,
@@ -103,3 +104,27 @@ def get_media_upload_service() -> MediaUploadService:
             settings.R2_PUBLIC_BASE_URL,
         )
     return _media_upload_service
+
+
+_email_sender: EmailSender | None = None
+
+
+def get_email_sender() -> EmailSender:
+    """Resend when RESEND_API_KEY and EMAIL_FROM are set, else a no-op (KAN-62).
+
+    Tests override this dependency with a recording fake.
+    """
+    global _email_sender
+    if _email_sender is None:
+        key = settings.RESEND_API_KEY
+        if key is not None and settings.EMAIL_FROM:
+            _email_sender = ResendEmailSender(
+                key.get_secret_value(), settings.EMAIL_FROM
+            )
+        else:
+            if not settings.relaxed_environment:
+                logger.warning(
+                    "RESEND_API_KEY or EMAIL_FROM is not set: emails are disabled"
+                )
+            _email_sender = DisabledEmailSender()
+    return _email_sender

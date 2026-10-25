@@ -114,6 +114,16 @@ class Settings(BaseSettings):
     # Public origin the bucket is served from (custom domain or r2.dev), https only.
     R2_PUBLIC_BASE_URL: str | None = None
 
+    # Transactional email through Resend (KAN-62; KAN-81 reuses it). Without the key or the
+    # from address the sender is a no-op that logs "email disabled" (local, test).
+    RESEND_API_KEY: SecretStr | None = None
+    # A Resend verified sender, e.g. "StoreCart <team@storecart.com>".
+    EMAIL_FROM: str | None = None
+    # Public origin of the Next.js app, used to build links in emails (invitation accept
+    # links). https only, except http://localhost in local/test. Unset falls back to
+    # http://localhost:3000 in local/test; elsewhere invitations answer 503 until it is set.
+    APP_PUBLIC_URL: str | None = None
+
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
@@ -274,6 +284,40 @@ class Settings(BaseSettings):
                 "R2_PUBLIC_BASE_URL must be an https URL without query or fragment"
             )
         return self
+
+    @model_validator(mode="after")
+    def validate_app_public_url(self) -> "Settings":
+        if self.APP_PUBLIC_URL is None:
+            return self
+        parsed = urlparse(self.APP_PUBLIC_URL)
+        local = parsed.hostname in ("localhost", "127.0.0.1")
+        if (
+            parsed.scheme not in ("https", "http")
+            or (parsed.scheme == "http" and not (local and self.relaxed_environment))
+            or not parsed.hostname
+            or parsed.path not in ("", "/")
+            or parsed.query
+            or parsed.fragment
+            or parsed.username
+            or parsed.password
+        ):
+            raise ValueError(
+                "APP_PUBLIC_URL must be an https origin without path, credentials, "
+                "query or fragment"
+            )
+        return self
+
+    @property
+    def app_public_url(self) -> str | None:
+        """The app origin without a trailing slash; a localhost default in local/test only.
+
+        Vercel preview and development get no default: a localhost link emailed from a
+        deployed backend would reach a real person and open nothing.
+        """
+        if self.APP_PUBLIC_URL:
+            return self.APP_PUBLIC_URL.rstrip("/")
+        local = not self.VERCEL_ENV and self.ENVIRONMENT in LOCAL_ENVIRONMENTS
+        return "http://localhost:3000" if local else None
 
     @property
     def store_db_previous_keys(self) -> list[str]:
