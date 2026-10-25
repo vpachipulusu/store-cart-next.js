@@ -170,6 +170,8 @@ STORE_DB_PROVIDER                     # local (development only) or neon
 NEON_API_KEY, NEON_PROJECT_ID, NEON_BRANCH_ID, NEON_ROLE_NAME   # required when STORE_DB_PROVIDER=neon
 TOTP_ENCRYPTION_KEY                   # optional Fernet key for 2FA secrets
 BILLING_RETURN_URL_ORIGINS            # allowed origins for Stripe return URLs
+RESEND_API_KEY, EMAIL_FROM            # Resend email (set together); unset disables email (KAN-62)
+APP_PUBLIC_URL                        # https origin of the Next.js app for links in emails; required outside local/test to create invitations
 ```
 
 ## Testing Notes
