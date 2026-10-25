@@ -111,12 +111,24 @@ export async function getUserByIdAction(userId: string): Promise<AdminUserAction
 }
 
 const updateUserSchema = z.object({
-  displayName: z.string().max(100).nullable().optional(),
-  bio: z.string().max(500).nullable().optional(),
-  location: z.string().max(100).nullable().optional(),
-  website: z.string().max(255).nullable().optional(),
-  phoneNumber: z.string().max(32).nullable().optional(),
-  avatarUrl: z.string().max(2048).nullable().optional(),
+  displayName: z
+    .string()
+    .max(100, 'Display name must be 100 characters or fewer')
+    .nullable()
+    .optional(),
+  bio: z.string().max(500, 'Bio must be 500 characters or fewer').nullable().optional(),
+  location: z.string().max(100, 'Location must be 100 characters or fewer').nullable().optional(),
+  website: z.string().max(255, 'Website must be 255 characters or fewer').nullable().optional(),
+  phoneNumber: z
+    .string()
+    .max(32, 'Phone number must be 32 characters or fewer')
+    .nullable()
+    .optional(),
+  avatarUrl: z
+    .string()
+    .max(2048, 'Avatar URL must be 2048 characters or fewer')
+    .nullable()
+    .optional(),
 });
 
 /**
@@ -131,7 +143,7 @@ export async function updateUserAction(
   }
   const validation = updateUserSchema.safeParse(data);
   if (!validation.success) {
-    return { success: false, error: validation.error.errors[0].message };
+    return { success: false, error: validation.error.issues[0].message };
   }
 
   const fields = validation.data;
@@ -180,7 +192,7 @@ export async function grantAdminRoleAction(
   }
   const validation = grantAdminRoleSchema.safeParse(data);
   if (!validation.success) {
-    return { success: false, error: validation.error.errors[0].message };
+    return { success: false, error: validation.error.issues[0].message };
   }
 
   const result = await grantAdminRole(userId, validation.data);

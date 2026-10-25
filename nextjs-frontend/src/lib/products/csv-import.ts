@@ -65,7 +65,7 @@ export const csvFileSchema = z
   .custom<File>((value) => value instanceof File, NO_FILE_MESSAGE)
   .superRefine((file, context) => {
     const error = csvFileError(file);
-    if (error) context.addIssue({ code: z.ZodIssueCode.custom, message: error });
+    if (error) context.addIssue({ code: 'custom', message: error });
   });
 
 /** One problem from the backend: `row` is the spreadsheet row (header = 1), null for the whole file. */

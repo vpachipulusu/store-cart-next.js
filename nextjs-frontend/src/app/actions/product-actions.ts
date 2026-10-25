@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import type { ZodType, ZodTypeDef } from 'zod';
+import type { ZodType } from 'zod';
 import {
   addProductImage,
   addProductVariant,
@@ -66,7 +66,7 @@ function fail(error: string, fields?: Record<string, string>): ProductActionResp
   return { success: false, error, fieldErrors: fields };
 }
 
-function parse<T>(schema: ZodType<T, ZodTypeDef, unknown>, input: unknown) {
+function parse<T>(schema: ZodType<T, unknown>, input: unknown) {
   const parsed = schema.safeParse(input);
   return parsed.success
     ? ({ ok: true, value: parsed.data } as const)

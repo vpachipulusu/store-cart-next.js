@@ -203,7 +203,7 @@ export async function createCheckoutSessionAction(
 
     const validation = planChoiceSchema.safeParse({ tier, billingPeriod });
     if (!validation.success) {
-      return { success: false, error: validation.error.errors[0].message };
+      return { success: false, error: validation.error.issues[0].message };
     }
 
     // Return URLs are built on the server; clients cannot supply them (KAN-127). The backend also checks them
@@ -319,7 +319,7 @@ export async function updateSubscriptionAction(
 
     const validation = planChoiceSchema.safeParse({ tier, billingPeriod });
     if (!validation.success) {
-      return { success: false, error: validation.error.errors[0].message };
+      return { success: false, error: validation.error.issues[0].message };
     }
 
     const result = await changeBillingPlan(tier, billingPeriod);
@@ -444,7 +444,7 @@ export async function deletePaymentMethodAction(
     if (!(await getVerifiedUserId())) return UNAUTHORIZED;
 
     const validation = paymentMethodIdSchema.safeParse(paymentMethodId);
-    if (!validation.success) return { success: false, error: validation.error.errors[0].message };
+    if (!validation.success) return { success: false, error: validation.error.issues[0].message };
 
     const result = await deleteBillingPaymentMethod(validation.data);
     if (!result.success) return failure('Delete payment method error:', result.error);
@@ -463,7 +463,7 @@ export async function setDefaultPaymentMethodAction(
     if (!(await getVerifiedUserId())) return UNAUTHORIZED;
 
     const validation = paymentMethodIdSchema.safeParse(paymentMethodId);
-    if (!validation.success) return { success: false, error: validation.error.errors[0].message };
+    if (!validation.success) return { success: false, error: validation.error.issues[0].message };
 
     const result = await setDefaultBillingPaymentMethod(validation.data);
     if (!result.success) return failure('Set default payment method error:', result.error);

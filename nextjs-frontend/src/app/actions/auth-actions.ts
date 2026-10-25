@@ -65,7 +65,7 @@ export async function loginAction(email: string, password: string): Promise<Auth
     if (!validation.success) {
       return {
         success: false,
-        error: validation.error.errors[0].message,
+        error: validation.error.issues[0].message,
       };
     }
 
@@ -98,7 +98,7 @@ export async function signUpAction(
     if (!validation.success) {
       return {
         success: false,
-        error: validation.error.errors[0].message,
+        error: validation.error.issues[0].message,
       };
     }
 
