@@ -1,9 +1,13 @@
 """APP_PUBLIC_URL (KAN-62): the origin used for links in emails."""
 
+import logging
+
 import pytest
 from pydantic import ValidationError
 
+from app.api import deps
 from app.core.config import Settings
+from app.services.email import DisabledEmailSender
 
 
 @pytest.fixture(autouse=True)
@@ -19,17 +23,34 @@ def test_blank_counts_as_unset(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("key", "sender"),
-    [("re_test_placeholder", None), (None, "team@example.com"), ("  ", "x@y.z")],
+    ("key", "sender", "missing"),
+    [
+        ("re_test_placeholder", None, "EMAIL_FROM"),
+        ("re_test_placeholder", "  ", "EMAIL_FROM"),
+        (None, "team@example.com", "RESEND_API_KEY"),
+        ("  ", "x@y.z", "RESEND_API_KEY"),
+    ],
 )
-def test_resend_key_and_sender_are_set_together(monkeypatch, key, sender):
+def test_half_email_config_logs_an_error_and_disables_email(
+    monkeypatch, caplog, key, sender, missing
+):
     if key is not None:
         monkeypatch.setenv("RESEND_API_KEY", key)
     if sender is not None:
         monkeypatch.setenv("EMAIL_FROM", sender)
+    caplog.set_level(logging.ERROR, logger="storecart.config")
 
-    with pytest.raises(ValidationError, match="set together"):
-        Settings(_env_file=None)
+    settings = Settings(_env_file=None)  # no exception: startup continues
+    monkeypatch.setattr(deps, "settings", settings)
+    monkeypatch.setattr(deps, "_email_sender", None)
+
+    assert isinstance(deps.get_email_sender(), DisabledEmailSender)
+    [record] = [r for r in caplog.records if r.name == "storecart.config"]
+    assert record.levelno == logging.ERROR
+    assert record.getMessage() == (
+        f"{missing} is not set while the other email setting is: emails are disabled"
+    )
+    assert "re_test_placeholder" not in caplog.text
 
 
 @pytest.mark.parametrize(("key", "sender"), [("", ""), (None, None), ("", " ")])

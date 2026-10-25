@@ -114,8 +114,10 @@ class Settings(BaseSettings):
     # Public origin the bucket is served from (custom domain or r2.dev), https only.
     R2_PUBLIC_BASE_URL: str | None = None
 
-    # Transactional email through Resend (KAN-62; KAN-81 reuses it). Set both or neither
-    # (blank counts as unset); neither means a no-op sender that logs "email disabled".
+    # Transactional email through Resend (KAN-62; KAN-81 reuses it). Both set means Resend;
+    # otherwise (blank counts as unset) a no-op sender that logs "email disabled". Only one
+    # set is logged as an error at startup but never stops it: invitations still work
+    # with the link shown once.
     RESEND_API_KEY: SecretStr | None = None
     # A Resend verified sender, e.g. "StoreCart <team@storecart.com>".
     EMAIL_FROM: str | None = None
@@ -309,10 +311,15 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def validate_email_set_together(self) -> "Settings":
-        # Half a configuration would silently send nothing: refuse to start instead.
+    def warn_half_email_config(self) -> "Settings":
+        # Half a configuration sends nothing. Refusing to start would take the whole API
+        # down for an optional integration, so it is an error log (names only) instead.
         if (self.resend_api_key is None) != (self.email_from is None):
-            raise ValueError("RESEND_API_KEY and EMAIL_FROM must be set together")
+            missing = "RESEND_API_KEY" if self.resend_api_key is None else "EMAIL_FROM"
+            logging.getLogger("storecart.config").error(
+                "%s is not set while the other email setting is: emails are disabled",
+                missing,
+            )
         return self
 
     @property

@@ -48,7 +48,7 @@ invitation id and the user id only (never the email or the token).
 
 `app/services/email.py` holds the `EmailSender` protocol, `ResendEmailSender` (httpx to the Resend API) and
 `DisabledEmailSender`. `get_email_sender` in `app/api/deps.py` picks Resend when `RESEND_API_KEY` and
-`EMAIL_FROM` are set (set both or neither: one alone refuses to start; blank counts as unset), else the disabled sender, which logs "email disabled" and raises `EmailDisabled` (so the
+`EMAIL_FROM` are set (blank counts as unset; only one of the two is logged as an error at startup, names only, and email stays disabled: the API still starts and invitations work with the link shown once), else the disabled sender, which logs "email disabled" and raises `EmailDisabled` (so the
 create response says `email_sent: false`). Senders never log a
 recipient, subject or body. The subject is fixed and the organisation name in the body is one line of at most 80
 characters (merchant free text, phishing guard). The send has a 5 second total deadline (`asyncio.timeout`, httpx
