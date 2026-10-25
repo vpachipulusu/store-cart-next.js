@@ -63,7 +63,7 @@ npm run android:build    # Build and open in Android Studio
 uv run ruff check . && uv run ruff format --check .     # lint + format (CI runs both)
 uv run mypy                                              # blocking in CI
 uv run pytest --cov                                      # coverage ratchet in pyproject.toml
-uv run alembic upgrade head && uv run alembic check      # models must match migrations (head is 0005)
+uv run alembic upgrade head && uv run alembic check      # models must match migrations; one head per tree (`uv run alembic heads`, store tree: `-c alembic_store.ini`)
 uv run python -m commands.generate_openapi_schema        # writes ../nextjs-frontend/openapi.json; then npm run generate:client
 ```
 
@@ -95,7 +95,7 @@ Admin role verification cannot be done in the proxy (Firebase token verification
 
 ### Data Layer
 
-- **Platform data** (users, organisations, stores, billing) lives in the FastAPI platform database (SQLAlchemy async + Alembic, head 0005).
+- **Platform data** (users, organisations, stores, billing) lives in the FastAPI platform database (SQLAlchemy async + Alembic; platform tree `alembic_migrations/`, store tree `alembic_store/`, each with a single head).
 - **Store data**: each store has its own database. Connection strings are encrypted at rest (`app/services/store_secrets.py`), opened only through `get_store_session` (`app/services/store_sessions.py`), and created by a `DatabaseProvisioner` (`app/services/store_provisioning.py`; `STORE_DB_PROVIDER` is `local` for development only, `neon` otherwise). A ruff TID251 rule bans creating engines anywhere else.
 - **Prisma** (`src/lib/db/client.ts`) is legacy: files still import it until KAN-48/49/50/51 move them to the API. Add no new uses.
 - **Firebase Admin**: `src/lib/firebase/admin.ts` — import `adminAuth` (session verification only)
