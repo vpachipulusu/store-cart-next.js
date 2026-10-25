@@ -9307,6 +9307,30 @@
             }
           },
           {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
             "name": "X-Internal-Key",
             "in": "header",
             "required": false,
@@ -9381,14 +9405,14 @@
             }
           },
           "503": {
+            "description": "Rate limiter unavailable, or invitations not configured",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Service Unavailable"
+            }
           },
           "401": {
             "content": {
@@ -9529,14 +9553,14 @@
             }
           },
           "503": {
+            "description": "Rate limiter unavailable, or invitations not configured",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Service Unavailable"
+            }
           },
           "401": {
             "content": {
@@ -9685,14 +9709,14 @@
             }
           },
           "503": {
+            "description": "Rate limiter unavailable, or invitations not configured",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Service Unavailable"
+            }
           },
           "401": {
             "content": {
@@ -18775,11 +18799,26 @@
             },
             "type": "array",
             "title": "Data"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
           }
         },
         "type": "object",
         "required": [
-          "data"
+          "data",
+          "total",
+          "limit",
+          "offset"
         ],
         "title": "MemberListResponse"
       },

@@ -8,7 +8,7 @@ says to upgrade. Messages are built in `app/services/plan_limits.py` and hold no
 |---|---|---|---|
 | `max_stores` | organisation (archived stores do not count) | `OrganizationsService.create_store`, under the organisation row lock (KAN-45) | done |
 | `max_products` | **per store**, drafts included | `StoreProductsService.create` (`POST /v1/stores/{store_id}/products`) | done (KAN-84) |
-| `max_staff` | organisation, every membership counts (owner included) | `require_staff_capacity` in `plan_limits.py` | helper only, see below |
+| `max_staff` | organisation, every membership counts (owner included) | `InvitationsService` create and accept, under the organisation row lock (`require_staff_capacity`) | done (KAN-62) |
 
 ## Products
 
@@ -25,10 +25,18 @@ Response: `409 {"error": "The Free plan allows 25 products per store. Upgrade yo
 
 ## Staff
 
-No path adds members besides the owner row written with the organisation (a count of 0 against a minimum limit of 1), so
-nothing is enforced yet. The invitation flow (KAN-62) must, in the transaction that inserts the membership and under the
-organisation row lock (as `create_store` does), count memberships and call
-`require_staff_capacity(count, organization.effective_plan)`, then map `StaffLimitReached` to 409 with `str(error)`. The helper and its
-tests exist; the create path carries over to KAN-62.
+Invitations (KAN-62) are the only path that adds members besides the owner row written with the organisation. Both checks
+run under the organisation row lock, so concurrent requests cannot take the same seat:
 
-Tests: `tests/services/test_plan_limits.py`, `tests/api/test_products_plan_limit_e2e.py` (real Postgres, includes the concurrent case).
+- **Create** (`POST /v1/organizations/{id}/invitations`) counts members **plus open invitations** and calls
+  `require_staff_capacity(members + pending, organization.effective_plan)`. An open invitation holds a seat, so the plan
+  cannot be oversold by invitations that would all fail on accept. Re-inviting an address replaces its open invitation, so
+  it does not take a second seat.
+- **Accept** (`POST /v1/invitations/accept`) counts members only, in the transaction that inserts the membership. A refused
+  accept rolls back and leaves the invitation PENDING.
+
+`StaffLimitReached` maps to 409 with `str(error)` ("The Free plan allows 1 team member. ..."). A downgrade below the current
+count blocks new invitations and accepts but never removes members. See [backend team invitations](backend-team-invitations.md).
+
+Tests: `tests/services/test_plan_limits.py`, `tests/api/test_products_plan_limit_e2e.py` (real Postgres, includes the concurrent case),
+`tests/api/test_invitations_e2e.py` (staff limit on create and accept, concurrent creates and accepts).

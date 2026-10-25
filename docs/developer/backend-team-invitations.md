@@ -10,7 +10,7 @@ All need `X-Internal-Key` and a verified session, are rate limited by subject an
 
 | Route | Who | Notes |
 |---|---|---|
-| `GET /v1/organizations/{id}/members` | OWNER, ADMIN | Members with email, name and role. |
+| `GET /v1/organizations/{id}/members` | OWNER, ADMIN | Members with email, name and role; `limit` (default 50, max 100) and `offset`. |
 | `GET /v1/organizations/{id}/invitations` | OWNER, ADMIN | Pending, unexpired invitations. Never a token, hash or link. |
 | `POST /v1/organizations/{id}/invitations` | OWNER, ADMIN | `{email, role}` with role `ADMIN` or `STAFF` (OWNER is a 422). Returns the accept link once, plus `email_sent`. Extra `invitation` budget: 20 per hour per user, fail closed. |
 | `POST /v1/invitations/accept` | any signed-in user | `{token}` in the body (never a GET, so link prefetchers cannot spend it). |
@@ -24,31 +24,35 @@ STAFF gets 403 and a non-member 404 on the organisation routes.
   or written to the audit log.
 - An invitation expires 7 days after creation. Expired PENDING rows are marked `EXPIRED` when the same
   organisation next creates an invitation; a new invitation for that email can then be sent.
-- One open invitation per email per organisation (409), at most 50 open per organisation (409), and the
+- Inviting an address that already has an open invitation supersedes it (the old row is REVOKED and a new link is
+  issued, same transaction, same lock), so a lost link never locks an address out. At most 50 open per organisation (409), and the
   staff limit of the plan is checked on create (members plus open invitations, so the plan cannot be
   oversold) and again on accept (members only) (409 with the plan message).
 
 ## Accept
 
-One transaction under the organisation row lock (`SELECT ... FOR UPDATE`):
+Emails are compared in one canonical form (`canonical_email`: trimmed, lower-case), which is also the form invitations
+are stored in. Before the lock, a cheap pre-check refuses an unknown, used, revoked or expired token (410) and a session
+email that does not match (403). Then one transaction under the organisation row lock (`SELECT ... FOR UPDATE`):
 
 1. `UPDATE invitations SET status='ACCEPTED', accepted_at=:now WHERE token_hash=:h AND status='PENDING'
-   AND expires_at > :now AND lower(email) = lower(:session_email) RETURNING *`. Of two concurrent accepts
-   only one sees PENDING; the other gets 410.
+   AND expires_at > :now AND email = :canonical_session_email RETURNING *`. This is the authority: of two
+   concurrent accepts only one sees PENDING; the other gets 410.
 2. The caller must not already be a member (409), then the staff limit (409).
 3. Insert the membership with the invited role and an `invitation.accept` audit row.
 
-Any refusal rolls the transaction back, so the invitation stays PENDING. The session email (verified, from
-Firebase) must match the invited email case-insensitively, else 403 "sent to a different email address".
-Used, revoked, expired and unknown tokens all get 410.
+Any refusal rolls the transaction back, so the invitation stays PENDING. Refusals are logged with the cause, the
+invitation id and the user id only (never the email or the token).
 
 ## Email
 
 `app/services/email.py` holds the `EmailSender` protocol, `ResendEmailSender` (httpx to the Resend API) and
 `DisabledEmailSender`. `get_email_sender` in `app/api/deps.py` picks Resend when `RESEND_API_KEY` and
-`EMAIL_FROM` are set, else the disabled sender, which logs "email disabled" and raises `EmailDisabled` (so the
+`EMAIL_FROM` are set (set both or neither: one alone refuses to start; blank counts as unset), else the disabled sender, which logs "email disabled" and raises `EmailDisabled` (so the
 create response says `email_sent: false`). Senders never log a
-recipient, subject or body. If sending fails the invitation still exists and the response has
+recipient, subject or body. The subject is fixed and the organisation name in the body is one line of at most 80
+characters (merchant free text, phishing guard). The send has a 5 second total deadline (`asyncio.timeout`, httpx
+connect 2 s). If sending fails the invitation still exists and the response has
 `email_sent: false`, so the inviter can copy the link.
 
 ## Frontend

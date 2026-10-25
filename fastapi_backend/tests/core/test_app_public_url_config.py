@@ -8,8 +8,50 @@ from app.core.config import Settings
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
-    monkeypatch.delenv("APP_PUBLIC_URL", raising=False)
-    monkeypatch.delenv("VERCEL_ENV", raising=False)
+    for name in ("APP_PUBLIC_URL", "VERCEL_ENV", "RESEND_API_KEY", "EMAIL_FROM"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_blank_counts_as_unset(monkeypatch):
+    monkeypatch.setenv("APP_PUBLIC_URL", "")
+
+    assert Settings(_env_file=None).app_public_url == "http://localhost:3000"
+
+
+@pytest.mark.parametrize(
+    ("key", "sender"),
+    [("re_test_placeholder", None), (None, "team@example.com"), ("  ", "x@y.z")],
+)
+def test_resend_key_and_sender_are_set_together(monkeypatch, key, sender):
+    if key is not None:
+        monkeypatch.setenv("RESEND_API_KEY", key)
+    if sender is not None:
+        monkeypatch.setenv("EMAIL_FROM", sender)
+
+    with pytest.raises(ValidationError, match="set together"):
+        Settings(_env_file=None)
+
+
+@pytest.mark.parametrize(("key", "sender"), [("", ""), (None, None), ("", " ")])
+def test_email_unset_or_blank_means_disabled(monkeypatch, key, sender):
+    if key is not None:
+        monkeypatch.setenv("RESEND_API_KEY", key)
+    if sender is not None:
+        monkeypatch.setenv("EMAIL_FROM", sender)
+
+    settings = Settings(_env_file=None)
+
+    assert (settings.resend_api_key, settings.email_from) == (None, None)
+
+
+def test_email_configured(monkeypatch):
+    monkeypatch.setenv("RESEND_API_KEY", "re_test_placeholder")
+    monkeypatch.setenv("EMAIL_FROM", " StoreCart <team@example.com> ")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.resend_api_key == "re_test_placeholder"
+    assert settings.email_from == "StoreCart <team@example.com>"
 
 
 def test_unset_falls_back_to_localhost_in_test():

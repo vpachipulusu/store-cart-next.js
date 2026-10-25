@@ -114,8 +114,8 @@ class Settings(BaseSettings):
     # Public origin the bucket is served from (custom domain or r2.dev), https only.
     R2_PUBLIC_BASE_URL: str | None = None
 
-    # Transactional email through Resend (KAN-62; KAN-81 reuses it). Without the key or the
-    # from address the sender is a no-op that logs "email disabled" (local, test).
+    # Transactional email through Resend (KAN-62; KAN-81 reuses it). Set both or neither
+    # (blank counts as unset); neither means a no-op sender that logs "email disabled".
     RESEND_API_KEY: SecretStr | None = None
     # A Resend verified sender, e.g. "StoreCart <team@storecart.com>".
     EMAIL_FROM: str | None = None
@@ -287,7 +287,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_app_public_url(self) -> "Settings":
-        if self.APP_PUBLIC_URL is None:
+        # Blank (APP_PUBLIC_URL= in an env file) counts as unset.
+        if not self.APP_PUBLIC_URL:
             return self
         parsed = urlparse(self.APP_PUBLIC_URL)
         local = parsed.hostname in ("localhost", "127.0.0.1")
@@ -306,6 +307,25 @@ class Settings(BaseSettings):
                 "query or fragment"
             )
         return self
+
+    @model_validator(mode="after")
+    def validate_email_set_together(self) -> "Settings":
+        # Half a configuration would silently send nothing: refuse to start instead.
+        if (self.resend_api_key is None) != (self.email_from is None):
+            raise ValueError("RESEND_API_KEY and EMAIL_FROM must be set together")
+        return self
+
+    @property
+    def resend_api_key(self) -> str | None:
+        """The Resend key, or None when unset or blank."""
+        if self.RESEND_API_KEY is None:
+            return None
+        key = self.RESEND_API_KEY.get_secret_value().strip()
+        return key or None
+
+    @property
+    def email_from(self) -> str | None:
+        return (self.EMAIL_FROM or "").strip() or None
 
     @property
     def app_public_url(self) -> str | None:

@@ -17,7 +17,8 @@ import httpx
 logger = logging.getLogger("storecart.email")
 
 RESEND_API_URL = "https://api.resend.com/emails"
-REQUEST_TIMEOUT_SECONDS = 10.0
+# Connect fast or give up; callers also bound the whole send (invitations: 5 s).
+REQUEST_TIMEOUT = httpx.Timeout(5.0, connect=2.0)
 
 
 @dataclass(frozen=True)
@@ -77,7 +78,7 @@ class ResendEmailSender:
                 "text": message.text,
                 "html": message.html,
             },
-            timeout=REQUEST_TIMEOUT_SECONDS,
+            timeout=REQUEST_TIMEOUT,
         )
         return response.status_code
 

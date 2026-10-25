@@ -112,19 +112,19 @@ _email_sender: EmailSender | None = None
 def get_email_sender() -> EmailSender:
     """Resend when RESEND_API_KEY and EMAIL_FROM are set, else a no-op (KAN-62).
 
+    Blank values count as unset; the settings refuse to start with only one of the two.
     Tests override this dependency with a recording fake.
     """
     global _email_sender
     if _email_sender is None:
-        key = settings.RESEND_API_KEY
-        if key is not None and settings.EMAIL_FROM:
-            _email_sender = ResendEmailSender(
-                key.get_secret_value(), settings.EMAIL_FROM
-            )
+        key = settings.resend_api_key
+        sender = settings.email_from
+        if key is not None and sender is not None:
+            _email_sender = ResendEmailSender(key, sender)
         else:
             if not settings.relaxed_environment:
                 logger.warning(
-                    "RESEND_API_KEY or EMAIL_FROM is not set: emails are disabled"
+                    "RESEND_API_KEY and EMAIL_FROM are not set: emails are disabled"
                 )
             _email_sender = DisabledEmailSender()
     return _email_sender

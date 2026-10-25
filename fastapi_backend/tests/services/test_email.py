@@ -121,13 +121,33 @@ def test_sender_is_disabled_without_configuration(monkeypatch, fresh_sender):
     assert isinstance(deps.get_email_sender(), DisabledEmailSender)
 
 
-def test_sender_is_disabled_without_from_address(monkeypatch, fresh_sender, caplog):
-    monkeypatch.setattr(deps.settings, "RESEND_API_KEY", SecretStr(API_KEY))
-    monkeypatch.setattr(deps.settings, "EMAIL_FROM", None)
+@pytest.mark.parametrize(("key", "sender"), [("", "team@example.com"), (API_KEY, " ")])
+def test_sender_is_disabled_with_a_blank_value(
+    monkeypatch, fresh_sender, caplog, key, sender
+):
+    monkeypatch.setattr(deps.settings, "RESEND_API_KEY", SecretStr(key))
+    monkeypatch.setattr(deps.settings, "EMAIL_FROM", sender)
     monkeypatch.setattr(deps.settings, "ENVIRONMENT", "production")
 
     assert isinstance(deps.get_email_sender(), DisabledEmailSender)
     assert "emails are disabled" in caplog.text
+
+
+async def test_resend_request_has_a_short_timeout():
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={})
+
+    await sender_with(handler).send(MESSAGE)
+
+    assert seen[0].extensions["timeout"] == {
+        "connect": 2.0,
+        "read": 5.0,
+        "write": 5.0,
+        "pool": 5.0,
+    }
 
 
 def test_sender_uses_resend_when_configured(monkeypatch, fresh_sender):

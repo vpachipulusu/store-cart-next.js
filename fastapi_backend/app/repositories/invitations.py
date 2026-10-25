@@ -2,7 +2,8 @@
 
 Only ``token_hash`` is ever stored or read; no method takes or returns a raw token, and
 ``InvitationRecord`` has no hash field, so a record can be returned to a caller as is.
-Comparisons on ``email`` are case-insensitive; new invitations store it lower-cased.
+Emails arrive canonical (``canonical_email`` in the service), the form invitations are
+stored in; user emails are lower-cased in the query, since they may not be.
 """
 
 from dataclasses import dataclass
@@ -58,7 +59,10 @@ def _pending(organization_id: str, now: datetime) -> tuple[ColumnElement[bool], 
 
 
 class InvitationsRepository(BaseRepository):
-    async def list_members(self, organization_id: str) -> list[MemberRecord]:
+    async def list_members(
+        self, organization_id: str, limit: int, offset: int
+    ) -> tuple[list[MemberRecord], int]:
+        total = await self.count_members(organization_id)
         rows = (
             await self._session.execute(
                 select(
@@ -71,9 +75,11 @@ class InvitationsRepository(BaseRepository):
                 .join(Membership, Membership.user_id == User.id)
                 .where(Membership.organization_id == organization_id)
                 .order_by(Membership.created_at, Membership.id)
+                .limit(limit)
+                .offset(offset)
             )
         ).all()
-        return [MemberRecord(*row) for row in rows]
+        return [MemberRecord(*row) for row in rows], total
 
     async def count_members(self, organization_id: str) -> int:
         return (
@@ -85,13 +91,14 @@ class InvitationsRepository(BaseRepository):
         ).scalar_one()
 
     async def is_member_email(self, organization_id: str, email: str) -> bool:
+        """``email`` is canonical (lower-case); stored user emails may not be."""
         found = (
             await self._session.execute(
                 select(Membership.id)
                 .join(User, User.id == Membership.user_id)
                 .where(
                     Membership.organization_id == organization_id,
-                    func.lower(User.email) == email.lower(),
+                    func.lower(User.email) == email,
                 )
                 .limit(1)
             )
@@ -119,20 +126,19 @@ class InvitationsRepository(BaseRepository):
             )
         ).scalar_one()
 
-    async def has_pending_for(
-        self, organization_id: str, email: str, now: datetime
-    ) -> bool:
-        found = (
-            await self._session.execute(
-                select(Invitation.id)
-                .where(
-                    *_pending(organization_id, now),
-                    func.lower(Invitation.email) == email.lower(),
-                )
-                .limit(1)
+    async def revoke_pending_for(self, organization_id: str, email: str) -> int:
+        """Revoke the open invitations for ``email`` (canonical); how many there were."""
+        result = await self._session.execute(
+            update(Invitation)
+            .where(
+                Invitation.organization_id == organization_id,
+                Invitation.status == InvitationStatus.PENDING,
+                Invitation.email == email,
             )
-        ).scalar_one_or_none()
-        return found is not None
+            .values(status=InvitationStatus.REVOKED)
+            .returning(Invitation.id)
+        )
+        return len(result.all())
 
     async def expire_stale(self, organization_id: str, now: datetime) -> None:
         """Mark PENDING invitations whose time has passed as EXPIRED."""
@@ -184,7 +190,7 @@ class InvitationsRepository(BaseRepository):
     async def claim(
         self, token_hash: str, email: str, now: datetime
     ) -> InvitationRecord | None:
-        """Spend a PENDING, unexpired invitation for ``email``; None when it cannot be.
+        """Spend a PENDING, unexpired invitation for ``email`` (canonical); else None.
 
         One conditional UPDATE: of two concurrent claims only one sees PENDING.
         """
@@ -195,7 +201,7 @@ class InvitationsRepository(BaseRepository):
                     Invitation.token_hash == token_hash,
                     Invitation.status == InvitationStatus.PENDING,
                     Invitation.expires_at > now,
-                    func.lower(Invitation.email) == email.lower(),
+                    Invitation.email == email,
                 )
                 .values(status=InvitationStatus.ACCEPTED, accepted_at=now)
                 .returning(Invitation)

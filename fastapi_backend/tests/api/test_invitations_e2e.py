@@ -27,21 +27,25 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
+from app.api import deps
 from app.api.auth import get_session_identity
-from app.api.deps import SessionDep, get_session_provider
+from app.api.deps import SessionDep, get_rate_limiter, get_session_provider
 from app.api.v1.invitations import get_invitations_service
 from app.core.database import DefaultSessionProvider, build_engine
 from app.core.firebase import VerifiedIdentity
 from app.core.ids import new_id
+from app.core.rate_limit import RateLimiter
 from app.main import create_app
 from app.repositories.invitations import InvitationsRepository
 from app.repositories.organizations import OrganizationsRepository
+from app.services import invitations as invitations_service
 from app.services.email import (
     DisabledEmailSender,
     EmailDeliveryFailed,
     EmailMessage,
 )
-from app.services.invitations import InvitationsService
+from app.services.invitations import EMAIL_SUBJECT, InvitationsService
+from tests.fakes import FakeRateLimiter, RaisingRateLimiter, as_limiter
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -104,8 +108,14 @@ class RecordingSender:
     def __init__(self) -> None:
         self.sent: list[EmailMessage] = []
         self.fail = False
+        self.crash = False
+        self.delay = 0.0
 
     async def send(self, message: EmailMessage) -> None:
+        if self.delay:
+            await asyncio.sleep(self.delay)
+        if self.crash:
+            raise RuntimeError("provider exploded")
         if self.fail:
             raise EmailDeliveryFailed
         self.sent.append(message)
@@ -117,6 +127,7 @@ class World:
         self.clock = Clock()
         self.sender: RecordingSender | DisabledEmailSender = RecordingSender()
         self.app_url: str | None = APP_URL
+        self.limiter: FakeRateLimiter | RaisingRateLimiter | None = None
 
 
 @pytest.fixture
@@ -151,8 +162,12 @@ async def client(world: World) -> AsyncIterator[AsyncClient]:
             clock=world.clock,
         )
 
+    def limiter() -> RateLimiter:
+        return as_limiter(world.limiter) if world.limiter else get_rate_limiter()
+
     app.dependency_overrides[get_session_identity] = identity
     app.dependency_overrides[get_invitations_service] = service
+    app.dependency_overrides[get_rate_limiter] = limiter
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     async with AsyncClient(
         transport=transport, base_url="http://test", headers={"X-Internal-Key": KEY}
@@ -271,6 +286,8 @@ async def test_owner_and_admin_invite_by_email(client, world, inviter):
     assert LINK.match(data["accept_url"])
     [message] = world.sender.sent
     assert message.to == "new@example.com"
+    assert message.subject == EMAIL_SUBJECT
+    assert "Acme" not in message.subject
     assert data["accept_url"] in message.text
     assert "Acme &lt;b&gt;Shop&lt;/b&gt;" in message.html
 
@@ -344,13 +361,62 @@ async def test_inviting_an_existing_member_is_409(client, world):
     assert error_of(response) == "Already a member of this organization"
 
 
-async def test_second_pending_invitation_for_one_email_is_409(client, world):
+async def test_reinvite_supersedes_the_open_invitation(client, world):
     org_id = await seed_org(world.engine, {"owner": "OWNER"})
-    await invite(client, org_id, "new@example.com")
+    first = token_of(await invite(client, org_id, "new@example.com"))
+    await seed_user(world.engine, "new")
 
-    response = await invite(client, org_id, "NEW@example.com")
+    response = await invite(client, org_id, "NEW@example.com", role="ADMIN")
 
-    assert response.status_code == 409
+    assert response.status_code == 201
+    second = token_of(response)
+    statuses = await scalar(
+        world.engine,
+        "SELECT string_agg(status, ',' ORDER BY created_at) FROM invitations",
+    )
+    assert statuses == "REVOKED,PENDING"
+    assert (await accept(client, first, "new")).status_code == 410
+    accepted = await accept(client, second, "new")
+    assert accepted.json()["data"]["role"] == "ADMIN"
+    superseded = await scalar(
+        world.engine,
+        "SELECT metadata->'after'->>'superseded' FROM audit_logs "
+        "WHERE action = 'invitation.create' ORDER BY created_at DESC LIMIT 1",
+    )
+    assert superseded == "1"
+
+
+async def test_concurrent_invites_to_one_address_leave_one_open(client, world):
+    org_id = await seed_org(world.engine, {"owner": "OWNER"}, tier="enterprise")
+
+    responses = await asyncio.gather(
+        *(invite(client, org_id, "new@example.com") for _ in range(5))
+    )
+
+    assert [r.status_code for r in responses] == [201] * 5
+    pending = await scalar(
+        world.engine, "SELECT count(*) FROM invitations WHERE status = 'PENDING'"
+    )
+    revoked = await scalar(
+        world.engine, "SELECT count(*) FROM invitations WHERE status = 'REVOKED'"
+    )
+    assert (pending, revoked) == (1, 4)
+
+
+async def test_concurrent_invites_cannot_share_the_last_seat(client, world):
+    org_id = await seed_org(
+        world.engine,
+        {"owner": "OWNER", "m1": "STAFF", "m2": "STAFF", "m3": "STAFF"},
+    )
+
+    # Pro allows 5: four members leave one seat for two invitations racing for it.
+    responses = await asyncio.gather(
+        invite(client, org_id, "a@example.com"),
+        invite(client, org_id, "b@example.com"),
+    )
+
+    assert sorted(r.status_code for r in responses) == [201, 409]
+    assert await scalar(world.engine, "SELECT count(*) FROM invitations") == 1
 
 
 async def test_expired_invitation_can_be_replaced(client, world):
@@ -437,10 +503,86 @@ async def test_create_is_audited_without_email_or_token(client, world):
 
     response = await invite(client, org_id, "new@example.com", role="ADMIN")
 
-    action = await scalar(world.engine, "SELECT action FROM audit_logs")
-    resource_id = await scalar(world.engine, "SELECT resource_id FROM audit_logs")
-    assert action == "invitation.create"
-    assert resource_id == response.json()["data"]["id"]
+    data = response.json()["data"]
+    async with world.engine.connect() as connection:
+        row = (
+            await connection.execute(
+                text(
+                    "SELECT action, resource, resource_id, organization_id, metadata "
+                    "FROM audit_logs"
+                )
+            )
+        ).one()
+    assert row.action == "invitation.create"
+    assert row.resource == "invitation"
+    assert row.resource_id == data["id"]
+    assert row.organization_id == org_id
+    assert row.metadata["after"] == {
+        "role": "ADMIN",
+        "expires_at": datetime.fromisoformat(data["expires_at"]).isoformat(),
+        "superseded": 0,
+    }
+    assert isinstance(row.metadata["request_id"], str)
+    assert "new@example.com" not in str(row.metadata)
+    assert token_of(response) not in str(row.metadata)
+
+
+async def test_slow_email_times_out_and_reports_not_sent(client, world, monkeypatch):
+    monkeypatch.setattr(invitations_service, "SEND_TIMEOUT_SECONDS", 0.05)
+    org_id = await seed_org(world.engine, {"owner": "OWNER"})
+    world.sender.delay = 1.0  # type: ignore[union-attr]
+
+    response = await invite(client, org_id, "new@example.com")
+
+    assert response.status_code == 201
+    assert response.json()["data"]["email_sent"] is False
+
+
+async def test_crashing_email_is_reported_without_the_link(
+    client, world, monkeypatch, caplog
+):
+    reported: list[BaseException] = []
+    monkeypatch.setattr(invitations_service, "report_exception", reported.append)
+    org_id = await seed_org(world.engine, {"owner": "OWNER"})
+    world.sender.crash = True  # type: ignore[union-attr]
+    caplog.set_level(logging.DEBUG)
+
+    response = await invite(client, org_id, "new@example.com")
+
+    assert response.status_code == 201
+    assert response.json()["data"]["email_sent"] is False
+    assert [type(exc) for exc in reported] == [RuntimeError]
+    assert "invitation email crashed" in caplog.text
+    assert token_of(response) not in caplog.text
+    assert "new@example.com" not in caplog.text
+
+
+async def test_the_21st_invitation_in_an_hour_is_429(client, world):
+    org_id = await seed_org(world.engine, {"owner": "OWNER"}, tier="enterprise")
+    world.limiter = FakeRateLimiter()
+
+    codes = [
+        (await invite(client, org_id, f"user{n}@example.com")).status_code
+        for n in range(21)
+    ]
+
+    assert codes[:20] == [201] * 20
+    assert codes[20] == 429
+
+
+async def test_invitations_fail_closed_when_the_limiter_is_down(client, world):
+    org_id = await seed_org(world.engine, {"owner": "OWNER"})
+    world.limiter = RaisingRateLimiter()
+
+    response = await invite(client, org_id, "new@example.com")
+    listed = await client.get(
+        f"/v1/organizations/{org_id}/invitations", headers=as_user("owner")
+    )
+
+    assert response.status_code == 503
+    assert await scalar(world.engine, "SELECT count(*) FROM invitations") == 0
+    # Reads stay on the fail-open api policy.
+    assert listed.status_code == 200
 
 
 async def test_the_link_is_never_logged(client, world, caplog):
@@ -456,6 +598,33 @@ async def test_the_link_is_never_logged(client, world, caplog):
 
 
 # --- list ---------------------------------------------------------------------
+
+
+async def test_members_are_paginated(client, world):
+    org_id = await seed_org(
+        world.engine, {"owner": "OWNER", "admin": "ADMIN", "staff": "STAFF"}
+    )
+
+    pages = [
+        (
+            await client.get(
+                f"/v1/organizations/{org_id}/members?limit=2&offset={offset}",
+                headers=as_user("owner"),
+            )
+        ).json()
+        for offset in (0, 2)
+    ]
+
+    assert [(p["total"], p["limit"], p["offset"]) for p in pages] == [
+        (3, 2, 0),
+        (3, 2, 2),
+    ]
+    emails = [m["email"] for p in pages for m in p["data"]]
+    assert sorted(emails) == [
+        "admin@example.com",
+        "owner@example.com",
+        "staff@example.com",
+    ]
 
 
 async def test_lists_members_for_owner_and_admin(client, world):
@@ -717,3 +886,33 @@ async def test_concurrent_accepts_respect_the_staff_limit(client, world):
 
     assert sorted(r.status_code for r in responses) == [200, 200, 200, 200, 409]
     assert await scalar(world.engine, "SELECT count(*) FROM memberships") == 5
+
+
+# --- real wiring ----------------------------------------------------------------
+
+
+async def test_default_wiring_creates_with_email_disabled(world, monkeypatch):
+    """No service or sender override: the app's own dependencies (test settings)."""
+    monkeypatch.setattr(deps, "_email_sender", None)
+    org_id = await seed_org(world.engine, {"owner": "OWNER"})
+    app = create_app()
+    provider = DefaultSessionProvider(
+        async_sessionmaker(world.engine, expire_on_commit=False)
+    )
+    app.dependency_overrides[get_session_provider] = lambda: provider
+    app.dependency_overrides[get_session_identity] = lambda: VerifiedIdentity(
+        "fb-owner", "owner@example.com", True, int(time.time())
+    )
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    async with AsyncClient(
+        transport=transport, base_url="http://test", headers={"X-Internal-Key": KEY}
+    ) as http:
+        response = await http.post(
+            f"/v1/organizations/{org_id}/invitations",
+            json={"email": "new@example.com", "role": "STAFF"},
+        )
+
+    assert response.status_code == 201
+    data = response.json()["data"]
+    assert data["email_sent"] is False
+    assert data["accept_url"].startswith("http://localhost:3000/invite/")

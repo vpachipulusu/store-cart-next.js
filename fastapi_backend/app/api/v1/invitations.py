@@ -12,7 +12,7 @@ import logging
 from datetime import datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.api.auth import require_internal_key
@@ -32,11 +32,11 @@ from app.services.invitations import (
     AlreadyMember,
     InvalidEmail,
     InvalidInvitationRole,
-    InvitationAlreadyPending,
     InvitationEmailMismatch,
     InvitationInvalid,
     InvitationsService,
     InvitationsUnavailable,
+    MemberPage,
     TooManyPendingInvitations,
 )
 from app.services.organizations import OrganizationNotFound, OrgForbidden
@@ -59,7 +59,13 @@ router = APIRouter(
         Depends(require_internal_key),
         Depends(limit_by_subject(API_POLICY, current_subject)),
     ],
-    responses={**COMMON_RESPONSES, 503: {"model": ErrorResponse}},
+    responses={
+        **COMMON_RESPONSES,
+        503: {
+            "model": ErrorResponse,
+            "description": "Rate limiter unavailable, or invitations not configured",
+        },
+    },
 )
 
 accept_router = APIRouter(
@@ -75,6 +81,10 @@ accept_router = APIRouter(
 OrganizationId = Annotated[
     str, Path(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
 ]
+DEFAULT_MEMBER_PAGE = 50
+MAX_MEMBER_PAGE = 100
+LimitParam = Annotated[int, Query(ge=1, le=MAX_MEMBER_PAGE)]
+OffsetParam = Annotated[int, Query(ge=0, le=100_000)]
 
 
 class MemberData(BaseModel):
@@ -88,6 +98,9 @@ class MemberData(BaseModel):
 class MemberListResponse(BaseModel):
     success: Literal[True] = True
     data: list[MemberData]
+    total: int
+    limit: int
+    offset: int
 
 
 class InvitationData(BaseModel):
@@ -159,7 +172,6 @@ HANDLED = (
     InvalidInvitationRole,
     InvalidEmail,
     AlreadyMember,
-    InvitationAlreadyPending,
     TooManyPendingInvitations,
     StaffLimitReached,
     InvitationInvalid,
@@ -167,21 +179,21 @@ HANDLED = (
     InvitationsUnavailable,
 )
 
-MESSAGES: dict[type[Exception], tuple[int, str]] = {
-    OrganizationNotFound: (404, "Organization not found"),
-    OrgForbidden: (403, "Forbidden"),
-    InvalidInvitationRole: (422, "Role cannot be invited"),
-    InvalidEmail: (422, "Invalid email address"),
-    AlreadyMember: (409, "Already a member of this organization"),
-    InvitationAlreadyPending: (409, "An invitation is already pending for this email"),
-    TooManyPendingInvitations: (409, "Too many pending invitations"),
-    InvitationInvalid: (410, "This invitation is invalid or has expired"),
-    InvitationEmailMismatch: (
+MESSAGES: tuple[tuple[type[Exception], int, str], ...] = (
+    (OrganizationNotFound, 404, "Organization not found"),
+    (OrgForbidden, 403, "Forbidden"),
+    (InvalidInvitationRole, 422, "Role cannot be invited"),
+    (InvalidEmail, 422, "Invalid email address"),
+    (AlreadyMember, 409, "Already a member of this organization"),
+    (TooManyPendingInvitations, 409, "Too many pending invitations"),
+    (InvitationInvalid, 410, "This invitation is invalid or has expired"),
+    (
+        InvitationEmailMismatch,
         403,
         "This invitation was sent to a different email address",
     ),
-    InvitationsUnavailable: (503, "Service temporarily unavailable"),
-}
+    (InvitationsUnavailable, 503, "Service temporarily unavailable"),
+)
 
 
 def http_error(exc: Exception) -> HTTPException:
@@ -189,10 +201,16 @@ def http_error(exc: Exception) -> HTTPException:
     if isinstance(exc, StaffLimitReached):
         error = HTTPException(409, str(exc))
     else:
-        status, message = MESSAGES[type(exc)]
+        status, message = next(
+            (status, message)
+            for kind, status, message in MESSAGES
+            if isinstance(exc, kind)
+        )
         error = HTTPException(status, message)
-    # Class and status only: never the email, the token or the link.
-    logger.info(
+    # Class and status only: never the email, the token or the link. A missing app URL
+    # is an operator problem, so it is a warning.
+    logger.log(
+        logging.WARNING if isinstance(exc, InvitationsUnavailable) else logging.INFO,
         "team request refused: cause=%s status=%s",
         type(exc).__name__,
         error.status_code,
@@ -225,14 +243,21 @@ async def list_members(
     response: Response,
     user_id: CurrentUserIdDep,
     service: ServiceDep,
+    limit: LimitParam = DEFAULT_MEMBER_PAGE,
+    offset: OffsetParam = 0,
 ) -> MemberListResponse:
     no_store(response)
     try:
-        members = await service.list_members(organization_id, user_id)
+        page: MemberPage = await service.list_members(
+            organization_id, user_id, limit, offset
+        )
     except HANDLED as exc:
         raise http_error(exc) from None
     return MemberListResponse(
-        data=[MemberData.model_validate(m, from_attributes=True) for m in members]
+        data=[MemberData.model_validate(m, from_attributes=True) for m in page.items],
+        total=page.total,
+        limit=page.limit,
+        offset=page.offset,
     )
 
 
@@ -277,7 +302,7 @@ async def create_invitation(
             organization_id,
             user_id,
             email=body.email,
-            role=MembershipRole(body.role),
+            role=body.role,
             request_id=request_id_of(request),
         )
     except HANDLED as exc:

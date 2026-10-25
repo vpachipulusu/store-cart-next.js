@@ -1630,6 +1630,18 @@ export type MemberListResponse = {
      * Data
      */
     data: Array<MemberData>;
+    /**
+     * Total
+     */
+    total: number;
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Offset
+     */
+    offset: number;
 };
 
 /**
@@ -8291,7 +8303,16 @@ export type ListMembersData = {
          */
         organization_id: string;
     };
-    query?: never;
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Offset
+         */
+        offset?: number;
+    };
     url: '/v1/organizations/{organization_id}/members';
 };
 
@@ -8325,7 +8346,7 @@ export type ListMembersErrors = {
      */
     500: ErrorResponse;
     /**
-     * Service Unavailable
+     * Rate limiter unavailable, or invitations not configured
      */
     503: ErrorResponse;
 };
@@ -8393,7 +8414,7 @@ export type ListInvitationsErrors = {
      */
     500: ErrorResponse;
     /**
-     * Service Unavailable
+     * Rate limiter unavailable, or invitations not configured
      */
     503: ErrorResponse;
 };
@@ -8461,7 +8482,7 @@ export type CreateInvitationErrors = {
      */
     500: ErrorResponse;
     /**
-     * Service Unavailable
+     * Rate limiter unavailable, or invitations not configured
      */
     503: ErrorResponse;
 };
