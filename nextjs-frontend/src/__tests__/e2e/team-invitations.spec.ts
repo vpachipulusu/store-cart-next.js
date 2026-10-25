@@ -16,7 +16,7 @@ import {
  * sees the permission notice on the team and billing settings.
  *
  * Needs the FastAPI backend (BACKEND_API_URL), BACKEND_INTERNAL_KEY and the saved admin session (the owner's
- * organisation is granted Pro, since Free allows one team member). Without RESEND_API_KEY the backend does not
+ * organisation is granted Pro, since Free allows one team member). When backend email is not configured it does not
  * send the email, so the test reads the link the page shows once after inviting.
  */
 
