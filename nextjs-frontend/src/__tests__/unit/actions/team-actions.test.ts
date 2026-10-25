@@ -94,6 +94,13 @@ describe('inviteTeamMemberAction', () => {
     [403, 'x', 'Only an organisation owner or admin can manage the team.'],
     [404, 'x', 'We could not find this organisation.'],
     [409, 'Already a member of this organization', 'Already a member of this organization'],
+    [409, 'Too many pending invitations', 'Too many pending invitations'],
+    [
+      409,
+      'The Free plan allows 1 team member. Upgrade your plan to add more.',
+      'The Free plan allows 1 team member. Upgrade your plan to add more.',
+    ],
+    [409, 'SECRET internal detail', 'We could not send the invitation. Please try again.'],
     [422, 'x', 'Enter a valid email address.'],
     [503, 'x', 'Invitations are not available right now. Please try again later.'],
     [500, 'x', 'We could not send the invitation. Please try again.'],
@@ -143,6 +150,7 @@ describe('acceptInvitationAction', () => {
       expect(await acceptInvitationAction(token)).toEqual({
         success: false,
         error: 'This invitation link is not valid.',
+        kind: 'other',
       });
       expect(mocks.acceptTeamInvitation).not.toHaveBeenCalled();
     }
@@ -154,24 +162,43 @@ describe('acceptInvitationAction', () => {
     expect(await acceptInvitationAction(TOKEN)).toEqual({
       success: false,
       error: 'Your session has expired. Please sign in again.',
+      kind: 'other',
     });
   });
 
   it.each([
-    [401, 'x', 'Your session has expired. Please sign in again.'],
+    [401, 'x', 'Your session has expired. Please sign in again.', 'other'],
     [
       403,
       'x',
       'This invitation was sent to a different email address. Sign in with that address to accept it.',
+      'wrong_account',
     ],
-    [409, 'Already a member of this organization', 'Already a member of this organization'],
-    [410, 'x', 'This invitation is invalid, has already been used or has expired.'],
-    [422, 'x', 'This invitation link is not valid.'],
-    [500, 'x', 'We could not accept the invitation. Please try again.'],
-  ])('maps status %s to a curated message', async (status, error, message) => {
+    [
+      409,
+      'Already a member of this organization',
+      'Already a member of this organization',
+      'other',
+    ],
+    [
+      409,
+      'The Pro plan allows 5 team members. Upgrade your plan to add more.',
+      'The Pro plan allows 5 team members. Upgrade your plan to add more.',
+      'other',
+    ],
+    [
+      409,
+      'SECRET internal detail',
+      'We could not accept the invitation. Please try again.',
+      'other',
+    ],
+    [410, 'x', 'This invitation is invalid, has already been used or has expired.', 'other'],
+    [422, 'x', 'This invitation link is not valid.', 'other'],
+    [500, 'x', 'We could not accept the invitation. Please try again.', 'other'],
+  ])('maps status %s (%s) to a curated message', async (status, error, message, kind) => {
     mocks.acceptTeamInvitation.mockResolvedValue({ success: false, error, status });
 
-    expect(await acceptInvitationAction(TOKEN)).toEqual({ success: false, error: message });
+    expect(await acceptInvitationAction(TOKEN)).toEqual({ success: false, error: message, kind });
   });
 
   it('answers a generic message when the call throws, without logging the token', async () => {
@@ -180,6 +207,7 @@ describe('acceptInvitationAction', () => {
     expect(await acceptInvitationAction(TOKEN)).toEqual({
       success: false,
       error: 'We could not accept the invitation. Please try again.',
+      kind: 'other',
     });
     expect(logged()).not.toContain(TOKEN);
   });

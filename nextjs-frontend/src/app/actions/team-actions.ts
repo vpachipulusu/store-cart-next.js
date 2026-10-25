@@ -8,6 +8,7 @@ import {
   NO_TEAM_ORGANIZATION_MESSAGE,
   acceptTeamInvitation,
   createTeamInvitation,
+  type InviteRole,
 } from '@/lib/api/team';
 
 /**
@@ -16,7 +17,14 @@ import {
  * curated here; the accept link and token are never logged.
  */
 
-type ActionResponse<T> = { success: true; data: T } | { success: false; error: string };
+type ActionFailure = { success: false; error: string };
+type ActionResponse<T> = { success: true; data: T } | ActionFailure;
+
+/** `wrong_account`: signed in with an address the invitation was not sent to (the page offers a sign-out). */
+export type AcceptFailureKind = 'wrong_account' | 'other';
+type AcceptResponse =
+  | { success: true; data: { role: string } }
+  | (ActionFailure & { kind: AcceptFailureKind });
 
 const MESSAGES = {
   session: 'Your session has expired. Please sign in again.',
@@ -34,6 +42,23 @@ const MESSAGES = {
   acceptFailed: 'We could not accept the invitation. Please try again.',
 } as const;
 
+/** Backend 409 messages shown as they are; anything else gets the generic message. */
+const ALREADY_MEMBER = 'Already a member of this organization';
+const SAFE_CONFLICTS: ReadonlyArray<string | RegExp> = [
+  ALREADY_MEMBER,
+  'Too many pending invitations',
+  /^The [A-Za-z]+ plan allows \d+ team members?\. Upgrade your plan to add more\.$/,
+];
+
+function safeConflict(error: string, fallback: string): string {
+  const known = SAFE_CONFLICTS.some((pattern) =>
+    typeof pattern === 'string' ? pattern === error : pattern.test(error)
+  );
+  return known ? error : fallback;
+}
+
+const ROLES = ['ADMIN', 'STAFF'] as const satisfies ReadonlyArray<InviteRole>;
+
 const inviteSchema = z.object(
   {
     email: z
@@ -41,7 +66,7 @@ const inviteSchema = z.object(
       .trim()
       .max(254, { error: MESSAGES.invalidEmail })
       .pipe(z.email({ error: MESSAGES.invalidEmail })),
-    role: z.enum(['ADMIN', 'STAFF'], { error: MESSAGES.invalidRole }),
+    role: z.enum(ROLES, { error: MESSAGES.invalidRole }),
   },
   { error: MESSAGES.invalidEmail }
 );
@@ -56,7 +81,6 @@ function errorClass(error: unknown): string {
   return error instanceof Error ? error.constructor.name : typeof error;
 }
 
-/** Backend 409 messages (already a member, already invited, plan limit) are curated and safe to show. */
 function inviteFailure(error: string, status: number | undefined): string {
   if (error === NO_TEAM_ORGANIZATION_MESSAGE) return MESSAGES.noOrganization;
   switch (status) {
@@ -67,7 +91,7 @@ function inviteFailure(error: string, status: number | undefined): string {
     case 404:
       return MESSAGES.notFound;
     case 409:
-      return error;
+      return safeConflict(error, MESSAGES.inviteFailed);
     case 422:
       return MESSAGES.invalidEmail;
     case 503:
@@ -84,7 +108,7 @@ function acceptFailure(error: string, status: number | undefined): string {
     case 403:
       return MESSAGES.wrongEmail;
     case 409:
-      return error;
+      return safeConflict(error, MESSAGES.acceptFailed);
     case 410:
       return MESSAGES.linkExpired;
     case 422:
@@ -124,23 +148,27 @@ export async function inviteTeamMemberAction(
   }
 }
 
-export async function acceptInvitationAction(
-  token: unknown
-): Promise<ActionResponse<{ role: string }>> {
+export async function acceptInvitationAction(token: unknown): Promise<AcceptResponse> {
   const parsed = tokenSchema.safeParse(token);
-  if (!parsed.success) return { success: false, error: MESSAGES.invalidLink };
+  if (!parsed.success) return { success: false, error: MESSAGES.invalidLink, kind: 'other' };
   try {
-    if (!(await getVerifiedUserId())) return { success: false, error: MESSAGES.session };
+    if (!(await getVerifiedUserId())) {
+      return { success: false, error: MESSAGES.session, kind: 'other' };
+    }
 
     const result = await acceptTeamInvitation(parsed.data);
     if (!result.success) {
       logger.warn('Accept invitation failed:', { status: result.status });
-      return { success: false, error: acceptFailure(result.error, result.status) };
+      return {
+        success: false,
+        error: acceptFailure(result.error, result.status),
+        kind: result.status === 403 ? 'wrong_account' : 'other',
+      };
     }
     revalidatePath('/dashboard', 'layout');
     return { success: true, data: { role: result.data.role } };
   } catch (error: unknown) {
     logger.error('Accept invitation error:', { cause: errorClass(error) });
-    return { success: false, error: MESSAGES.acceptFailed };
+    return { success: false, error: MESSAGES.acceptFailed, kind: 'other' };
   }
 }

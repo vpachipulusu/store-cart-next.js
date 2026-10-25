@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/api/team', () => ({
+  MEMBERS_PAGE_SIZE: 100,
   canManageTeam: (role: string) => role === 'OWNER' || role === 'ADMIN',
   resolveTeamOrganization: mocks.resolveTeamOrganization,
   isStaffOnlyMember: mocks.isStaffOnlyMember,
@@ -63,6 +64,7 @@ const TEAM = {
         joined_at: '2026-10-02T00:00:00Z',
       },
     ],
+    membersTruncated: false,
     invitations: [
       {
         id: 'inv1',
@@ -95,6 +97,9 @@ describe('team settings page', () => {
       expect(markup).toContain('data-testid="invite-form"');
       expect(markup).toContain('new@example.com');
       expect(markup).toContain('Expires 1 Nov 2026');
+      expect(markup).toMatch(/<h2[^>]*>Members<\/h2>/);
+      expect(markup).not.toContain('<h3');
+      expect(markup).not.toContain('Showing the first');
       expect(markup).not.toContain(NOTICE);
     }
   );
@@ -107,6 +112,12 @@ describe('team settings page', () => {
     expect(markup).toContain(NOTICE);
     expect(markup).not.toContain('invite-form');
     expect(mocks.fetchTeam).not.toHaveBeenCalled();
+  });
+
+  it('says when the member list is cut at one page', async () => {
+    mocks.fetchTeam.mockResolvedValue({ ...TEAM, data: { ...TEAM.data, membersTruncated: true } });
+
+    expect(html(await TeamSettingsPage())).toContain('Showing the first 100 members.');
   });
 
   it('says when there are no pending invitations', async () => {
@@ -194,12 +205,24 @@ describe('invitation page', () => {
   });
 
   it('clears an expired session before signing in again', async () => {
-    mocks.getVerifiedSessionClaims.mockRejectedValue(new Error('Invalid session'));
+    mocks.getVerifiedSessionClaims.mockRejectedValue(
+      Object.assign(new Error('Invalid session'), { code: 'auth/invalid-session-cookie' })
+    );
 
     const markup = html(await InvitePage({ params }));
 
     expect(markup).toContain('Your session has expired');
     expect(markup).toContain('href="/api/auth/clear-session"');
+    expect(markup).not.toContain('data-token');
+  });
+
+  it('does not sign anyone out during a backend outage', async () => {
+    mocks.getVerifiedSessionClaims.mockRejectedValue(new Error('Session status check failed'));
+
+    const markup = html(await InvitePage({ params }));
+
+    expect(markup).toContain('We could not check your sign-in right now');
+    expect(markup).not.toContain('clear-session');
     expect(markup).not.toContain('data-token');
   });
 
@@ -211,6 +234,7 @@ describe('invitation page', () => {
     const markup = html(await InvitePage({ params }));
 
     expect(markup).toContain('Verify your email address first');
+    expect(markup).toContain('href="/verify-email"');
     expect(markup).not.toContain('data-token');
   });
 });

@@ -16,6 +16,7 @@ vi.mock('@/lib/stores/current', () => ({
 
 import {
   NO_TEAM_ORGANIZATION_MESSAGE,
+  SELECTED_ORGANIZATION_MISSING_MESSAGE,
   acceptTeamInvitation,
   canManageTeam,
   createTeamInvitation,
@@ -132,6 +133,43 @@ describe('team API wrappers', () => {
     });
   });
 
+  it('marks a full page of members as possibly truncated', async () => {
+    const full = Array.from({ length: 100 }, (_, n) => ({ ...MEMBER, user_id: `u${n}` }));
+    fetchMock.mockImplementation(async (request) => {
+      const { pathname } = new URL(request.url);
+      if (pathname === '/v1/organizations') {
+        return jsonResponse({
+          success: true,
+          data: organizations,
+          total: 2,
+          limit: 100,
+          offset: 0,
+        });
+      }
+      if (pathname.endsWith('/members')) {
+        return jsonResponse({ success: true, data: full, total: 120, limit: 100, offset: 0 });
+      }
+      return jsonResponse({ success: true, data: [] });
+    });
+
+    const result = await fetchTeam();
+
+    expect(result.success && result.data.membersTruncated).toBe(true);
+  });
+
+  it('fails instead of guessing when the selected store’s organisation is missing', async () => {
+    mocks.getCurrentStoreSelection.mockResolvedValue(selectionOf('org-gone'));
+
+    expect(await resolveTeamOrganization()).toEqual({
+      success: false,
+      error: SELECTED_ORGANIZATION_MISSING_MESSAGE,
+    });
+    expect(await createTeamInvitation('x@example.com', 'STAFF')).toEqual({
+      success: false,
+      error: SELECTED_ORGANIZATION_MISSING_MESSAGE,
+    });
+  });
+
   it('falls back to an organisation the user manages when they have no store', async () => {
     mocks.getCurrentStoreSelection.mockResolvedValue(selectionOf(null));
     organizations = [organization('org-b', 'STAFF'), organization('org-a', 'ADMIN')];
@@ -186,11 +224,16 @@ describe('team API wrappers', () => {
       data: {
         organization: { id: 'org-a', name: 'Org org-a', role: 'OWNER' },
         members: [MEMBER],
+        membersTruncated: false,
         invitations: [INVITATION],
       },
     });
     const urls = fetchMock.mock.calls.map(([request]) => new URL(request.url).pathname);
     expect(urls).toContain('/v1/organizations/org-a/members');
+    const members = fetchMock.mock.calls
+      .map(([request]) => new URL(request.url))
+      .find((url) => url.pathname.endsWith('/members'))!;
+    expect(members.searchParams.get('limit')).toBe('100');
     expect(urls).toContain('/v1/organizations/org-a/invitations');
   });
 

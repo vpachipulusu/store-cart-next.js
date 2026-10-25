@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { AcceptInvitationButton } from '@/components/team/accept-invitation-button';
+import { isSessionVerificationError } from '@/lib/auth/session-errors';
 import { getVerifiedSessionClaims, isEmailNotVerifiedError } from '@/lib/auth/verified-session';
 
 /**
@@ -19,15 +20,17 @@ export const metadata: Metadata = {
 
 type SessionState =
   | { kind: 'signed-in'; email: string }
-  | { kind: 'signed-out' | 'expired' | 'unverified' };
+  | { kind: 'signed-out' | 'expired' | 'unverified' | 'unavailable' };
 
 async function sessionState(): Promise<SessionState> {
   try {
     const claims = await getVerifiedSessionClaims();
     return claims ? { kind: 'signed-in', email: claims.email } : { kind: 'signed-out' };
   } catch (error) {
+    if (isEmailNotVerifiedError(error)) return { kind: 'unverified' };
     // A stale cookie makes the proxy send /login to /dashboard, so it is cleared first (clear-session).
-    return { kind: isEmailNotVerifiedError(error) ? 'unverified' : 'expired' };
+    // Anything else (backend outage) must not sign the user out.
+    return { kind: isSessionVerificationError(error) ? 'expired' : 'unavailable' };
   }
 }
 
@@ -62,8 +65,18 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
             </Button>
           </>
         ) : session.kind === 'unverified' ? (
-          <p className="text-sm text-muted-foreground">
-            Verify your email address first, then open this invitation link again.
+          <>
+            <p className="text-sm text-muted-foreground">
+              Verify your email address first, then open this invitation link again.
+            </p>
+            <Button asChild>
+              <Link href="/verify-email">Verify your email</Link>
+            </Button>
+          </>
+        ) : session.kind === 'unavailable' ? (
+          <p role="alert" className="text-sm text-muted-foreground">
+            We could not check your sign-in right now. Please try again shortly by reloading this
+            page.
           </p>
         ) : (
           <>

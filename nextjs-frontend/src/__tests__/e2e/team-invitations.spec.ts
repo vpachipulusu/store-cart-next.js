@@ -38,6 +38,7 @@ const test = base.extend<{ invitee: ThrowawayAccount }>({
 });
 
 test.describe('Team invitations', () => {
+  // Next's route announcer is an empty role=alert, so alert assertions only count alerts that carry text.
   test.skip(
     !process.env.BACKEND_INTERNAL_KEY,
     'Skipped: BACKEND_INTERNAL_KEY / BACKEND_API_URL not set (needs FastAPI)'
@@ -49,6 +50,8 @@ test.describe('Team invitations', () => {
     throwawayAccount,
     invitee,
   }) => {
+    // Two accounts, two logins, a grant and a store seed: well over the 30 s default.
+    test.setTimeout(180_000);
     // Owner: a Pro organisation with a store.
     await loginAsThrowawayAccountOnPro(page, throwawayAccount);
     await ensureAccountHasStore(page, `e2e-team-${throwawayAccount.uid.slice(0, 8).toLowerCase()}`);
@@ -85,7 +88,7 @@ test.describe('Team invitations', () => {
       // The link works once.
       await inviteePage.goto(invitePath);
       await inviteePage.getByRole('button', { name: 'Accept invitation' }).click();
-      await expect(inviteePage.getByRole('alert')).toContainText(
+      await expect(inviteePage.getByRole('alert').filter({ hasText: /\S/ })).toContainText(
         'invalid, has already been used or has expired'
       );
 
@@ -93,7 +96,9 @@ test.describe('Team invitations', () => {
       for (const path of ['/dashboard/settings/team', '/dashboard/settings/billing']) {
         await inviteePage.goto(path);
         await waitForPageReady(inviteePage);
-        await expect(inviteePage.getByRole('alert')).toContainText('You do not have access');
+        await expect(inviteePage.getByRole('alert').filter({ hasText: /\S/ })).toContainText(
+          'You do not have access'
+        );
       }
     } finally {
       await inviteeContext.close();

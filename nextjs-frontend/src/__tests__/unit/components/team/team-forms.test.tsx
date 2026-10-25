@@ -39,7 +39,9 @@ describe('InviteMemberForm', () => {
       role: 'ADMIN',
     });
     expect(await screen.findByText('Invitation sent to new@example.com.')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Invitation sent to new@example.com.');
     expect(screen.getByLabelText('Invitation link')).toHaveValue(LINK);
+    expect(screen.getByLabelText('Invitation link')).toHaveFocus();
     expect(screen.getByLabelText('Email address')).toHaveValue('');
   });
 
@@ -59,6 +61,7 @@ describe('InviteMemberForm', () => {
 
     expect(writeText).toHaveBeenCalledWith(LINK);
     expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Link copied.');
   });
 
   it('keeps working when the clipboard is refused', async () => {
@@ -96,6 +99,40 @@ describe('InviteMemberForm', () => {
   });
 });
 
+describe('InviteMemberForm while sending', () => {
+  it('keeps one status region mounted and ignores a second submit', async () => {
+    let finish: (value: unknown) => void = () => {};
+    mocks.inviteTeamMemberAction.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    const user = userEvent.setup();
+    render(<InviteMemberForm />);
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+
+    await user.type(screen.getByLabelText('Email address'), 'new@example.com');
+    await user.click(screen.getByRole('button', { name: 'Send invitation' }));
+    const sending = await screen.findByRole('button', { name: 'Sending…' });
+    expect(sending).toHaveAttribute('aria-disabled', 'true');
+    expect(sending).toBeEnabled();
+    await user.click(sending);
+
+    expect(mocks.inviteTeamMemberAction).toHaveBeenCalledTimes(1);
+    finish({ success: false, error: 'Too many pending invitations' });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Too many pending invitations');
+  });
+
+  it('shows a generic error when the action rejects', async () => {
+    mocks.inviteTeamMemberAction.mockRejectedValue(new Error('network'));
+    const user = userEvent.setup();
+    render(<InviteMemberForm />);
+
+    await user.type(screen.getByLabelText('Email address'), 'new@example.com');
+    await user.click(screen.getByRole('button', { name: 'Send invitation' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'We could not send the invitation. Please try again.'
+    );
+  });
+});
+
 describe('AcceptInvitationButton', () => {
   it('accepts only when clicked, then links to the dashboard', async () => {
     mocks.acceptInvitationAction.mockResolvedValue({ success: true, data: { role: 'STAFF' } });
@@ -107,10 +144,10 @@ describe('AcceptInvitationButton', () => {
 
     expect(mocks.acceptInvitationAction).toHaveBeenCalledWith('tok_1234567890abcdef');
     expect(await screen.findByText('You have joined the team.')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Go to the dashboard' })).toHaveAttribute(
-      'href',
-      '/dashboard'
-    );
+    expect(screen.getByRole('status')).toHaveTextContent('You have joined the team.');
+    const link = screen.getByRole('link', { name: 'Go to the dashboard' });
+    expect(link).toHaveAttribute('href', '/dashboard');
+    expect(link).toHaveFocus();
   });
 
   it('shows why the invitation could not be accepted', async () => {
@@ -127,5 +164,36 @@ describe('AcceptInvitationButton', () => {
       expect(screen.getByRole('alert')).toHaveTextContent('has already been used')
     );
     expect(screen.getByRole('button', { name: 'Accept invitation' })).toBeEnabled();
+  });
+});
+
+describe('AcceptInvitationButton failures', () => {
+  it('offers a sign-out when signed in with the wrong account', async () => {
+    mocks.acceptInvitationAction.mockResolvedValue({
+      success: false,
+      error: 'This invitation was sent to a different email address.',
+      kind: 'wrong_account',
+    });
+    const user = userEvent.setup();
+    render(<AcceptInvitationButton token="tok_1234567890abcdef" />);
+
+    await user.click(screen.getByRole('button', { name: 'Accept invitation' }));
+
+    expect(
+      await screen.findByRole('link', { name: 'Sign out and use another account' })
+    ).toHaveAttribute('href', '/api/auth/clear-session');
+  });
+
+  it('shows a generic error when the action rejects', async () => {
+    mocks.acceptInvitationAction.mockRejectedValue(new Error('network'));
+    const user = userEvent.setup();
+    render(<AcceptInvitationButton token="tok_1234567890abcdef" />);
+
+    await user.click(screen.getByRole('button', { name: 'Accept invitation' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'We could not accept the invitation. Please try again.'
+    );
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
   });
 });

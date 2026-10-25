@@ -1,10 +1,22 @@
 'use client';
 
-import { useState, useTransition, type FormEvent } from 'react';
+import { useEffect, useRef, useState, useTransition, type FormEvent } from 'react';
 import { inviteTeamMemberAction, type InviteResult } from '@/app/actions/team-actions';
+// Type-only: the module is server-only, so this import must stay erased.
+import type { InviteRole } from '@/lib/api/team';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+
+const UNEXPECTED_ERROR = 'We could not send the invitation. Please try again.';
+
+function statusText(created: InviteResult | null, copied: boolean): string {
+  if (!created) return '';
+  const sent = created.emailSent
+    ? `Invitation sent to ${created.email}.`
+    : `Invitation created for ${created.email}, but the email could not be sent. Share the link below.`;
+  return copied ? `${sent} Link copied.` : sent;
+}
 
 /**
  * Invite by email (KAN-62). The accept link is shown once, right after the invitation is created, so the inviter
@@ -12,24 +24,35 @@ import { Label } from '@/components/ui/label';
  */
 export function InviteMemberForm() {
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState<'STAFF' | 'ADMIN'>('STAFF');
+  const [role, setRole] = useState<InviteRole>('STAFF');
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<InviteResult | null>(null);
   const [copied, setCopied] = useState(false);
   const [pending, startTransition] = useTransition();
+  const linkField = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (created) linkField.current?.focus();
+  }, [created]);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    // aria-disabled keeps the button focusable, so a second submit is ignored here.
+    if (pending) return;
     setError(null);
     setCreated(null);
     setCopied(false);
     startTransition(async () => {
-      const result = await inviteTeamMemberAction({ email, role });
-      if (result.success) {
-        setCreated(result.data);
-        setEmail('');
-      } else {
-        setError(result.error);
+      try {
+        const result = await inviteTeamMemberAction({ email, role });
+        if (result.success) {
+          setCreated(result.data);
+          setEmail('');
+        } else {
+          setError(result.error);
+        }
+      } catch {
+        setError(UNEXPECTED_ERROR);
       }
     });
   };
@@ -71,7 +94,7 @@ export function InviteMemberForm() {
             <option value="ADMIN">Admin</option>
           </select>
         </div>
-        <Button type="submit" disabled={pending}>
+        <Button type="submit" aria-disabled={pending}>
           {pending ? 'Sending…' : 'Send invitation'}
         </Button>
       </form>
@@ -82,18 +105,24 @@ export function InviteMemberForm() {
         </p>
       )}
 
+      {/* Always mounted, so screen readers announce the result and "Link copied". */}
+      <p role="status" aria-live="polite" className="text-sm font-medium">
+        {statusText(created, copied)}
+      </p>
+
       {created && (
-        <div role="status" className="space-y-2 rounded-lg border border-border p-4">
-          <p className="text-sm font-medium">
-            {created.emailSent
-              ? `Invitation sent to ${created.email}.`
-              : `Invitation created for ${created.email}, but the email could not be sent. Share the link below.`}
-          </p>
+        <div className="space-y-2 rounded-lg border border-border p-4">
           <p className="text-sm text-muted-foreground">
             The link works once and expires in 7 days. It is shown only now.
           </p>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Input readOnly aria-label="Invitation link" value={created.acceptUrl} />
+            <Input
+              ref={linkField}
+              readOnly
+              aria-label="Invitation link"
+              value={created.acceptUrl}
+              onFocus={(event) => event.currentTarget.select()}
+            />
             <Button type="button" variant="outline" onClick={copy}>
               {copied ? 'Copied' : 'Copy link'}
             </Button>

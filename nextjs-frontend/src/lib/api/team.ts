@@ -8,6 +8,7 @@ import {
   listInvitations,
   listMembers,
   listOrganizations,
+  type CreateInvitationRequest,
   type InvitationData,
   type MemberData,
   type MembershipRole,
@@ -26,15 +27,24 @@ import { getCurrentStoreSelection } from '@/lib/stores/current';
  */
 
 export const NO_TEAM_ORGANIZATION_MESSAGE = 'No organisation was found for your account';
+export const SELECTED_ORGANIZATION_MISSING_MESSAGE =
+  'The organisation of the selected store could not be found';
 
 /** The API's maximum page size; a user belongs to few organisations, so one page suffices. */
 const ORGANIZATIONS_PAGE_SIZE = 100;
+/** The members API's maximum page size. A full page means there may be more (`membersTruncated`). */
+export const MEMBERS_PAGE_SIZE = 100;
+
+/** The roles an invitation can carry, from the generated API types (OWNER is never invitable). */
+export type InviteRole = CreateInvitationRequest['role'];
+export type { MembershipRole };
 
 export type TeamOrganization = { id: string; name: string; role: MembershipRole };
 
 export type Team = {
   organization: TeamOrganization;
   members: ReadonlyArray<MemberData>;
+  membersTruncated: boolean;
   invitations: ReadonlyArray<InvitationData>;
 };
 
@@ -56,9 +66,13 @@ export const resolveTeamOrganization = cache(
     const result = await listMyOrganizations();
     if (!result.success) return result;
     const selectedId = selection.selected?.organizationId;
-    const organization = selectedId
-      ? result.data.find((candidate) => candidate.id === selectedId)
-      : (pickBillingOrganization(result.data) ?? result.data[0]);
+    if (selectedId) {
+      // The store list and this list come from the same memberships; a miss means they changed in between.
+      const selected = result.data.find((candidate) => candidate.id === selectedId);
+      if (!selected) return { success: false, error: SELECTED_ORGANIZATION_MISSING_MESSAGE };
+      return { success: true, data: { id: selected.id, name: selected.name, role: selected.role } };
+    }
+    const organization = pickBillingOrganization(result.data) ?? result.data[0];
     if (!organization) return { success: true, data: null };
     return {
       success: true,
@@ -99,20 +113,27 @@ export function fetchTeam(): Promise<ApiResult<Team>> {
   return withManagedOrganization(async (organization) => {
     const path = { organization_id: organization.id };
     const [members, invitations] = await Promise.all([
-      callBackend((client) => listMembers({ client, path })),
+      callBackend((client) =>
+        listMembers({ client, path, query: { limit: MEMBERS_PAGE_SIZE, offset: 0 } })
+      ),
       callBackend((client) => listInvitations({ client, path })),
     ]);
     if (!members.success) return members;
     if (!invitations.success) return invitations;
     return {
       success: true,
-      data: { organization, members: members.data, invitations: invitations.data },
+      data: {
+        organization,
+        members: members.data,
+        membersTruncated: members.data.length >= MEMBERS_PAGE_SIZE,
+        invitations: invitations.data,
+      },
     };
   });
 }
 
 /** Creates an invitation; the response carries the accept link once (show it, never store or log it). */
-export function createTeamInvitation(email: string, role: 'ADMIN' | 'STAFF') {
+export function createTeamInvitation(email: string, role: InviteRole) {
   return withManagedOrganization((organization) =>
     callBackend((client) =>
       createInvitation({

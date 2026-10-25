@@ -38,6 +38,7 @@ describe('activeNavHref', () => {
     ['/dashboard/settings', '/dashboard/settings'],
     ['/dashboard/settings/billing', '/dashboard/settings/billing'],
     ['/dashboard/settings/store', '/dashboard/settings/store'],
+    ['/dashboard/settings/team', '/dashboard/settings/team'],
     ['/dashboard/security', '/dashboard/security'],
   ])('%s -> %s', (pathname, expected) => {
     expect(activeNavHref(pathname)).toBe(expected);

@@ -1,9 +1,15 @@
+import type { ReactNode } from 'react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card';
 import { PermissionNotice } from '@/components/dashboard/overview/permission-notice';
 import { InviteMemberForm } from '@/components/team/invite-member-form';
-import { canManageTeam, fetchTeam, resolveTeamOrganization } from '@/lib/api/team';
+import {
+  MEMBERS_PAGE_SIZE,
+  canManageTeam,
+  fetchTeam,
+  resolveTeamOrganization,
+} from '@/lib/api/team';
 import { logger } from '@/lib/logger';
 
 export const metadata = { title: 'Team' };
@@ -18,6 +24,11 @@ function formatDate(value: string): string {
     month: 'short',
     year: 'numeric',
   });
+}
+
+/** Card titles under the page h1 are h2 (CardTitle renders an h3). */
+function SectionTitle({ children }: { children: ReactNode }) {
+  return <h2 className="font-semibold leading-none tracking-tight">{children}</h2>;
 }
 
 function LoadError({ message }: { message: string }) {
@@ -46,7 +57,7 @@ export default async function TeamSettingsPage() {
     logger.error('Team page: load failed', { status: team.status });
     return <LoadError message={LOAD_FAILED_MESSAGE} />;
   }
-  const { members, invitations } = team.data;
+  const { members, membersTruncated, invitations } = team.data;
 
   return (
     <div className="space-y-6">
@@ -60,7 +71,7 @@ export default async function TeamSettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Invite a team member</CardTitle>
+          <SectionTitle>Invite a team member</SectionTitle>
           <CardDescription>
             We email them a link. It works once and expires after 7 days.
           </CardDescription>
@@ -72,7 +83,7 @@ export default async function TeamSettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Members</CardTitle>
+          <SectionTitle>Members</SectionTitle>
         </CardHeader>
         <CardContent>
           <ul className="divide-y divide-border" aria-label="Members">
@@ -91,12 +102,17 @@ export default async function TeamSettingsPage() {
               </li>
             ))}
           </ul>
+          {membersTruncated && (
+            <p className="pt-3 text-sm text-muted-foreground">
+              Showing the first {MEMBERS_PAGE_SIZE} members.
+            </p>
+          )}
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Pending invitations</CardTitle>
+          <SectionTitle>Pending invitations</SectionTitle>
         </CardHeader>
         <CardContent>
           {invitations.length === 0 ? (
