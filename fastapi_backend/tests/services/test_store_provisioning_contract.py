@@ -8,7 +8,6 @@ from sqlalchemy.engine import make_url
 from app.services.store_provisioning import (
     DatabaseProvisioner,
     InvalidStoreId,
-    LocalDatabaseProvisioner,
 )
 from tests.fakes_provisioning import FakeEngine, FakeNeon
 
@@ -16,7 +15,7 @@ STORE_ID = "clx1abcd2efgh3ijkl4mnop5"
 
 
 def make_local() -> DatabaseProvisioner:
-    return LocalDatabaseProvisioner(FakeEngine().as_engine())
+    return FakeEngine().local_provisioner()
 
 
 def make_neon() -> DatabaseProvisioner:

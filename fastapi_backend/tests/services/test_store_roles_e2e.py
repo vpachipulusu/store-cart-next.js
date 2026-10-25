@@ -209,7 +209,7 @@ async def test_a_rerun_rotates_the_password_and_the_old_one_stops_working(
     assert await scalar_as(second, "SELECT count(*) FROM kept") == 0
 
 
-async def test_the_store_role_owns_its_database_and_holds_no_privileged_attribute(
+async def test_only_the_store_role_may_connect_and_it_holds_no_privileged_attribute(
     cluster: Cluster,
 ) -> None:
     store_id = cluster.store_id()
@@ -237,10 +237,19 @@ async def test_the_store_role_owns_its_database_and_holds_no_privileged_attribut
             ),
             {"n": name},
         )
+        store_connect = await connection.scalar(
+            text(
+                "SELECT has_database_privilege(CAST(:n AS text), CAST(:n AS text), 'CONNECT, TEMPORARY')"
+            ),
+            {"n": name},
+        )
 
     assert tuple(role) == (False, False, False, False, False, True)
-    assert owner == name
+    # The database stays with the provisioning role (what Neon records); the store role
+    # uses it through explicit grants.
+    assert owner == cluster.admin_name
     assert public_connect is False
+    assert store_connect is True
 
 
 async def test_the_provisioning_role_keeps_access_through_membership(
@@ -275,6 +284,66 @@ async def test_a_store_role_reads_nothing_in_a_database_it_does_not_own(
         await engine.dispose()
 
     assert getattr(caught.value.orig, "sqlstate", None) == INSUFFICIENT_PRIVILEGE
+
+
+async def test_access_does_not_depend_on_who_owns_the_database(
+    cluster: Cluster,
+) -> None:
+    """Neon's control plane may (re)set the owner to the provisioning role at any time."""
+    store_id = cluster.store_id()
+    name = database_name_for(store_id)
+    dsn = await cluster.provisioner().create_database(store_id)
+    async with cluster.server.execution_options(
+        isolation_level="AUTOCOMMIT"
+    ).connect() as connection:
+        await connection.exec_driver_sql(
+            f"ALTER DATABASE {quote(name)} OWNER TO {quote(cluster.admin_name)}"
+        )
+
+    engine = create_async_engine(dsn)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text("CREATE TABLE after_reset (id int)"))
+            await connection.execute(text("CREATE TEMP TABLE scratch (id int)"))
+    finally:
+        await engine.dispose()
+    other = cluster.store_id()
+    other_dsn = await cluster.provisioner().create_database(other)
+    other_here = make_url(other_dsn).set(database=name).render_as_string(False)
+    assert await sqlstate_of_connecting(other_here) == INSUFFICIENT_PRIVILEGE
+
+
+async def test_a_reused_database_from_before_kan238_is_handed_to_the_store_role(
+    cluster: Cluster,
+) -> None:
+    """A re-provision reuses the orphan database of a failed run, built as the shared role."""
+    store_id = cluster.store_id()
+    name = database_name_for(store_id)
+    async with cluster.admin.execution_options(
+        isolation_level="AUTOCOMMIT"
+    ).connect() as connection:
+        await connection.exec_driver_sql(f"CREATE DATABASE {quote(name)}")
+    shared = create_async_engine(
+        make_url(cluster.admin_url).set(database=name).render_as_string(False)
+    )
+    try:
+        async with shared.begin() as connection:
+            for statement in LEGACY_SCHEMA:
+                await connection.exec_driver_sql(statement)
+    finally:
+        await shared.dispose()
+
+    dsn = await cluster.provisioner().create_database(store_id)
+
+    engine = create_async_engine(dsn)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text("UPDATE store_alembic_version SET version_num = '0002'")
+            )
+            await connection.execute(text("ALTER TABLE products ADD COLUMN x int"))
+    finally:
+        await engine.dispose()
 
 
 async def test_delete_drops_the_database_and_the_role(cluster: Cluster) -> None:
@@ -382,7 +451,7 @@ async def stored_dsn(legacy: Legacy) -> str:
     return dsn
 
 
-async def test_backfill_moves_the_database_and_every_object_to_the_store_role(
+async def test_backfill_moves_every_object_to_the_store_role(
     cluster: Cluster, legacy: Legacy
 ) -> None:
     name = database_name_for(legacy.store_id)
@@ -416,7 +485,7 @@ async def test_backfill_moves_the_database_and_every_object_to_the_store_role(
         await session.commit()
 
 
-async def test_backfill_revokes_public_connect_and_leaves_other_databases_alone(
+async def test_backfill_revokes_public_connect_and_changes_no_database_owner(
     cluster: Cluster, legacy: Legacy
 ) -> None:
     await backfill_store_roles(legacy.provider)
@@ -437,7 +506,7 @@ async def test_backfill_revokes_public_connect_and_leaves_other_databases_alone(
             ).all()
         )
     assert owners == {
-        database_name_for(legacy.store_id): database_name_for(legacy.store_id),
+        database_name_for(legacy.store_id): cluster.admin_name,
         legacy.other_database: cluster.admin_name,
     }
     # The store database now refuses every other store's role.

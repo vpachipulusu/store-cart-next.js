@@ -11,8 +11,8 @@ failures carry only the store id.
 
 KAN-238: a decrypted string must name the store's own database, ``store_<id>``, and,
 when it signs in as a store role, that store's role. A string still on the shared
-provisioning role (a store not yet moved by ``commands.backfill_store_roles``) is
-allowed with a warning. ``open_admin_connection`` is the provisioning role's way into a
+provisioning role (a store not yet moved by ``commands.backfill_store_roles``; that role's
+name must not look like ``store_<id>``) is allowed with a warning. ``open_admin_connection`` is the provisioning role's way into a
 store database; it lives here because engines may only be built in this module.
 """
 
@@ -34,9 +34,11 @@ from app.core.database import (
 from app.core.store_crypto import StoreSecretUnavailable
 from app.models.platform.store import Store
 from app.services import store_secrets
-from app.services.store_roles import STORE_NAME_PREFIX
+from app.services.store_roles import STORE_NAME_PREFIX, STORE_ROLE_PATTERN
 
 logger = logging.getLogger("storecart.store_sessions")
+
+ADMIN_LOCK_TIMEOUT = "10s"
 
 
 class StoreSessionError(Exception):
@@ -87,7 +89,7 @@ def _check_target(store_id: str, connection_string: str) -> None:
     expected = f"{STORE_NAME_PREFIX}{store_id}"
     user = url.username or ""
     if url.database != expected or (
-        user.startswith(STORE_NAME_PREFIX) and user != expected
+        STORE_ROLE_PATTERN.fullmatch(user) and user != expected
     ):
         logger.error(
             "store connection string targets another store",
@@ -143,6 +145,11 @@ async def open_admin_connection(
         raise ValueError("unusable admin connection string") from None
     try:
         async with engine.begin() as connection:
+            # Ownership changes take ACCESS EXCLUSIVE locks: never queue behind a long
+            # transaction on a live store (and block its traffic) for more than this.
+            await connection.exec_driver_sql(
+                f"SET LOCAL lock_timeout = '{ADMIN_LOCK_TIMEOUT}'"
+            )
             yield connection
     finally:
         await engine.dispose()

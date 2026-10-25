@@ -154,7 +154,7 @@ ROLE_DSN = "postgresql://store_a:hunter2@ep-x-pooler.neon.tech/store_a?sslmode=r
     "dsn",
     [
         "postgresql://store_a:hunter2@ep-x-pooler.neon.tech/store_b",
-        "postgresql://store_b:hunter2@ep-x-pooler.neon.tech/store_a",
+        "postgresql://store_otherstore1:hunter2@ep-x-pooler.neon.tech/store_a",
         "postgresql://user:hunter2@ep-x-pooler.neon.tech/neondb",
     ],
     ids=["another-database", "another-store-role", "not-a-store-database"],

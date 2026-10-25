@@ -1,7 +1,7 @@
 """Fakes for the store database provisioners (KAN-55): a Neon API and an AsyncEngine.
 
 KAN-238: the fake engine also understands the store role SQL from ``store_roles``
-(roles, their passwords, database owners and the PUBLIC revoke), and the fake Neon
+(roles, their passwords, grants and the PUBLIC revoke), and the fake Neon
 provisioner runs that SQL on a fake admin connection.
 """
 
@@ -18,7 +18,11 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from app.services.store_provisioning import AdminConnection, NeonDatabaseProvisioner
+from app.services.store_provisioning import (
+    AdminConnection,
+    LocalDatabaseProvisioner,
+    NeonDatabaseProvisioner,
+)
 
 API_KEY = "neon-secret-api-key-123"
 NEON_URI = "postgresql://owner:hunter2@ep-x-pooler.neon.tech/store_x?sslmode=require"
@@ -87,6 +91,7 @@ def fake_admin_connection(engine: "FakeEngine") -> AdminConnection:
     @asynccontextmanager
     async def admin_connection(uri: str) -> AsyncIterator[Any]:
         engine.admin_uris.append(uri)
+        engine.current_database = make_url(uri).database
         async with engine.begin() as connection:
             yield connection
 
@@ -94,7 +99,6 @@ def fake_admin_connection(engine: "FakeEngine") -> AdminConnection:
 
 
 _ROLE = re.compile(r'^(CREATE|ALTER) ROLE "([^"]+)" WITH LOGIN PASSWORD \'([^\']+)\'$')
-_OWNER = re.compile(r'^ALTER DATABASE "([^"]+)" OWNER TO "([^"]+)"$')
 
 
 class FakeResult:
@@ -137,6 +141,8 @@ class FakeConnection:
             self._engine.fail_if("create")
             self._engine.databases.add(name)
             return None
+        if sql.startswith("SELECT format("):
+            return []  # the ownership queries: the fake owns nothing to move
         if sql.startswith("DROP DATABASE IF EXISTS "):
             self._engine.fail_if("drop")
             name = sql.removeprefix("DROP DATABASE IF EXISTS ").split(" ")[0]
@@ -150,6 +156,10 @@ class FakeConnection:
         if sql.startswith("SELECT 1 FROM pg_roles"):
             assert params is not None
             return 1 if params["role"] in self._engine.roles else None
+        if sql == "SELECT current_database()":
+            return self._engine.current_database
+        if sql.startswith("SELECT count(*) FROM pg_shdepend"):
+            return self._engine.leftover_owned
         raise AssertionError(f"unexpected scalar: {sql}")
 
     async def exec_driver_sql(self, sql: str) -> None:
@@ -162,16 +172,14 @@ class FakeConnection:
             engine.statements.append(f"{verb} ROLE {name} PASSWORD <redacted>")
             return
         engine.statements.append(sql)
-        if owner := _OWNER.match(sql):
-            database, name = owner.groups()
-            assert name in engine.roles
-            engine.owners[database] = name
-        elif sql.startswith("DROP ROLE IF EXISTS "):
+        if sql.startswith("DROP ROLE IF EXISTS "):
             engine.fail_if("drop_role")
             engine.roles.pop(sql.removeprefix("DROP ROLE IF EXISTS ").strip('"'), None)
         elif sql.startswith("DROP ROLE "):
             engine.roles.pop(sql.removeprefix("DROP ROLE ").strip('"'))
-        elif sql.startswith(("GRANT ", "REVOKE ", "REASSIGN OWNED ", "DROP OWNED ")):
+        elif sql.startswith(
+            ("GRANT ", "REVOKE ", "REASSIGN OWNED ", "DROP OWNED ", "SET LOCAL ")
+        ):
             return
         else:
             raise AssertionError(f"unexpected statement: {sql}")
@@ -190,8 +198,9 @@ class FakeEngine:
         self.url = make_url("postgresql+asyncpg://admin:s3cret@db.local:5432/platform")
         self.isolation_levels: list[str] = []
         self.roles: dict[str, str] = {}  # role name -> current password
-        self.owners: dict[str, str] = {}  # database -> owning role
         self.admin_uris: list[str] = []
+        self.current_database: str | None = None  # set by fake_admin_connection
+        self.leftover_owned = 0
 
     def fail_if(self, operation: str) -> None:
         if operation in self.fail:
@@ -214,3 +223,7 @@ class FakeEngine:
 
     def as_engine(self) -> AsyncEngine:
         return cast(AsyncEngine, self)
+
+    def local_provisioner(self) -> LocalDatabaseProvisioner:
+        """A local provisioner whose admin and store-database SQL both run here."""
+        return LocalDatabaseProvisioner(self.as_engine(), fake_admin_connection(self))

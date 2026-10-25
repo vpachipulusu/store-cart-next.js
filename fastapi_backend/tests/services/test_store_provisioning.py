@@ -81,13 +81,13 @@ async def test_neon_sets_up_the_store_role_over_the_direct_endpoint() -> None:
     assert engine.admin_uris == [NEON_DIRECT_URI.replace("store_x", NAME)]
     direct = next(r for r in fake.requests if r.url.path == URI_PATH)
     assert direct.url.params["pooled"] == "false"
-    assert engine.statements[1:] == [
+    assert [s for s in engine.statements if not s.startswith("SELECT")] == [
         f"CREATE ROLE {NAME} PASSWORD <redacted>",
         f'GRANT "{NAME}" TO CURRENT_USER',
-        f'ALTER DATABASE "{NAME}" OWNER TO "{NAME}"',
         f'REVOKE CONNECT, TEMPORARY ON DATABASE "{NAME}" FROM PUBLIC',
+        f'GRANT CONNECT, TEMPORARY ON DATABASE "{NAME}" TO "{NAME}"',
+        f'GRANT USAGE, CREATE ON SCHEMA public TO "{NAME}"',
     ]
-    assert engine.owners == {NAME: NAME}
 
 
 async def test_neon_create_is_idempotent_and_rotates_the_password() -> None:
@@ -224,7 +224,7 @@ async def test_neon_quotes_ids_once_in_paths_and_not_in_query() -> None:
         seen.append(request)
         if request.method == "GET" and request.url.path.endswith("/databases"):
             return httpx.Response(200, json={"databases": [{"name": NAME}]})
-        return httpx.Response(200, json={"uri": NEON_URI})
+        return httpx.Response(200, json={"uri": NEON_URI.replace("store_x", NAME)})
 
     provisioner = NeonDatabaseProvisioner(
         API_KEY,

@@ -1,9 +1,10 @@
 """Move existing stores onto their own database role (KAN-238, ADR-005).
 
 Stores provisioned before KAN-238 connect as the shared provisioning role. For each
-store, ``backfill_store_role`` creates ``store_<id>``, makes it the owner of the store
-database and of every object the shared role owns in it (including the store Alembic
-version table), revokes PUBLIC's CONNECT, and re-encrypts the new connection string onto
+store, ``backfill_store_role`` runs the provisioning SQL (``apply_store_role``): it creates
+``store_<id>``, revokes PUBLIC's CONNECT, grants the role access, and gives it every object
+the shared role owns in the store database (including the store Alembic version table);
+then it re-encrypts the new connection string onto
 the store row. ``commands.backfill_store_roles`` is its command line; it is an owner step,
 run once per environment, never from a request or a deploy.
 
@@ -35,7 +36,6 @@ from app.services.store_migrations import safe_reason
 from app.services.store_provisioning import AdminConnection, database_name_for
 from app.services.store_roles import (
     apply_store_role,
-    move_owned_objects,
     new_role_password,
     with_role,
 )
@@ -100,8 +100,7 @@ async def backfill_store_role(
             raise StoreDatabaseUnavailable(store_id)
         password = new_role_password()
         async with admin_connection(direct_endpoint(current)) as connection:
-            await apply_store_role(connection, name, name, password)
-            moved = await move_owned_objects(connection, name)
+            moved = await apply_store_role(connection, name, password)
         store_secrets.set_connection_string(store, with_role(current, name, password))
         await session.commit()
     logger.info(

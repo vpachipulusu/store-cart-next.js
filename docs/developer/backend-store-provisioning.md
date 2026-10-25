@@ -15,30 +15,37 @@ await provisioner.delete_database(store_id)            # drops database and role
 
 ## One role per store (KAN-238)
 
-The database **and** its owning login role are named `store_<store id>`. `app.services.store_roles.apply_store_role`
-runs, as the provisioning role and in one transaction:
+The database and its login role are both named `store_<store id>`. `app.services.store_roles.apply_store_role` runs, as
+the provisioning role, connected to the store database, in one transaction (`lock_timeout` 10 s):
 
 ```sql
 CREATE ROLE "store_<id>" WITH LOGIN PASSWORD '<generated>';   -- ALTER ROLE ... on a re-run
 GRANT "store_<id>" TO CURRENT_USER;                           -- SET membership (Postgres 16+)
-ALTER DATABASE "store_<id>" OWNER TO "store_<id>";
 REVOKE CONNECT, TEMPORARY ON DATABASE "store_<id>" FROM PUBLIC;
+GRANT CONNECT, TEMPORARY ON DATABASE "store_<id>" TO "store_<id>";
+GRANT USAGE, CREATE ON SCHEMA public TO "store_<id>";
+-- then ALTER ... OWNER TO "store_<id>" for anything the provisioning role owns here (nothing in a new database)
 ```
 
 - The returned connection string signs in as `store_<id>`; no other store's role (and no `PUBLIC` member) can connect
-  to that database. The provisioning role keeps access through its membership.
+  to that database. The store role owns every object in it (it creates them when migrating). The provisioning role
+  keeps access through its membership.
+- The **database** stays owned by the provisioning role: Neon records that owner and may set it back, and access
+  through the explicit grants does not depend on who owns it. The store role cannot alter or drop its database.
 - **Every call sets a new password** (`secrets.token_urlsafe(32)`), so a re-run rotates it and the previous string stops
-  working. Store the string `create_database` returns; the provisioning job always replaces the stored one. Do not run
-  `create_database` for the same store concurrently: the last password set and the last string saved could differ (the
-  job runs one step at a time; a store left broken this way is fixed by re-running provisioning).
+  working. Store the string `create_database` returns. The provisioning job calls it under the store row lock and always
+  replaces the stored one, so two deliveries cannot cross. Any other caller must do the same: never run
+  `create_database` for one store concurrently, or the last password set and the last string saved could differ.
 - The role is created with SQL, never with the Neon roles API (API roles join `neon_superuser`). It has only `LOGIN`.
 - Identifiers are validated and quoted; the password is validated against its URL-safe alphabet and quoted as a literal
   (DDL takes no bind parameters, and Neon refuses pre-hashed passwords). It is never logged or put in an exception;
   failures log the exception class name only.
 - `get_store_session` refuses a decrypted string whose database is not `store_<id>` or whose user is another store's
   role (`StoreDatabaseUnavailable`). A string still on the shared role opens with a warning until the backfill has run.
-- Engines are built only in `store_sessions.py`: the Neon provisioner and the backfill reach a store database through
-  `store_sessions.open_admin_connection`.
+- Engines are built only in `store_sessions.py`: both provisioners and the backfill reach a store database through
+  `store_sessions.open_admin_connection` (one transaction, `lock_timeout` 10 s).
+- Known limits (ADR-005): the plaintext password is in the DDL (Neon refuses hashed ones), so a failing statement can
+  reach the Postgres server log; Neon `delete_database` cannot drop a role whose database is already gone.
 
 ### Existing stores: `commands.backfill_store_roles` (owner step)
 
@@ -50,11 +57,11 @@ uv run python -m commands.backfill_store_roles                 # every provision
 uv run python -m commands.backfill_store_roles --store-id <id> # one store (repeatable)
 ```
 
-Per store, under the store row lock and in one transaction on the store database (direct endpoint): create the role,
-`apply_store_role`, then `move_owned_objects`, which gives the role every schema, table (with its indexes and owned
-sequences), view, materialized view, sequence, function and type the shared role owns there, including
-`store_alembic_version`, and rolls back if `pg_shdepend` still lists anything owned by the shared role in that database
-(extensions excepted). Then the new string is encrypted onto the row. It never runs `REASSIGN OWNED BY` the shared role
+Per store, under the store row lock and in one transaction on the store database (direct endpoint): `apply_store_role`,
+whose last step (`move_owned_objects`) gives the role every schema, table (with its indexes and owned sequences), view,
+materialized view, sequence, function and type the shared role owns there, including `store_alembic_version`, and rolls
+back if `pg_shdepend` still lists anything owned by the shared role in that database (extensions excepted; other kinds,
+such as default privileges or collations, stop the run at that store). Then the new string is encrypted onto the row. It never runs `REASSIGN OWNED BY` the shared role
 (that would move every database the role owns). Stores already on their own role and stores with no database are
 skipped; it stops at the first failure and exits 1. Output names store ids only.
 
@@ -87,7 +94,8 @@ startup (https and a `neon.tech` host only) so the Bearer key can never go over 
 
 `LocalDatabaseProvisioner` reuses the **platform engine** (`app.core.database.engine`) for an `AUTOCOMMIT` admin
 connection, because ruff `TID251` forbids creating engines outside `database.py` and `store_sessions.py`. It runs
-`CREATE DATABASE "store_<id>"` after checking `pg_database`, then the store role SQL above in a transaction. On delete it
+`CREATE DATABASE "store_<id>"` after checking `pg_database`, then the store role SQL above through
+`open_admin_connection` on the new database (the platform credentials pointed at it). On delete it
 runs `DROP DATABASE IF EXISTS ... WITH (FORCE)` (Postgres 13+) and `DROP ROLE IF EXISTS "store_<id>"`. The `DATABASE_URL`
 role therefore needs `CREATEDB` and `CREATEROLE` (the Docker superuser has both). The returned string is the platform URL
 with the database, user and password swapped; it carries no `sslmode`.
@@ -130,8 +138,9 @@ the URI call fails, an empty database is left behind and `ProvisioningFailed` is
   (database name ending `_test`, role with `CREATEDB` and `CREATEROLE`); skipped otherwise.
 - `tests/services/test_store_roles_e2e.py` (KAN-238): on a real Postgres, as a non-superuser `CREATEDB CREATEROLE`
   role (Neon's shape): store A's credential is refused on store B's database (`42501`), a re-run rotates the password
-  (old one `28P01`), role attributes, ownership and the `PUBLIC` revoke, delete drops the role, a store role reads
-  nothing in the platform database, and the backfill (every object moved, other databases of the shared role untouched,
+  (old one `28P01`), role attributes, grants and the `PUBLIC` revoke, access survives the database owner being reset,
+  a reused pre-KAN-238 database is handed over, delete drops the role, a store role reads nothing in the platform
+  database, and the backfill (every object moved, other databases of the shared role untouched,
   re-run skipped, failures stop the run). Names carry `k238` and an epoch; stale ones are swept.
 - `tests/services/test_store_roles.py`, `tests/services/test_store_role_backfill.py`,
   `tests/commands/test_backfill_store_roles.py`: validation, quoting, reports, exit codes.

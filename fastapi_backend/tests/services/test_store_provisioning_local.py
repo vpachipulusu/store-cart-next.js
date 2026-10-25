@@ -21,23 +21,30 @@ from app.services.store_provisioning import (
 from tests.fakes_provisioning import API_KEY, FakeEngine
 
 STORE_ID = "clx1abcd2efgh3ijkl4mnop5"
+
+
+def ddl(engine: FakeEngine) -> list[str]:
+    """The statements that change something (catalog lookups left out)."""
+    return [s for s in engine.statements if not s.startswith("SELECT")]
+
+
 NAME = f"store_{STORE_ID}"
 
 
 async def test_create_runs_quoted_create_database_then_the_store_role_sql() -> None:
     engine = FakeEngine()
 
-    uri = await LocalDatabaseProvisioner(engine.as_engine()).create_database(STORE_ID)
+    uri = await engine.local_provisioner().create_database(STORE_ID)
 
     assert f'CREATE DATABASE "{NAME}"' in engine.statements
-    assert engine.statements[-4:] == [
+    assert ddl(engine)[-5:] == [
         f"CREATE ROLE {NAME} PASSWORD <redacted>",
         f'GRANT "{NAME}" TO CURRENT_USER',
-        f'ALTER DATABASE "{NAME}" OWNER TO "{NAME}"',
         f'REVOKE CONNECT, TEMPORARY ON DATABASE "{NAME}" FROM PUBLIC',
+        f'GRANT CONNECT, TEMPORARY ON DATABASE "{NAME}" TO "{NAME}"',
+        f'GRANT USAGE, CREATE ON SCHEMA public TO "{NAME}"',
     ]
     assert engine.databases == {NAME}
-    assert engine.owners == {NAME: NAME}
     assert set(engine.isolation_levels) == {"AUTOCOMMIT"}
     password = engine.roles[NAME]
     assert uri == f"postgresql+asyncpg://{NAME}:{password}@db.local:5432/{NAME}"
@@ -48,7 +55,7 @@ async def test_create_is_idempotent_when_database_exists_and_rotates() -> None:
     engine = FakeEngine(databases=(NAME,))
     engine.roles[NAME] = "old-password"
 
-    uri = await LocalDatabaseProvisioner(engine.as_engine()).create_database(STORE_ID)
+    uri = await engine.local_provisioner().create_database(STORE_ID)
 
     assert not [s for s in engine.statements if s.startswith("CREATE")]
     assert f"ALTER ROLE {NAME} PASSWORD <redacted>" in engine.statements
@@ -63,7 +70,7 @@ async def test_role_sql_failure_carries_no_secret(
     engine.fail.add("role")
 
     with caplog.at_level(logging.DEBUG), pytest.raises(ProvisioningFailed) as caught:
-        await LocalDatabaseProvisioner(engine.as_engine()).create_database(STORE_ID)
+        await engine.local_provisioner().create_database(STORE_ID)
 
     assert "s3cret" not in f"{caught.value!s} {caplog.text}"
     assert "PASSWORD" not in caplog.text
@@ -75,7 +82,7 @@ async def test_create_survives_a_concurrent_creator() -> None:
     engine.fail.add("create")
     engine.race_on_create = True
 
-    uri = await LocalDatabaseProvisioner(engine.as_engine()).create_database(STORE_ID)
+    uri = await engine.local_provisioner().create_database(STORE_ID)
 
     assert uri.endswith(f"/{NAME}")
 
@@ -87,7 +94,7 @@ async def test_create_failure_carries_no_secret(
     engine.fail.add("create")
 
     with caplog.at_level(logging.DEBUG), pytest.raises(ProvisioningFailed) as caught:
-        await LocalDatabaseProvisioner(engine.as_engine()).create_database(STORE_ID)
+        await engine.local_provisioner().create_database(STORE_ID)
 
     assert "s3cret" not in f"{caught.value!s} {caplog.text}"
     assert caught.value.__cause__ is None
@@ -97,7 +104,7 @@ async def test_create_failure_carries_no_secret(
 async def test_connection_errors_are_wrapped(error: OSError) -> None:
     engine = FakeEngine()
     engine.connect_error = error
-    provisioner = LocalDatabaseProvisioner(engine.as_engine())
+    provisioner = engine.local_provisioner()
 
     with pytest.raises(ProvisioningFailed):
         await provisioner.create_database(STORE_ID)
@@ -112,11 +119,11 @@ async def test_exists_failure_is_wrapped() -> None:
     engine.fail.add("select")
 
     with pytest.raises(ProvisioningFailed):
-        await LocalDatabaseProvisioner(engine.as_engine()).database_exists(STORE_ID)
+        await engine.local_provisioner().database_exists(STORE_ID)
 
 
 async def test_exists_reports_presence() -> None:
-    provisioner = LocalDatabaseProvisioner(FakeEngine(databases=(NAME,)).as_engine())
+    provisioner = FakeEngine(databases=(NAME,)).local_provisioner()
 
     assert await provisioner.database_exists(STORE_ID) is True
     assert await provisioner.database_exists("clx9zzzzzzzzzzzzzzzzzzzz") is False
@@ -124,7 +131,7 @@ async def test_exists_reports_presence() -> None:
 
 async def test_delete_drops_quoted_name_and_missing_is_fine() -> None:
     engine = FakeEngine(databases=(NAME,))
-    provisioner = LocalDatabaseProvisioner(engine.as_engine())
+    provisioner = engine.local_provisioner()
 
     await provisioner.delete_database(STORE_ID)
     await provisioner.delete_database(STORE_ID)
@@ -138,7 +145,7 @@ async def test_delete_drops_quoted_name_and_missing_is_fine() -> None:
 
 async def test_delete_drops_the_store_role() -> None:
     engine = FakeEngine()
-    provisioner = LocalDatabaseProvisioner(engine.as_engine())
+    provisioner = engine.local_provisioner()
     await provisioner.create_database(STORE_ID)
 
     await provisioner.delete_database(STORE_ID)
@@ -151,16 +158,14 @@ async def test_delete_failure_is_wrapped() -> None:
     engine.fail.add("drop")
 
     with pytest.raises(ProvisioningFailed):
-        await LocalDatabaseProvisioner(engine.as_engine()).delete_database(STORE_ID)
+        await engine.local_provisioner().delete_database(STORE_ID)
 
 
 async def test_injection_is_rejected_before_any_statement() -> None:
     engine = FakeEngine()
 
     with pytest.raises(InvalidStoreId):
-        await LocalDatabaseProvisioner(engine.as_engine()).create_database(
-            'x"; --injected'
-        )
+        await engine.local_provisioner().create_database('x"; --injected')
 
     assert engine.statements == []
 

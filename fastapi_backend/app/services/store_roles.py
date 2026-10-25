@@ -1,7 +1,7 @@
 """One Postgres role per store database (KAN-238, ADR-005).
 
-Each store database is owned by its own login role, ``store_<store id>`` (the same name
-as the database), and ``PUBLIC`` loses ``CONNECT`` on it. A store's connection string
+Each store database has its own login role, ``store_<store id>`` (the same name as the
+database), which owns everything inside it; ``PUBLIC`` loses ``CONNECT`` on it. A store's connection string
 therefore opens that store's database only: another store's credential is refused by
 Postgres itself, not just by the application's choice of database.
 
@@ -9,7 +9,9 @@ The SQL runs as the provisioning role (the Neon role from ``NEON_ROLE_NAME``, or
 platform role locally). It works without superuser on Postgres 16+, where a role with
 CREATEROLE gets ADMIN on the roles it creates but not membership: the explicit
 ``GRANT <store role> TO CURRENT_USER`` gives it the SET (and, for a normal INHERIT role,
-inherited) membership that ``ALTER DATABASE ... OWNER TO`` needs.
+inherited) membership that ``ALTER ... OWNER TO <store role>`` and ``REASSIGN OWNED BY
+<store role>`` need. The database stays owned by the provisioning role (see
+``apply_store_role``).
 
 DDL cannot take bind parameters, so identifiers are checked against a strict pattern and
 quoted, and the password is generated here from a URL-safe alphabet, checked against that
@@ -25,9 +27,10 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 STORE_NAME_PREFIX = "store_"
+# A store role (and database) name: store_ plus a store id.
+STORE_ROLE_PATTERN = re.compile(r"^store_[a-z0-9]{8,40}$")
 # 32 random bytes: about 256 bits, far above Neon's 60 bit minimum.
 PASSWORD_BYTES = 32
-_NAME_PATTERN = re.compile(r"^store_[a-z0-9]{8,40}$")
 _PASSWORD_PATTERN = re.compile(r"^[A-Za-z0-9_-]{40,}$")
 _SYSTEM_SCHEMAS = "n.nspname <> 'information_schema' AND n.nspname NOT LIKE 'pg\\_%'"
 # Objects that belong to an extension keep their owner (ALTER EXTENSION has no OWNER).
@@ -95,7 +98,7 @@ def new_role_password() -> str:
 
 
 def _identifier(name: str) -> str:
-    if not _NAME_PATTERN.fullmatch(name):
+    if not STORE_ROLE_PATTERN.fullmatch(name):
         raise UnsafeRoleInput("invalid store role or database name")
     return f'"{name}"'
 
@@ -117,39 +120,57 @@ def with_role(connection_string: str, role: str, password: str) -> str:
 
 
 async def apply_store_role(
-    connection: AsyncConnection, role: str, database: str, password: str
-) -> None:
-    """Create (or re-password) the store role and make it the database's only user.
+    connection: AsyncConnection, name: str, password: str
+) -> int:
+    """Make the role ``name`` the only non-admin user of the database ``name``.
 
-    Run inside one transaction as the provisioning role. Idempotent: on a re-run the
-    role keeps its objects and only its password changes, so the previous connection
-    string stops working.
+    Run in one transaction as the provisioning role, connected to the store database
+    itself. Creates the role (or, on a re-run, only sets its new password, so the
+    previous connection string stops working), shuts PUBLIC out, grants the role
+    CONNECT and TEMPORARY on the database and USAGE and CREATE on ``public``, and hands
+    it every object the provisioning role owns there. Returns the number of objects
+    whose owner changed (0 for a new database).
+
+    The database itself stays owned by the provisioning role. Neon's control plane
+    records that role as the owner and may set it back, and a grant from an owner to
+    itself merges into the owner's own entry and follows ownership: access granted by
+    a different owner does not depend on it. The store role cannot alter or drop its
+    database, only use it; it owns everything inside.
     """
-    quoted_role, quoted_database = _identifier(role), _identifier(database)
+    quoted = _identifier(name)
     literal = _password_literal(password)
+    current = await connection.scalar(text("SELECT current_database()"))
+    if current != name:
+        raise UnsafeRoleInput("not connected to the store database")
     exists = await connection.scalar(
-        text("SELECT 1 FROM pg_roles WHERE rolname = :role"), {"role": role}
+        text("SELECT 1 FROM pg_roles WHERE rolname = :role"), {"role": name}
     )
     verb = "ALTER" if exists else "CREATE"
     # Only LOGIN and PASSWORD are set: a CREATEROLE non-superuser may not even name
     # SUPERUSER or REPLICATION in ALTER ROLE, and CREATE ROLE defaults to none of them.
     await connection.exec_driver_sql(
-        f"{verb} ROLE {quoted_role} WITH LOGIN PASSWORD {literal}"
+        f"{verb} ROLE {quoted} WITH LOGIN PASSWORD {literal}"
     )
-    await connection.exec_driver_sql(f"GRANT {quoted_role} TO CURRENT_USER")
+    # SET (and inherited) membership: needed to give the role objects and to drop it.
+    await connection.exec_driver_sql(f"GRANT {quoted} TO CURRENT_USER")
     await connection.exec_driver_sql(
-        f"ALTER DATABASE {quoted_database} OWNER TO {quoted_role}"
+        f"REVOKE CONNECT, TEMPORARY ON DATABASE {quoted} FROM PUBLIC"
     )
     await connection.exec_driver_sql(
-        f"REVOKE CONNECT, TEMPORARY ON DATABASE {quoted_database} FROM PUBLIC"
+        f"GRANT CONNECT, TEMPORARY ON DATABASE {quoted} TO {quoted}"
     )
+    await connection.exec_driver_sql(
+        f"GRANT USAGE, CREATE ON SCHEMA public TO {quoted}"
+    )
+    return await move_owned_objects(connection, name)
 
 
 async def move_owned_objects(connection: AsyncConnection, role: str) -> int:
     """Give ``role`` every object the provisioning role owns in the current database.
 
-    Backfill only (existing stores built under the shared role). Never ``REASSIGN
-    OWNED``: that would also move every other database the shared role owns. Raises
+    A new database has none; a store built before KAN-238 (backfill, or an orphan
+    database reused by a re-provision) has its whole schema. Never ``REASSIGN OWNED``:
+    that would also move every other database the shared role owns. Raises
     OwnershipNotMoved when anything is left behind, so the caller rolls back.
     Returns the number of ALTER statements run.
     """
@@ -171,22 +192,19 @@ async def drop_store_role(connection: AsyncConnection, role: str) -> None:
     await connection.exec_driver_sql(f"DROP ROLE IF EXISTS {_identifier(role)}")
 
 
-async def release_store_database(
-    connection: AsyncConnection, role: str, database: str
-) -> None:
+async def release_store_database(connection: AsyncConnection, name: str) -> None:
     """Hand the database back to the provisioning role and drop the store role.
 
     Run connected to the store database itself, just before it is deleted, where the
     database cannot be dropped first (Neon). ``REASSIGN OWNED BY`` the *store* role is
     safe: that role owns nothing outside this database.
     """
-    quoted_role = _identifier(role)
-    _identifier(database)
+    quoted = _identifier(name)
     exists = await connection.scalar(
-        text("SELECT 1 FROM pg_roles WHERE rolname = :role"), {"role": role}
+        text("SELECT 1 FROM pg_roles WHERE rolname = :role"), {"role": name}
     )
     if not exists:
         return
-    await connection.exec_driver_sql(f"REASSIGN OWNED BY {quoted_role} TO CURRENT_USER")
-    await connection.exec_driver_sql(f"DROP OWNED BY {quoted_role}")
-    await connection.exec_driver_sql(f"DROP ROLE {quoted_role}")
+    await connection.exec_driver_sql(f"REASSIGN OWNED BY {quoted} TO CURRENT_USER")
+    await connection.exec_driver_sql(f"DROP OWNED BY {quoted}")
+    await connection.exec_driver_sql(f"DROP ROLE {quoted}")
