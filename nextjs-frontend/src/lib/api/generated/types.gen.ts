@@ -5,6 +5,38 @@ export type ClientOptions = {
 };
 
 /**
+ * AcceptInvitationRequest
+ */
+export type AcceptInvitationRequest = {
+    /**
+     * Token
+     */
+    token: string;
+};
+
+/**
+ * AcceptedInvitationData
+ */
+export type AcceptedInvitationData = {
+    /**
+     * Organization Id
+     */
+    organization_id: string;
+    role: MembershipRole;
+};
+
+/**
+ * AcceptedInvitationResponse
+ */
+export type AcceptedInvitationResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: AcceptedInvitationData;
+};
+
+/**
  * AddImageRequest
  */
 export type AddImageRequest = {
@@ -682,6 +714,20 @@ export type ConnectStatusResponse = {
 };
 
 /**
+ * CreateInvitationRequest
+ */
+export type CreateInvitationRequest = {
+    /**
+     * Email
+     */
+    email: string;
+    /**
+     * Role
+     */
+    role: 'ADMIN' | 'STAFF';
+};
+
+/**
  * CreateProductRequest
  */
 export type CreateProductRequest = {
@@ -731,6 +777,48 @@ export type CreateRequest = {
      * Slug
      */
     slug: string;
+};
+
+/**
+ * CreatedInvitationData
+ */
+export type CreatedInvitationData = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Email
+     */
+    email: string;
+    role: MembershipRole;
+    /**
+     * Expires At
+     */
+    expires_at: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Accept Url
+     */
+    accept_url: string;
+    /**
+     * Email Sent
+     */
+    email_sent: boolean;
+};
+
+/**
+ * CreatedInvitationResponse
+ */
+export type CreatedInvitationResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    data: CreatedInvitationData;
 };
 
 /**
@@ -1389,6 +1477,43 @@ export type ImportProductsResponse = {
 };
 
 /**
+ * InvitationData
+ */
+export type InvitationData = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Email
+     */
+    email: string;
+    role: MembershipRole;
+    /**
+     * Expires At
+     */
+    expires_at: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * InvitationListResponse
+ */
+export type InvitationListResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    /**
+     * Data
+     */
+    data: Array<InvitationData>;
+};
+
+/**
  * InvoiceData
  */
 export type InvoiceData = {
@@ -1468,6 +1593,55 @@ export type MarkAllReadResponse = {
      */
     success?: true;
     data: MarkAllReadData;
+};
+
+/**
+ * MemberData
+ */
+export type MemberData = {
+    /**
+     * User Id
+     */
+    user_id: string;
+    /**
+     * Email
+     */
+    email: string;
+    /**
+     * Display Name
+     */
+    display_name: string | null;
+    role: MembershipRole;
+    /**
+     * Joined At
+     */
+    joined_at: string;
+};
+
+/**
+ * MemberListResponse
+ */
+export type MemberListResponse = {
+    /**
+     * Success
+     */
+    success?: true;
+    /**
+     * Data
+     */
+    data: Array<MemberData>;
+    /**
+     * Total
+     */
+    total: number;
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Offset
+     */
+    offset: number;
 };
 
 /**
@@ -8110,6 +8284,286 @@ export type CreateOnboardingLinkResponses = {
 };
 
 export type CreateOnboardingLinkResponse = CreateOnboardingLinkResponses[keyof CreateOnboardingLinkResponses];
+
+export type ListMembersData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+    };
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Offset
+         */
+        offset?: number;
+    };
+    url: '/v1/organizations/{organization_id}/members';
+};
+
+export type ListMembersErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable, or invitations not configured
+     */
+    503: ErrorResponse;
+};
+
+export type ListMembersError = ListMembersErrors[keyof ListMembersErrors];
+
+export type ListMembersResponses = {
+    /**
+     * Successful Response
+     */
+    200: MemberListResponse;
+};
+
+export type ListMembersResponse = ListMembersResponses[keyof ListMembersResponses];
+
+export type ListInvitationsData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+    };
+    query?: never;
+    url: '/v1/organizations/{organization_id}/invitations';
+};
+
+export type ListInvitationsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable, or invitations not configured
+     */
+    503: ErrorResponse;
+};
+
+export type ListInvitationsError = ListInvitationsErrors[keyof ListInvitationsErrors];
+
+export type ListInvitationsResponses = {
+    /**
+     * Successful Response
+     */
+    200: InvitationListResponse;
+};
+
+export type ListInvitationsResponse = ListInvitationsResponses[keyof ListInvitationsResponses];
+
+export type CreateInvitationData = {
+    body: CreateInvitationRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Organization Id
+         */
+        organization_id: string;
+    };
+    query?: never;
+    url: '/v1/organizations/{organization_id}/invitations';
+};
+
+export type CreateInvitationErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable, or invitations not configured
+     */
+    503: ErrorResponse;
+};
+
+export type CreateInvitationError = CreateInvitationErrors[keyof CreateInvitationErrors];
+
+export type CreateInvitationResponses = {
+    /**
+     * Successful Response
+     */
+    201: CreatedInvitationResponse;
+};
+
+export type CreateInvitationResponse = CreateInvitationResponses[keyof CreateInvitationResponses];
+
+export type AcceptInvitationData = {
+    body: AcceptInvitationRequest;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/invitations/accept';
+};
+
+export type AcceptInvitationErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ErrorResponse;
+    /**
+     * Gone
+     */
+    410: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Rate limiter unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type AcceptInvitationError = AcceptInvitationErrors[keyof AcceptInvitationErrors];
+
+export type AcceptInvitationResponses = {
+    /**
+     * Successful Response
+     */
+    200: AcceptedInvitationResponse;
+};
+
+export type AcceptInvitationResponse = AcceptInvitationResponses[keyof AcceptInvitationResponses];
 
 export type ListOrganizationsData = {
     body?: never;

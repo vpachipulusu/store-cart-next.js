@@ -270,6 +270,10 @@ export async function proxy(request: NextRequest) {
   // Add security headers
   const response = NextResponse.next({ request: { headers: forwardedHeaders } });
   applySecurityHeaders(response);
+  // Invitation links carry a single-use token in the path (KAN-62): never send it on as a referrer.
+  if (pathname.startsWith('/invite/')) {
+    response.headers.set('Referrer-Policy', 'no-referrer');
+  }
 
   // CORS headers for API routes
   if (pathname.startsWith('/api/')) {

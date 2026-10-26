@@ -13,6 +13,7 @@ from app.api.v1 import (
     health,
     internal_cart_purge,
     internal_provisioning,
+    invitations,
     me,
     me_export,
     media,
@@ -53,6 +54,8 @@ api_router.include_router(admin_subscriptions.router)
 api_router.include_router(admin_analytics.router)
 api_router.include_router(org_billing.router)
 api_router.include_router(org_connect.router)
+api_router.include_router(invitations.router)
+api_router.include_router(invitations.accept_router)
 
 api_router.include_router(organizations.router)
 api_router.include_router(stores.router)

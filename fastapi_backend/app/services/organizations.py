@@ -113,6 +113,37 @@ def _slug_conflict(exc: IntegrityError) -> Exception:
     return SlugTaken() if state == "23505" else exc
 
 
+async def require_org_role(
+    store: OrganizationsRepository,
+    organization_id: str,
+    user_id: str,
+    roles: frozenset[MembershipRole],
+    *,
+    lock: bool = False,
+) -> tuple[OrganizationRecord, MembershipRole]:
+    """The organisation and the caller's role in it, when the role is one of ``roles``.
+
+    ``OrganizationNotFound`` for a non-member (whether or not the organisation exists),
+    ``OrgForbidden`` for a member with another role. The membership is checked first
+    without a lock, so a non-member never takes the organisation's row lock; with
+    ``lock`` the row is then locked and the role re-read under it, so a membership
+    revoked a moment ago cannot be used for the write that follows.
+    """
+    role = await store.get_role(organization_id, user_id)
+    if role is None:
+        raise OrganizationNotFound
+    if role not in roles:
+        raise OrgForbidden
+    organization = await store.get_organization(organization_id, lock=lock)
+    if lock:
+        role = await store.get_role(organization_id, user_id)
+    if organization is None or role is None:
+        raise OrganizationNotFound
+    if role not in roles:
+        raise OrgForbidden
+    return organization, role
+
+
 @dataclass(frozen=True)
 class OrganizationView:
     organization: OrganizationRecord
@@ -231,13 +262,9 @@ class OrganizationsService:
         slug: str | None,
         request_id: str | None,
     ) -> OrganizationView:
-        # Membership first (no lock), so a non-member can neither learn the
-        # organisation exists nor hold its row lock; then lock and re-read the role.
-        await self._require_member(organization_id, user_id, MANAGE_ROLES)
-        current = await self._store.get_organization(organization_id, lock=True)
-        role = await self._store.get_role(organization_id, user_id)
-        if current is None or role is None:
-            raise OrganizationNotFound
+        current, role = await require_org_role(
+            self._store, organization_id, user_id, MANAGE_ROLES, lock=True
+        )
         values = self._changes(current.name, current.slug, name, slug, role)
         if values:
             try:
@@ -277,13 +304,9 @@ class OrganizationsService:
     ) -> StoreRecord:
         # The organisation row lock serialises concurrent creates, so the plan
         # limit below cannot be overshot by two requests counting at once.
-        await self._require_member(organization_id, user_id, MANAGE_ROLES)
-        organization = await self._store.get_organization(organization_id, lock=True)
-        role = await self._store.get_role(organization_id, user_id)
-        if organization is None or role is None:
-            raise OrganizationNotFound
-        if role not in MANAGE_ROLES:
-            raise OrgForbidden
+        organization, _ = await require_org_role(
+            self._store, organization_id, user_id, MANAGE_ROLES, lock=True
+        )
         clean_name = normalize_name(name)
         clean_slug = normalize_slug(slug)
         plan = plan_for(organization.effective_plan)
@@ -367,19 +390,6 @@ class OrganizationsService:
         return updated
 
     # Helpers ---------------------------------------------------------------
-
-    async def _require_member(
-        self,
-        organization_id: str,
-        user_id: str,
-        roles: frozenset[MembershipRole],
-    ) -> None:
-        """Unlocked membership check: 404 for a non-member, 403 for a low role."""
-        role = await self._store.get_role(organization_id, user_id)
-        if role is None:
-            raise OrganizationNotFound
-        if role not in roles:
-            raise OrgForbidden
 
     @staticmethod
     def _view(
