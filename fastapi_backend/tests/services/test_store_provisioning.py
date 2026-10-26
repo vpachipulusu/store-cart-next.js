@@ -83,7 +83,7 @@ async def test_neon_sets_up_the_store_role_over_the_direct_endpoint() -> None:
     assert direct.url.params["pooled"] == "false"
     assert [s for s in engine.statements if not s.startswith("SELECT")] == [
         f"CREATE ROLE {NAME} PASSWORD <redacted>",
-        f'GRANT "{NAME}" TO CURRENT_USER',
+        f'GRANT "{NAME}" TO CURRENT_USER WITH INHERIT TRUE, SET TRUE',
         f'REVOKE CONNECT, TEMPORARY ON DATABASE "{NAME}" FROM PUBLIC',
         f'GRANT CONNECT, TEMPORARY ON DATABASE "{NAME}" TO "{NAME}"',
         f'GRANT USAGE, CREATE ON SCHEMA public TO "{NAME}"',

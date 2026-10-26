@@ -13,7 +13,10 @@ import re
 import secrets
 import time
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
 import pytest
 from sqlalchemy import text
@@ -26,9 +29,16 @@ from app.core.ids import new_id
 from app.core.store_crypto import StoreSecretCodec, generate_key
 from app.models.platform.store import Store, StoreStatus
 from app.services import store_secrets
+from app.services.store_migrations import migrate_store
 from app.services.store_provisioning import LocalDatabaseProvisioner, database_name_for
-from app.services.store_role_backfill import backfill_store_role, backfill_store_roles
-from app.services.store_sessions import open_store_session
+from app.services.store_role_backfill import (
+    BackfillFailure,
+    Outcome,
+    backfill_store_role,
+    backfill_store_roles,
+)
+from app.services.store_roles import release_store_database
+from app.services.store_sessions import open_admin_connection, open_store_session
 from commands.backfill_store_roles import format_report
 from tests.pg_scaffold import (
     STALE_AFTER_SECONDS,
@@ -126,6 +136,7 @@ class Cluster:
     admin: AsyncEngine
     store_ids: list[str] = field(default_factory=list)
     databases: list[str] = field(default_factory=list)
+    extra_roles: list[str] = field(default_factory=list)
 
     def provisioner(self) -> LocalDatabaseProvisioner:
         return LocalDatabaseProvisioner(self.admin)
@@ -166,7 +177,7 @@ async def cluster() -> AsyncIterator[Cluster]:
             await drop_roles(
                 server, [database_name_for(sid) for sid in built.store_ids]
             )
-            await drop_roles(server, [admin_name])
+            await drop_roles(server, [*built.extra_roles, admin_name])
         finally:
             await server.dispose()
 
@@ -286,27 +297,42 @@ async def test_a_store_role_reads_nothing_in_a_database_it_does_not_own(
     assert getattr(caught.value.orig, "sqlstate", None) == INSUFFICIENT_PRIVILEGE
 
 
-async def test_access_does_not_depend_on_who_owns_the_database(
-    cluster: Cluster,
-) -> None:
-    """Neon's control plane may (re)set the owner to the provisioning role at any time."""
-    store_id = cluster.store_id()
-    name = database_name_for(store_id)
-    dsn = await cluster.provisioner().create_database(store_id)
-    async with cluster.server.execution_options(
-        isolation_level="AUTOCOMMIT"
-    ).connect() as connection:
-        await connection.exec_driver_sql(
-            f"ALTER DATABASE {quote(name)} OWNER TO {quote(cluster.admin_name)}"
-        )
-
+async def use_store_database(dsn: str, table: str) -> None:
+    """Connect as the store role, create a table and a temporary table."""
     engine = create_async_engine(dsn)
     try:
         async with engine.begin() as connection:
-            await connection.execute(text("CREATE TABLE after_reset (id int)"))
-            await connection.execute(text("CREATE TEMP TABLE scratch (id int)"))
+            await connection.execute(text(f"CREATE TABLE {table} (id int)"))
+            await connection.execute(
+                text(f"CREATE TEMP TABLE scratch_{table} (id int)")
+            )
     finally:
         await engine.dispose()
+
+
+async def test_access_does_not_depend_on_who_owns_the_database(
+    cluster: Cluster,
+) -> None:
+    """Neon's control plane may (re)set the owner at any time; access must survive it."""
+    store_id = cluster.store_id()
+    name = database_name_for(store_id)
+    dsn = await cluster.provisioner().create_database(store_id)
+    third = f"{PREFIX}adm_{int(time.time())}_{secrets.token_hex(3)}"
+    cluster.extra_roles.append(third)
+    superuser = cluster.server.execution_options(isolation_level="AUTOCOMMIT")
+    async with superuser.connect() as connection:
+        await connection.exec_driver_sql(f"CREATE ROLE {quote(third)} NOLOGIN")
+        await connection.exec_driver_sql(
+            f"ALTER DATABASE {quote(name)} OWNER TO {quote(third)}"
+        )
+
+    await use_store_database(dsn, "while_owned_elsewhere")
+
+    async with superuser.connect() as connection:
+        await connection.exec_driver_sql(
+            f"ALTER DATABASE {quote(name)} OWNER TO {quote(cluster.admin_name)}"
+        )
+    await use_store_database(dsn, "after_owner_restored")
     other = cluster.store_id()
     other_dsn = await cluster.provisioner().create_database(other)
     other_here = make_url(other_dsn).set(database=name).render_as_string(False)
@@ -389,12 +415,15 @@ class Legacy:
     store_id: str
     provider: DefaultSessionProvider
     other_database: str
+    shared_dsn: str
 
 
 @pytest.fixture
 async def legacy(
-    cluster: Cluster, monkeypatch: pytest.MonkeyPatch
+    cluster: Cluster, monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
 ) -> AsyncIterator[Legacy]:
+    """``LEGACY_SCHEMA``, or the statements given by indirect parametrization."""
+    schema: tuple[str, ...] = getattr(request, "param", LEGACY_SCHEMA)
     codec = StoreSecretCodec(generate_key())
     monkeypatch.setattr(store_secrets, "get_codec", lambda: codec)
     platform_name = unique_name(PREFIX, "plat")
@@ -413,7 +442,7 @@ async def legacy(
     shared_dsn = make_url(cluster.admin_url).set(database=name).render_as_string(False)
     store_engine = create_async_engine(shared_dsn)
     async with store_engine.begin() as connection:
-        for statement in LEGACY_SCHEMA:
+        for statement in schema:
             await connection.exec_driver_sql(statement)
     await store_engine.dispose()
     provider = DefaultSessionProvider(
@@ -437,7 +466,7 @@ async def legacy(
         session.add(store)
         await session.commit()
     try:
-        yield Legacy(store_id, provider, other)
+        yield Legacy(store_id, provider, other, shared_dsn)
     finally:
         await platform.dispose()
 
@@ -530,7 +559,9 @@ async def test_backfill_rerun_skips_a_store_already_on_its_role(
     assert report.moved == ()
     assert report.skipped == (legacy.store_id,)
     assert await stored_dsn(legacy) == moved_dsn
-    assert await backfill_store_role(legacy.store_id, legacy.provider) is False
+    assert (
+        await backfill_store_role(legacy.store_id, legacy.provider) == Outcome.SKIPPED
+    )
 
 
 async def test_backfill_report_never_shows_a_connection_string(
@@ -558,8 +589,10 @@ async def test_backfill_stops_at_a_store_whose_string_names_another_database(
         legacy.provider, store_ids=[legacy.store_id, "never-reached"]
     )
 
-    assert report.failed_store_id == legacy.store_id
-    assert report.failure_reason == "StoreDatabaseUnavailable"
+    assert report.failures == (
+        BackfillFailure(legacy.store_id, "StoreDatabaseUnavailable"),
+    )
+    assert report.stopped is True
     assert report.moved == ()
 
 
@@ -579,4 +612,198 @@ async def test_backfill_skips_a_store_with_no_database_yet(legacy: Legacy) -> No
 async def test_backfill_of_an_unknown_store_fails_typed(legacy: Legacy) -> None:
     report = await backfill_store_roles(legacy.provider, store_ids=["k238nosuchstore"])
 
-    assert report.failure_reason == "StoreNotFound"
+    assert report.failures == (BackfillFailure("k238nosuchstore", "StoreNotFound"),)
+
+
+# --- KAN-238 review follow-ups -------------------------------------------------------
+
+
+async def test_dry_run_lists_the_store_and_changes_nothing(
+    cluster: Cluster, legacy: Legacy
+) -> None:
+    report = await backfill_store_roles(legacy.provider, dry_run=True)
+
+    assert report.would_move == (legacy.store_id,)
+    assert report.moved == ()
+    assert await stored_dsn(legacy) == legacy.shared_dsn
+    async with cluster.server.connect() as connection:
+        role = await connection.scalar(
+            text("SELECT 1 FROM pg_roles WHERE rolname = :n"),
+            {"n": database_name_for(legacy.store_id)},
+        )
+    assert role is None
+
+
+async def test_the_default_selection_leaves_archived_stores_alone(
+    legacy: Legacy,
+) -> None:
+    async with legacy.provider.session() as session:
+        store = await session.get(Store, legacy.store_id)
+        assert store is not None
+        store.status = StoreStatus.ARCHIVED
+        await session.commit()
+
+    report = await backfill_store_roles(legacy.provider)
+
+    assert (report.moved, report.skipped, report.failures) == ((), (), ())
+
+
+async def test_continue_on_error_moves_the_rest_and_still_fails(
+    legacy: Legacy,
+) -> None:
+    report = await backfill_store_roles(
+        legacy.provider,
+        store_ids=["k238nosuchstore", legacy.store_id],
+        continue_on_error=True,
+    )
+
+    assert report.moved == (legacy.store_id,)
+    assert report.failures == (BackfillFailure("k238nosuchstore", "StoreNotFound"),)
+    assert report.stopped is False
+    assert not report.succeeded
+
+
+async def test_an_object_kind_it_cannot_move_rolls_the_store_back(
+    cluster: Cluster, legacy: Legacy
+) -> None:
+    engine = create_async_engine(legacy.shared_dsn)
+    try:
+        async with engine.begin() as connection:
+            await connection.exec_driver_sql(
+                'CREATE COLLATION german (provider = libc, locale = "C")'
+            )
+    finally:
+        await engine.dispose()
+
+    report = await backfill_store_roles(legacy.provider)
+
+    assert report.failures == (BackfillFailure(legacy.store_id, "OwnershipNotMoved"),)
+    assert await stored_dsn(legacy) == legacy.shared_dsn
+    async with cluster.server.connect() as connection:
+        role = await connection.scalar(
+            text("SELECT 1 FROM pg_roles WHERE rolname = :n"),
+            {"n": database_name_for(legacy.store_id)},
+        )
+    assert role is None
+
+
+async def test_tables_created_between_the_ddl_and_the_row_flip_are_moved_too(
+    cluster: Cluster, legacy: Legacy
+) -> None:
+    """A migration on the old string can run after the DDL commits, before the flip."""
+    calls = 0
+
+    @asynccontextmanager
+    async def migration_in_the_gap(uri: str) -> AsyncIterator[Any]:
+        nonlocal calls
+        calls += 1
+        if calls == 2:  # the post-flip pass: the "migration" ran just before it
+            late = create_async_engine(legacy.shared_dsn)
+            try:
+                async with late.begin() as connection:
+                    await connection.exec_driver_sql(
+                        "CREATE TABLE late_arrival (id int)"
+                    )
+            finally:
+                await late.dispose()
+        async with open_admin_connection(uri) as connection:
+            yield connection
+
+    report = await backfill_store_roles(
+        legacy.provider, admin_connection=migration_in_the_gap
+    )
+
+    assert report.moved == (legacy.store_id,)
+    owner = await scalar_as(
+        await stored_dsn(legacy),
+        "SELECT pg_get_userbyid(relowner)::text FROM pg_class "
+        "WHERE relname = 'late_arrival'",
+    )
+    assert owner == database_name_for(legacy.store_id)
+
+
+async def test_release_hands_the_objects_back_and_drops_the_role(
+    cluster: Cluster,
+) -> None:
+    """The SQL the Neon provisioner runs before deleting a store database."""
+    store_id = cluster.store_id()
+    name = database_name_for(store_id)
+    dsn = await cluster.provisioner().create_database(store_id)
+    await use_store_database(dsn, "owned_by_store")
+    admin_on_store = make_url(cluster.admin_url).set(database=name)
+
+    async with open_admin_connection(admin_on_store.render_as_string(False)) as c:
+        await release_store_database(c, name)
+        owner = await c.scalar(
+            text(
+                "SELECT pg_get_userbyid(relowner)::text FROM pg_class "
+                "WHERE relname = 'owned_by_store'"
+            )
+        )
+
+    assert owner == cluster.admin_name
+    async with cluster.server.connect() as connection:
+        role = await connection.scalar(
+            text("SELECT 1 FROM pg_roles WHERE rolname = :n"), {"n": name}
+        )
+    assert role is None
+
+
+def extended_store_tree(root: Path) -> Path:
+    """The real store tree plus one revision that alters a real table."""
+    real = Path(__file__).resolve().parents[2] / "alembic_store"
+    tree = root / "alembic_store"
+    (tree / "versions").mkdir(parents=True)
+    (tree / "env.py").write_text((real / "env.py").read_text())
+    (tree / "script.py.mako").write_text((real / "script.py.mako").read_text())
+    revisions = sorted((real / "versions").glob("[0-9]*.py"))
+    for revision in revisions:
+        (tree / "versions" / revision.name).write_text(revision.read_text())
+    head = revisions[-1].name.split("_", 1)[0]
+    (tree / "versions" / "9999_kan238_probe.py").write_text(
+        f'''"""KAN-238 probe: a later revision applied as the store role."""
+
+import sqlalchemy as sa
+from alembic import op
+
+revision = "9999"
+down_revision = "{head}"
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    op.add_column("products", sa.Column("kan238_probe", sa.Integer()))
+    op.create_table("kan238_probe", sa.Column("id", sa.Integer, primary_key=True))
+
+
+def downgrade() -> None:
+    op.drop_table("kan238_probe")
+    op.drop_column("products", "kan238_probe")
+'''
+    )
+    return tree
+
+
+@pytest.mark.parametrize("legacy", [()], indirect=True)
+async def test_a_later_real_revision_applies_as_the_store_role_after_the_backfill(
+    legacy: Legacy, tmp_path: Path
+) -> None:
+    # Built the old way: the real store tree applied as the shared role.
+    await migrate_store(legacy.store_id, legacy.provider)
+    await backfill_store_roles(legacy.provider)
+
+    version = await migrate_store(
+        legacy.store_id,
+        legacy.provider,
+        script_location=extended_store_tree(tmp_path),
+    )
+
+    dsn = await stored_dsn(legacy)
+    assert make_url(dsn).username == database_name_for(legacy.store_id)
+    assert version > 1
+    assert await scalar_as(
+        dsn,
+        "SELECT pg_get_userbyid(relowner)::text FROM pg_class "
+        "WHERE relname = 'kan238_probe'",
+    ) == database_name_for(legacy.store_id)

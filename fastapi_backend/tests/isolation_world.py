@@ -296,9 +296,16 @@ async def open_world(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[World]:
             await drop_databases(
                 server, [database_name_for(sid) for sid in built.provisioned]
             )
-            # KAN-238: each provisioned store also has its own role.
+            # KAN-238: each provisioned store also has its own role. One failing
+            # delete must not leave the other roles behind.
+            errors: list[Exception] = []
             for sid in built.provisioned:
-                await built.provisioner.delete_database(sid)
+                try:
+                    await built.provisioner.delete_database(sid)
+                except Exception as exc:  # noqa: BLE001 (collected and re-raised)
+                    errors.append(exc)
+            if errors:
+                raise ExceptionGroup("could not drop store roles", errors)
 
         cleanup.push_async_callback(delete_store_databases)
         monkeypatch.setattr(store_secrets, "get_codec", lambda: built.codec)

@@ -25,7 +25,7 @@ Rules shared by both providers:
 
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from typing import Any, Protocol
 from urllib.parse import quote
@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 from app.core.config import Settings
 from app.services.store_roles import (
     STORE_NAME_PREFIX,
+    StoreRoleError,
     apply_store_role,
     drop_store_role,
     new_role_password,
@@ -54,9 +55,9 @@ REQUEST_TIMEOUT_SECONDS = 30.0
 # Driver errors that must never escape raw: SQLAlchemy wraps DBAPI errors, but a refused
 # or reset connect can surface as an OSError.
 _LOCAL_ERRORS = (SQLAlchemyError, OSError)
-# Admin SQL errors: driver errors, a refused connect, or a rejected name or password
-# (UnsafeRoleInput is a ValueError).
-_ADMIN_ERRORS = (SQLAlchemyError, OSError, ValueError)
+# Admin SQL errors: driver errors, a refused connect, a rejected name or password
+# (UnsafeRoleInput is a ValueError), or a result that failed its checks (StoreRoleError).
+_ADMIN_ERRORS = (SQLAlchemyError, OSError, ValueError, StoreRoleError)
 
 AdminConnection = Callable[[str], AbstractAsyncContextManager[AsyncConnection]]
 
@@ -350,7 +351,7 @@ class NeonDatabaseProvisioner:
         self,
         store_id: str,
         admin_uri: str,
-        work: Callable[[AsyncConnection], Any],
+        work: Callable[[AsyncConnection], Awaitable[object]],
     ) -> None:
         try:
             async with self._admin_connection(admin_uri) as connection:

@@ -178,6 +178,15 @@ def test_breadcrumbs_drop_log_messages_and_scrub_data() -> None:
     assert crumb["data"] == {"url": "http://x/y", "auth": FILTERED}
 
 
+def test_sql_breadcrumbs_are_dropped() -> None:
+    crumb = {
+        "category": "query",
+        "message": "CREATE ROLE \"store_x\" WITH LOGIN PASSWORD 's3cret-value'",
+    }
+
+    assert scrub_breadcrumb(crumb) is None
+
+
 def test_server_name_is_fixed_and_tracing_is_off() -> None:
     init_sentry(make_settings(SENTRY_DSN=DSN), transport=RecordingTransport())
 

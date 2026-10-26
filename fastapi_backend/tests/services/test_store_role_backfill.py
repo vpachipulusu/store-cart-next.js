@@ -4,7 +4,11 @@ test_store_roles_e2e.py."""
 import pytest
 from sqlalchemy.engine import make_url
 
-from app.services.store_role_backfill import BackfillReport, direct_endpoint
+from app.services.store_role_backfill import (
+    BackfillFailure,
+    BackfillReport,
+    direct_endpoint,
+)
 
 
 @pytest.mark.parametrize(
@@ -33,4 +37,4 @@ def test_direct_endpoint_drops_only_the_neon_pooler_suffix(pooled: str, host: st
 
 def test_report_succeeds_only_without_a_failed_store():
     assert BackfillReport(moved=("a",)).succeeded
-    assert not BackfillReport(failed_store_id="b", failure_reason="Boom").succeeded
+    assert not BackfillReport(failures=(BackfillFailure("b", "Boom"),)).succeeded

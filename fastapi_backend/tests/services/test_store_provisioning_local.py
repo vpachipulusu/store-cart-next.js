@@ -39,7 +39,7 @@ async def test_create_runs_quoted_create_database_then_the_store_role_sql() -> N
     assert f'CREATE DATABASE "{NAME}"' in engine.statements
     assert ddl(engine)[-5:] == [
         f"CREATE ROLE {NAME} PASSWORD <redacted>",
-        f'GRANT "{NAME}" TO CURRENT_USER',
+        f'GRANT "{NAME}" TO CURRENT_USER WITH INHERIT TRUE, SET TRUE',
         f'REVOKE CONNECT, TEMPORARY ON DATABASE "{NAME}" FROM PUBLIC',
         f'GRANT CONNECT, TEMPORARY ON DATABASE "{NAME}" TO "{NAME}"',
         f'GRANT USAGE, CREATE ON SCHEMA public TO "{NAME}"',
@@ -269,3 +269,18 @@ def test_settings_reject_unsafe_neon_base_url(url: str) -> None:
 
 def test_settings_accept_default_neon_base_url() -> None:
     assert settings().NEON_API_BASE_URL == "https://console.neon.tech/api/v2"
+
+
+@pytest.mark.parametrize(
+    ("attribute", "value"), [("checks_pass", False), ("leftover_owned", 2)]
+)
+async def test_a_failed_role_check_is_a_provisioning_failure(
+    attribute: str, value: object
+) -> None:
+    engine = FakeEngine()
+    setattr(engine, attribute, value)
+
+    with pytest.raises(ProvisioningFailed) as caught:
+        await engine.local_provisioner().create_database(STORE_ID)
+
+    assert caught.value.__cause__ is None

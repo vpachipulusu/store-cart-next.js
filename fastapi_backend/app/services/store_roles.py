@@ -1,15 +1,15 @@
 """One Postgres role per store database (KAN-238, ADR-005).
 
 Each store database has its own login role, ``store_<store id>`` (the same name as the
-database), which owns everything inside it; ``PUBLIC`` loses ``CONNECT`` on it. A store's connection string
-therefore opens that store's database only: another store's credential is refused by
-Postgres itself, not just by the application's choice of database.
+database), which owns everything inside it; ``PUBLIC`` loses ``CONNECT`` on it. A store's
+connection string therefore opens that store's database only: another store's credential
+is refused by Postgres itself, not just by the application's choice of database.
 
 The SQL runs as the provisioning role (the Neon role from ``NEON_ROLE_NAME``, or the
 platform role locally). It works without superuser on Postgres 16+, where a role with
 CREATEROLE gets ADMIN on the roles it creates but not membership: the explicit
-``GRANT <store role> TO CURRENT_USER`` gives it the SET (and, for a normal INHERIT role,
-inherited) membership that ``ALTER ... OWNER TO <store role>`` and ``REASSIGN OWNED BY
+``GRANT <store role> TO CURRENT_USER WITH INHERIT TRUE, SET TRUE`` gives it the
+membership that ``ALTER ... OWNER TO <store role>`` and ``REASSIGN OWNED BY
 <store role>`` need. The database stays owned by the provisioning role (see
 ``apply_store_role``).
 
@@ -39,6 +39,21 @@ _NOT_EXTENSION_MEMBER = (
     "AND e.objid = {oid} AND e.deptype = 'e')"
 )
 _ME = "(SELECT oid FROM pg_roles WHERE rolname = current_user)"
+# The advisory lock store_migrations takes per database: role setup and migrations of
+# one store never interleave (a migration in between could leave tables on the old owner).
+STORE_MIGRATION_LOCK_KEY = 5_735_701
+_ROLE_IS_PLAIN = (
+    "SELECT NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication "
+    "OR rolbypassrls) AND NOT EXISTS (SELECT 1 FROM pg_auth_members m "
+    "WHERE m.member = r.oid) FROM pg_roles r WHERE rolname = :role"
+)
+_ROLE_HAS_ACCESS = (
+    "SELECT has_database_privilege(CAST(:role AS text), current_database(), "
+    "'CONNECT, TEMPORARY') AND has_schema_privilege(CAST(:role AS text), 'public', "
+    "'USAGE, CREATE') AND NOT EXISTS (SELECT 1 FROM pg_database d, "
+    "aclexplode(d.datacl) a WHERE d.datname = current_database() AND a.grantee = 0 "
+    "AND a.privilege_type IN ('CONNECT', 'TEMPORARY'))"
+)
 
 # Statements generated server-side with format('%I'), so every identifier is quoted by
 # Postgres. Each yields "ALTER ... OWNER TO <store role>" for an object the provisioning
@@ -85,7 +100,15 @@ class UnsafeRoleInput(ValueError):
     """A role name or password failed validation. The message never carries the value."""
 
 
-class OwnershipNotMoved(Exception):
+class StoreRoleError(Exception):
+    """The store role SQL ran but its result is not the expected one. No secrets."""
+
+
+class StoreRoleCheckFailed(StoreRoleError):
+    """The role holds a privileged attribute or membership, or lacks its access."""
+
+
+class OwnershipNotMoved(StoreRoleError):
     """Objects the provisioning role owns remain in the store database (``count``)."""
 
     def __init__(self, count: int) -> None:
@@ -119,6 +142,22 @@ def with_role(connection_string: str, role: str, password: str) -> str:
     )
 
 
+async def _enter_store_database(connection: AsyncConnection, name: str) -> None:
+    """Refuse any other database, then wait for the store's migration lock."""
+    current = await connection.scalar(text("SELECT current_database()"))
+    if current != name:
+        raise UnsafeRoleInput("not connected to the store database")
+    # Transaction scoped (re-entrant); bounded by the admin connection's lock_timeout.
+    await connection.scalar(
+        text("SELECT pg_advisory_xact_lock(:key)"), {"key": STORE_MIGRATION_LOCK_KEY}
+    )
+
+
+async def _check(connection: AsyncConnection, query: str, name: str, what: str) -> None:
+    if await connection.scalar(text(query), {"role": name}) is not True:
+        raise StoreRoleCheckFailed(what)
+
+
 async def apply_store_role(
     connection: AsyncConnection, name: str, password: str
 ) -> int:
@@ -128,8 +167,10 @@ async def apply_store_role(
     itself. Creates the role (or, on a re-run, only sets its new password, so the
     previous connection string stops working), shuts PUBLIC out, grants the role
     CONNECT and TEMPORARY on the database and USAGE and CREATE on ``public``, and hands
-    it every object the provisioning role owns there. Returns the number of objects
-    whose owner changed (0 for a new database).
+    it every object the provisioning role owns there. Then it checks the result
+    (no privileged attribute or membership, the access granted, PUBLIC shut out) and
+    raises StoreRoleCheckFailed otherwise, so the transaction rolls back. Returns the
+    number of objects whose owner changed (0 for a new database).
 
     The database itself stays owned by the provisioning role. Neon's control plane
     records that role as the owner and may set it back, and a grant from an owner to
@@ -139,9 +180,7 @@ async def apply_store_role(
     """
     quoted = _identifier(name)
     literal = _password_literal(password)
-    current = await connection.scalar(text("SELECT current_database()"))
-    if current != name:
-        raise UnsafeRoleInput("not connected to the store database")
+    await _enter_store_database(connection, name)
     exists = await connection.scalar(
         text("SELECT 1 FROM pg_roles WHERE rolname = :role"), {"role": name}
     )
@@ -151,8 +190,15 @@ async def apply_store_role(
     await connection.exec_driver_sql(
         f"{verb} ROLE {quoted} WITH LOGIN PASSWORD {literal}"
     )
-    # SET (and inherited) membership: needed to give the role objects and to drop it.
-    await connection.exec_driver_sql(f"GRANT {quoted} TO CURRENT_USER")
+    # A re-run must not bless a role someone widened in the meantime.
+    await _check(
+        connection, _ROLE_IS_PLAIN, name, "store role is not a plain login role"
+    )
+    # Explicit options, so a NOINHERIT provisioning role still gets both: SET to give the
+    # role objects and to drop it, INHERIT to use its database for repairs.
+    await connection.exec_driver_sql(
+        f"GRANT {quoted} TO CURRENT_USER WITH INHERIT TRUE, SET TRUE"
+    )
     await connection.exec_driver_sql(
         f"REVOKE CONNECT, TEMPORARY ON DATABASE {quoted} FROM PUBLIC"
     )
@@ -162,11 +208,15 @@ async def apply_store_role(
     await connection.exec_driver_sql(
         f"GRANT USAGE, CREATE ON SCHEMA public TO {quoted}"
     )
-    return await move_owned_objects(connection, name)
+    moved = await move_owned_objects(connection, name)
+    # A GRANT that cannot apply (for example on a public schema owned by someone else)
+    # only warns; fail here rather than at the store's next migration.
+    await _check(connection, _ROLE_HAS_ACCESS, name, "store role access not in place")
+    return moved
 
 
-async def move_owned_objects(connection: AsyncConnection, role: str) -> int:
-    """Give ``role`` every object the provisioning role owns in the current database.
+async def move_owned_objects(connection: AsyncConnection, name: str) -> int:
+    """Give the role ``name`` every object the provisioning role owns in its database.
 
     A new database has none; a store built before KAN-238 (backfill, or an orphan
     database reused by a re-provision) has its whole schema. Never ``REASSIGN OWNED``:
@@ -174,10 +224,11 @@ async def move_owned_objects(connection: AsyncConnection, role: str) -> int:
     OwnershipNotMoved when anything is left behind, so the caller rolls back.
     Returns the number of ALTER statements run.
     """
-    _identifier(role)
+    _identifier(name)
+    await _enter_store_database(connection, name)
     statements: list[str] = []
     for query in _OWNERSHIP_QUERIES:
-        rows = await connection.execute(text(query), {"role": role})
+        rows = await connection.execute(text(query), {"role": name})
         statements.extend(row[0] for row in rows)
     for statement in statements:
         await connection.exec_driver_sql(statement)

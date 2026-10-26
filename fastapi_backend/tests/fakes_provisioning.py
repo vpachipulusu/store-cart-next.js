@@ -158,6 +158,10 @@ class FakeConnection:
             return 1 if params["role"] in self._engine.roles else None
         if sql == "SELECT current_database()":
             return self._engine.current_database
+        if sql.startswith("SELECT pg_advisory_xact_lock"):
+            return None
+        if sql.startswith(("SELECT NOT (rolsuper", "SELECT has_database_privilege")):
+            return self._engine.checks_pass
         if sql.startswith("SELECT count(*) FROM pg_shdepend"):
             return self._engine.leftover_owned
         raise AssertionError(f"unexpected scalar: {sql}")
@@ -201,6 +205,7 @@ class FakeEngine:
         self.admin_uris: list[str] = []
         self.current_database: str | None = None  # set by fake_admin_connection
         self.leftover_owned = 0
+        self.checks_pass = True
 
     def fail_if(self, operation: str) -> None:
         if operation in self.fail:

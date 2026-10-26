@@ -68,9 +68,17 @@ def scrub_event(event: Any, _hint: Any = None) -> Any:
     return event
 
 
+_DROPPED_BREADCRUMBS = frozenset({"logging", "query"})
+
+
 def scrub_breadcrumb(crumb: Any, _hint: Any = None) -> Any:
-    """``before_breadcrumb``: drop log messages, scrub the rest."""
-    if crumb.get("category") == "logging":
+    """``before_breadcrumb``: drop log messages and SQL, scrub the rest.
+
+    SQL breadcrumbs (category ``query``, from the auto-enabled SQLAlchemy and asyncpg
+    integrations) carry statement text, which can hold a store role password in
+    ``CREATE ROLE ... PASSWORD`` (KAN-238).
+    """
+    if crumb.get("category") in _DROPPED_BREADCRUMBS:
         return None
     data = crumb.get("data")
     if isinstance(data, dict):
