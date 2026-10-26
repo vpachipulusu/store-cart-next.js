@@ -7,6 +7,7 @@ import {
   ShoppingBag,
   Truck,
   User,
+  Users,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -26,6 +27,7 @@ export const NAV_ITEMS: ReadonlyArray<NavItem> = [
   { href: '/dashboard/products', label: 'Products', icon: Package },
   { href: '/dashboard/orders', label: 'Orders', icon: ShoppingBag },
   { href: '/dashboard/settings/billing', label: 'Billing', icon: CreditCard },
+  { href: '/dashboard/settings/team', label: 'Team', icon: Users },
   { href: '/dashboard/settings/store', label: 'Shipping and tax', icon: Truck },
   { href: '/dashboard/settings', label: 'Settings', icon: Settings },
   { href: '/dashboard/profile', label: 'Profile', icon: User },
