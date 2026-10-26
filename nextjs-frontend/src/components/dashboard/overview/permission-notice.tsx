@@ -6,7 +6,7 @@ interface PermissionNoticeProps {
   ownerName?: string;
 }
 
-/** Shown when a staff role opens a page that is not theirs. Not mounted yet: roles reach the web app later. */
+/** Shown when a staff role opens a page that is not theirs (team and billing settings, KAN-62). */
 export function PermissionNotice({ ownerName }: PermissionNoticeProps) {
   const owner = ownerName ? `the owner (${ownerName})` : 'the owner';
 

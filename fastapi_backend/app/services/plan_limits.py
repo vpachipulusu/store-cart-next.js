@@ -3,8 +3,9 @@
 ``app.core.plans`` holds the numbers; this module turns "one more would pass the limit"
 into a curated error whose message tells the merchant to upgrade. The store limit lives in
 ``organizations.py`` (KAN-45) and the product limit in ``store_products.py``; the staff
-helper below is called by the invitation flow when it lands (KAN-62), the only path that
-adds members besides the owner row created with the organisation.
+helper below is called by the invitation flow (``invitations.py``, KAN-62) on create and
+accept, the only path that adds members besides the owner row created with the
+organisation.
 
 A limit of ``None`` is unlimited. Products are counted per store (each store has its own
 database), staff per organisation (every membership, the owner included).

@@ -114,6 +114,18 @@ class Settings(BaseSettings):
     # Public origin the bucket is served from (custom domain or r2.dev), https only.
     R2_PUBLIC_BASE_URL: str | None = None
 
+    # Transactional email through Resend (KAN-62; KAN-81 reuses it). Both set means Resend;
+    # otherwise (blank counts as unset) a no-op sender that logs "email disabled". Only one
+    # set is logged as an error at startup but never stops it: invitations still work
+    # with the link shown once.
+    RESEND_API_KEY: SecretStr | None = None
+    # A Resend verified sender, e.g. "StoreCart <team@storecart.com>".
+    EMAIL_FROM: str | None = None
+    # Public origin of the Next.js app, used to build links in emails (invitation accept
+    # links). https only, except http://localhost in local/test. Unset falls back to
+    # http://localhost:3000 in local/test; elsewhere invitations answer 503 until it is set.
+    APP_PUBLIC_URL: str | None = None
+
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
@@ -274,6 +286,65 @@ class Settings(BaseSettings):
                 "R2_PUBLIC_BASE_URL must be an https URL without query or fragment"
             )
         return self
+
+    @model_validator(mode="after")
+    def validate_app_public_url(self) -> "Settings":
+        # Blank (APP_PUBLIC_URL= in an env file) counts as unset.
+        if not self.APP_PUBLIC_URL:
+            return self
+        parsed = urlparse(self.APP_PUBLIC_URL)
+        local = parsed.hostname in ("localhost", "127.0.0.1")
+        if (
+            parsed.scheme not in ("https", "http")
+            or (parsed.scheme == "http" and not (local and self.relaxed_environment))
+            or not parsed.hostname
+            or parsed.path not in ("", "/")
+            or parsed.query
+            or parsed.fragment
+            or parsed.username
+            or parsed.password
+        ):
+            raise ValueError(
+                "APP_PUBLIC_URL must be an https origin without path, credentials, "
+                "query or fragment"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def warn_half_email_config(self) -> "Settings":
+        # Half a configuration sends nothing. Refusing to start would take the whole API
+        # down for an optional integration, so it is an error log (names only) instead.
+        if (self.resend_api_key is None) != (self.email_from is None):
+            missing = "RESEND_API_KEY" if self.resend_api_key is None else "EMAIL_FROM"
+            logging.getLogger("storecart.config").error(
+                "%s is not set while the other email setting is: emails are disabled",
+                missing,
+            )
+        return self
+
+    @property
+    def resend_api_key(self) -> str | None:
+        """The Resend key, or None when unset or blank."""
+        if self.RESEND_API_KEY is None:
+            return None
+        key = self.RESEND_API_KEY.get_secret_value().strip()
+        return key or None
+
+    @property
+    def email_from(self) -> str | None:
+        return (self.EMAIL_FROM or "").strip() or None
+
+    @property
+    def app_public_url(self) -> str | None:
+        """The app origin without a trailing slash; a localhost default in local/test only.
+
+        Vercel preview and development get no default: a localhost link emailed from a
+        deployed backend would reach a real person and open nothing.
+        """
+        if self.APP_PUBLIC_URL:
+            return self.APP_PUBLIC_URL.rstrip("/")
+        local = not self.VERCEL_ENV and self.ENVIRONMENT in LOCAL_ENVIRONMENTS
+        return "http://localhost:3000" if local else None
 
     @property
     def store_db_previous_keys(self) -> list[str]:
