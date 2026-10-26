@@ -6,6 +6,7 @@ import { PermissionNotice } from '@/components/dashboard/overview/permission-not
 import { InviteMemberForm } from '@/components/team/invite-member-form';
 import {
   MEMBERS_PAGE_SIZE,
+  SELECTED_ORGANIZATION_MISSING_MESSAGE,
   canManageTeam,
   fetchTeam,
   resolveTeamOrganization,
@@ -44,7 +45,13 @@ function LoadError({ message }: { message: string }) {
 export default async function TeamSettingsPage() {
   const organization = await resolveTeamOrganization();
   if (!organization.success) {
-    logger.error('Team page: organisation lookup failed', { status: organization.status });
+    logger.error('Team page: organisation lookup failed', {
+      status: organization.status,
+      reason:
+        organization.error === SELECTED_ORGANIZATION_MISSING_MESSAGE
+          ? 'selected_organization_missing'
+          : 'lookup_failed',
+    });
     return <LoadError message={LOAD_FAILED_MESSAGE} />;
   }
   if (!organization.data) {

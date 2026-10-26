@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mocks = vi.hoisted(() => ({
@@ -62,6 +62,32 @@ describe('InviteMemberForm', () => {
     expect(writeText).toHaveBeenCalledWith(LINK);
     expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('Link copied.');
+  });
+
+  it('clears "Copied" after a moment so a second copy is announced again', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mocks.inviteTeamMemberAction.mockResolvedValue({
+        success: true,
+        data: { email: 'new@example.com', acceptUrl: LINK, emailSent: true },
+      });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
+      render(<InviteMemberForm />);
+      await user.type(screen.getByLabelText('Email address'), 'new@example.com');
+      await user.click(screen.getByRole('button', { name: 'Send invitation' }));
+      await user.click(await screen.findByRole('button', { name: 'Copy link' }));
+      expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
+
+      await act(async () => {
+        vi.advanceTimersByTime(3000);
+      });
+
+      expect(screen.getByRole('button', { name: 'Copy link' })).toBeInTheDocument();
+      expect(screen.getByRole('status')).not.toHaveTextContent('Link copied.');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('keeps working when the clipboard is refused', async () => {

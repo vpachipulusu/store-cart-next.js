@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/api/team', () => ({
   MEMBERS_PAGE_SIZE: 100,
+  SELECTED_ORGANIZATION_MISSING_MESSAGE:
+    'The organisation of the selected store could not be found',
   canManageTeam: (role: string) => role === 'OWNER' || role === 'ADMIN',
   resolveTeamOrganization: mocks.resolveTeamOrganization,
   isStaffOnlyMember: mocks.isStaffOnlyMember,
@@ -132,6 +134,19 @@ describe('team settings page', () => {
     expect(html(await TeamSettingsPage())).toContain('Create a store first');
   });
 
+  it('logs why the organisation lookup failed when the selected one is missing', async () => {
+    mocks.resolveTeamOrganization.mockResolvedValueOnce({
+      success: false,
+      error: 'The organisation of the selected store could not be found',
+    });
+
+    expect(html(await TeamSettingsPage())).toContain('We could not load your team');
+    expect(mocks.logError.mock.calls[0][1]).toEqual({
+      status: undefined,
+      reason: 'selected_organization_missing',
+    });
+  });
+
   it('shows a curated error when the organisation or the team cannot be loaded', async () => {
     mocks.resolveTeamOrganization.mockResolvedValueOnce({
       success: false,
@@ -142,6 +157,7 @@ describe('team settings page', () => {
     mocks.fetchTeam.mockResolvedValueOnce({ success: false, error: 'SECRET', status: 502 });
     const second = html(await TeamSettingsPage());
 
+    expect(mocks.logError.mock.calls[0][1]).toEqual({ status: 500, reason: 'lookup_failed' });
     for (const markup of [first, second]) {
       expect(markup).toContain('We could not load your team. Please try again.');
       expect(markup).not.toContain('SECRET');
@@ -224,6 +240,10 @@ describe('invitation page', () => {
     expect(markup).toContain('We could not check your sign-in right now');
     expect(markup).not.toContain('clear-session');
     expect(markup).not.toContain('data-token');
+    expect(mocks.logError).toHaveBeenCalledTimes(1);
+    const logged = JSON.stringify(mocks.logError.mock.calls[0]);
+    expect(logged).toContain('/invite/[token]');
+    expect(logged).not.toContain(TOKEN);
   });
 
   it('asks an unverified user to verify their email first', async () => {

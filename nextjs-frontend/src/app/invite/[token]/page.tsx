@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { AcceptInvitationButton } from '@/components/team/accept-invitation-button';
-import { isSessionVerificationError } from '@/lib/auth/session-errors';
+import { isSessionVerificationError, logRouteError } from '@/lib/auth/session-errors';
 import { getVerifiedSessionClaims, isEmailNotVerifiedError } from '@/lib/auth/verified-session';
 
 /**
@@ -30,7 +30,10 @@ async function sessionState(): Promise<SessionState> {
     if (isEmailNotVerifiedError(error)) return { kind: 'unverified' };
     // A stale cookie makes the proxy send /login to /dashboard, so it is cleared first (clear-session).
     // Anything else (backend outage) must not sign the user out.
-    return { kind: isSessionVerificationError(error) ? 'expired' : 'unavailable' };
+    if (isSessionVerificationError(error)) return { kind: 'expired' };
+    // The route literal only: the token in the path is never logged.
+    logRouteError('/invite/[token]', error);
+    return { kind: 'unavailable' };
   }
 }
 

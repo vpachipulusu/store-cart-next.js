@@ -96,8 +96,11 @@ def hash_token(token: str) -> str:
 
 
 def canonical_email(raw: str) -> str:
-    """The one form emails are stored and compared in (both sides of every comparison)."""
-    return raw.strip().lower()
+    """The one form emails are stored and compared in (both sides of every comparison).
+
+    NFC first, so a composed and a decomposed spelling of the same address compare equal.
+    """
+    return unicodedata.normalize("NFC", raw).strip().lower()
 
 
 def normalize_email(raw: str) -> str:
@@ -261,7 +264,7 @@ class InvitationsService:
             {
                 "role": role,
                 "expires_at": invitation.expires_at,
-                "superseded": superseded,
+                "superseded_ids": superseded,
             },
             request_id,
         )

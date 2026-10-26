@@ -9,6 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 const UNEXPECTED_ERROR = 'We could not send the invitation. Please try again.';
+/** "Copied" is cleared after this, so copying again is announced again. */
+const COPIED_RESET_MS = 3000;
 
 function statusText(created: InviteResult | null, copied: boolean): string {
   if (!created) return '';
@@ -35,6 +37,12 @@ export function InviteMemberForm() {
     if (created) linkField.current?.focus();
   }, [created]);
 
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), COPIED_RESET_MS);
+    return () => clearTimeout(timer);
+  }, [copied]);
+
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     // aria-disabled keeps the button focusable, so a second submit is ignored here.
@@ -59,6 +67,7 @@ export function InviteMemberForm() {
 
   const copy = async () => {
     if (!created) return;
+    setCopied(false);
     try {
       await navigator.clipboard.writeText(created.acceptUrl);
       setCopied(true);
@@ -94,7 +103,11 @@ export function InviteMemberForm() {
             <option value="ADMIN">Admin</option>
           </select>
         </div>
-        <Button type="submit" aria-disabled={pending}>
+        <Button
+          type="submit"
+          aria-disabled={pending}
+          className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+        >
           {pending ? 'Sending…' : 'Send invitation'}
         </Button>
       </form>

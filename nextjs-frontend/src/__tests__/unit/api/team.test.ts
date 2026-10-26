@@ -96,7 +96,9 @@ describe('team API wrappers', () => {
           offset: 0,
         });
       }
-      if (pathname.endsWith('/members')) return jsonResponse({ success: true, data: [MEMBER] });
+      if (pathname.endsWith('/members')) {
+        return jsonResponse({ success: true, data: [MEMBER], total: 1, limit: 100, offset: 0 });
+      }
       if (pathname.endsWith('/invitations') && request.method === 'GET') {
         return jsonResponse({ success: true, data: [INVITATION] });
       }
@@ -133,7 +135,32 @@ describe('team API wrappers', () => {
     });
   });
 
-  it('marks a full page of members as possibly truncated', async () => {
+  it('is not truncated when a full page is all there is', async () => {
+    const full = Array.from({ length: 100 }, (_, n) => ({ ...MEMBER, user_id: `u${n}` }));
+    fetchMock.mockImplementation(async (request) => {
+      const { pathname } = new URL(request.url);
+      if (pathname === '/v1/organizations') {
+        return jsonResponse({
+          success: true,
+          data: organizations,
+          total: 2,
+          limit: 100,
+          offset: 0,
+        });
+      }
+      if (pathname.endsWith('/members')) {
+        return jsonResponse({ success: true, data: full, total: 100, limit: 100, offset: 0 });
+      }
+      return jsonResponse({ success: true, data: [] });
+    });
+
+    const result = await fetchTeam();
+
+    expect(result.success && result.data.members).toHaveLength(100);
+    expect(result.success && result.data.membersTruncated).toBe(false);
+  });
+
+  it('marks the members as truncated when the total is larger than the page', async () => {
     const full = Array.from({ length: 100 }, (_, n) => ({ ...MEMBER, user_id: `u${n}` }));
     fetchMock.mockImplementation(async (request) => {
       const { pathname } = new URL(request.url);

@@ -361,6 +361,16 @@ async def test_inviting_an_existing_member_is_409(client, world):
     assert error_of(response) == "Already a member of this organization"
 
 
+async def test_existing_member_with_a_mixed_case_email_is_409(client, world):
+    # The stored user email is "Bob@example.com": the lookup must lower-case it.
+    org_id = await seed_org(world.engine, {"owner": "OWNER", "Bob": "STAFF"})
+
+    response = await invite(client, org_id, "bob@example.com")
+
+    assert response.status_code == 409
+    assert error_of(response) == "Already a member of this organization"
+
+
 async def test_reinvite_supersedes_the_open_invitation(client, world):
     org_id = await seed_org(world.engine, {"owner": "OWNER"})
     first = token_of(await invite(client, org_id, "new@example.com"))
@@ -378,12 +388,15 @@ async def test_reinvite_supersedes_the_open_invitation(client, world):
     assert (await accept(client, first, "new")).status_code == 410
     accepted = await accept(client, second, "new")
     assert accepted.json()["data"]["role"] == "ADMIN"
+    first_id = await scalar(
+        world.engine, "SELECT id FROM invitations WHERE status = 'REVOKED'"
+    )
     superseded = await scalar(
         world.engine,
-        "SELECT metadata->'after'->>'superseded' FROM audit_logs "
+        "SELECT metadata->'after'->'superseded_ids' FROM audit_logs "
         "WHERE action = 'invitation.create' ORDER BY created_at DESC LIMIT 1",
     )
-    assert superseded == "1"
+    assert superseded == [first_id]
 
 
 async def test_concurrent_invites_to_one_address_leave_one_open(client, world):
@@ -520,7 +533,7 @@ async def test_create_is_audited_without_email_or_token(client, world):
     assert row.metadata["after"] == {
         "role": "ADMIN",
         "expires_at": datetime.fromisoformat(data["expires_at"]).isoformat(),
-        "superseded": 0,
+        "superseded_ids": [],
     }
     assert isinstance(row.metadata["request_id"], str)
     assert "new@example.com" not in str(row.metadata)
@@ -552,7 +565,12 @@ async def test_crashing_email_is_reported_without_the_link(
     assert response.status_code == 201
     assert response.json()["data"]["email_sent"] is False
     assert [type(exc) for exc in reported] == [RuntimeError]
-    assert "invitation email crashed" in caplog.text
+    [crash] = [
+        r for r in caplog.records if "invitation email crashed" in r.getMessage()
+    ]
+    # logger.exception, not logger.error: the traceback is kept.
+    assert crash.exc_info is not None
+    assert crash.exc_info[0] is RuntimeError
     assert token_of(response) not in caplog.text
     assert "new@example.com" not in caplog.text
 
@@ -782,13 +800,26 @@ async def test_link_still_works_just_before_expiry(client, world):
     assert response.status_code == 200
 
 
-async def test_accept_is_bound_to_the_invited_email(client, world):
+async def test_accept_is_bound_to_the_invited_email(client, world, caplog):
     org_id = await seed_org(world.engine, {"owner": "OWNER"})
-    token = token_of(await invite(client, org_id, "new@example.com"))
-    await seed_user(world.engine, "intruder")
+    created = await invite(client, org_id, "new@example.com")
+    token = token_of(created)
+    intruder_id = await seed_user(world.engine, "intruder")
+    caplog.set_level(logging.INFO, logger="storecart.invitations")
 
     response = await accept(client, token, "intruder")
 
+    [refused] = [
+        r
+        for r in caplog.records
+        if r.getMessage().startswith("invitation accept refused")
+    ]
+    assert refused.getMessage() == (
+        "invitation accept refused: cause=InvitationEmailMismatch "
+        f"invitation_id={created.json()['data']['id']} user_id={intruder_id}"
+    )
+    assert token not in caplog.text
+    assert "example.com" not in refused.getMessage()
     assert response.status_code == 403
     assert error_of(response) == (
         "This invitation was sent to a different email address"

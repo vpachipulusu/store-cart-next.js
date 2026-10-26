@@ -126,8 +126,8 @@ class InvitationsRepository(BaseRepository):
             )
         ).scalar_one()
 
-    async def revoke_pending_for(self, organization_id: str, email: str) -> int:
-        """Revoke the open invitations for ``email`` (canonical); how many there were."""
+    async def revoke_pending_for(self, organization_id: str, email: str) -> list[str]:
+        """Revoke the open invitations for ``email`` (canonical); the revoked ids."""
         result = await self._session.execute(
             update(Invitation)
             .where(
@@ -138,7 +138,7 @@ class InvitationsRepository(BaseRepository):
             .values(status=InvitationStatus.REVOKED)
             .returning(Invitation.id)
         )
-        return len(result.all())
+        return sorted(result.scalars())
 
     async def expire_stale(self, organization_id: str, now: datetime) -> None:
         """Mark PENDING invitations whose time has passed as EXPIRED."""

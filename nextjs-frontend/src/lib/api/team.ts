@@ -32,7 +32,7 @@ export const SELECTED_ORGANIZATION_MISSING_MESSAGE =
 
 /** The API's maximum page size; a user belongs to few organisations, so one page suffices. */
 const ORGANIZATIONS_PAGE_SIZE = 100;
-/** The members API's maximum page size. A full page means there may be more (`membersTruncated`). */
+/** The members API's maximum page size; `membersTruncated` says the organisation has more. */
 export const MEMBERS_PAGE_SIZE = 100;
 
 /** The roles an invitation can carry, from the generated API types (OWNER is never invitable). */
@@ -113,9 +113,15 @@ export function fetchTeam(): Promise<ApiResult<Team>> {
   return withManagedOrganization(async (organization) => {
     const path = { organization_id: organization.id };
     const [members, invitations] = await Promise.all([
-      callBackend((client) =>
-        listMembers({ client, path, query: { limit: MEMBERS_PAGE_SIZE, offset: 0 } })
-      ),
+      // Wrapped so callBackend keeps the whole page (it unwraps `{ success, data }` and would drop `total`).
+      callBackend(async (client) => {
+        const result = await listMembers({
+          client,
+          path,
+          query: { limit: MEMBERS_PAGE_SIZE, offset: 0 },
+        });
+        return { ...result, data: result.data ? { page: result.data } : undefined };
+      }),
       callBackend((client) => listInvitations({ client, path })),
     ]);
     if (!members.success) return members;
@@ -124,8 +130,8 @@ export function fetchTeam(): Promise<ApiResult<Team>> {
       success: true,
       data: {
         organization,
-        members: members.data,
-        membersTruncated: members.data.length >= MEMBERS_PAGE_SIZE,
+        members: members.data.page.data,
+        membersTruncated: members.data.page.total > members.data.page.data.length,
         invitations: invitations.data,
       },
     };

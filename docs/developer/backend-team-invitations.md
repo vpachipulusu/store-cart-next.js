@@ -25,13 +25,14 @@ STAFF gets 403 and a non-member 404 on the organisation routes.
 - An invitation expires 7 days after creation. Expired PENDING rows are marked `EXPIRED` when the same
   organisation next creates an invitation; a new invitation for that email can then be sent.
 - Inviting an address that already has an open invitation supersedes it (the old row is REVOKED and a new link is
-  issued, same transaction, same lock), so a lost link never locks an address out. At most 50 open per organisation (409), and the
+  issued, same transaction, same lock), so a lost link never locks an address out. The create audit row lists the
+  revoked ids (`superseded_ids`). At most 50 open per organisation (409), and the
   staff limit of the plan is checked on create (members plus open invitations, so the plan cannot be
   oversold) and again on accept (members only) (409 with the plan message).
 
 ## Accept
 
-Emails are compared in one canonical form (`canonical_email`: trimmed, lower-case), which is also the form invitations
+Emails are compared in one canonical form (`canonical_email`: NFC, trimmed, lower-case), which is also the form invitations
 are stored in. Before the lock, a cheap pre-check refuses an unknown, used, revoked or expired token (410) and a session
 email that does not match (403). Then one transaction under the organisation row lock (`SELECT ... FOR UPDATE`):
 

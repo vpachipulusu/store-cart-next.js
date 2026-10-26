@@ -16,6 +16,13 @@ def test_canonical_email_trims_and_lowercases():
     assert canonical_email("  New@Example.COM ") == "new@example.com"
 
 
+def test_canonical_email_composes_unicode_first():
+    decomposed = "jose\u0301@example.com"  # e + combining acute accent
+    composed = "jos\u00e9@example.com"
+
+    assert canonical_email(decomposed) == canonical_email(composed) == composed
+
+
 @pytest.mark.parametrize(
     "raw", ["no-at-sign", "@example.com", "a@", "a b@example.com", "a\u200b@x.io"]
 )

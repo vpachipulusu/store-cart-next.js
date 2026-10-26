@@ -63,7 +63,11 @@ export function AcceptInvitationButton({ token }: { token: string }) {
               )}
             </div>
           )}
-          <Button onClick={accept} aria-disabled={pending}>
+          <Button
+            onClick={accept}
+            aria-disabled={pending}
+            className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+          >
             {pending ? 'Accepting…' : 'Accept invitation'}
           </Button>
         </>
