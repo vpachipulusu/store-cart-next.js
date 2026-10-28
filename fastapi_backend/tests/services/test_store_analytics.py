@@ -119,6 +119,36 @@ def test_the_longest_range_is_accepted_and_one_more_day_is_refused() -> None:
         resolve_range(date(2025, 12, 30), end, Bucket.DAY, TODAY)
 
 
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [
+        (None, date(1, 1, 5)),
+        (date(9999, 12, 1), date(9999, 12, 31)),
+        (date(1999, 12, 31), date(2000, 1, 1)),
+        (date(2099, 12, 31), date(2100, 1, 1)),
+    ],
+)
+def test_dates_outside_the_supported_years_are_refused(
+    start: date | None, end: date
+) -> None:
+    with pytest.raises(
+        InvalidAnalyticsRange, match="between 2000-01-01 and 2099-12-31"
+    ):
+        resolve_range(start, end, Bucket.MONTH, TODAY)
+
+
+def test_the_last_supported_month_still_has_a_bucket() -> None:
+    resolved = resolve_range(date(2099, 12, 1), date(2099, 12, 31), Bucket.MONTH, TODAY)
+
+    assert bucket_starts(resolved) == [date(2099, 12, 1)]
+    assert resolved.until == datetime(2100, 1, 1, tzinfo=UTC)
+
+
+def test_a_future_start_without_an_end_names_the_start() -> None:
+    with pytest.raises(InvalidAnalyticsRange, match="must not be after today"):
+        resolve_range(date(2026, 12, 1), None, Bucket.DAY, TODAY)
+
+
 # --- buckets -------------------------------------------------------------------------
 
 

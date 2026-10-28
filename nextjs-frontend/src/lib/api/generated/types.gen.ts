@@ -10682,7 +10682,7 @@ export type ReadStoreAnalyticsErrors = {
      */
     404: ErrorResponse;
     /**
-     * Unprocessable Entity
+     * Invalid request
      */
     422: ErrorResponse;
     /**

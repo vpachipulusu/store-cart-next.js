@@ -8,9 +8,10 @@ Definitions (also in ``docs/developer/merchant-analytics.md``):
 * **Gross sales** is the order total (lines, shipping and any tax added at checkout);
   **refunds** are the order's ``succeeded`` refunds; **net sales** is gross minus refunds. A
   refund counts in the bucket of its order, so a bucket's net sales never goes below zero.
-* Orders are placed in buckets by ``created_at`` in UTC: calendar days, ISO weeks starting on
-  Monday, or calendar months. Empty buckets are filled with zeros so a series is continuous.
-  The first and last week or month bucket can cover only part of the range.
+* Orders are placed in buckets by ``created_at`` (placed at checkout) in UTC, not ``paid_at``, which only
+  the payment webhook sets and no index covers: calendar days, ISO weeks starting on Monday, or calendar
+  months. Empty buckets are filled with zeros so a series is continuous. The first and last week or month
+  bucket can cover only part of the range.
 * Money is integer minor units, grouped by the order's own currency and never converted.
 * Top products are ranked per currency by line revenue (unit price times quantity, as saved
   on the order) and by units, over the same sales.
@@ -33,6 +34,9 @@ SALES_STATUSES: tuple[str, ...] = (
 DEFAULT_RANGE_DAYS = 30
 MAX_RANGE_DAYS = 366  # inclusive: a whole year, leap years too
 TOP_PRODUCTS_LIMIT = 10
+# Bounds keep the date arithmetic (defaults, the exclusive end, month steps) far from date.min/max.
+EARLIEST_DATE = date(2000, 1, 1)
+LATEST_DATE = date(2099, 12, 31)
 
 
 class Bucket(StrEnum):
@@ -125,7 +129,15 @@ def resolve_range(
     start: date | None, end: date | None, bucket: Bucket, today: date
 ) -> AnalyticsRange:
     """Fill in the defaults (the 30 days up to today, or up to ``end``) and check the range."""
+    for given in (start, end):
+        if given is not None and not EARLIEST_DATE <= given <= LATEST_DATE:
+            raise InvalidAnalyticsRange(
+                f"Dates must be between {EARLIEST_DATE.isoformat()}"
+                f" and {LATEST_DATE.isoformat()}"
+            )
     if end is None:
+        if start is not None and start > today:
+            raise InvalidAnalyticsRange("The start date must not be after today")
         end = today
     if start is None:
         start = end - timedelta(days=DEFAULT_RANGE_DAYS - 1)

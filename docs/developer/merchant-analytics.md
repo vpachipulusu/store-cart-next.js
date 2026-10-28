@@ -13,8 +13,9 @@ GET /v1/stores/{store_id}/analytics?from=YYYY-MM-DD&to=YYYY-MM-DD&bucket=day|wee
   403 and the page shows "Analytics are not available for your role". Unknown and foreign stores are the same
   404. Internal key, verified session and the `api` rate limit policy, like the other merchant reads.
 - **Range**: `from` and `to` are UTC days, both inclusive. `to` defaults to today (UTC) and `from` to 29 days
-  before `to`, so the default is the last 30 days. `from` after `to`, or more than 366 days, is a 422 with a
-  plain message. `bucket` defaults to `day`.
+  before `to`, so the default is the last 30 days. `from` after `to`, more than 366 days, a date outside
+  2000-01-01 to 2099-12-31, or only a `from` that is after today, is a 422 with a plain message. `bucket`
+  defaults to `day`.
 - **Response**: `start_date`, `end_date` and `bucket` as applied, and one entry per currency that has sales in the
   range (an empty list when there are none). Each entry has `totals`, a `series` with one point per bucket
   (zeros included, oldest first), `top_products_by_revenue` and `top_products_by_units` (at most 10 each).
@@ -30,9 +31,12 @@ GET /v1/stores/{store_id}/analytics?from=YYYY-MM-DD&to=YYYY-MM-DD&bucket=day|wee
   ignored. A refund counts in the bucket of its order (when the order was placed), not when it was refunded, so a
   bucket's net sales never goes below zero.
 - **Net sales**: gross sales minus refunds.
-- **Buckets**: by `orders.created_at` in UTC, with Postgres `date_trunc`: calendar days, ISO weeks starting on
-  Monday, or calendar months. A bucket is named by its first day, so the first and last week or month can start
-  before `from` or end after `to` while only counting orders inside the range.
+- **Buckets**: by `orders.created_at` (when the order was placed at checkout) in UTC, not `paid_at`: `paid_at` is
+  set only by the payment webhook (an order marked paid another way has none) and is not indexed. An order whose
+  checkout started just before midnight and was paid after it counts on the earlier day. Buckets use Postgres
+  `date_trunc`: calendar days, ISO weeks starting on Monday, or calendar months. A bucket is named by its first
+  day, so the first and last week or month can start before `from` or end after `to` while only counting orders
+  inside the range.
 - **Currencies**: every figure is per order currency, in integer minor units. Amounts are never converted or
   added across currencies. The page formats them with `Intl.NumberFormat` per currency (`formatMinor`).
 - **Top products**: grouped by the product name saved on the order line (`order_items.product_name`), so renamed

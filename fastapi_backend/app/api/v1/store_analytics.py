@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from app.api.auth import require_internal_key
 from app.api.merchant import OWNER_ADMIN
 from app.api.rate_limit import RATE_LIMIT_FAIL_CLOSED_RESPONSES, limit_by_subject
-from app.api.store_db import store_analytics_service
+from app.api.store_db import NO_STORE_HEADERS, store_analytics_service
 from app.api.v1.auth import current_subject
 from app.api.v1.organizations import no_store
 from app.core.errors import ErrorResponse
@@ -43,7 +43,6 @@ router = APIRouter(
         401: {"model": ErrorResponse},
         403: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
-        422: {"model": ErrorResponse},
         503: {"model": ErrorResponse},
     },
 )
@@ -172,7 +171,5 @@ async def read_store_analytics(
     try:
         report = await service.report(start=start, end=end, bucket=bucket)
     except InvalidAnalyticsRange as error:
-        raise HTTPException(
-            422, str(error), headers={"Cache-Control": "no-store"}
-        ) from None
+        raise HTTPException(422, str(error), headers=NO_STORE_HEADERS) from None
     return analytics_response(report)

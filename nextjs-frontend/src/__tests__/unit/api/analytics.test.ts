@@ -9,6 +9,7 @@ vi.mock('next/headers', () => ({
 }));
 
 import {
+  ANALYTICS_ACCESS_DENIED_MESSAGE,
   ANALYTICS_FORBIDDEN_MESSAGE,
   ANALYTICS_RATE_LIMITED_MESSAGE,
   ANALYTICS_REQUEST_FAILED_MESSAGE,
@@ -16,6 +17,7 @@ import {
   ANALYTICS_UNAVAILABLE_MESSAGE,
   analyticsErrorMessage,
   fetchStoreAnalytics,
+  isRoleRefusal,
 } from '@/lib/api/analytics';
 
 const jsonResponse = (body: unknown, status = 200) =>
@@ -84,20 +86,29 @@ describe('analytics API wrapper', () => {
     expect(url.searchParams.has('to')).toBe(false);
   });
 
-  it.each([[{ data: { start_date: '2026-10-01' } }], [{ data: [] }], [[]], ['text']])(
-    'refuses an unexpected body %j',
-    async (body) => {
-      fetchMock.mockResolvedValue(jsonResponse(body));
+  const broken = (change: Record<string, unknown>) => ({
+    data: { ...report, currencies: [{ ...report.currencies[0], ...change }] },
+  });
 
-      const result = await fetchStoreAnalytics(STORE, { bucket: 'day' });
+  it.each([
+    [{ data: { start_date: '2026-10-01' } }],
+    [{ data: [] }],
+    [[]],
+    ['text'],
+    [broken({ totals: { orders: 1 } })],
+    [broken({ series: [{ bucket_start: '2026-10-01', orders: 1 }] })],
+    [broken({ top_products_by_units: [{ product_name: 'Mug', units: '3', revenue_minor: 1 }] })],
+  ])('refuses an unexpected body %j', async (body) => {
+    fetchMock.mockResolvedValue(jsonResponse(body));
 
-      expect(result).toEqual({
-        success: false,
-        error: ANALYTICS_REQUEST_FAILED_MESSAGE,
-        status: 502,
-      });
-    }
-  );
+    const result = await fetchStoreAnalytics(STORE, { bucket: 'day' });
+
+    expect(result).toEqual({
+      success: false,
+      error: ANALYTICS_REQUEST_FAILED_MESSAGE,
+      status: 502,
+    });
+  });
 
   it('passes the status of a refused call through', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ success: false, error: 'Forbidden' }, 403));
@@ -119,11 +130,20 @@ describe('analyticsErrorMessage', () => {
     [{ error: 'Request failed', status: 422 }, ANALYTICS_REQUEST_FAILED_MESSAGE],
     [{ error: 'x'.repeat(201), status: 422 }, ANALYTICS_REQUEST_FAILED_MESSAGE],
     [{ error: 'x', status: 401 }, ANALYTICS_SESSION_MESSAGE],
-    [{ error: 'x', status: 403 }, ANALYTICS_FORBIDDEN_MESSAGE],
+    [{ error: 'Forbidden', status: 403 }, ANALYTICS_FORBIDDEN_MESSAGE],
+    [{ error: 'Email verification required', status: 403 }, ANALYTICS_ACCESS_DENIED_MESSAGE],
     [{ error: 'x', status: 429 }, ANALYTICS_RATE_LIMITED_MESSAGE],
     [{ error: 'x', status: 503 }, ANALYTICS_UNAVAILABLE_MESSAGE],
     [{ error: 'Store not found', status: 404 }, ANALYTICS_REQUEST_FAILED_MESSAGE],
   ])('%j -> fixed message', (result, expected) => {
     expect(analyticsErrorMessage(result)).toBe(expected);
+  });
+});
+
+describe('isRoleRefusal', () => {
+  it('is only the role 403, not every 403', () => {
+    expect(isRoleRefusal({ error: 'Forbidden', status: 403 })).toBe(true);
+    expect(isRoleRefusal({ error: 'Email verification required', status: 403 })).toBe(false);
+    expect(isRoleRefusal({ error: 'Forbidden', status: 404 })).toBe(false);
   });
 });

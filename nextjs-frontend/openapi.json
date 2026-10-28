@@ -14314,14 +14314,14 @@
             }
           },
           "422": {
+            "description": "Invalid request",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            },
-            "description": "Unprocessable Entity"
+            }
           },
           "500": {
             "description": "Internal server error",

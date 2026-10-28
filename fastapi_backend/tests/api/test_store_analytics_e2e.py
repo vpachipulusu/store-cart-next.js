@@ -433,6 +433,7 @@ async def test_a_store_without_a_database_is_a_503(
     response = await analytics(client, store_of(world, "a", "east"))
 
     assert response.status_code == 503
+    assert response.headers["cache-control"] == "no-store"
     assert_no_database_text(response)
 
 
@@ -444,6 +445,8 @@ async def test_a_store_without_a_database_is_a_503(
     [
         ({"from": "2026-10-02", "to": "2026-10-01"}, "on or before"),
         ({"from": "2025-01-01", "to": "2026-10-01"}, "366 days"),
+        ({"from": "9999-12-01", "to": "9999-12-31", "bucket": "month"}, "2099-12-31"),
+        ({"to": "0001-01-05"}, "2000-01-01"),
     ],
 )
 async def test_an_invalid_range_is_a_422_with_a_reason(
@@ -452,6 +455,7 @@ async def test_an_invalid_range_is_a_422_with_a_reason(
     response = await analytics(client, main_store(seeded), params)
 
     assert response.status_code == 422
+    assert response.headers["cache-control"] == "no-store"
     assert message in error_of(response)
 
 

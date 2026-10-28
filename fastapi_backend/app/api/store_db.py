@@ -162,7 +162,9 @@ def store_analytics_service(
                 reason,
                 extra={"store_id": store_id, "reason": reason},
             )
-            raise HTTPException(503, STORE_UNAVAILABLE) from None
+            raise HTTPException(
+                503, STORE_UNAVAILABLE, headers=NO_STORE_HEADERS
+            ) from None
 
     return dependency
 

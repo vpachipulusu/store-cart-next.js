@@ -12,7 +12,7 @@ import {
   parseAnalyticsQuery,
   type AnalyticsSearchParams,
 } from '@/lib/analytics/query';
-import { analyticsErrorMessage, fetchStoreAnalytics } from '@/lib/api/analytics';
+import { analyticsErrorMessage, fetchStoreAnalytics, isRoleRefusal } from '@/lib/api/analytics';
 import { logger } from '@/lib/logger';
 import { getCurrentStoreSelection } from '@/lib/stores/current';
 import { isStoreInSetup } from '@/lib/stores/provisioning';
@@ -48,7 +48,7 @@ export default async function AnalyticsPage({
         </p>
       </div>
 
-      {!result.success && result.status === 403 ? (
+      {!result.success && isRoleRefusal(result) ? (
         <AnalyticsRoleNotice />
       ) : (
         <>
@@ -62,6 +62,14 @@ export default async function AnalyticsPage({
               {result.success ? (
                 <p className="text-sm text-muted-foreground" data-testid="analytics-range">
                   {`${formatRange(result.data.start_date, result.data.end_date)} (UTC). Paid, fulfilled and refunded orders; net sales are after refunds.`}
+                </p>
+              ) : result.status === 422 ? (
+                // The range itself was refused: retrying the same URL cannot help, the form above can.
+                <p
+                  role="alert"
+                  className="rounded-lg border border-destructive/50 p-4 text-sm text-destructive"
+                >
+                  {analyticsErrorMessage(result)}
                 </p>
               ) : (
                 <ProductsLoadError
