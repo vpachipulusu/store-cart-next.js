@@ -1,4 +1,5 @@
 import {
+  BarChart3,
   CreditCard,
   LayoutDashboard,
   Package,
@@ -26,6 +27,7 @@ export const NAV_ITEMS: ReadonlyArray<NavItem> = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/dashboard/products', label: 'Products', icon: Package },
   { href: '/dashboard/orders', label: 'Orders', icon: ShoppingBag },
+  { href: '/dashboard/analytics', label: 'Analytics', icon: BarChart3 },
   { href: '/dashboard/settings/billing', label: 'Billing', icon: CreditCard },
   { href: '/dashboard/settings/team', label: 'Team', icon: Users },
   { href: '/dashboard/settings/store', label: 'Shipping and tax', icon: Truck },
