@@ -71,6 +71,9 @@ _FINISH_SQL = text(
     " sent_at = CASE WHEN CAST(:status AS varchar) = 'sent' THEN now() END "
     "WHERE order_id = :order_id AND kind = :kind AND status = 'pending' RETURNING id"
 )
+_STATUS_SQL = text(
+    "SELECT status FROM order_emails WHERE order_id = :order_id AND kind = :kind"
+)
 _ATTEMPT_SQL = text(
     "UPDATE order_emails SET attempts = attempts + 1, updated_at = now() "
     "WHERE order_id = :order_id AND kind = :kind AND status = 'pending'"
@@ -139,6 +142,12 @@ class OrderEmailsRepository:
             _FINISH_SQL, {"order_id": order_id, "kind": kind, "status": status}
         )
         return result.first() is not None
+
+    async def status(self, order_id: str, kind: str) -> str | None:
+        result = await self._session.execute(
+            _STATUS_SQL, {"order_id": order_id, "kind": kind}
+        )
+        return result.scalar_one_or_none()
 
     async def count_attempt(self, order_id: str, kind: str) -> None:
         await self._session.execute(_ATTEMPT_SQL, {"order_id": order_id, "kind": kind})

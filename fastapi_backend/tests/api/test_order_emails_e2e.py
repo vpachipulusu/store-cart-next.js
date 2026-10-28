@@ -361,6 +361,36 @@ async def test_a_store_template_is_used_and_escaped(
     assert "<b>" not in message.html
 
 
+async def test_a_store_template_with_an_unknown_placeholder_falls_back_to_the_default(
+    client: AsyncClient,
+    world: World,
+    stripe: FakeStripeCheckout,
+    sender: RecordingSender,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    async with open_store_session(north(world), world.provider) as session:
+        await session.execute(
+            text(
+                "INSERT INTO store_email_templates (kind, subject, body_text) VALUES"
+                " ('order_confirmation', 'Hi $bogus', 'Body $bogus')"
+            )
+        )
+        await session.commit()
+    try:
+        order_id, _ = await pay(client, world, stripe)
+        await send(client, job(world, order_id, "order_confirmation"))
+    finally:
+        async with open_store_session(north(world), world.provider) as session:
+            await session.execute(text("DELETE FROM store_email_templates"))
+            await session.commit()
+
+    [message] = sender.sent
+    assert message.subject == "Your order from a north"  # the platform default
+    assert "$bogus" not in message.text
+    assert "store email template unusable" in caplog.text
+
+
 async def test_disabled_email_skips_and_a_transient_error_retries(
     client: AsyncClient,
     world: World,

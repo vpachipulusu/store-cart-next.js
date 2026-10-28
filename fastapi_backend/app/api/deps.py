@@ -21,9 +21,9 @@ from app.services.media_uploads import (
     Boto3UploadSigner,
     MediaUploadService,
 )
-from app.services.order_email_job import OrderEmailEnqueuer
 from app.services.order_email_job import (
-    get_order_email_enqueuer as build_order_email_enqueuer,
+    OrderEmailEnqueuer,
+    build_order_email_enqueuer,
 )
 
 logger = logging.getLogger(__name__)

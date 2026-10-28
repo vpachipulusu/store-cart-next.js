@@ -14,10 +14,14 @@ QStash calls them.
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel
 
 from app.api.deps import get_email_sender, get_session_provider
-from app.api.v1.internal_provisioning import verified_qstash_body
+from app.api.v1.internal_provisioning import (
+    INVALID_PAYLOAD_MESSAGE,
+    Ack,
+    non_retryable,
+    verified_qstash_body,
+)
 from app.core.config import settings
 from app.core.database import SessionProvider
 from app.services.email import EmailSender
@@ -25,8 +29,10 @@ from app.services.order_email_job import (
     FAILED_PATH,
     SEND_PATH,
     InvalidPayload,
-    OrderEmailRunner,
     SendFailed,
+)
+from app.services.order_email_runner import (
+    OrderEmailRunner,
     SqlOrderEmailDirectory,
     SqlOrderEmailOutbox,
 )
@@ -36,13 +42,7 @@ router = APIRouter(
     prefix="/internal/order-emails", tags=["internal"], include_in_schema=False
 )
 
-NON_RETRYABLE_HEADER = "Upstash-NonRetryable-Error"
-INVALID_PAYLOAD_MESSAGE = "Invalid payload"
 SEND_FAILED_MESSAGE = "Order email not sent"
-
-
-class Ack(BaseModel):
-    received: bool = True
 
 
 def get_order_email_runner(
@@ -62,13 +62,6 @@ def get_order_email_runner(
 Runner = Annotated[OrderEmailRunner, Depends(get_order_email_runner)]
 
 
-def _invalid_payload() -> HTTPException:
-    """QStash must not retry: the same body would fail the same way."""
-    return HTTPException(
-        400, INVALID_PAYLOAD_MESSAGE, headers={NON_RETRYABLE_HEADER: "true"}
-    )
-
-
 @router.post("/send", response_model=Ack)
 async def send_order_email(
     request: Request,
@@ -80,7 +73,7 @@ async def send_order_email(
     try:
         await runner.handle_send(body)
     except InvalidPayload:
-        raise _invalid_payload() from None
+        raise non_retryable(400, INVALID_PAYLOAD_MESSAGE) from None
     except SendFailed:
         raise HTTPException(500, SEND_FAILED_MESSAGE) from None
     return Ack()
@@ -97,5 +90,5 @@ async def order_email_exhausted(
     try:
         await runner.handle_exhausted(body)
     except InvalidPayload:
-        raise _invalid_payload() from None
+        raise non_retryable(400, INVALID_PAYLOAD_MESSAGE) from None
     return Ack()

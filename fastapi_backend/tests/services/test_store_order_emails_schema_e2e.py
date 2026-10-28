@@ -17,11 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engin
 
 from app.core.ids import new_id
 from app.repositories.order_emails import OrderEmailsRepository
-from app.services.order_email_job import (
-    PAID_KINDS,
-    pending_jobs,
-    record_order_emails,
-)
+from app.services.order_email_job import PAID_KINDS
+from app.services.order_email_record import pending_jobs, record_order_emails
 from app.services.order_email_templates import OrderEmailKind
 from app.services.store_migrations import (
     STORE_SCRIPT_LOCATION,

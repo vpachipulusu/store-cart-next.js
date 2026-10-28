@@ -59,15 +59,41 @@ def test_the_order_email_callbacks_reach_the_backend(path: str) -> None:
     assert _destination_service("/internal/order-emails") == "nextjs-frontend"
 
 
-def test_the_order_email_rewrite_exposes_only_its_two_signed_routes() -> None:
-    from app.api.v1.internal_order_emails import router
+async def test_the_order_email_rewrite_exposes_only_its_two_signed_routes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from httpx import ASGITransport, AsyncClient
+    from pydantic import SecretStr
 
+    from app.api.deps import get_session_provider
+    from app.api.v1.internal_order_emails import router
+    from app.core.config import settings
+    from app.main import create_app
+    from tests.fakes import FakeSession, FakeSessionProvider
+
+    monkeypatch.setattr(settings, "PROVISIONING_BASE_URL", "https://api.example.test")
+    monkeypatch.setattr(
+        settings, "QSTASH_CURRENT_SIGNING_KEY", SecretStr("routing-test-signing-key")
+    )
     assert {route.path for route in router.routes} == {  # type: ignore[attr-defined]
         EMAIL_SEND_PATH,
         EMAIL_FAILED_PATH,
     }
-    for route in router.routes:
-        assert "verified_qstash_body(" in inspect.getsource(route.endpoint)  # type: ignore[attr-defined]
+    app = create_app()
+    app.dependency_overrides[get_session_provider] = lambda: FakeSessionProvider(
+        FakeSession()
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="https://api.example.test",
+    ) as http:
+        unsigned = [
+            await http.post(path, content=b"{}")
+            for path in (EMAIL_SEND_PATH, EMAIL_FAILED_PATH)
+        ]
+
+    assert [response.status_code for response in unsigned] == [401, 401]
 
 
 def test_everything_else_still_reaches_the_frontend() -> None:

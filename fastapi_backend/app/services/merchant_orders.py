@@ -3,10 +3,12 @@
 Works on the ``AsyncSession`` of the caller's own store (opened by the store session
 factory, the only door to a store database). Reads list and show orders; ``fulfil`` is the
 one write: it moves a ``paid`` order to ``fulfilled`` with a tracking number and commits once
-(or rolls back and raises). With ``emails`` (KAN-81) the same transaction adds the shipped
-notice to the outbox, and it is published to QStash after the commit; a publish failure is
-logged and reported, never a failed fulfilment (the row stays ``pending``). An unknown id and an id of another store are the same
+(or rolls back and raises). An unknown id and an id of another store are the same
 ``OrderNotFound`` because the session only sees this store's tables.
+
+With ``emails`` (KAN-81) the same transaction adds the shipped notice to the outbox, and it is
+published to QStash after the commit. A publish failure is logged and reported, never a failed
+fulfilment (the row stays ``pending``).
 """
 
 from dataclasses import dataclass
@@ -24,8 +26,8 @@ from app.services.order_email_job import (
     OrderEmailEnqueuer,
     OrderEmailJob,
     publish_quietly,
-    record_order_emails,
 )
+from app.services.order_email_record import record_order_emails
 from app.services.order_email_templates import OrderEmailKind
 from app.services.store_orders import OrderNotFound, OrderStatus, fulfil_order
 

@@ -4,12 +4,8 @@ from dataclasses import dataclass, field
 
 from app.repositories.order_email_context import AlertRecipient, StoreEmailContext
 from app.services.email import EmailMessage
-from app.services.order_email_job import (
-    EmailStatus,
-    EnqueueFailed,
-    OrderEmailJob,
-    PendingEmail,
-)
+from app.services.order_email_job import EmailStatus, EnqueueFailed, OrderEmailJob
+from app.services.order_email_runner import PendingEmail
 
 
 @dataclass
@@ -30,6 +26,7 @@ class RecordingSender:
 class FakeOutbox:
     pending: dict[OrderEmailJob, PendingEmail] = field(default_factory=dict)
     finished: list[tuple[OrderEmailJob, EmailStatus]] = field(default_factory=list)
+    settled: dict[OrderEmailJob, EmailStatus] = field(default_factory=dict)
     attempts: list[OrderEmailJob] = field(default_factory=list)
     load_error: BaseException | None = None
 
@@ -42,8 +39,14 @@ class FakeOutbox:
         if job not in self.pending:
             return False
         del self.pending[job]
+        self.settled[job] = status
         self.finished.append((job, status))
         return True
+
+    async def status(self, job: OrderEmailJob) -> EmailStatus | None:
+        if job in self.pending:
+            return EmailStatus.PENDING
+        return self.settled.get(job)
 
     async def count_attempt(self, job: OrderEmailJob) -> None:
         self.attempts.append(job)

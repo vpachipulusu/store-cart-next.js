@@ -73,12 +73,10 @@ from app.repositories.checkout import CheckoutRepository
 from app.repositories.connect_events import ConnectRoute
 from app.repositories.org_connect import ConnectRecord
 from app.repositories.store_cart import StoreCartRepository
-from app.services.order_email_job import (
-    PAID_KINDS,
-    OrderEmailEnqueuer,
+from app.services.order_email_job import PAID_KINDS, OrderEmailEnqueuer, publish_jobs
+from app.services.order_email_record import (
     clean_customer_email,
     pending_jobs,
-    publish_jobs,
     record_order_emails,
 )
 from app.services.org_billing import InvalidReturnUrl, validate_return_url
@@ -806,23 +804,18 @@ def _paid_session(obj: Mapping[str, Any]) -> _PaidSession | None:
     return _PaidSession(session_id, order_id, intent, amount, currency.upper(), email)
 
 
-async def confirm_checkout_payment(
+async def _apply_payment(
     session: AsyncSession, obj: Mapping[str, Any]
-) -> PaymentOutcome | None:
-    """Mark the session's order paid, at most once. Does not commit.
-
-    None when there is nothing to do yet (not paid, for example a delayed payment method) or
-    the object is unusable. A session that does not match a pending order is logged as an
-    error and changes nothing: a paid session for a cancelled order needs a manual refund.
-    """
+) -> tuple[PaymentOutcome | None, _PaidSession | None]:
+    """``confirm_checkout_payment`` that also hands back the parsed session."""
     if obj.get("payment_status") != PAID_STATUS:
         logger.info("checkout session not paid yet")
-        return None
+        return None, None
     paid = _paid_session(obj)
     if paid is None:
         logger.error("paid checkout session without usable fields")
         report_exception(UnappliedCheckoutPayment("unusable"))
-        return None
+        return None, None
     outcome = await mark_checkout_paid(
         session,
         order_id=paid.order_id,
@@ -844,6 +837,19 @@ async def confirm_checkout_payment(
             outcome.value,
             extra={"order_id": paid.order_id},
         )
+    return outcome, paid
+
+
+async def confirm_checkout_payment(
+    session: AsyncSession, obj: Mapping[str, Any]
+) -> PaymentOutcome | None:
+    """Mark the session's order paid, at most once. Does not commit.
+
+    None when there is nothing to do yet (not paid, for example a delayed payment method) or
+    the object is unusable. A session that does not match a pending order is logged as an
+    error and changes nothing: a paid session for a cancelled order needs a manual refund.
+    """
+    outcome, _ = await _apply_payment(session, obj)
     return outcome
 
 
@@ -860,8 +866,9 @@ def checkout_payment_handler(
     Order emails (KAN-81): the payment that moves the order to ``paid`` also writes the
     shopper's address and the confirmation and new-order alert rows, in the same store
     transaction. After the commit, every one of those rows still ``pending`` is published to
-    QStash, on this delivery and on any redelivery that finds the order already paid. A
-    publish failure raises, so the webhook answers 500 and Stripe delivers again.
+    QStash, on this delivery and on any redelivery that finds the order already paid.
+    Publishing happens inside the platform claim on purpose: a failure rolls the claim back and
+    Stripe redelivers (the claim is held for at most the 3 s publish timeout).
     """
 
     async def handle(route: ConnectRoute, obj: Mapping[str, Any]) -> None:
@@ -870,10 +877,15 @@ def checkout_payment_handler(
             logger.error("checkout payment event routed without a store")
             report_exception(UnappliedCheckoutPayment("no store"))
             return
-        paid = _paid_session(obj)
         async with open_store(store_id) as session:
-            outcome = await confirm_checkout_payment(session, obj)
-            if outcome is PaymentOutcome.PAID and paid is not None:
+            outcome, paid = await _apply_payment(session, obj)
+            if paid is None or outcome not in (
+                PaymentOutcome.PAID,
+                PaymentOutcome.ALREADY_PAID,
+            ):
+                await session.commit()
+                return
+            if outcome is PaymentOutcome.PAID:
                 await record_order_emails(
                     session,
                     store_id=store_id,
@@ -882,13 +894,8 @@ def checkout_payment_handler(
                     customer_email=paid.customer_email,
                 )
             await session.commit()
-            jobs = (
-                await pending_jobs(
-                    session, store_id=store_id, order_id=paid.order_id, kinds=PAID_KINDS
-                )
-                if paid is not None
-                and outcome in (PaymentOutcome.PAID, PaymentOutcome.ALREADY_PAID)
-                else []
+            jobs = await pending_jobs(
+                session, store_id=store_id, order_id=paid.order_id, kinds=PAID_KINDS
             )
         await publish_jobs(emails, jobs)
 

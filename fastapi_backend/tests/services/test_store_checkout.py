@@ -743,14 +743,14 @@ class CommitSession:
 class EmailWrites:
     """Replaces the SQL of the payment handler: the outcome, the outbox rows, the pending read."""
 
-    def __init__(self, outcome: PaymentOutcome | None, pending: list[str]) -> None:
+    def __init__(self, outcome: PaymentOutcome, pending: list[str]) -> None:
         self.outcome = outcome
         self.pending = pending
         self.recorded: list[tuple[str, tuple[OrderEmailKind, ...], str | None]] = []
         self.session = CommitSession()
 
     def install(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        async def confirm(session: Any, obj: Any) -> PaymentOutcome | None:
+        async def mark_paid(session: Any, **kw: Any) -> PaymentOutcome:
             return self.outcome
 
         async def record(session: Any, **kw: Any) -> list[OrderEmailKind]:
@@ -767,7 +767,8 @@ class EmailWrites:
                 for kind in self.pending
             ]
 
-        monkeypatch.setattr(store_checkout, "confirm_checkout_payment", confirm)
+        monkeypatch.setattr(store_checkout, "mark_checkout_paid", mark_paid)
+        monkeypatch.setattr(store_checkout, "report_exception", lambda error: None)
         monkeypatch.setattr(store_checkout, "record_order_emails", record)
         monkeypatch.setattr(store_checkout, "pending_jobs", pending)
 
@@ -820,19 +821,26 @@ async def test_a_redelivery_republishes_what_is_still_pending_without_writing(
 
 
 @pytest.mark.parametrize(
-    "outcome", [None, PaymentOutcome.MISMATCH, PaymentOutcome.NOT_FOUND]
+    ("outcome", "obj"),
+    [
+        (PaymentOutcome.MISMATCH, WITH_EMAIL),
+        (PaymentOutcome.NOT_FOUND, WITH_EMAIL),
+        (PaymentOutcome.PAID, paid_object(payment_status="unpaid")),
+        (PaymentOutcome.PAID, paid_object(metadata=None)),  # unusable
+    ],
 )
 async def test_a_payment_that_changed_nothing_publishes_nothing(
-    outcome: PaymentOutcome | None, monkeypatch: pytest.MonkeyPatch
+    outcome: PaymentOutcome, obj: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     writes = EmailWrites(outcome, BOTH)
     writes.install(monkeypatch)
     enqueuer = RecordingEnqueuer()
 
-    await checkout_payment_handler(writes.opener(), enqueuer)(ROUTE, WITH_EMAIL)
+    await checkout_payment_handler(writes.opener(), enqueuer)(ROUTE, obj)
 
     assert writes.recorded == []
     assert enqueuer.jobs == []
+    assert writes.session.commits == 1
 
 
 async def test_a_publish_failure_fails_the_delivery_after_the_store_commit(

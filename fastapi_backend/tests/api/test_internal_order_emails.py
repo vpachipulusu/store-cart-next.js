@@ -22,9 +22,8 @@ from app.services.order_email_job import (
     SEND_PATH,
     EmailStatus,
     OrderEmailJob,
-    OrderEmailRunner,
-    PendingEmail,
 )
+from app.services.order_email_runner import OrderEmailRunner, PendingEmail
 from app.services.order_email_templates import OrderEmailKind, OrderFacts
 from tests.fakes_email import FakeDirectory, FakeOutbox, RecordingSender
 from tests.qstash_tokens import make_token
@@ -151,7 +150,10 @@ async def test_the_routes_are_not_in_the_openapi_schema() -> None:
 
 
 def test_the_runner_dependency_builds_the_sql_runner() -> None:
-    from app.services.order_email_job import SqlOrderEmailDirectory, SqlOrderEmailOutbox
+    from app.services.order_email_runner import (
+        SqlOrderEmailDirectory,
+        SqlOrderEmailOutbox,
+    )
     from tests.fakes import FakeSession, FakeSessionProvider, as_provider
 
     runner = get_order_email_runner(

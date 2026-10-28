@@ -98,8 +98,10 @@ async def _verified_body(request: Request, token: str | None, path: str) -> byte
     return body
 
 
-# The same signature check guards the other QStash callbacks (the cart purge schedule, KAN-252).
+# The same signature check guards the other QStash callbacks (the cart purge schedule, KAN-252,
+# and the order emails, KAN-81), which also answer with the same non-retryable errors.
 verified_qstash_body = _verified_body
+non_retryable = _permanent
 
 
 @router.post("/step", response_model=Ack)

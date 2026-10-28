@@ -183,7 +183,7 @@ async def test_resend_sends_the_idempotency_key_as_a_header():
     assert "Idempotency-Key" not in seen[1].headers
 
 
-@pytest.mark.parametrize("status", [400, 401, 403, 404, 422])
+@pytest.mark.parametrize("status", [400, 404, 422])
 async def test_a_client_error_that_will_never_succeed_is_a_rejection(status):
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(status, json={})
@@ -192,7 +192,8 @@ async def test_a_client_error_that_will_never_succeed_is_a_rejection(status):
         await sender_with(handler).send(MESSAGE)
 
 
-@pytest.mark.parametrize("status", [408, 409, 429, 500, 503])
+# 401/403: a key or sender domain the operator can fix; the row waits for QStash's retry.
+@pytest.mark.parametrize("status", [401, 403, 408, 409, 429, 500, 503])
 async def test_a_retryable_status_is_a_plain_delivery_failure(status):
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(status, json={})

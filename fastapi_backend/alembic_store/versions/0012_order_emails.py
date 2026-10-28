@@ -48,12 +48,14 @@ def _timestamps() -> list[sa.Column[sa.DateTime]]:
 
 def upgrade() -> None:
     op.add_column("orders", sa.Column("customer_email", sa.String(), nullable=True))
-    op.create_check_constraint(
-        "ck_orders_customer_email",
-        "orders",
+    # Added NOT VALID then validated (as 0005 does): the ADD takes only a brief lock, and the
+    # VALIDATE scans the orders without blocking writes. Every existing row is NULL here.
+    op.execute(
+        "ALTER TABLE orders ADD CONSTRAINT ck_orders_customer_email CHECK ("
         "customer_email IS NULL OR (char_length(customer_email) BETWEEN 3 AND 254"
-        " AND position('@' in customer_email) > 1)",
+        " AND position('@' in customer_email) > 1)) NOT VALID"
     )
+    op.execute("ALTER TABLE orders VALIDATE CONSTRAINT ck_orders_customer_email")
 
     op.create_table(
         "store_email_templates",

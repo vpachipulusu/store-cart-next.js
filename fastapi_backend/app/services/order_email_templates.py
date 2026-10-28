@@ -34,6 +34,8 @@ MAX_SUBJECT_LENGTH = 200
 MAX_STORE_NAME_LENGTH = 100
 NO_CARRIER = "Not provided"
 # ISO 4217 minor unit digits that are not 2 (Stripe's zero-decimal and three-decimal lists).
+# Kept wider than the platform's own currencies (public_settings.SUPPORTED_CURRENCIES): the
+# order's stored currency is what Stripe charged, and a wrong decimal point is costly to show.
 ZERO_DECIMAL = frozenset(
     {
         "BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW", "PYG",
@@ -140,24 +142,26 @@ def order_url(app_url: str | None, order_id: str) -> str | None:
     return f"{app_url.rstrip('/')}/dashboard/orders/{quote(order_id, safe='')}"
 
 
-def _single_line(value: str) -> str:
-    """Control and separator characters removed (Unicode categories C, Zl and Zp)."""
-    return "".join(
-        ch
+def _one_line(value: str) -> str:
+    """Line breaks, control and separator characters (Unicode C, Zl, Zp) become one space."""
+    spaced = "".join(
+        " "
+        if unicodedata.category(ch).startswith("C")
+        or unicodedata.category(ch) in ("Zl", "Zp")
+        else ch
         for ch in value
-        if not unicodedata.category(ch).startswith("C")
-        and unicodedata.category(ch) not in ("Zl", "Zp")
     )
+    return " ".join(spaced.split())
 
 
 def _clean_subject(value: str) -> str:
-    return " ".join(_single_line(value).split())[:MAX_SUBJECT_LENGTH]
+    return _one_line(value)[:MAX_SUBJECT_LENGTH]
 
 
 def _line_text(line: OrderLine, currency: str) -> str:
-    label = f" ({line.variant_label})" if line.variant_label else ""
+    label = f" ({_one_line(line.variant_label)})" if line.variant_label else ""
     amount = format_money(line.unit_price_minor * line.quantity, currency)
-    return f"{line.quantity} x {line.name}{label} - {amount}"
+    return f"{line.quantity} x {_one_line(line.name)}{label} - {amount}"
 
 
 def template_values(
@@ -165,12 +169,12 @@ def template_values(
 ) -> dict[str, str]:
     """Every variable of ``kind``, as text."""
     values = {
-        "store_name": _single_line(store_name).strip()[:MAX_STORE_NAME_LENGTH],
+        "store_name": _one_line(store_name)[:MAX_STORE_NAME_LENGTH],
         "order_id": facts.order_id,
         "order_total": format_money(facts.total_minor, facts.currency),
         "items": "\n".join(_line_text(line, facts.currency) for line in facts.lines),
-        "tracking_number": facts.tracking_number or "",
-        "carrier": facts.carrier or NO_CARRIER,
+        "tracking_number": _one_line(facts.tracking_number or ""),
+        "carrier": _one_line(facts.carrier or "") or NO_CARRIER,
         "order_url": link or "",
     }
     return {name: values[name] for name in VARIABLES[kind]}

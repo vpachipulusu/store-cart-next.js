@@ -21,9 +21,10 @@ logger = logging.getLogger("storecart.email")
 RESEND_API_URL = "https://api.resend.com/emails"
 # Connect fast or give up; callers also bound the whole send (invitations: 5 s).
 REQUEST_TIMEOUT = httpx.Timeout(5.0, connect=2.0)
-# 4xx answers that a later retry may still turn into a success (timeout, idempotency
-# conflict while the first request runs, rate limit); every other 4xx is final.
-RETRYABLE_CLIENT_ERRORS = frozenset({408, 409, 429})
+# 4xx answers that a later retry may still turn into a success: a key or sender domain the
+# operator fixes (401, 403), a timeout, an idempotency conflict while the first request runs,
+# a rate limit. Every other 4xx (422: the message itself) is final.
+RETRYABLE_CLIENT_ERRORS = frozenset({401, 403, 408, 409, 429})
 
 
 @dataclass(frozen=True)

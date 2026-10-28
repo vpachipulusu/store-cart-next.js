@@ -217,3 +217,34 @@ def test_only_the_alert_gets_a_link() -> None:
     )
 
     assert "<a " not in rendered.html
+
+
+def test_line_breaks_in_merchant_text_collapse_to_single_spaces() -> None:
+    facts = OrderFacts(
+        "order1",
+        "GBP",
+        100,
+        (OrderLine("Mug\r\nBcc: x@y.test", "Large\u2028Blue", 1, 100),),
+        "TRK\n42",
+        "Royal\r\n\r\nMail",
+    )
+    override = TemplateText("$tracking_number", "$items|$tracking_number|$carrier")
+
+    rendered = render(OrderEmailKind.ORDER_SHIPPED, override, facts=facts)
+
+    assert rendered.text == (
+        "1 x Mug Bcc: x@y.test (Large Blue) - GBP 1.00|TRK 42|Royal Mail"
+    )
+    assert rendered.subject == "TRK 42"
+    assert "<br>" not in rendered.html
+
+
+def test_every_platform_currency_formats_with_its_decimals() -> None:
+    from app.services.public_settings import SUPPORTED_CURRENCIES
+
+    formatted = {code: format_money(12345, code) for code in SUPPORTED_CURRENCIES}
+
+    assert formatted["JPY"] == "JPY 12,345"
+    assert all(
+        value == f"{code} 123.45" for code, value in formatted.items() if code != "JPY"
+    )
