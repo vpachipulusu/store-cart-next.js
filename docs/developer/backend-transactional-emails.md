@@ -34,8 +34,8 @@ The email writes run in a SAVEPOINT inside the order's transaction, and a failur
 | SQLSTATE | Meaning | What happens |
 |---|---|---|
 | 42P01, 42703 | the store has not reached 0012 | skipped, `order email skipped` logged; outside local/test also a Sentry event (a typo in a column name would otherwise switch every email off silently) |
-| 40001, 40P01, 55P03, 57014 | transient (serialization, deadlock, lock or statement timeout) | raised as `OrderEmailFailed`: the payment or fulfilment rolls back and is retried (Stripe redelivers) |
-| anything else (42501, 23xxx, ...) | an unexpected failure | reported to Sentry and skipped: the payment still confirms (an unrecorded payment is worse than a missing email) |
+| 40001, 40P01, 55P03, 57014; classes 08, 53, 57P; or no SQLSTATE at all | transient (serialization, deadlock, lock or statement timeout, connection, resources, admin shutdown, a dropped connection) | raised as `OrderEmailFailed`: the payment or fulfilment rolls back and is retried (Stripe redelivers) |
+| any other, deterministic SQLSTATE (42501, 23xxx, ...) | an unexpected failure | reported to Sentry once (logged as a warning) and skipped: the payment still confirms (an unrecorded payment is worse than a missing email) |
 
 A raw SQLAlchemy error never leaves the module: its text carries the statement parameters, which include the shopper's
 address. Only the class name and SQLSTATE are logged or reported.
@@ -55,8 +55,8 @@ address. Only the class name and SQLSTATE are logged or reported.
      and the platform event claim. Publishing happens inside the platform claim on purpose (held for at most the 3 s
      timeout; the jobs are published concurrently).
    - QStash refusing the request itself (any other 4xx: a bad token or destination) is a misconfiguration: it is
-     logged and reported to Sentry, never a 500, so it cannot fail every Connect webhook for days. The row stays
-     `pending`.
+     logged and reported to Sentry, never a 500, so it cannot fail every Connect webhook for days. The webhook
+     answers 200, so the row stays `pending` until a sweeper exists (there is none yet; see below).
    - Fulfilment: a publish failure is logged (ids, kind, error class) and reported to Sentry; the merchant's request
      still succeeds and the row stays `pending`. There is no sweep job.
    - Without `QSTASH_TOKEN` and `PROVISIONING_BASE_URL` nothing is published and rows stay `pending`: a warning in
@@ -120,6 +120,9 @@ Defaults live in code (`DEFAULT_TEMPLATES`), as `string.Template` text with a fi
 - **Resend idempotency (not handled).** Resend answers 422 when an idempotency key is reused with a changed payload
   (for example a template edited between a failed send and its retry); the row then becomes `failed`.
 - **`attempts`** is informational only: QStash owns the retry count (`ORDER_EMAIL_RETRIES`).
+- **No sweeper.** Rows left `pending` stay pending: after a fulfilment whose publish failed, after QStash refused a
+  publish (bad token or destination; the webhook answered 200), or while QStash is not configured. A sweep job that
+  re-publishes old `pending` rows is future work.
 
 ## Privacy
 

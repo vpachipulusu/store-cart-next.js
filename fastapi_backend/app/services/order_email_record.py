@@ -7,10 +7,12 @@ SAVEPOINT, so an email problem never costs the order change around it:
 * SQLSTATE 42P01/42703 (the store database has not reached revision 0012 yet): skipped and
   logged; outside local and test also a Sentry event, since a wrong column name would
   otherwise switch every email off without a sound.
-* A transient error (serialization failure, deadlock, lock or statement timeout) is raised
-  as ``OrderEmailFailed``: the order change rolls back and is retried (Stripe redelivers).
-* Any other error is reported and skipped: a payment that is not recorded is worse than an
-  email that is not sent.
+* A transient error is raised as ``OrderEmailFailed``: the order change rolls back and is
+  retried (Stripe redelivers). Transient means serialization failure, deadlock, lock or
+  statement timeout, the SQLSTATE classes 08 (connection), 53 (resources) and 57P (operator
+  intervention), and any error without a SQLSTATE (a dropped connection, an interface error).
+* Any other, deterministic SQLSTATE (42501, 23xxx, ...) is reported and skipped: a payment
+  that is not recorded is worse than an email that is not sent.
 
 A raw SQLAlchemy error never leaves this module: its text carries the statement parameters,
 which include the shopper's address. Only the class name and SQLSTATE are logged or reported.
@@ -35,6 +37,8 @@ MAX_CUSTOMER_EMAIL_LENGTH = 254
 MISSING_SCHEMA = frozenset({"42P01", "42703"})  # undefined_table, undefined_column
 # serialization_failure, deadlock_detected, lock_not_available, query_canceled
 TRANSIENT = frozenset({"40001", "40P01", "55P03", "57014"})
+# connection_exception, insufficient_resources, operator_intervention (admin shutdown, ...)
+TRANSIENT_PREFIXES = ("08", "53", "57P")
 
 
 def clean_customer_email(value: object) -> str | None:
@@ -60,14 +64,19 @@ def _absorb_or_raise(exc: SQLAlchemyError, *, store_id: str, order_id: str) -> N
     sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
     reason = safe_reason(exc)
     extra = {"store_id": store_id, "order_id": order_id}
-    if sqlstate in TRANSIENT:
+    if (
+        not isinstance(sqlstate, str)
+        or sqlstate in TRANSIENT
+        or sqlstate.startswith(TRANSIENT_PREFIXES)
+    ):
         raise OrderEmailFailed(reason) from None
     if sqlstate in MISSING_SCHEMA:
         logger.warning("order email skipped: store schema: %s", reason, extra=extra)
         if not settings.relaxed_environment:
             report_exception(OrderEmailFailed(f"store schema: {reason}"))
         return
-    logger.error("order email skipped: %s", reason, extra=extra)
+    # A warning, not an error: the report below is the one Sentry event.
+    logger.warning("order email skipped: %s", reason, extra=extra)
     report_exception(OrderEmailFailed(reason))
 
 

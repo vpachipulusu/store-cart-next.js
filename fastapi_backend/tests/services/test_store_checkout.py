@@ -857,6 +857,29 @@ async def test_a_publish_failure_fails_the_delivery_after_the_store_commit(
     assert writes.session.commits == 1  # the payment itself is kept
 
 
+async def test_publishing_is_bounded_so_the_platform_claim_is_not_held(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+
+    writes = EmailWrites(PaymentOutcome.PAID, BOTH)
+    writes.install(monkeypatch)
+    monkeypatch.setattr(store_checkout, "PUBLISH_TIMEOUT_SECONDS", 0.05)
+
+    class Hanging(RecordingEnqueuer):
+        async def enqueue(self, job: OrderEmailJob) -> None:
+            await asyncio.sleep(
+                5
+            )  # httpx's timeout is per phase, not for the whole call
+
+    with pytest.raises(EnqueueFailed):
+        await asyncio.wait_for(
+            checkout_payment_handler(writes.opener(), Hanging())(ROUTE, WITH_EMAIL), 1
+        )
+
+    assert writes.session.commits == 1
+
+
 def test_the_paid_session_carries_a_clean_customer_email() -> None:
     clean = store_checkout._paid_session(WITH_EMAIL)
     odd = store_checkout._paid_session(paid_object(customer_details={"email": "x"}))

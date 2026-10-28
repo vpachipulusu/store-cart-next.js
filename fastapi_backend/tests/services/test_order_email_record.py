@@ -50,15 +50,16 @@ def test_the_customer_email_is_trimmed_and_checked(
 
 
 class _Orig(Exception):
-    def __init__(self, sqlstate: str) -> None:
+    def __init__(self, sqlstate: str | None) -> None:
         super().__init__(f"driver error for {CUSTOMER}")
-        self.sqlstate = sqlstate
+        if sqlstate is not None:
+            self.sqlstate = sqlstate
 
 
 class FailingStoreSession:
     """A store session whose every statement fails with ``sqlstate``."""
 
-    def __init__(self, sqlstate: str) -> None:
+    def __init__(self, sqlstate: str | None) -> None:
         self.sqlstate = sqlstate
         self.savepoints = 0
 
@@ -143,7 +144,21 @@ async def test_a_store_before_0012_is_a_sentry_event_outside_local(
     assert_no_address(caplog, *reported)
 
 
-@pytest.mark.parametrize("sqlstate", ["40001", "40P01", "55P03", "57014"])
+@pytest.mark.parametrize(
+    "sqlstate",
+    [
+        "40001",
+        "40P01",
+        "55P03",
+        "57014",
+        "08006",  # connection failure
+        "08003",
+        "53300",  # too many connections
+        "53100",
+        "57P01",  # admin shutdown
+        "57P03",
+    ],
+)
 async def test_a_transient_error_is_raised_wrapped_so_the_change_is_retried(
     sqlstate: str, caplog: pytest.LogCaptureFixture, reported: list[BaseException]
 ) -> None:
@@ -155,10 +170,26 @@ async def test_a_transient_error_is_raised_wrapped_so_the_change_is_retried(
         await read(FailingStoreSession(sqlstate))
 
     for raised in (on_write, on_read):
-        assert str(raised.value) == f"DBAPIError sqlstate={sqlstate}"
+        assert str(raised.value).startswith("DBAPIError")
         assert raised.value.__suppress_context__  # the driver error does not ride along
     assert reported == []
     assert_no_address(caplog, on_write.value, on_read.value)
+
+
+async def test_an_error_without_a_sqlstate_is_transient(
+    caplog: pytest.LogCaptureFixture, reported: list[BaseException]
+) -> None:
+    caplog.set_level(logging.DEBUG)
+
+    with pytest.raises(OrderEmailFailed) as raised:
+        await write(
+            FailingStoreSession(None)
+        )  # e.g. InterfaceError, a dropped connection
+
+    assert str(raised.value) == "DBAPIError"
+    assert raised.value.__suppress_context__
+    assert reported == []
+    assert_no_address(caplog, raised.value)
 
 
 @pytest.mark.parametrize("sqlstate", ["42501", "23514", "23505", "XX000"])
@@ -173,5 +204,7 @@ async def test_any_other_error_is_reported_and_the_change_still_commits(
     ) == ([], [])
 
     assert [str(error) for error in reported] == [f"DBAPIError sqlstate={sqlstate}"] * 2
-    assert "order email skipped" in caplog.text
+    skipped = [r for r in caplog.records if "order email skipped" in r.getMessage()]
+    # A warning: the one Sentry event is the report, not a second one from an ERROR log.
+    assert [r.levelno for r in skipped] == [logging.WARNING] * 2
     assert_no_address(caplog, *reported)

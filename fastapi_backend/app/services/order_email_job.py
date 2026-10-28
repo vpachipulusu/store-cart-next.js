@@ -266,7 +266,10 @@ async def publish_jobs(
     results = await asyncio.gather(
         *(enqueuer.enqueue(job) for job in jobs), return_exceptions=True
     )
-    errors = [result for result in results if isinstance(result, BaseException)]
+    for result in results:
+        if isinstance(result, BaseException) and not isinstance(result, Exception):
+            raise result  # a cancellation is not a publish failure
+    errors = [result for result in results if isinstance(result, Exception)]
     for error in errors:
         if not isinstance(error, EnqueueFailed):
             raise error

@@ -60,7 +60,7 @@ def get_step_runner(
     )
 
 
-def _permanent(status_code: int, message: str) -> HTTPException:
+def non_retryable(status_code: int, message: str) -> HTTPException:
     """An error QStash must not retry: the same body would fail the same way."""
     return HTTPException(status_code, message, headers={NON_RETRYABLE_HEADER: "true"})
 
@@ -72,13 +72,13 @@ async def _verified_body(request: Request, token: str | None, path: str) -> byte
         raise HTTPException(503, UNAVAILABLE_MESSAGE)
     declared = request.headers.get("content-length")
     if declared and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
-        raise _permanent(413, PAYLOAD_TOO_LARGE_MESSAGE)
+        raise non_retryable(413, PAYLOAD_TOO_LARGE_MESSAGE)
     chunks: list[bytes] = []
     received = 0
     async for chunk in request.stream():
         received += len(chunk)
         if received > MAX_BODY_BYTES:
-            raise _permanent(413, PAYLOAD_TOO_LARGE_MESSAGE)
+            raise non_retryable(413, PAYLOAD_TOO_LARGE_MESSAGE)
         chunks.append(chunk)
     body = b"".join(chunks)
     expected_url = f"{base_url.rstrip('/')}{path}"
@@ -101,7 +101,6 @@ async def _verified_body(request: Request, token: str | None, path: str) -> byte
 # The same signature check guards the other QStash callbacks (the cart purge schedule, KAN-252,
 # and the order emails, KAN-81), which also answer with the same non-retryable errors.
 verified_qstash_body = _verified_body
-non_retryable = _permanent
 
 
 @router.post("/step", response_model=Ack)
@@ -115,7 +114,7 @@ async def run_step(
     try:
         await runner.handle_step(body)
     except InvalidPayload:
-        raise _permanent(400, INVALID_PAYLOAD_MESSAGE) from None
+        raise non_retryable(400, INVALID_PAYLOAD_MESSAGE) from None
     except StepFailed:
         raise HTTPException(500, STEP_FAILED_MESSAGE) from None
     return Ack()
@@ -132,5 +131,5 @@ async def step_exhausted(
     try:
         await runner.handle_exhausted(body)
     except InvalidPayload:
-        raise _permanent(400, INVALID_PAYLOAD_MESSAGE) from None
+        raise non_retryable(400, INVALID_PAYLOAD_MESSAGE) from None
     return Ack()

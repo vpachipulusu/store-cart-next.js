@@ -449,3 +449,14 @@ async def test_logs_carry_ids_and_kind_but_no_address_subject_or_body(
     for secret in (CUSTOMER, "owner@example.com", "Secret subject", "Secret body"):
         assert secret not in text
     assert ORDER_ID in text
+
+
+async def test_a_cancelled_send_propagates_instead_of_counting_an_attempt() -> None:
+    sender = RecordingSender({"owner@example.com": asyncio.CancelledError()})
+    built, outbox, _ = runner(ALERT, sender=sender)
+
+    with pytest.raises(asyncio.CancelledError):
+        await built.handle_send(body(ALERT))
+
+    assert outbox.attempts == []
+    assert outbox.finished == []

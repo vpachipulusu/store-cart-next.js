@@ -286,7 +286,10 @@ class OrderEmailRunner:
         results = await asyncio.gather(
             *(self._send_one(message) for message in messages), return_exceptions=True
         )
-        errors = [result for result in results if isinstance(result, BaseException)]
+        for result in results:
+            if isinstance(result, BaseException) and not isinstance(result, Exception):
+                raise result  # a cancellation is not a send failure: no attempt, no retry
+        errors = [result for result in results if isinstance(result, Exception)]
         if any(isinstance(error, EmailDisabled) for error in errors):
             return await self._finish(job, EmailStatus.SKIPPED)
         transient = [error for error in errors if not isinstance(error, EmailRejected)]

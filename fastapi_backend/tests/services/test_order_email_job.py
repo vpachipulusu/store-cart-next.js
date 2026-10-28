@@ -1,5 +1,6 @@
 """Order email jobs and their QStash publisher (KAN-81), without I/O."""
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -271,3 +272,12 @@ async def test_publish_quietly_reports_an_unexpected_crash(
     await publish_quietly(Crashing(), [SHIPPED])
 
     assert [str(error) for error in reported] == ["order_shipped: RuntimeError"]
+
+
+async def test_publish_jobs_propagates_a_cancellation_instead_of_a_retry() -> None:
+    class Cancelled:
+        async def enqueue(self, job: OrderEmailJob) -> None:
+            raise asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        await publish_jobs(Cancelled(), [CONFIRM, ALERT])

@@ -73,7 +73,13 @@ from app.repositories.checkout import CheckoutRepository
 from app.repositories.connect_events import ConnectRoute
 from app.repositories.org_connect import ConnectRecord
 from app.repositories.store_cart import StoreCartRepository
-from app.services.order_email_job import PAID_KINDS, OrderEmailEnqueuer, publish_jobs
+from app.services.order_email_job import (
+    PAID_KINDS,
+    PUBLISH_TIMEOUT_SECONDS,
+    EnqueueFailed,
+    OrderEmailEnqueuer,
+    publish_jobs,
+)
 from app.services.order_email_record import (
     clean_customer_email,
     pending_jobs,
@@ -804,18 +810,24 @@ def _paid_session(obj: Mapping[str, Any]) -> _PaidSession | None:
     return _PaidSession(session_id, order_id, intent, amount, currency.upper(), email)
 
 
+@dataclass(frozen=True)
+class _AppliedPayment:
+    outcome: PaymentOutcome | None = None  # None: nothing to do (not paid, or unusable)
+    paid: _PaidSession | None = None
+
+
 async def _apply_payment(
     session: AsyncSession, obj: Mapping[str, Any]
-) -> tuple[PaymentOutcome | None, _PaidSession | None]:
+) -> _AppliedPayment:
     """``confirm_checkout_payment`` that also hands back the parsed session."""
     if obj.get("payment_status") != PAID_STATUS:
         logger.info("checkout session not paid yet")
-        return None, None
+        return _AppliedPayment()
     paid = _paid_session(obj)
     if paid is None:
         logger.error("paid checkout session without usable fields")
         report_exception(UnappliedCheckoutPayment("unusable"))
-        return None, None
+        return _AppliedPayment()
     outcome = await mark_checkout_paid(
         session,
         order_id=paid.order_id,
@@ -837,7 +849,7 @@ async def _apply_payment(
             outcome.value,
             extra={"order_id": paid.order_id},
         )
-    return outcome, paid
+    return _AppliedPayment(outcome, paid)
 
 
 async def confirm_checkout_payment(
@@ -849,8 +861,7 @@ async def confirm_checkout_payment(
     the object is unusable. A session that does not match a pending order is logged as an
     error and changes nothing: a paid session for a cancelled order needs a manual refund.
     """
-    outcome, _ = await _apply_payment(session, obj)
-    return outcome
+    return (await _apply_payment(session, obj)).outcome
 
 
 def checkout_payment_handler(
@@ -868,7 +879,8 @@ def checkout_payment_handler(
     transaction. After the commit, every one of those rows still ``pending`` is published to
     QStash, on this delivery and on any redelivery that finds the order already paid.
     Publishing happens inside the platform claim on purpose: a failure rolls the claim back and
-    Stripe redelivers (the claim is held for at most the 3 s publish timeout).
+    Stripe redelivers. The whole publish is bounded by ``PUBLISH_TIMEOUT_SECONDS`` (httpx's own
+    timeout applies per phase), so the claim is never held longer than that.
     """
 
     async def handle(route: ConnectRoute, obj: Mapping[str, Any]) -> None:
@@ -878,7 +890,8 @@ def checkout_payment_handler(
             report_exception(UnappliedCheckoutPayment("no store"))
             return
         async with open_store(store_id) as session:
-            outcome, paid = await _apply_payment(session, obj)
+            applied = await _apply_payment(session, obj)
+            outcome, paid = applied.outcome, applied.paid
             if paid is None or outcome not in (
                 PaymentOutcome.PAID,
                 PaymentOutcome.ALREADY_PAID,
@@ -897,6 +910,13 @@ def checkout_payment_handler(
             jobs = await pending_jobs(
                 session, store_id=store_id, order_id=paid.order_id, kinds=PAID_KINDS
             )
-        await publish_jobs(emails, jobs)
+        try:
+            async with asyncio.timeout(PUBLISH_TIMEOUT_SECONDS):
+                await publish_jobs(emails, jobs)
+        except TimeoutError:
+            logger.error(
+                "order email publish timed out", extra={"order_id": paid.order_id}
+            )
+            raise EnqueueFailed from None
 
     return handle
