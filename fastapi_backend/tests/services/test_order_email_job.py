@@ -137,6 +137,7 @@ def test_ids_and_keys_name_the_store_order_and_kind() -> None:
         ("  Shopper@Example.com ", "Shopper@Example.com"),
         ("a@b", "a@b"),
         ("@example.com", None),
+        ("@x@example.com", None),  # the CHECK looks at the first @
         ("no-at-sign", None),
         ("a b@example.com", None),
         ("a\n@example.com", None),
@@ -251,6 +252,95 @@ async def test_without_qstash_nothing_is_published_and_ids_are_logged(caplog) ->
     [record] = caplog.records
     assert record.order_id == ORDER_ID
     assert record.kind == "order_confirmation"
+
+
+async def test_without_qstash_outside_local_the_warning_is_an_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG)
+
+    await DisabledOrderEmailEnqueuer(relaxed=False).enqueue(CONFIRM)
+
+    assert [record.levelno for record in caplog.records] == [logging.ERROR]
+
+
+class _Orig(Exception):
+    def __init__(self, sqlstate: str) -> None:
+        self.sqlstate = sqlstate
+
+
+class _FailingStoreSession:
+    """A store session whose every statement fails with ``sqlstate``."""
+
+    def __init__(self, sqlstate: str) -> None:
+        self.sqlstate = sqlstate
+
+    def begin_nested(self) -> Any:
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def savepoint() -> Any:
+            yield
+
+        return savepoint()
+
+    async def execute(self, *args: Any, **kwargs: Any) -> Any:
+        from sqlalchemy.exc import DBAPIError
+
+        raise DBAPIError("statement", {}, _Orig(self.sqlstate))
+
+
+@pytest.mark.parametrize("sqlstate", ["42P01", "42703"])
+async def test_a_store_before_0012_skips_the_email_writes(sqlstate: str) -> None:
+    session = _FailingStoreSession(sqlstate)
+
+    added = await order_email_job.record_order_emails(
+        session,  # type: ignore[arg-type]
+        store_id=STORE_ID,
+        order_id=ORDER_ID,
+        kinds=order_email_job.PAID_KINDS,
+    )
+    pending = await order_email_job.pending_jobs(
+        session,  # type: ignore[arg-type]
+        store_id=STORE_ID,
+        order_id=ORDER_ID,
+        kinds=order_email_job.PAID_KINDS,
+    )
+
+    assert (added, pending) == ([], [])
+
+
+@pytest.mark.parametrize("sqlstate", ["23514", "40P01", "57014"])
+async def test_any_other_database_error_is_raised_so_the_change_rolls_back(
+    sqlstate: str,
+) -> None:
+    from sqlalchemy.exc import DBAPIError
+
+    session = _FailingStoreSession(sqlstate)
+
+    with pytest.raises(DBAPIError):
+        await order_email_job.record_order_emails(
+            session,  # type: ignore[arg-type]
+            store_id=STORE_ID,
+            order_id=ORDER_ID,
+            kinds=order_email_job.PAID_KINDS,
+        )
+    with pytest.raises(DBAPIError):
+        await order_email_job.pending_jobs(
+            session,  # type: ignore[arg-type]
+            store_id=STORE_ID,
+            order_id=ORDER_ID,
+            kinds=order_email_job.PAID_KINDS,
+        )
+
+
+async def test_publish_jobs_reraises_an_unexpected_crash() -> None:
+    class Crashing:
+        async def enqueue(self, job: OrderEmailJob) -> None:
+            raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError):
+        await publish_jobs(Crashing(), [CONFIRM])
 
 
 async def test_publish_jobs_tries_every_job_then_raises() -> None:

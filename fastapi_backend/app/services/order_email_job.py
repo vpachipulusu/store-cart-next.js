@@ -139,13 +139,14 @@ class OrderEmailJob:
 def clean_customer_email(value: object) -> str | None:
     """The shopper's address from Stripe, trimmed, or None when it cannot be stored.
 
-    Mirrors ``ck_orders_customer_email`` (3 to 254 characters, an ``@`` after the first) and
-    refuses whitespace and control characters, so the write can never fail its CHECK.
+    Mirrors ``ck_orders_customer_email`` (3 to 254 characters, the first ``@`` after the
+    first character) and refuses whitespace and control characters, so the write can never
+    fail its CHECK.
     """
     if not isinstance(value, str):
         return None
     email = value.strip()
-    if not 3 <= len(email) <= MAX_CUSTOMER_EMAIL_LENGTH or "@" not in email[1:]:
+    if not 3 <= len(email) <= MAX_CUSTOMER_EMAIL_LENGTH or email.find("@") < 1:
         return None
     if any(ch.isspace() or not ch.isprintable() for ch in email):
         return None
@@ -204,11 +205,20 @@ class OrderEmailEnqueuer(Protocol):
 
 
 class DisabledOrderEmailEnqueuer:
-    """QStash is not configured: nothing is published and the row stays ``pending``."""
+    """QStash is not configured: nothing is published and the row stays ``pending``.
+
+    Never raises, so a payment webhook is still acknowledged; outside local and test the
+    log line is an error, since no order email can go out.
+    """
+
+    def __init__(self, *, relaxed: bool = True) -> None:
+        self._level = logging.WARNING if relaxed else logging.ERROR
 
     async def enqueue(self, job: OrderEmailJob) -> None:
-        logger.warning(
-            "qstash not configured: order email not enqueued", extra=job.log_extra()
+        logger.log(
+            self._level,
+            "qstash not configured: order email not enqueued",
+            extra=job.log_extra(),
         )
 
 
@@ -276,20 +286,22 @@ def get_order_email_enqueuer(settings: Settings) -> OrderEmailEnqueuer:
             settings.QSTASH_URL,
             settings.PROVISIONING_BASE_URL,
         )
-    return DisabledOrderEmailEnqueuer()
+    return DisabledOrderEmailEnqueuer(relaxed=settings.relaxed_environment)
 
 
 async def publish_jobs(
     enqueuer: OrderEmailEnqueuer, jobs: Sequence[OrderEmailJob]
 ) -> None:
-    """Publish every job; EnqueueFailed afterwards when any one was not accepted."""
-    failed = False
-    for job in jobs:
-        try:
-            await enqueuer.enqueue(job)
-        except EnqueueFailed:
-            failed = True
-    if failed:
+    """Publish every job at once (the webhook waits one timeout, not one per job); then
+    EnqueueFailed when any one was not accepted."""
+    results = await asyncio.gather(
+        *(enqueuer.enqueue(job) for job in jobs), return_exceptions=True
+    )
+    errors = [result for result in results if isinstance(result, BaseException)]
+    for error in errors:
+        if not isinstance(error, EnqueueFailed):
+            raise error
+    if errors:
         raise EnqueueFailed
 
 
@@ -310,6 +322,14 @@ async def publish_quietly(
             report_exception(OrderEmailFailed(f"{job.kind.value}: {reason}"))
 
 
+# SQLSTATEs of a store database that has not reached revision 0012 yet.
+_MISSING_SCHEMA = frozenset({"42P01", "42703"})  # undefined_table, undefined_column
+
+
+def _schema_missing(exc: DBAPIError) -> bool:
+    return getattr(exc.orig, "sqlstate", None) in _MISSING_SCHEMA
+
+
 # --- the store transaction --------------------------------------------------------------
 
 
@@ -325,6 +345,8 @@ async def record_order_emails(
 
     Runs inside the caller's transaction, which it never commits. A store database without
     the 0012 tables rolls back only the savepoint: the order change around it still commits.
+    Any other database error is raised, so the caller rolls back and is retried (Stripe
+    redelivers; a merchant fulfils again) rather than losing the emails.
     """
     try:
         async with session.begin_nested():
@@ -333,6 +355,8 @@ async def record_order_emails(
                 await repository.set_customer_email(order_id, customer_email)
             added = await repository.insert(order_id, [kind.value for kind in kinds])
     except DBAPIError as exc:
+        if not _schema_missing(exc):
+            raise  # a real failure: the caller's transaction must not commit without it
         logger.warning(
             "order email skipped: %s",
             type(exc).__name__,
@@ -356,6 +380,8 @@ async def pending_jobs(
                 order_id, [kind.value for kind in kinds]
             )
     except DBAPIError as exc:
+        if not _schema_missing(exc):
+            raise  # a real failure: the caller's transaction must not commit without it
         logger.warning(
             "order email skipped: %s",
             type(exc).__name__,
