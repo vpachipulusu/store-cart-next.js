@@ -26,6 +26,7 @@ from app.core.stripe_checkout import StripeCheckout
 from app.models.platform.membership import MembershipRole
 from app.repositories.app_settings import AppSettingsRepository
 from app.repositories.merchant import MerchantAccess, MerchantRepository
+from app.repositories.store_analytics import StoreAnalyticsRepository
 from app.repositories.store_cart import StoreCartRepository
 from app.repositories.store_catalogue import StoreCatalogueRepository
 from app.repositories.store_orders import StoreOrdersRepository
@@ -35,6 +36,7 @@ from app.services.merchant import ALL_ROLES
 from app.services.merchant_orders import StoreOrdersService
 from app.services.plan_limits import plan_for
 from app.services.public_settings import PublicSettingsService
+from app.services.store_analytics import StoreAnalyticsService
 from app.services.store_cart import StoreCartService
 from app.services.store_cart_limits import (
     CartCreationGuard,
@@ -123,6 +125,36 @@ def store_orders_service(
         try:
             async with open_store_session(store_id, provider) as session:
                 yield StoreOrdersService(StoreOrdersRepository(session), session)
+        except StoreSessionError as error:
+            reason = type(error).__name__
+            logger.error(
+                "store database unavailable: %s",
+                reason,
+                extra={"store_id": store_id, "reason": reason},
+            )
+            raise HTTPException(503, STORE_UNAVAILABLE) from None
+
+    return dependency
+
+
+def store_analytics_service(
+    roles: frozenset[MembershipRole],
+) -> Callable[..., AsyncIterator[StoreAnalyticsService]]:
+    """Dependency factory: read-only sales analytics on the caller's store database (KAN-96).
+
+    Same trust chain as the orders service; ``roles`` has no default because the figures are
+    revenue data and the route must choose who may see them.
+    """
+    merchant_dependency = require_merchant(roles)
+
+    async def dependency(
+        merchant: Annotated[MerchantAccess, Depends(merchant_dependency)],
+        provider: Annotated[SessionProvider, Depends(get_session_provider)],
+    ) -> AsyncIterator[StoreAnalyticsService]:
+        store_id = merchant.store.id
+        try:
+            async with open_store_session(store_id, provider) as session:
+                yield StoreAnalyticsService(StoreAnalyticsRepository(session))
         except StoreSessionError as error:
             reason = type(error).__name__
             logger.error(
