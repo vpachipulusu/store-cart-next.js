@@ -145,6 +145,12 @@ async def open_admin_connection(
         raise ValueError("unusable admin connection string") from None
     try:
         async with engine.begin() as connection:
+            # First, before anything else runs: a store role can create objects in
+            # public, so with the default search_path a look-alike function or operator
+            # there could run as the provisioning role (CVE-2018-1058 pattern).
+            await connection.exec_driver_sql(
+                "SET LOCAL search_path = pg_catalog, pg_temp"
+            )
             # Ownership changes take ACCESS EXCLUSIVE locks: never queue behind a long
             # transaction on a live store (and block its traffic) for more than this.
             await connection.exec_driver_sql(

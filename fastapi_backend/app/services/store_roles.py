@@ -32,26 +32,44 @@ STORE_ROLE_PATTERN = re.compile(r"^store_[a-z0-9]{8,40}$")
 # 32 random bytes: about 256 bits, far above Neon's 60 bit minimum.
 PASSWORD_BYTES = 32
 _PASSWORD_PATTERN = re.compile(r"^[A-Za-z0-9_-]{40,}$")
+# Every function below is schema-qualified, as defence in depth behind the search_path
+# that open_admin_connection pins: a store role may create look-alikes in public.
 _SYSTEM_SCHEMAS = "n.nspname <> 'information_schema' AND n.nspname NOT LIKE 'pg\\_%'"
 # Objects that belong to an extension keep their owner (ALTER EXTENSION has no OWNER).
 _NOT_EXTENSION_MEMBER = (
-    "NOT EXISTS (SELECT 1 FROM pg_depend e WHERE e.classid = {catalog}::regclass "
+    "NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend e "
+    "WHERE e.classid = {catalog}::pg_catalog.regclass "
     "AND e.objid = {oid} AND e.deptype = 'e')"
 )
-_ME = "(SELECT oid FROM pg_roles WHERE rolname = current_user)"
+_ME = "(SELECT oid FROM pg_catalog.pg_roles WHERE rolname = current_user)"
 # The advisory lock store_migrations takes per database: role setup and migrations of
 # one store never interleave (a migration in between could leave tables on the old owner).
 STORE_MIGRATION_LOCK_KEY = 5_735_701
+_LOCK = "SELECT pg_catalog.pg_advisory_xact_lock(CAST(:key AS bigint))"
+_CURRENT_DATABASE = "SELECT pg_catalog.current_database()"
+_ROLE_EXISTS = "SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = :role"
+# No privileged attribute, a member of no role, and no role but the provisioning role a
+# member of it: a re-run must not bless a role someone widened in the meantime.
 _ROLE_IS_PLAIN = (
     "SELECT NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication "
-    "OR rolbypassrls) AND NOT EXISTS (SELECT 1 FROM pg_auth_members m "
-    "WHERE m.member = r.oid) FROM pg_roles r WHERE rolname = :role"
+    "OR rolbypassrls) "
+    "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m WHERE m.member = r.oid) "
+    "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m "
+    f"WHERE m.roleid = r.oid AND m.member <> {_ME}) "
+    "FROM pg_catalog.pg_roles r WHERE rolname = :role"
 )
+# One call per privilege: with a list, has_*_privilege is true when ANY is held. A NULL
+# datacl means the defaults, where PUBLIC has CONNECT and TEMPORARY.
 _ROLE_HAS_ACCESS = (
-    "SELECT has_database_privilege(CAST(:role AS text), current_database(), "
-    "'CONNECT, TEMPORARY') AND has_schema_privilege(CAST(:role AS text), 'public', "
-    "'USAGE, CREATE') AND NOT EXISTS (SELECT 1 FROM pg_database d, "
-    "aclexplode(d.datacl) a WHERE d.datname = current_database() AND a.grantee = 0 "
+    "SELECT pg_catalog.has_database_privilege(CAST(:role AS text), "
+    "pg_catalog.current_database(), 'CONNECT') "
+    "AND pg_catalog.has_database_privilege(CAST(:role AS text), "
+    "pg_catalog.current_database(), 'TEMPORARY') "
+    "AND pg_catalog.has_schema_privilege(CAST(:role AS text), 'public', 'USAGE') "
+    "AND pg_catalog.has_schema_privilege(CAST(:role AS text), 'public', 'CREATE') "
+    "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_database d, pg_catalog.aclexplode("
+    "COALESCE(d.datacl, pg_catalog.acldefault('d', d.datdba))) a "
+    "WHERE d.datname = pg_catalog.current_database() AND a.grantee = 0 "
     "AND a.privilege_type IN ('CONNECT', 'TEMPORARY'))"
 )
 
@@ -59,40 +77,55 @@ _ROLE_HAS_ACCESS = (
 # Postgres. Each yields "ALTER ... OWNER TO <store role>" for an object the provisioning
 # role owns in the current database. Tables carry their indexes, and sequences owned by
 # a column move with their table (moving them alone is an error).
+_ROLE = "CAST(:role AS text)"
 _OWNERSHIP_QUERIES = (
-    "SELECT format('ALTER SCHEMA %I OWNER TO %I', n.nspname, CAST(:role AS text)) "
-    f"FROM pg_namespace n WHERE n.nspowner = {_ME} AND {_SYSTEM_SCHEMAS} AND "
-    + _NOT_EXTENSION_MEMBER.format(catalog="'pg_namespace'", oid="n.oid"),
-    "SELECT format('ALTER %s %I.%I OWNER TO %I', CASE c.relkind "
+    f"SELECT pg_catalog.format('ALTER SCHEMA %I OWNER TO %I', n.nspname, {_ROLE}) "
+    f"FROM pg_catalog.pg_namespace n WHERE n.nspowner = {_ME} AND {_SYSTEM_SCHEMAS} "
+    "AND " + _NOT_EXTENSION_MEMBER.format(catalog="'pg_namespace'", oid="n.oid"),
+    "SELECT pg_catalog.format('ALTER %s %I.%I OWNER TO %I', CASE c.relkind "
     "WHEN 'v' THEN 'VIEW' WHEN 'm' THEN 'MATERIALIZED VIEW' WHEN 'S' THEN 'SEQUENCE' "
-    "WHEN 'f' THEN 'FOREIGN TABLE' ELSE 'TABLE' END, n.nspname, c.relname, CAST(:role AS text)) "
-    "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+    f"WHEN 'f' THEN 'FOREIGN TABLE' ELSE 'TABLE' END, n.nspname, c.relname, {_ROLE}) "
+    "FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n "
+    "ON n.oid = c.relnamespace "
     f"WHERE c.relowner = {_ME} AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f') "
     f"AND {_SYSTEM_SCHEMAS} AND NOT (c.relkind = 'S' AND EXISTS ("
-    "SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass "
-    "AND d.objid = c.oid AND d.refclassid = 'pg_class'::regclass "
+    "SELECT 1 FROM pg_catalog.pg_depend d "
+    "WHERE d.classid = 'pg_catalog.pg_class'::pg_catalog.regclass "
+    "AND d.objid = c.oid AND d.refclassid = 'pg_catalog.pg_class'::pg_catalog.regclass "
     "AND d.deptype IN ('a', 'i'))) AND "
     + _NOT_EXTENSION_MEMBER.format(catalog="'pg_class'", oid="c.oid"),
-    "SELECT format('ALTER %s %I.%I(%s) OWNER TO %I', CASE p.prokind "
+    # A zero-argument aggregate is written name(*); name() is invalid for aggregates.
+    "SELECT pg_catalog.format('ALTER %s %I.%I(%s) OWNER TO %I', CASE p.prokind "
     "WHEN 'a' THEN 'AGGREGATE' ELSE 'ROUTINE' END, n.nspname, p.proname, "
-    "pg_get_function_identity_arguments(p.oid), CAST(:role AS text)) "
-    "FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+    "CASE WHEN p.prokind = 'a' AND pg_catalog.pg_get_function_identity_arguments(p.oid) "
+    "= '' THEN '*' ELSE pg_catalog.pg_get_function_identity_arguments(p.oid) END, "
+    f"{_ROLE}) "
+    "FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n "
+    "ON n.oid = p.pronamespace "
     f"WHERE p.proowner = {_ME} AND {_SYSTEM_SCHEMAS} AND "
     + _NOT_EXTENSION_MEMBER.format(catalog="'pg_proc'", oid="p.oid"),
-    "SELECT format('ALTER %s %I.%I OWNER TO %I', CASE t.typtype "
-    "WHEN 'd' THEN 'DOMAIN' ELSE 'TYPE' END, n.nspname, t.typname, CAST(:role AS text)) "
-    "FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace "
+    "SELECT pg_catalog.format('ALTER %s %I.%I OWNER TO %I', CASE t.typtype "
+    f"WHEN 'd' THEN 'DOMAIN' ELSE 'TYPE' END, n.nspname, t.typname, {_ROLE}) "
+    "FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n "
+    "ON n.oid = t.typnamespace "
     f"WHERE t.typowner = {_ME} AND {_SYSTEM_SCHEMAS} AND (t.typtype IN ('e', 'd', 'r') "
-    "OR (t.typtype = 'c' AND (SELECT relkind FROM pg_class WHERE oid = t.typrelid) = 'c')) "
+    "OR (t.typtype = 'c' AND (SELECT relkind FROM pg_catalog.pg_class "
+    "WHERE oid = t.typrelid) = 'c')) "
     "AND " + _NOT_EXTENSION_MEMBER.format(catalog="'pg_type'", oid="t.oid"),
 )
 # Anything the provisioning role still owns in this database after the moves above.
-# Extensions are left out: they cannot change owner and keep working as they are.
+# Left out: extensions and their members (they cannot change owner and keep working)
+# and default privileges (pg_default_acl entries own nothing a store uses).
 _LEFTOVER_OWNED = (
-    "SELECT count(*) FROM pg_shdepend "
-    f"WHERE refobjid = {_ME} AND deptype = 'o' "
-    "AND classid <> 'pg_extension'::regclass "
-    "AND dbid = (SELECT oid FROM pg_database WHERE datname = current_database())"
+    "SELECT pg_catalog.count(*) FROM pg_catalog.pg_shdepend s "
+    f"WHERE s.refobjid = {_ME} AND s.deptype = 'o' "
+    "AND s.refclassid = 'pg_catalog.pg_authid'::pg_catalog.regclass "
+    "AND s.classid <> 'pg_catalog.pg_extension'::pg_catalog.regclass "
+    "AND s.classid <> 'pg_catalog.pg_default_acl'::pg_catalog.regclass "
+    "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend e WHERE e.classid = s.classid "
+    "AND e.objid = s.objid AND e.deptype = 'e') "
+    "AND s.dbid = (SELECT oid FROM pg_catalog.pg_database "
+    "WHERE datname = pg_catalog.current_database())"
 )
 
 
@@ -144,13 +177,11 @@ def with_role(connection_string: str, role: str, password: str) -> str:
 
 async def _enter_store_database(connection: AsyncConnection, name: str) -> None:
     """Refuse any other database, then wait for the store's migration lock."""
-    current = await connection.scalar(text("SELECT current_database()"))
+    current = await connection.scalar(text(_CURRENT_DATABASE))
     if current != name:
         raise UnsafeRoleInput("not connected to the store database")
     # Transaction scoped (re-entrant); bounded by the admin connection's lock_timeout.
-    await connection.scalar(
-        text("SELECT pg_advisory_xact_lock(:key)"), {"key": STORE_MIGRATION_LOCK_KEY}
-    )
+    await connection.scalar(text(_LOCK), {"key": STORE_MIGRATION_LOCK_KEY})
 
 
 async def _check(connection: AsyncConnection, query: str, name: str, what: str) -> None:
@@ -181,16 +212,19 @@ async def apply_store_role(
     quoted = _identifier(name)
     literal = _password_literal(password)
     await _enter_store_database(connection, name)
-    exists = await connection.scalar(
-        text("SELECT 1 FROM pg_roles WHERE rolname = :role"), {"role": name}
-    )
+    exists = await connection.scalar(text(_ROLE_EXISTS), {"role": name})
     verb = "ALTER" if exists else "CREATE"
-    # Only LOGIN and PASSWORD are set: a CREATEROLE non-superuser may not even name
-    # SUPERUSER or REPLICATION in ALTER ROLE, and CREATE ROLE defaults to none of them.
+    # SUPERUSER, REPLICATION and the like are not named: a CREATEROLE non-superuser may
+    # not even name them in ALTER ROLE, CREATE ROLE defaults to none of them, and the
+    # check below refuses a role that has any. The rest is reset on every run.
     await connection.exec_driver_sql(
-        f"{verb} ROLE {quoted} WITH LOGIN PASSWORD {literal}"
+        f"{verb} ROLE {quoted} WITH LOGIN CONNECTION LIMIT -1 "
+        f"VALID UNTIL 'infinity' PASSWORD {literal}"
     )
-    # A re-run must not bless a role someone widened in the meantime.
+    await connection.exec_driver_sql(f"ALTER ROLE {quoted} RESET ALL")
+    await connection.exec_driver_sql(
+        f"ALTER ROLE {quoted} IN DATABASE {quoted} RESET ALL"
+    )
     await _check(
         connection, _ROLE_IS_PLAIN, name, "store role is not a plain login role"
     )
@@ -209,10 +243,16 @@ async def apply_store_role(
         f"GRANT USAGE, CREATE ON SCHEMA public TO {quoted}"
     )
     moved = await move_owned_objects(connection, name)
-    # A GRANT that cannot apply (for example on a public schema owned by someone else)
-    # only warns; fail here rather than at the store's next migration.
-    await _check(connection, _ROLE_HAS_ACCESS, name, "store role access not in place")
+    # A GRANT or REVOKE that cannot apply (for example when someone else owns the
+    # database or public) only warns; fail here rather than at the next migration.
+    await verify_store_access(connection, name)
     return moved
+
+
+async def verify_store_access(connection: AsyncConnection, name: str) -> None:
+    """Raise StoreRoleCheckFailed unless the role has all its access and PUBLIC none."""
+    _identifier(name)
+    await _check(connection, _ROLE_HAS_ACCESS, name, "store role access not in place")
 
 
 async def move_owned_objects(connection: AsyncConnection, name: str) -> int:
@@ -251,9 +291,7 @@ async def release_store_database(connection: AsyncConnection, name: str) -> None
     safe: that role owns nothing outside this database.
     """
     quoted = _identifier(name)
-    exists = await connection.scalar(
-        text("SELECT 1 FROM pg_roles WHERE rolname = :role"), {"role": name}
-    )
+    exists = await connection.scalar(text(_ROLE_EXISTS), {"role": name})
     if not exists:
         return
     await connection.exec_driver_sql(f"REASSIGN OWNED BY {quoted} TO CURRENT_USER")

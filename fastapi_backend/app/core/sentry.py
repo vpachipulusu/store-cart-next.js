@@ -41,6 +41,16 @@ def _redact_keys(value: Any) -> Any:
     return value
 
 
+# A role password in DDL text, e.g. from a driver error echoing CREATE ROLE (KAN-238).
+_PASSWORD_LITERAL = re.compile(r"(PASSWORD\s*)'(?:[^']|'')*'", re.IGNORECASE)
+
+
+def _redact_password_literals(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    return _PASSWORD_LITERAL.sub(rf"\1'{FILTERED}'", value)
+
+
 def _strip_query(url: Any) -> Any:
     if not isinstance(url, str):
         return url
@@ -62,6 +72,16 @@ def scrub_event(event: Any, _hint: Any = None) -> Any:
     for section in ("contexts", "extra"):
         if section in event:
             event[section] = _redact_keys(event[section])
+    for value in (event.get("exception") or {}).get("values") or []:
+        if isinstance(value, dict) and "value" in value:
+            value["value"] = _redact_password_literals(value["value"])
+    logentry = event.get("logentry")
+    if isinstance(logentry, dict):
+        for key in ("message", "formatted"):
+            if key in logentry:
+                logentry[key] = _redact_password_literals(logentry[key])
+    if "message" in event:
+        event["message"] = _redact_password_literals(event["message"])
     request_id = request_id_var.get()
     if request_id:
         event.setdefault("tags", {}).setdefault(REQUEST_ID_TAG, request_id)

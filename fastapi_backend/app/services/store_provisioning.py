@@ -127,6 +127,9 @@ class DatabaseProvisioner(Protocol):
     async def delete_database(self, store_id: str) -> None:
         """Drop the store's database and role; a no-op when they do not exist."""
 
+    async def admin_connection_string(self, store_id: str) -> str:
+        """The provisioning role's direct string for the store database (a secret)."""
+
 
 class LocalDatabaseProvisioner:
     """Creates databases on the Postgres behind the platform engine (Docker, local)."""
@@ -161,6 +164,9 @@ class LocalDatabaseProvisioner:
             return await self._exists(name)
         except _LOCAL_ERRORS:
             raise ProvisioningFailed(store_id) from None
+
+    async def admin_connection_string(self, store_id: str) -> str:
+        return self._server_url(database_name_for(store_id))
 
     async def _ensure_database(self, store_id: str, name: str) -> None:
         try:
@@ -346,6 +352,11 @@ class NeonDatabaseProvisioner:
         )
         pooled_uri = await self._connection_uri(store_id, name)
         return with_role(pooled_uri, name, password)
+
+    async def admin_connection_string(self, store_id: str) -> str:
+        return await self._connection_uri(
+            store_id, database_name_for(store_id), pooled=False
+        )
 
     async def _run_admin(
         self,

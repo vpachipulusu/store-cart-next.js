@@ -178,6 +178,22 @@ def test_breadcrumbs_drop_log_messages_and_scrub_data() -> None:
     assert crumb["data"] == {"url": "http://x/y", "auth": FILTERED}
 
 
+def test_password_literals_are_redacted_from_exception_and_log_text() -> None:
+    statement = "ALTER ROLE \"store_x\" WITH LOGIN password 'n0t-Shown_value'"
+    event = {
+        "exception": {"values": [{"type": "ProgrammingError", "value": statement}]},
+        "logentry": {"message": statement, "formatted": statement},
+        "message": statement,
+    }
+
+    scrubbed = scrub_event(event)
+
+    shown = str(scrubbed)
+    assert "n0t-Shown_value" not in shown
+    assert "password '[Filtered]'" in scrubbed["exception"]["values"][0]["value"]
+    assert scrubbed["exception"]["values"][0]["type"] == "ProgrammingError"
+
+
 def test_sql_breadcrumbs_are_dropped() -> None:
     crumb = {
         "category": "query",

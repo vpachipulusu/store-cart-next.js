@@ -98,7 +98,10 @@ def fake_admin_connection(engine: "FakeEngine") -> AdminConnection:
     return cast(AdminConnection, admin_connection)
 
 
-_ROLE = re.compile(r'^(CREATE|ALTER) ROLE "([^"]+)" WITH LOGIN PASSWORD \'([^\']+)\'$')
+_ROLE = re.compile(
+    r'^(CREATE|ALTER) ROLE "([^"]+)" WITH LOGIN CONNECTION LIMIT -1 '
+    r"VALID UNTIL 'infinity' PASSWORD '([^']+)'$"
+)
 
 
 class FakeResult:
@@ -141,7 +144,7 @@ class FakeConnection:
             self._engine.fail_if("create")
             self._engine.databases.add(name)
             return None
-        if sql.startswith("SELECT format("):
+        if sql.startswith("SELECT pg_catalog.format("):
             return []  # the ownership queries: the fake owns nothing to move
         if sql.startswith("DROP DATABASE IF EXISTS "):
             self._engine.fail_if("drop")
@@ -153,16 +156,18 @@ class FakeConnection:
     async def scalar(self, statement: Any, params: dict[str, Any] | None = None) -> Any:
         sql = str(statement)
         self._engine.statements.append(sql)
-        if sql.startswith("SELECT 1 FROM pg_roles"):
+        if sql.startswith("SELECT 1 FROM pg_catalog.pg_roles"):
             assert params is not None
             return 1 if params["role"] in self._engine.roles else None
-        if sql == "SELECT current_database()":
+        if sql == "SELECT pg_catalog.current_database()":
             return self._engine.current_database
-        if sql.startswith("SELECT pg_advisory_xact_lock"):
+        if sql.startswith("SELECT pg_catalog.pg_advisory_xact_lock"):
             return None
-        if sql.startswith(("SELECT NOT (rolsuper", "SELECT has_database_privilege")):
+        if sql.startswith(
+            ("SELECT NOT (rolsuper", "SELECT pg_catalog.has_database_privilege")
+        ):
             return self._engine.checks_pass
-        if sql.startswith("SELECT count(*) FROM pg_shdepend"):
+        if sql.startswith("SELECT pg_catalog.count(*) FROM pg_catalog.pg_shdepend"):
             return self._engine.leftover_owned
         raise AssertionError(f"unexpected scalar: {sql}")
 
@@ -182,7 +187,14 @@ class FakeConnection:
         elif sql.startswith("DROP ROLE "):
             engine.roles.pop(sql.removeprefix("DROP ROLE ").strip('"'))
         elif sql.startswith(
-            ("GRANT ", "REVOKE ", "REASSIGN OWNED ", "DROP OWNED ", "SET LOCAL ")
+            (
+                "GRANT ",
+                "REVOKE ",
+                "REASSIGN OWNED ",
+                "DROP OWNED ",
+                "SET LOCAL ",
+                "ALTER ROLE ",
+            )
         ):
             return
         else:

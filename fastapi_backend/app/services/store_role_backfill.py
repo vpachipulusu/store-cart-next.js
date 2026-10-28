@@ -19,19 +19,23 @@ written before KAN-238 still carries it.
   a member of the store role) and a re-run finishes it.
 * After the row flips, ownership is moved once more: a migration that ran on the old
   string between the DDL commit and the flip may have created tables as the shared role.
-* A store already on its own role is skipped, so a re-run is safe. ``dry_run`` checks and
-  lists without changing anything.
+* A store already on its own role is checked again: anything the shared role still owns
+  in its database (a failed or raced post-flip pass) is moved, over the provisioning
+  role's own direct string from the provisioner, and the store counts as moved; with
+  nothing to move it is skipped, so a re-run is safe. ``dry_run`` checks and lists
+  without changing anything.
 * Reports carry store ids and exception class names only, never a connection string.
 """
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
 from sqlalchemy import select
 from sqlalchemy.engine import make_url
 
+from app.core.config import settings
 from app.core.database import (
     DefaultSessionProvider,
     SessionProvider,
@@ -40,7 +44,11 @@ from app.core.database import (
 from app.models.platform.store import Store, StoreStatus
 from app.services import store_secrets
 from app.services.store_migrations import safe_reason
-from app.services.store_provisioning import AdminConnection, database_name_for
+from app.services.store_provisioning import (
+    AdminConnection,
+    database_name_for,
+    get_database_provisioner,
+)
 from app.services.store_roles import (
     apply_store_role,
     move_owned_objects,
@@ -56,6 +64,8 @@ from app.services.store_sessions import (
 logger = logging.getLogger("storecart.store_role_backfill")
 
 _POOLER_SUFFIX = "-pooler"
+# The provisioning role's direct string for a store database, by store id (a secret).
+AdminUrlFor = Callable[[str], Awaitable[str]]
 # Like migrate_stores: the stores that serve traffic or are about to.
 DEFAULT_STATUSES = (StoreStatus.ACTIVE, StoreStatus.PROVISIONING)
 
@@ -98,12 +108,17 @@ def direct_endpoint(connection_string: str) -> str:
     return url.set(host=direct).render_as_string(hide_password=False)
 
 
+async def provisioner_admin_url(store_id: str) -> str:
+    return await get_database_provisioner(settings).admin_connection_string(store_id)
+
+
 async def backfill_store_role(
     store_id: str,
     provider: SessionProvider,
     admin_connection: AdminConnection = open_admin_connection,
     *,
     dry_run: bool = False,
+    admin_url_for: AdminUrlFor = provisioner_admin_url,
 ) -> Outcome:
     """Move one store onto its own role (or, with ``dry_run``, say whether it would)."""
     name = database_name_for(store_id)
@@ -120,7 +135,12 @@ async def backfill_store_role(
             return Outcome.SKIPPED
         url = make_url(current)
         if url.username == name:
-            return Outcome.SKIPPED
+            if dry_run:
+                return Outcome.SKIPPED
+            # Repair a post-flip pass that failed or raced, still under the row lock.
+            async with admin_connection(await admin_url_for(store_id)) as connection:
+                late = await move_owned_objects(connection, name)
+            return Outcome.MOVED if late else Outcome.SKIPPED
         if url.database != name:
             raise StoreDatabaseUnavailable(store_id)
         if dry_run:
@@ -165,6 +185,7 @@ async def backfill_store_roles(
     dry_run: bool = False,
     continue_on_error: bool = False,
     admin_connection: AdminConnection = open_admin_connection,
+    admin_url_for: AdminUrlFor = provisioner_admin_url,
 ) -> BackfillReport:
     """``store_ids``, or every store in ``statuses`` with a connection string.
 
@@ -179,7 +200,11 @@ async def backfill_store_roles(
     for index, store_id in enumerate(store_ids):
         try:
             outcome = await backfill_store_role(
-                store_id, provider, admin_connection, dry_run=dry_run
+                store_id,
+                provider,
+                admin_connection,
+                dry_run=dry_run,
+                admin_url_for=admin_url_for,
             )
         except Exception as exc:  # noqa: BLE001 - reported per store, never raised
             reason = safe_reason(exc)

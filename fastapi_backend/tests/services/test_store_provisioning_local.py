@@ -37,8 +37,10 @@ async def test_create_runs_quoted_create_database_then_the_store_role_sql() -> N
     uri = await engine.local_provisioner().create_database(STORE_ID)
 
     assert f'CREATE DATABASE "{NAME}"' in engine.statements
-    assert ddl(engine)[-5:] == [
+    assert ddl(engine)[-7:] == [
         f"CREATE ROLE {NAME} PASSWORD <redacted>",
+        f'ALTER ROLE "{NAME}" RESET ALL',
+        f'ALTER ROLE "{NAME}" IN DATABASE "{NAME}" RESET ALL',
         f'GRANT "{NAME}" TO CURRENT_USER WITH INHERIT TRUE, SET TRUE',
         f'REVOKE CONNECT, TEMPORARY ON DATABASE "{NAME}" FROM PUBLIC',
         f'GRANT CONNECT, TEMPORARY ON DATABASE "{NAME}" TO "{NAME}"',

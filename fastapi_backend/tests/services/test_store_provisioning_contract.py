@@ -69,3 +69,13 @@ async def test_invalid_store_id_is_rejected_everywhere(
 ) -> None:
     with pytest.raises(InvalidStoreId):
         await getattr(provisioner, operation)("x'; --injected")
+
+
+async def test_admin_connection_string_targets_the_store_database(
+    provisioner: DatabaseProvisioner,
+) -> None:
+    uri = make_url(await provisioner.admin_connection_string(STORE_ID))
+
+    assert uri.database == f"store_{STORE_ID}"
+    assert uri.username != f"store_{STORE_ID}"  # the provisioning role, not the store's
+    assert "pooler" not in (uri.host or "")

@@ -16,18 +16,22 @@ await provisioner.delete_database(store_id)            # drops database and role
 ## One role per store (KAN-238)
 
 The database and its login role are both named `store_<store id>`. `app.services.store_roles.apply_store_role` runs, as
-the provisioning role, connected to the store database, in one transaction (`lock_timeout` 10 s) that first takes the
-store's migration advisory lock (the key `store_migrations` uses):
+the provisioning role, connected to the store database, in one transaction that first pins
+`search_path = pg_catalog, pg_temp` (so nothing a store role planted in `public` can run as the provisioning role;
+the SQL is also schema-qualified), sets `lock_timeout` 10 s and takes the store's migration advisory lock (the key
+`store_migrations` uses):
 
 ```sql
-CREATE ROLE "store_<id>" WITH LOGIN PASSWORD '<generated>';   -- ALTER ROLE ... on a re-run
--- check: no privileged attribute, member of no role
+CREATE ROLE "store_<id>" WITH LOGIN CONNECTION LIMIT -1 VALID UNTIL 'infinity' PASSWORD '<generated>';  -- ALTER on a re-run
+ALTER ROLE "store_<id>" RESET ALL;  ALTER ROLE "store_<id>" IN DATABASE "store_<id>" RESET ALL;
+-- check: no privileged attribute, member of no role, no member but the provisioning role
 GRANT "store_<id>" TO CURRENT_USER WITH INHERIT TRUE, SET TRUE;  -- Postgres 16+
 REVOKE CONNECT, TEMPORARY ON DATABASE "store_<id>" FROM PUBLIC;
 GRANT CONNECT, TEMPORARY ON DATABASE "store_<id>" TO "store_<id>";
 GRANT USAGE, CREATE ON SCHEMA public TO "store_<id>";
 -- then ALTER ... OWNER TO "store_<id>" for anything the provisioning role owns here (nothing in a new database)
--- check: nothing left owned by the provisioning role; the role has its access; PUBLIC has no CONNECT
+-- check: nothing left owned by the provisioning role; the role has CONNECT, TEMPORARY, USAGE and CREATE (each
+-- checked alone); PUBLIC has no CONNECT or TEMPORARY (a NULL ACL counts as the defaults)
 ```
 
 A failed check raises (`StoreRoleCheckFailed`, `OwnershipNotMoved`), the transaction rolls back and the provisioner
@@ -86,10 +90,14 @@ Per store, under the store row lock and in one transaction on the store database
 whose `move_owned_objects` step gives the role every schema, table (with its indexes and owned sequences), view,
 materialized view, sequence, function and type the shared role owns there, including `store_alembic_version`, and rolls
 back if `pg_shdepend` still lists anything owned by the shared role in that database (extensions excepted; other kinds,
-such as default privileges or collations, fail that store and leave it untouched). Then the new string is encrypted onto
-the row, and ownership is moved once more, in case a migration on the old string ran between the DDL commit and the row
-flip. It never runs `REASSIGN OWNED BY` the shared role (that would move every database the role owns). Stores already
-on their own role and stores with no database are skipped, so a re-run is safe.
+extension members and default privileges excepted). Large objects, collations, operators, statistics objects,
+publications, text search configurations and event triggers are not moved: they fail that store and leave it untouched,
+and need `ALTER ... OWNER TO "store_<id>"` by hand (as the provisioning role) before a re-run. Then the new string is
+encrypted onto the row, and ownership is moved once more, in case a migration on the old string ran between the DDL
+commit and the row flip. It never runs `REASSIGN OWNED BY` the shared role (that would move every database the role
+owns). A store already on its own role is checked again: anything the shared role still owns there is moved, over the
+provisioning role's own direct string (from the configured provisioner); otherwise it is skipped, as are stores with no
+database, so a re-run is safe.
 
 The few current test stores may instead be archived and recreated: new stores get their role at provisioning. Step 4
 still applies.
