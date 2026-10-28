@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pytest
 
+from app.services.order_email_job import FAILED_PATH as EMAIL_FAILED_PATH
+from app.services.order_email_job import SEND_PATH as EMAIL_SEND_PATH
 from app.services.store_cart_purge import PURGE_PATH
 from app.services.store_provisioning_job import FAILED_PATH, STEP_PATH
 
@@ -51,6 +53,49 @@ def test_the_cart_purge_callback_reaches_the_backend() -> None:
     assert _destination_service("/internal/carts-x") == "nextjs-frontend"
 
 
+@pytest.mark.parametrize("path", [EMAIL_SEND_PATH, EMAIL_FAILED_PATH])
+def test_the_order_email_callbacks_reach_the_backend(path: str) -> None:
+    assert _destination_service(path) == BACKEND_SERVICE
+    assert _destination_service("/internal/order-emails") == "nextjs-frontend"
+
+
+async def test_the_order_email_rewrite_exposes_only_its_two_signed_routes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from httpx import ASGITransport, AsyncClient
+    from pydantic import SecretStr
+
+    from app.api.deps import get_session_provider
+    from app.api.v1.internal_order_emails import router
+    from app.core.config import settings
+    from app.main import create_app
+    from tests.fakes import FakeSession, FakeSessionProvider
+
+    monkeypatch.setattr(settings, "PROVISIONING_BASE_URL", "https://api.example.test")
+    monkeypatch.setattr(
+        settings, "QSTASH_CURRENT_SIGNING_KEY", SecretStr("routing-test-signing-key")
+    )
+    assert {route.path for route in router.routes} == {  # type: ignore[attr-defined]
+        EMAIL_SEND_PATH,
+        EMAIL_FAILED_PATH,
+    }
+    app = create_app()
+    app.dependency_overrides[get_session_provider] = lambda: FakeSessionProvider(
+        FakeSession()
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="https://api.example.test",
+    ) as http:
+        unsigned = [
+            await http.post(path, content=b"{}")
+            for path in (EMAIL_SEND_PATH, EMAIL_FAILED_PATH)
+        ]
+
+    assert [response.status_code for response in unsigned] == [401, 401]
+
+
 def test_everything_else_still_reaches_the_frontend() -> None:
     assert _destination_service("/dashboard") == "nextjs-frontend"
     assert _destination_service("/internal-notes") == "nextjs-frontend"
@@ -82,6 +127,7 @@ def test_only_the_intended_public_paths_reach_the_backend() -> None:
     assert [r["source"] for r in backend_rules] == [
         "/internal/provisioning/(.*)",
         "/internal/carts/(.*)",
+        "/internal/order-emails/(.*)",
         STRIPE_WEBHOOK_PATH,
         CONNECT_WEBHOOK_PATH,
     ]

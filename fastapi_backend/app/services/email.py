@@ -5,7 +5,9 @@ sender. Without ``RESEND_API_KEY`` and ``EMAIL_FROM`` the sender is ``DisabledEm
 which logs that email is disabled and raises ``EmailDisabled``, so callers never report an
 unsent message as sent. Neither sender ever logs a recipient, a subject or
 a body: bodies carry single-use links. Failures raise ``EmailDeliveryFailed`` with no
-provider text.
+provider text; ``EmailRejected`` when the provider refused the request in a way a retry
+cannot fix (KAN-81). A message may carry an ``idempotency_key`` (Resend's
+``Idempotency-Key`` header), so a retried send is delivered once.
 """
 
 import logging
@@ -19,6 +21,10 @@ logger = logging.getLogger("storecart.email")
 RESEND_API_URL = "https://api.resend.com/emails"
 # Connect fast or give up; callers also bound the whole send (invitations: 5 s).
 REQUEST_TIMEOUT = httpx.Timeout(5.0, connect=2.0)
+# 4xx answers that a later retry may still turn into a success: a key or sender domain the
+# operator fixes (401, 403), a timeout, an idempotency conflict while the first request runs,
+# a rate limit. Every other 4xx (422: the message itself) is final.
+RETRYABLE_CLIENT_ERRORS = frozenset({401, 403, 408, 409, 429})
 
 
 @dataclass(frozen=True)
@@ -29,6 +35,7 @@ class EmailMessage:
     html: str
     # Short, non-sensitive label for logs (for example "invitation").
     kind: str
+    idempotency_key: str | None = None
 
 
 class EmailDeliveryFailed(Exception):
@@ -37,6 +44,10 @@ class EmailDeliveryFailed(Exception):
 
 class EmailDisabled(EmailDeliveryFailed):
     """Email is not configured, so nothing was sent (callers report "not sent")."""
+
+
+class EmailRejected(EmailDeliveryFailed):
+    """The provider refused the message for good (a 4xx a retry cannot fix)."""
 
 
 class EmailSender(Protocol):
@@ -65,12 +76,15 @@ class ResendEmailSender:
         self._client = client
 
     async def _post(self, client: httpx.AsyncClient, message: EmailMessage) -> int:
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Accept": "application/json",
+        }
+        if message.idempotency_key:
+            headers["Idempotency-Key"] = message.idempotency_key
         response = await client.post(
             RESEND_API_URL,
-            headers={
-                "Authorization": f"Bearer {self._api_key}",
-                "Accept": "application/json",
-            },
+            headers=headers,
             json={
                 "from": self._from,
                 "to": [message.to],
@@ -96,4 +110,6 @@ class ResendEmailSender:
             raise EmailDeliveryFailed from None
         if not 200 <= status < 300:
             logger.warning("email rejected: kind=%s status=%s", message.kind, status)
+            if 400 <= status < 500 and status not in RETRYABLE_CLIENT_ERRORS:
+                raise EmailRejected
             raise EmailDeliveryFailed

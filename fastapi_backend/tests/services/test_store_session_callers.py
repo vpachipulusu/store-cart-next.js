@@ -21,6 +21,7 @@ ALLOWED = {
     "api/v1/orders.py": "tests/api/test_checkout_hardening_e2e.py: cancel route, sibling and foreign store 404 (KAN-256)",
     "api/v1/order_refunds.py": "tests/api/test_order_refunds_e2e.py: refund route, foreign store and foreign order 404 (KAN-80)",
     "api/v1/webhooks_connect.py": "tests/api/test_checkout_hardening_e2e.py: expired event only touches the routed store (KAN-256)",
+    "api/v1/internal_order_emails.py": "tests/api/test_order_emails_e2e.py: a signed job naming another store reads and settles only that store's rows (KAN-81)",
 }
 
 

@@ -73,6 +73,18 @@ from app.repositories.checkout import CheckoutRepository
 from app.repositories.connect_events import ConnectRoute
 from app.repositories.org_connect import ConnectRecord
 from app.repositories.store_cart import StoreCartRepository
+from app.services.order_email_job import (
+    PAID_KINDS,
+    PUBLISH_TIMEOUT_SECONDS,
+    EnqueueFailed,
+    OrderEmailEnqueuer,
+    publish_jobs,
+)
+from app.services.order_email_record import (
+    clean_customer_email,
+    pending_jobs,
+    record_order_emails,
+)
 from app.services.org_billing import InvalidReturnUrl, validate_return_url
 from app.services.public_settings import PublicSettingsService
 from app.services.store_cart import CartView, hash_token, valid_token
@@ -762,6 +774,7 @@ class _PaidSession:
     payment_intent_id: str | None
     amount_minor: int
     currency: str
+    customer_email: str | None = None
 
 
 def _paid_session(obj: Mapping[str, Any]) -> _PaidSession | None:
@@ -790,26 +803,31 @@ def _paid_session(obj: Mapping[str, Any]) -> _PaidSession | None:
         and PAYMENT_INTENT_PATTERN.fullmatch(payment_intent)
         else None
     )
-    return _PaidSession(session_id, order_id, intent, amount, currency.upper())
+    details = obj.get("customer_details")
+    email = clean_customer_email(
+        details.get("email") if isinstance(details, Mapping) else None
+    )
+    return _PaidSession(session_id, order_id, intent, amount, currency.upper(), email)
 
 
-async def confirm_checkout_payment(
+@dataclass(frozen=True)
+class _AppliedPayment:
+    outcome: PaymentOutcome | None = None  # None: nothing to do (not paid, or unusable)
+    paid: _PaidSession | None = None
+
+
+async def _apply_payment(
     session: AsyncSession, obj: Mapping[str, Any]
-) -> PaymentOutcome | None:
-    """Mark the session's order paid, at most once. Does not commit.
-
-    None when there is nothing to do yet (not paid, for example a delayed payment method) or
-    the object is unusable. A session that does not match a pending order is logged as an
-    error and changes nothing: a paid session for a cancelled order needs a manual refund.
-    """
+) -> _AppliedPayment:
+    """``confirm_checkout_payment`` that also hands back the parsed session."""
     if obj.get("payment_status") != PAID_STATUS:
         logger.info("checkout session not paid yet")
-        return None
+        return _AppliedPayment()
     paid = _paid_session(obj)
     if paid is None:
         logger.error("paid checkout session without usable fields")
         report_exception(UnappliedCheckoutPayment("unusable"))
-        return None
+        return _AppliedPayment()
     outcome = await mark_checkout_paid(
         session,
         order_id=paid.order_id,
@@ -831,26 +849,74 @@ async def confirm_checkout_payment(
             outcome.value,
             extra={"order_id": paid.order_id},
         )
-    return outcome
+    return _AppliedPayment(outcome, paid)
+
+
+async def confirm_checkout_payment(
+    session: AsyncSession, obj: Mapping[str, Any]
+) -> PaymentOutcome | None:
+    """Mark the session's order paid, at most once. Does not commit.
+
+    None when there is nothing to do yet (not paid, for example a delayed payment method) or
+    the object is unusable. A session that does not match a pending order is logged as an
+    error and changes nothing: a paid session for a cancelled order needs a manual refund.
+    """
+    return (await _apply_payment(session, obj)).outcome
 
 
 def checkout_payment_handler(
     open_store: Callable[[str], AbstractAsyncContextManager[AsyncSession]],
+    emails: OrderEmailEnqueuer,
 ) -> StoreEventHandler:
     """The Connect webhook handler for ``PAYMENT_EVENT_TYPES``.
 
     Runs inside the platform claim's transaction and commits only the store session it opens:
     the write is idempotent (``mark_checkout_paid``), so Stripe's retry after a failed claim
     changes nothing.
+
+    Order emails (KAN-81): the payment that moves the order to ``paid`` also writes the
+    shopper's address and the confirmation and new-order alert rows, in the same store
+    transaction. After the commit, every one of those rows still ``pending`` is published to
+    QStash, on this delivery and on any redelivery that finds the order already paid.
+    Publishing happens inside the platform claim on purpose: a failure rolls the claim back and
+    Stripe redelivers. The whole publish is bounded by ``PUBLISH_TIMEOUT_SECONDS`` (httpx's own
+    timeout applies per phase), so the claim is never held longer than that.
     """
 
     async def handle(route: ConnectRoute, obj: Mapping[str, Any]) -> None:
-        if route.store_id is None:  # routing always sets one for store-scoped events
+        store_id = route.store_id
+        if store_id is None:  # routing always sets one for store-scoped events
             logger.error("checkout payment event routed without a store")
             report_exception(UnappliedCheckoutPayment("no store"))
             return
-        async with open_store(route.store_id) as session:
-            await confirm_checkout_payment(session, obj)
+        async with open_store(store_id) as session:
+            applied = await _apply_payment(session, obj)
+            outcome, paid = applied.outcome, applied.paid
+            if paid is None or outcome not in (
+                PaymentOutcome.PAID,
+                PaymentOutcome.ALREADY_PAID,
+            ):
+                await session.commit()
+                return
+            if outcome is PaymentOutcome.PAID:
+                await record_order_emails(
+                    session,
+                    store_id=store_id,
+                    order_id=paid.order_id,
+                    kinds=PAID_KINDS,
+                    customer_email=paid.customer_email,
+                )
             await session.commit()
+            jobs = await pending_jobs(
+                session, store_id=store_id, order_id=paid.order_id, kinds=PAID_KINDS
+            )
+        try:
+            async with asyncio.timeout(PUBLISH_TIMEOUT_SECONDS):
+                await publish_jobs(emails, jobs)
+        except TimeoutError:
+            logger.error(
+                "order email publish timed out", extra={"order_id": paid.order_id}
+            )
+            raise EnqueueFailed from None
 
     return handle

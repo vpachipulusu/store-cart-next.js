@@ -21,6 +21,10 @@ from app.services.media_uploads import (
     Boto3UploadSigner,
     MediaUploadService,
 )
+from app.services.order_email_job import (
+    OrderEmailEnqueuer,
+    build_order_email_enqueuer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -128,3 +132,11 @@ def get_email_sender() -> EmailSender:
                 )
             _email_sender = DisabledEmailSender()
     return _email_sender
+
+
+def get_order_email_enqueuer() -> OrderEmailEnqueuer:
+    """QStash publisher for order emails (KAN-81); disabled (logs only) without QStash.
+
+    Tests override this dependency with a recording fake.
+    """
+    return build_order_email_enqueuer(settings)

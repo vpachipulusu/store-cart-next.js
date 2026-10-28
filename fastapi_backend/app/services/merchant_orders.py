@@ -5,6 +5,10 @@ factory, the only door to a store database). Reads list and show orders; ``fulfi
 one write: it moves a ``paid`` order to ``fulfilled`` with a tracking number and commits once
 (or rolls back and raises). An unknown id and an id of another store are the same
 ``OrderNotFound`` because the session only sees this store's tables.
+
+With ``emails`` (KAN-81) the same transaction adds the shipped notice to the outbox, and it is
+published to QStash after the commit. A publish failure is logged and reported, never a failed
+fulfilment (the row stays ``pending``).
 """
 
 from dataclasses import dataclass
@@ -18,6 +22,13 @@ from app.repositories.store_orders import (
     RefundRow,
     StoreOrdersRepository,
 )
+from app.services.order_email_job import (
+    OrderEmailEnqueuer,
+    OrderEmailJob,
+    publish_quietly,
+)
+from app.services.order_email_record import record_order_emails
+from app.services.order_email_templates import OrderEmailKind
 from app.services.store_orders import OrderNotFound, OrderStatus, fulfil_order
 
 DEFAULT_PAGE_SIZE = 25
@@ -40,12 +51,24 @@ class OrderDetail:
     refunds: tuple[RefundRow, ...] = ()
 
 
+@dataclass(frozen=True)
+class StoreOrderEmails:
+    """Where the shipped notice of this store's orders is published."""
+
+    store_id: str
+    enqueuer: OrderEmailEnqueuer
+
+
 class StoreOrdersService:
     def __init__(
-        self, repository: StoreOrdersRepository, session: AsyncSession
+        self,
+        repository: StoreOrdersRepository,
+        session: AsyncSession,
+        emails: StoreOrderEmails | None = None,
     ) -> None:
         self._repository = repository
         self._session = session
+        self._emails = emails
 
     async def list_orders(
         self,
@@ -75,10 +98,30 @@ class StoreOrdersService:
     async def fulfil(
         self, order_id: str, tracking_number: str, carrier: str | None
     ) -> OrderDetail:
+        emails = self._emails
         try:
             await fulfil_order(self._session, order_id, tracking_number, carrier)
+            added = (
+                await record_order_emails(
+                    self._session,
+                    store_id=emails.store_id,
+                    order_id=order_id,
+                    kinds=(OrderEmailKind.ORDER_SHIPPED,),
+                )
+                if emails is not None
+                else []
+            )
             await self._session.commit()
         except Exception:
             await self._session.rollback()
             raise
+        if emails is not None and added:
+            await publish_quietly(
+                emails.enqueuer,
+                [
+                    OrderEmailJob(
+                        emails.store_id, order_id, OrderEmailKind.ORDER_SHIPPED
+                    )
+                ],
+            )
         return await self.get(order_id)

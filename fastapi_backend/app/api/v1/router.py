@@ -12,6 +12,7 @@ from app.api.v1 import (
     checkout,
     health,
     internal_cart_purge,
+    internal_order_emails,
     internal_provisioning,
     invitations,
     me,
@@ -47,6 +48,7 @@ api_router.include_router(webhooks.router)
 api_router.include_router(webhooks_connect.router)
 api_router.include_router(internal_provisioning.router)
 api_router.include_router(internal_cart_purge.router)
+api_router.include_router(internal_order_emails.router)
 api_router.include_router(admin_users.router)
 api_router.include_router(admin_audit_logs.router)
 api_router.include_router(admin_stores.router)
