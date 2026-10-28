@@ -392,6 +392,11 @@ export type BillingResponse = {
 };
 
 /**
+ * Bucket
+ */
+export type Bucket = 'day' | 'week' | 'month';
+
+/**
  * CancelData
  */
 export type CancelData = {
@@ -819,6 +824,33 @@ export type CreatedInvitationResponse = {
      */
     success?: true;
     data: CreatedInvitationData;
+};
+
+/**
+ * CurrencyAnalyticsData
+ */
+export type CurrencyAnalyticsData = {
+    /**
+     * Currency
+     *
+     * ISO 4217 code; amounts are never converted
+     */
+    currency: string;
+    totals: SalesTotalsData;
+    /**
+     * Series
+     *
+     * One entry per bucket in the range, oldest first, zeros included
+     */
+    series: Array<SalesPointData>;
+    /**
+     * Top Products By Revenue
+     */
+    top_products_by_revenue: Array<TopProductData>;
+    /**
+     * Top Products By Units
+     */
+    top_products_by_units: Array<TopProductData>;
 };
 
 /**
@@ -2997,6 +3029,72 @@ export type RevokedResponse = {
 };
 
 /**
+ * SalesPointData
+ */
+export type SalesPointData = {
+    /**
+     * Orders
+     *
+     * Orders counted as sales
+     */
+    orders: number;
+    /**
+     * Gross Sales Minor
+     *
+     * Sum of order totals, in minor units of the currency
+     */
+    gross_sales_minor: number;
+    /**
+     * Refunds Minor
+     *
+     * Succeeded refunds of those orders, in minor units
+     */
+    refunds_minor: number;
+    /**
+     * Net Sales Minor
+     *
+     * Gross sales minus refunds
+     */
+    net_sales_minor: number;
+    /**
+     * Bucket Start
+     *
+     * First UTC day of the bucket (a Monday for weeks, the 1st for months)
+     */
+    bucket_start: string;
+};
+
+/**
+ * SalesTotalsData
+ */
+export type SalesTotalsData = {
+    /**
+     * Orders
+     *
+     * Orders counted as sales
+     */
+    orders: number;
+    /**
+     * Gross Sales Minor
+     *
+     * Sum of order totals, in minor units of the currency
+     */
+    gross_sales_minor: number;
+    /**
+     * Refunds Minor
+     *
+     * Succeeded refunds of those orders, in minor units
+     */
+    refunds_minor: number;
+    /**
+     * Net Sales Minor
+     *
+     * Gross sales minus refunds
+     */
+    net_sales_minor: number;
+};
+
+/**
  * SessionData
  */
 export type SessionData = {
@@ -3094,6 +3192,38 @@ export type SignInRequest = {
      * Totp Code
      */
     totp_code?: null;
+};
+
+/**
+ * StoreAnalyticsData
+ */
+export type StoreAnalyticsData = {
+    /**
+     * Start Date
+     *
+     * First UTC day of the range
+     */
+    start_date: string;
+    /**
+     * End Date
+     *
+     * Last UTC day of the range (inclusive)
+     */
+    end_date: string;
+    bucket: Bucket;
+    /**
+     * Currencies
+     *
+     * One entry per currency with sales in the range; empty without sales
+     */
+    currencies: Array<CurrencyAnalyticsData>;
+};
+
+/**
+ * StoreAnalyticsResponse
+ */
+export type StoreAnalyticsResponse = {
+    data: StoreAnalyticsData;
 };
 
 /**
@@ -3708,6 +3838,28 @@ export type TierPricesData = {
      * Yearly
      */
     yearly: number | null;
+};
+
+/**
+ * TopProductData
+ */
+export type TopProductData = {
+    /**
+     * Product Name
+     *
+     * The product name saved on the order lines
+     */
+    product_name: string;
+    /**
+     * Units
+     */
+    units: number;
+    /**
+     * Revenue Minor
+     *
+     * Unit price times quantity, before refunds
+     */
+    revenue_minor: number;
 };
 
 /**
@@ -10476,6 +10628,87 @@ export type RefundOrderResponses = {
 };
 
 export type RefundOrderResponse = RefundOrderResponses[keyof RefundOrderResponses];
+
+export type ReadStoreAnalyticsData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Internal-Key
+         */
+        'X-Internal-Key'?: string | null;
+        /**
+         * X-Session-Token
+         */
+        'X-Session-Token'?: string | null;
+    };
+    path: {
+        /**
+         * Store Id
+         */
+        store_id: string;
+    };
+    query?: {
+        /**
+         * From
+         *
+         * First UTC day (YYYY-MM-DD); defaults to 29 days before `to`
+         */
+        from?: string | null;
+        /**
+         * To
+         *
+         * Last UTC day, inclusive (YYYY-MM-DD); defaults to today
+         */
+        to?: string | null;
+        /**
+         * Series granularity
+         */
+        bucket?: Bucket;
+    };
+    url: '/v1/stores/{store_id}/analytics';
+};
+
+export type ReadStoreAnalyticsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ErrorResponse;
+    /**
+     * Invalid request
+     */
+    422: ErrorResponse;
+    /**
+     * Rate limit exceeded
+     */
+    429: ErrorResponse;
+    /**
+     * Internal server error
+     */
+    500: ErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorResponse;
+};
+
+export type ReadStoreAnalyticsError = ReadStoreAnalyticsErrors[keyof ReadStoreAnalyticsErrors];
+
+export type ReadStoreAnalyticsResponses = {
+    /**
+     * Successful Response
+     */
+    200: StoreAnalyticsResponse;
+};
+
+export type ReadStoreAnalyticsResponse = ReadStoreAnalyticsResponses[keyof ReadStoreAnalyticsResponses];
 
 export type ListCategoriesData = {
     body?: never;

@@ -26,6 +26,7 @@ from app.api.v1 import (
     product_import,
     products,
     settings,
+    store_analytics,
     store_retry,
     store_settings,
     storefront,
@@ -65,6 +66,7 @@ api_router.include_router(product_import.router)
 api_router.include_router(products.router)
 api_router.include_router(orders.router)
 api_router.include_router(order_refunds.router)
+api_router.include_router(store_analytics.router)
 api_router.include_router(categories.router)
 api_router.include_router(storefront.router)
 api_router.include_router(storefront_catalogue.router)

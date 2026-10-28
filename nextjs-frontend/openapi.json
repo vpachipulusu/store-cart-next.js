@@ -14202,6 +14202,190 @@
         }
       }
     },
+    "/v1/stores/{store_id}/analytics": {
+      "get": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "Sales, orders and top products over time",
+        "description": "Paid, fulfilled and refunded orders of the store, per currency, net of refunds.\n\nThe range is at most 366 days and ``from`` must not be after ``to`` (422 otherwise).",
+        "operationId": "read_store_analytics",
+        "parameters": [
+          {
+            "name": "store_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Store Id"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "First UTC day (YYYY-MM-DD); defaults to 29 days before `to`",
+              "title": "From"
+            },
+            "description": "First UTC day (YYYY-MM-DD); defaults to 29 days before `to`"
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Last UTC day, inclusive (YYYY-MM-DD); defaults to today",
+              "title": "To"
+            },
+            "description": "Last UTC day, inclusive (YYYY-MM-DD); defaults to today"
+          },
+          {
+            "name": "bucket",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Bucket",
+              "description": "Series granularity",
+              "default": "day"
+            },
+            "description": "Series granularity"
+          },
+          {
+            "name": "X-Internal-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Key"
+            }
+          },
+          {
+            "name": "X-Session-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoreAnalyticsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        }
+      }
+    },
     "/v1/stores/{store_id}/categories": {
       "get": {
         "tags": [
@@ -16766,6 +16950,15 @@
         ],
         "title": "BillingResponse"
       },
+      "Bucket": {
+        "type": "string",
+        "enum": [
+          "day",
+          "week",
+          "month"
+        ],
+        "title": "Bucket"
+      },
       "CancelData": {
         "properties": {
           "organization_id": {
@@ -17426,6 +17619,51 @@
           "data"
         ],
         "title": "CreatedInvitationResponse"
+      },
+      "CurrencyAnalyticsData": {
+        "properties": {
+          "currency": {
+            "type": "string",
+            "title": "Currency",
+            "description": "ISO 4217 code; amounts are never converted"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/SalesTotalsData"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/SalesPointData"
+            },
+            "type": "array",
+            "title": "Series",
+            "description": "One entry per bucket in the range, oldest first, zeros included"
+          },
+          "top_products_by_revenue": {
+            "items": {
+              "$ref": "#/components/schemas/TopProductData"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "title": "Top Products By Revenue"
+          },
+          "top_products_by_units": {
+            "items": {
+              "$ref": "#/components/schemas/TopProductData"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "title": "Top Products By Units"
+          }
+        },
+        "type": "object",
+        "required": [
+          "currency",
+          "totals",
+          "series",
+          "top_products_by_revenue",
+          "top_products_by_units"
+        ],
+        "title": "CurrencyAnalyticsData"
       },
       "CurrencyData": {
         "properties": {
@@ -21075,6 +21313,77 @@
         "type": "object",
         "title": "RevokedResponse"
       },
+      "SalesPointData": {
+        "properties": {
+          "orders": {
+            "type": "integer",
+            "title": "Orders",
+            "description": "Orders counted as sales"
+          },
+          "gross_sales_minor": {
+            "type": "integer",
+            "title": "Gross Sales Minor",
+            "description": "Sum of order totals, in minor units of the currency"
+          },
+          "refunds_minor": {
+            "type": "integer",
+            "title": "Refunds Minor",
+            "description": "Succeeded refunds of those orders, in minor units"
+          },
+          "net_sales_minor": {
+            "type": "integer",
+            "title": "Net Sales Minor",
+            "description": "Gross sales minus refunds"
+          },
+          "bucket_start": {
+            "type": "string",
+            "format": "date",
+            "title": "Bucket Start",
+            "description": "First UTC day of the bucket (a Monday for weeks, the 1st for months)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "orders",
+          "gross_sales_minor",
+          "refunds_minor",
+          "net_sales_minor",
+          "bucket_start"
+        ],
+        "title": "SalesPointData"
+      },
+      "SalesTotalsData": {
+        "properties": {
+          "orders": {
+            "type": "integer",
+            "title": "Orders",
+            "description": "Orders counted as sales"
+          },
+          "gross_sales_minor": {
+            "type": "integer",
+            "title": "Gross Sales Minor",
+            "description": "Sum of order totals, in minor units of the currency"
+          },
+          "refunds_minor": {
+            "type": "integer",
+            "title": "Refunds Minor",
+            "description": "Succeeded refunds of those orders, in minor units"
+          },
+          "net_sales_minor": {
+            "type": "integer",
+            "title": "Net Sales Minor",
+            "description": "Gross sales minus refunds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "orders",
+          "gross_sales_minor",
+          "refunds_minor",
+          "net_sales_minor"
+        ],
+        "title": "SalesTotalsData"
+      },
       "SessionData": {
         "properties": {
           "session_cookie": {
@@ -21236,6 +21545,53 @@
           "id_token"
         ],
         "title": "SignInRequest"
+      },
+      "StoreAnalyticsData": {
+        "properties": {
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Start Date",
+            "description": "First UTC day of the range"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "title": "End Date",
+            "description": "Last UTC day of the range (inclusive)"
+          },
+          "bucket": {
+            "$ref": "#/components/schemas/Bucket"
+          },
+          "currencies": {
+            "items": {
+              "$ref": "#/components/schemas/CurrencyAnalyticsData"
+            },
+            "type": "array",
+            "title": "Currencies",
+            "description": "One entry per currency with sales in the range; empty without sales"
+          }
+        },
+        "type": "object",
+        "required": [
+          "start_date",
+          "end_date",
+          "bucket",
+          "currencies"
+        ],
+        "title": "StoreAnalyticsData"
+      },
+      "StoreAnalyticsResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/StoreAnalyticsData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "StoreAnalyticsResponse"
       },
       "StoreData": {
         "properties": {
@@ -22184,6 +22540,31 @@
         ],
         "title": "TierPricesData",
         "description": "Minor units (cents) of the Stripe price; null when unconfigured or unreadable.\n\nCarries no currency: pair it with ``GET /v1/settings/currency``."
+      },
+      "TopProductData": {
+        "properties": {
+          "product_name": {
+            "type": "string",
+            "title": "Product Name",
+            "description": "The product name saved on the order lines"
+          },
+          "units": {
+            "type": "integer",
+            "title": "Units"
+          },
+          "revenue_minor": {
+            "type": "integer",
+            "title": "Revenue Minor",
+            "description": "Unit price times quantity, before refunds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_name",
+          "units",
+          "revenue_minor"
+        ],
+        "title": "TopProductData"
       },
       "TotpChangedResponse": {
         "properties": {
