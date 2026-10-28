@@ -25,8 +25,8 @@
   attempts column, so no migration) and, in one transaction, sets ``PROVISIONING`` and
   audits. Only after that commit is the job enqueued, so a delivery never sees ``FAILED``.
   The orphan database of the failed run is reused, not dropped: every step is idempotent
-  (the provisioner returns the existing database, the stored connection string is never
-  overwritten, migrations are idempotent). If the enqueue fails the store is ``FAILED``
+  (the provisioner returns the existing database and rotates its role's password,
+  the stored connection string is replaced with the new one, migrations are idempotent). If the enqueue fails the store is ``FAILED``
   again (``start_provisioning``) and an ``admin.stores.reprovision_failed`` row (which also sets ``FAILED``) frees
   the attempt's slot in the cap but not its number. Enqueue and compensation are shielded from request cancellation.
 * Failures carry a class name and SQLSTATE only (``safe_reason``), never a driver

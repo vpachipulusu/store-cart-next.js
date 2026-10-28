@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from app.core.database import DefaultSessionProvider
@@ -63,6 +64,9 @@ def downgrade() -> None:
 
 
 DATABASE_PREFIX = "ks57"
+# KAN-238: open_store_session accepts only a store's own database, store_<store id>, so
+# store databases are named store_ks57_<epoch>_<random>_<tag> and the rest is the id.
+STORE_DATABASE_PREFIX = f"store_{DATABASE_PREFIX}"
 
 
 def short_name(tag: str) -> str:
@@ -73,6 +77,7 @@ def short_name(tag: str) -> str:
 async def server() -> AsyncIterator[AsyncEngine]:
     built = create_async_engine(require_local_test_server())
     await sweep_stale_databases(built, DATABASE_PREFIX)
+    await sweep_stale_databases(built, STORE_DATABASE_PREFIX)
     yield built
     await built.dispose()
 
@@ -95,6 +100,14 @@ async def world(
             await drop_databases(server, created.databases)
 
 
+def store_id_from(dsn: str | None) -> str | None:
+    """The store id a ``store_<id>`` database name carries (None for other names)."""
+    database = make_url(dsn).database if dsn else None
+    if database is None or not database.startswith("store_"):
+        return None
+    return database.removeprefix("store_")
+
+
 class World:
     def __init__(
         self,
@@ -112,8 +125,11 @@ class World:
         )
         self._org_id: str | None = None
 
-    async def store_database(self, tag: str) -> str:
-        name = short_name(tag)
+    async def store_database(self, tag: str, store_id: str | None = None) -> str:
+        """A database ``add_store`` will register under the id its name carries."""
+        name = (
+            f"store_{store_id}" if store_id else unique_name(STORE_DATABASE_PREFIX, tag)
+        )
         await create_database(self.server, name)
         self.databases.append(name)
         return name
@@ -133,7 +149,7 @@ class World:
                     ),
                     {"i": self._org_id, "s": f"org-{self._org_id}"},
                 )
-        identifier = store_id or new_id()
+        identifier = store_id or store_id_from(dsn) or new_id()
         async with self.provider.session() as session:
             store = Store(
                 id=identifier,
@@ -255,12 +271,13 @@ async def test_non_active_stores_are_skipped_and_reported(world: "World"):
 async def test_first_failure_stops_the_run_and_leaves_later_stores_untouched(
     world: "World", baseline: Path
 ):
-    good_db = await world.store_database("a")
-    later_db = await world.store_database("c")
     ids = sorted([new_id(), new_id(), new_id()])
+    good_db = await world.store_database("a", store_id=ids[0])
+    later_db = await world.store_database("c", store_id=ids[2])
     await world.add_store(url_for(good_db), store_id=ids[0])
+    # The store's own database name, but the database was never created.
     await world.add_store(
-        url_for("no_such_database_ks57", password="hunter2-secret"), store_id=ids[1]
+        url_for(f"store_{ids[1]}", password="hunter2-secret"), store_id=ids[1]
     )
     await world.add_store(url_for(later_db), store_id=ids[2])
 
@@ -277,8 +294,9 @@ async def test_first_failure_stops_the_run_and_leaves_later_stores_untouched(
 
 
 async def test_failure_output_never_contains_connection_secrets(world: "World"):
+    missing = new_id()
     store_id = await world.add_store(
-        url_for("no_such_database_ks57", password="hunter2-secret")
+        url_for(f"store_{missing}", password="hunter2-secret"), store_id=missing
     )
 
     with pytest.raises(StoreMigrationFailed) as caught:
@@ -287,7 +305,7 @@ async def test_failure_output_never_contains_connection_secrets(world: "World"):
 
     printed = "\n".join(format_report(report)) + str(caught.value)
     assert store_id in printed
-    for secret in ("hunter2-secret", "no_such_database_ks57", "postgresql"):
+    for secret in ("hunter2-secret", "postgresql"):
         assert secret not in printed
 
 

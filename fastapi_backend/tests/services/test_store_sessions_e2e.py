@@ -42,7 +42,8 @@ async def engine() -> AsyncIterator[AsyncEngine]:
 
 @pytest.fixture
 async def store_databases(engine: AsyncEngine) -> AsyncIterator[tuple[str, str]]:
-    names = (f"ks_{new_id()[:8].lower()}_a", f"ks_{new_id()[:8].lower()}_b")
+    # KAN-238: a store may only open store_<its id>; add_store reads the id back.
+    names = (f"store_ks{new_id().lower()}", f"store_ks{new_id().lower()}")
     admin = engine.execution_options(isolation_level="AUTOCOMMIT")
     async with admin.connect() as connection:
         for name in names:
@@ -61,7 +62,9 @@ def url_for(database: str) -> str:
 
 
 async def add_store(engine: AsyncEngine, dsn: str | None, codec: StoreSecretCodec):
-    org_id, store_id = new_id(), new_id()
+    database = make_url(dsn).database if dsn else None
+    org_id = new_id()
+    store_id = database.removeprefix("store_") if database else new_id()
     async with engine.begin() as connection:
         await connection.execute(
             text("INSERT INTO organizations (id, name, slug) VALUES (:i, 'O', :s)"),

@@ -67,10 +67,12 @@ async def test_creates_database_reachable_through_returned_string(
 async def test_create_is_idempotent(
     provisioner: LocalDatabaseProvisioner, store_id: str
 ) -> None:
-    first = await provisioner.create_database(store_id)
-    second = await provisioner.create_database(store_id)
+    first = make_url(await provisioner.create_database(store_id))
+    second = make_url(await provisioner.create_database(store_id))
 
-    assert first == second
+    # KAN-238: same database and role, new password on every call.
+    assert (first.database, first.username) == (second.database, second.username)
+    assert first.password != second.password
     assert await provisioner.database_exists(store_id) is True
 
 
