@@ -164,7 +164,11 @@ class FakeConnection:
         if sql.startswith("SELECT pg_catalog.pg_advisory_xact_lock"):
             return None
         if sql.startswith(
-            ("SELECT NOT (rolsuper", "SELECT pg_catalog.has_database_privilege")
+            (
+                "SELECT NOT (rolsuper",
+                "SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members",
+                "SELECT pg_catalog.has_database_privilege",
+            )
         ):
             return self._engine.checks_pass
         if sql.startswith("SELECT pg_catalog.count(*) FROM pg_catalog.pg_shdepend"):

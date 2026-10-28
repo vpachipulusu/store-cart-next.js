@@ -80,6 +80,9 @@ def scrub_event(event: Any, _hint: Any = None) -> Any:
         for key in ("message", "formatted"):
             if key in logentry:
                 logentry[key] = _redact_password_literals(logentry[key])
+        params = logentry.get("params")
+        if isinstance(params, list):
+            logentry["params"] = [_redact_password_literals(p) for p in params]
     if "message" in event:
         event["message"] = _redact_password_literals(event["message"])
     request_id = request_id_var.get()

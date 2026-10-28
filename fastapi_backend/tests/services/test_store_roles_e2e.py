@@ -9,6 +9,7 @@ Every name carries the ``k238`` prefix, the epoch and a random part: teardown dr
 a test created, and ``sweep`` removes what a killed run left behind (over an hour old).
 """
 
+import logging
 import re
 import secrets
 import time
@@ -712,7 +713,12 @@ async def test_an_object_kind_it_cannot_move_rolls_the_store_back(
         legacy.provider, admin_url_for=legacy.admin_url_for
     )
 
-    assert report.failures == (BackfillFailure(legacy.store_id, "OwnershipNotMoved"),)
+    assert report.failures == (
+        BackfillFailure(
+            legacy.store_id,
+            "OwnershipNotMoved: 1 object(s) still owned by the provisioning role",
+        ),
+    )
     assert await stored_dsn(legacy) == legacy.shared_dsn
     async with cluster.server.connect() as connection:
         role = await connection.scalar(
@@ -993,7 +999,7 @@ async def test_default_privileges_count_as_public_connect(cluster: Cluster) -> N
 
 
 async def test_a_widened_role_is_refused_and_its_settings_are_reset(
-    cluster: Cluster,
+    cluster: Cluster, caplog: pytest.LogCaptureFixture
 ) -> None:
     provisioner = cluster.provisioner()
     store_id = cluster.store_id()
@@ -1041,8 +1047,10 @@ async def test_a_widened_role_is_refused_and_its_settings_are_reset(
         await connection.exec_driver_sql(f"CREATE ROLE {quote(intruder)} LOGIN")
         await connection.exec_driver_sql(f"GRANT {quote(name)} TO {quote(intruder)}")
 
-    with pytest.raises(ProvisioningFailed):
+    with caplog.at_level(logging.ERROR), pytest.raises(ProvisioningFailed):
         await provisioner.create_database(store_id)
+    assert "StoreRoleCheckFailed: store role has an unexpected member" in caplog.text
+    assert intruder not in caplog.text
     async with superuser.connect() as connection:
         await connection.exec_driver_sql(f"REVOKE {quote(name)} FROM {quote(intruder)}")
 

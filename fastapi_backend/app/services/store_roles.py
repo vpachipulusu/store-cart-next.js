@@ -50,13 +50,24 @@ _CURRENT_DATABASE = "SELECT pg_catalog.current_database()"
 _ROLE_EXISTS = "SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = :role"
 # No privileged attribute, a member of no role, and no role but the provisioning role a
 # member of it: a re-run must not bless a role someone widened in the meantime.
-_ROLE_IS_PLAIN = (
+# Each check fails with its own reason (never a role name), so a refused re-run says which.
+_NO_PRIVILEGED_ATTRIBUTE = (
     "SELECT NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication "
-    "OR rolbypassrls) "
-    "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m WHERE m.member = r.oid) "
-    "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m "
-    f"WHERE m.roleid = r.oid AND m.member <> {_ME}) "
-    "FROM pg_catalog.pg_roles r WHERE rolname = :role"
+    "OR rolbypassrls) FROM pg_catalog.pg_roles WHERE rolname = :role"
+)
+_MEMBER_OF_NOTHING = (
+    "SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m "
+    "JOIN pg_catalog.pg_roles r ON r.oid = m.member WHERE r.rolname = :role)"
+)
+_NO_OTHER_MEMBER = (
+    "SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m "
+    "JOIN pg_catalog.pg_roles r ON r.oid = m.roleid WHERE r.rolname = :role "
+    f"AND m.member <> {_ME})"
+)
+_ROLE_IS_PLAIN = (
+    (_NO_PRIVILEGED_ATTRIBUTE, "store role holds a privileged attribute"),
+    (_MEMBER_OF_NOTHING, "store role is a member of another role"),
+    (_NO_OTHER_MEMBER, "store role has an unexpected member"),
 )
 # One call per privilege: with a list, has_*_privilege is true when ANY is held. A NULL
 # datacl means the defaults, where PUBLIC has CONNECT and TEMPORARY.
@@ -149,6 +160,13 @@ class OwnershipNotMoved(StoreRoleError):
         self.count = count
 
 
+def describe_failure(exc: BaseException) -> str:
+    """Class name, plus the reason for a StoreRoleError (fixed text, never a name)."""
+    if isinstance(exc, StoreRoleError):
+        return f"{type(exc).__name__}: {exc}"
+    return type(exc).__name__
+
+
 def new_role_password() -> str:
     return secrets.token_urlsafe(PASSWORD_BYTES)
 
@@ -225,9 +243,8 @@ async def apply_store_role(
     await connection.exec_driver_sql(
         f"ALTER ROLE {quoted} IN DATABASE {quoted} RESET ALL"
     )
-    await _check(
-        connection, _ROLE_IS_PLAIN, name, "store role is not a plain login role"
-    )
+    for query, reason in _ROLE_IS_PLAIN:
+        await _check(connection, query, name, reason)
     # Explicit options, so a NOINHERIT provisioning role still gets both: SET to give the
     # role objects and to drop it, INHERIT to use its database for repairs.
     await connection.exec_driver_sql(

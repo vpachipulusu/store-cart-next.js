@@ -120,7 +120,8 @@ store session with another store's string, from reaching any other store's data.
   PASSWORD '<plaintext>'` is sent (over TLS to Neon). The application never logs it, but Postgres can: a failing
   statement is written to the server log (`log_min_error_statement`), and `pg_stat_statements` may keep utility
   statement text (readable by `neon_superuser` members). Accepted: such a password opens one store database
-  only, and a re-run replaces it.
+  only, and a re-run replaces it. Owners should treat Postgres server logs as sensitive, and raise
+  `log_min_error_statement` (for example to `panic`) where the platform allows it.
 - **Leftover roles.** Neon `delete_database` drops the store role only while the database still exists (it must
   connect to it). A role whose database was already deleted elsewhere stays; it can connect to no store
   database, and its password exists only in that store's encrypted row. Remove it by hand if it matters.

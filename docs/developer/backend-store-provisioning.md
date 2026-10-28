@@ -35,7 +35,10 @@ GRANT USAGE, CREATE ON SCHEMA public TO "store_<id>";
 ```
 
 A failed check raises (`StoreRoleCheckFailed`, `OwnershipNotMoved`), the transaction rolls back and the provisioner
-raises `ProvisioningFailed`.
+raises `ProvisioningFailed`. The log line and the backfill report name the check that failed (privileged attribute,
+member of another role, unexpected member, access, leftover objects), never a role name. If a re-run reports an
+unexpected member, inspect `pg_auth_members` for the store role (who was granted it, and by whom) before revoking
+anything.
 
 - The returned connection string signs in as `store_<id>`; no other store's role (and no `PUBLIC` member) can connect
   to that database. The store role owns every object in it (it creates them when migrating). The provisioning role
@@ -59,7 +62,7 @@ raises `ProvisioningFailed`.
 - Manual tooling in a store database: connect as the provisioning role and `SET ROLE "store_<id>"` first, so anything
   you create belongs to the store role.
 - Known limits (ADR-005): the plaintext password is in the DDL (Neon refuses hashed ones), so a failing statement can
-  reach the Postgres server log; Neon `delete_database` cannot drop a role whose database is already gone.
+  reach the Postgres server log (treat those logs as sensitive; raise `log_min_error_statement` where allowed); Neon `delete_database` cannot drop a role whose database is already gone.
 
 ### Existing stores: `commands.backfill_store_roles` (owner runbook)
 

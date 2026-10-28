@@ -52,8 +52,10 @@ from app.services.store_provisioning import (
     get_database_provisioner,
 )
 from app.services.store_roles import (
+    StoreRoleError,
     apply_store_role,
     count_leftover_owned,
+    describe_failure,
     move_owned_objects,
     new_role_password,
     with_role,
@@ -251,7 +253,11 @@ async def backfill_store_roles(
                 admin_url_for=admin_url_for,
             )
         except Exception as exc:  # noqa: BLE001 - reported per store, never raised
-            reason = safe_reason(exc)
+            reason = (
+                describe_failure(exc)
+                if isinstance(exc, StoreRoleError)
+                else safe_reason(exc)
+            )
             logger.error(
                 "store role backfill failed: %s", reason, extra={"store_id": store_id}
             )

@@ -40,6 +40,7 @@ from app.services.store_roles import (
     STORE_NAME_PREFIX,
     StoreRoleError,
     apply_store_role,
+    describe_failure,
     drop_store_role,
     new_role_password,
     release_store_database,
@@ -195,7 +196,7 @@ class LocalDatabaseProvisioner:
         except _ADMIN_ERRORS as exc:
             logger.error(
                 "local store role setup failed: %s",
-                type(exc).__name__,
+                describe_failure(exc),
                 extra={"store_id": store_id},
             )
             raise ProvisioningFailed(store_id) from None
@@ -370,7 +371,7 @@ class NeonDatabaseProvisioner:
         except _ADMIN_ERRORS as exc:
             logger.error(
                 "neon store role SQL failed: %s",
-                type(exc).__name__,
+                describe_failure(exc),
                 extra={"store_id": store_id},
             )
             raise ProvisioningFailed(store_id) from None
