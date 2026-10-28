@@ -146,13 +146,16 @@ store session with another store's string, from reaching any other store's data.
    row and moves ownership once more (a migration on the old string between the DDL commit and the row flip may
    have created tables as the shared role). The database stays owned by the shared role, as for new stores. It
    never uses `REASSIGN OWNED BY` the shared role, which would also move every other database that role owns.
-   Object kinds it does not move (large objects, collations, operators, statistics objects, publications, text
-   search configurations, event triggers) fail the check and leave that store untouched; the store schema
+   Object kinds it does not move (large objects, collations, conversions, operators, operator classes and
+   families, statistics objects, publications, text search dictionaries and configurations, foreign data wrappers,
+   foreign servers, non-extension procedural languages, event triggers) fail the check and leave that store untouched; the store schema
    creates none of them, and they need moving by hand (`ALTER ... OWNER TO`, as the provisioning role) before a
    re-run. Extension members and default privileges are not counted. A 10 s `lock_timeout` keeps it from
    queueing behind a long store transaction (it fails instead; re-run later). A store already on its role is
    checked again: anything the shared role still owns there (a failed post-flip pass) is moved over the
-   provisioning role's own direct string; otherwise it is skipped, so a re-run is safe.
+   provisioning role's own direct string, fetched from the provisioner before any platform row is locked (so a
+   re-run needs the same `STORE_DB_PROVIDER` and `NEON_*` settings as provisioning; a failing lookup fails only
+   that store); otherwise it is skipped, so a re-run is safe. `--dry-run` reports such a store as `would repair`.
 4. **Required:** reset the `NEON_ROLE_NAME` password (Neon console or API) and update it wherever the backend
    reads it; if the platform `DATABASE_URL` signs in as the same role, update that too. Only then does a copy
    of a pre-KAN-238 string stop opening every store. The command prints this step after a run that moved stores.

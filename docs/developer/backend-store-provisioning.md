@@ -90,14 +90,17 @@ Per store, under the store row lock and in one transaction on the store database
 whose `move_owned_objects` step gives the role every schema, table (with its indexes and owned sequences), view,
 materialized view, sequence, function and type the shared role owns there, including `store_alembic_version`, and rolls
 back if `pg_shdepend` still lists anything owned by the shared role in that database (extensions excepted; other kinds,
-extension members and default privileges excepted). Large objects, collations, operators, statistics objects,
-publications, text search configurations and event triggers are not moved: they fail that store and leave it untouched,
+extension members and default privileges excepted). Large objects, collations, conversions, operators, operator classes
+and families, statistics objects, publications, text search dictionaries and configurations, foreign data wrappers,
+foreign servers, non-extension procedural languages and event triggers are not moved: they fail that store and leave it untouched,
 and need `ALTER ... OWNER TO "store_<id>"` by hand (as the provisioning role) before a re-run. Then the new string is
 encrypted onto the row, and ownership is moved once more, in case a migration on the old string ran between the DDL
 commit and the row flip. It never runs `REASSIGN OWNED BY` the shared role (that would move every database the role
 owns). A store already on its own role is checked again: anything the shared role still owns there is moved, over the
-provisioning role's own direct string (from the configured provisioner); otherwise it is skipped, as are stores with no
-database, so a re-run is safe.
+provisioning role's own direct string, fetched from the configured provisioner before any platform row is locked;
+otherwise it is skipped, as are stores with no database, so a re-run is safe (`--dry-run` lists such a store as
+`would repair`). The command therefore needs the same provisioner settings as provisioning (`STORE_DB_PROVIDER` and,
+for neon, `NEON_*`), besides `DATABASE_URL` and `STORE_DB_ENCRYPTION_KEY`; a failing lookup fails only that store.
 
 The few current test stores may instead be archived and recreated: new stores get their role at provisioning. Step 4
 still applies.

@@ -863,6 +863,13 @@ HIJACKS = (
     raising("pg_advisory_xact_lock(integer)", "void"),
     raising("current_database()", "name"),
     raising("has_schema_privilege(text, text, text)", "boolean"),
+    # Operators resolve through search_path too: oid = integer beats pg_catalog's
+    # oid = oid (it needs a cast), so `a.grantee = 0` would call this.
+    raising("hijacked_eq(oid, integer)", "boolean"),
+    (
+        "CREATE OPERATOR public.= (LEFTARG = oid, RIGHTARG = integer, "
+        "FUNCTION = public.hijacked_eq)"
+    ),
 )
 
 
@@ -1000,6 +1007,9 @@ async def test_a_widened_role_is_refused_and_its_settings_are_reset(
         await connection.exec_driver_sql(
             f"ALTER ROLE {quote(name)} SET statement_timeout = '1ms'"
         )
+        await connection.exec_driver_sql(
+            f"ALTER ROLE {quote(name)} IN DATABASE {quote(name)} SET work_mem = '64kB'"
+        )
 
     dsn = await provisioner.create_database(store_id)
 
@@ -1014,6 +1024,15 @@ async def test_a_widened_role_is_refused_and_its_settings_are_reset(
             )
         ).one()
     assert tuple(limits) == (-1, True, None)
+    async with cluster.server.connect() as connection:
+        per_database = await connection.scalar(
+            text(
+                "SELECT count(*) FROM pg_db_role_setting s "
+                "JOIN pg_roles r ON r.oid = s.setrole WHERE r.rolname = :n"
+            ),
+            {"n": name},
+        )
+    assert per_database == 0
     assert await scalar_as(dsn, "SELECT 1") == 1
 
     intruder = f"{PREFIX}adm_{int(time.time())}_{secrets.token_hex(3)}"
@@ -1026,3 +1045,35 @@ async def test_a_widened_role_is_refused_and_its_settings_are_reset(
         await provisioner.create_database(store_id)
     async with superuser.connect() as connection:
         await connection.exec_driver_sql(f"REVOKE {quote(name)} FROM {quote(intruder)}")
+
+
+async def test_dry_run_reports_a_moved_store_with_objects_left_behind(
+    legacy: Legacy,
+) -> None:
+    await backfill_store_roles(legacy.provider, admin_url_for=legacy.admin_url_for)
+    await plant(legacy.shared_dsn, ("CREATE TABLE stranded (id int)",))
+
+    report = await backfill_store_roles(
+        legacy.provider, admin_url_for=legacy.admin_url_for, dry_run=True
+    )
+
+    assert report.would_repair == (legacy.store_id,)
+    assert await scalar_as(
+        legacy.shared_dsn,
+        "SELECT pg_get_userbyid(relowner)::text FROM pg_class "
+        "WHERE relname = 'stranded'",
+    ) != database_name_for(legacy.store_id)
+
+
+async def test_a_failing_admin_string_lookup_fails_only_that_store(
+    legacy: Legacy,
+) -> None:
+    """The lookup (a Neon API call) runs with no platform row locked; it fails typed."""
+    await backfill_store_roles(legacy.provider, admin_url_for=legacy.admin_url_for)
+
+    async def unreachable(store: str) -> str:
+        raise ProvisioningFailed(store)
+
+    report = await backfill_store_roles(legacy.provider, admin_url_for=unreachable)
+
+    assert report.failures == (BackfillFailure(legacy.store_id, "ProvisioningFailed"),)

@@ -278,6 +278,13 @@ async def move_owned_objects(connection: AsyncConnection, name: str) -> int:
     return len(statements)
 
 
+async def count_leftover_owned(connection: AsyncConnection, name: str) -> int:
+    """How many objects the provisioning role still owns in the store database."""
+    _identifier(name)
+    await _enter_store_database(connection, name)
+    return int(await connection.scalar(text(_LEFTOVER_OWNED)) or 0)
+
+
 async def drop_store_role(connection: AsyncConnection, role: str) -> None:
     """Drop the role once its database is gone (no-op when absent)."""
     await connection.exec_driver_sql(f"DROP ROLE IF EXISTS {_identifier(role)}")

@@ -9,7 +9,8 @@ environment's platform ``DATABASE_URL`` and ``STORE_DB_ENCRYPTION_KEY``, and wit
 every ACTIVE and PROVISIONING store with a database; ``--dry-run`` checks and lists the
 stores that would move without changing anything. It stops at the first failing store
 unless ``--continue-on-error``, and exits 1 when any store failed. Re-running is safe
-(stores already moved are skipped). Output names stores by id and the platform database
+(stores already moved are checked and skipped); checking a moved store needs the same
+provisioner settings as provisioning (``STORE_DB_PROVIDER`` and, for neon, ``NEON_*``). Output names stores by id and the platform database
 by host and name only, never credentials.
 
 Afterwards, reset the shared role's (``NEON_ROLE_NAME``) password: every connection
@@ -50,6 +51,10 @@ def format_report(report: BackfillReport, *, dry_run: bool = False) -> list[str]
         f"store {store_id}: would move (dry run)" for store_id in report.would_move
     ]
     lines += [
+        f"store {store_id}: would repair (dry run): objects still on the shared role"
+        for store_id in report.would_repair
+    ]
+    lines += [
         f"store {store_id}: skipped (already on its own role or not provisioned)"
         for store_id in report.skipped
     ]
@@ -61,6 +66,7 @@ def format_report(report: BackfillReport, *, dry_run: bool = False) -> list[str]
         lines.append("stopped at the first failure; later stores were not changed")
     lines.append(
         f"moved {len(report.moved)}, would move {len(report.would_move)}, "
+        f"would repair {len(report.would_repair)}, "
         f"skipped {len(report.skipped)}, failed {len(report.failures)}"
     )
     if report.moved and not dry_run:
@@ -70,7 +76,9 @@ def format_report(report: BackfillReport, *, dry_run: bool = False) -> list[str]
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Give every store database its own Postgres role."
+        description="Give every store database its own Postgres role.",
+        epilog="Needs the platform DATABASE_URL and STORE_DB_ENCRYPTION_KEY, and the "
+        "provisioner settings (STORE_DB_PROVIDER, NEON_*) of the environment.",
     )
     which = parser.add_mutually_exclusive_group(required=True)
     which.add_argument(

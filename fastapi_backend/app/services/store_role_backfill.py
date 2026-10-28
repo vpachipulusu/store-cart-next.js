@@ -21,9 +21,11 @@ written before KAN-238 still carries it.
   string between the DDL commit and the flip may have created tables as the shared role.
 * A store already on its own role is checked again: anything the shared role still owns
   in its database (a failed or raced post-flip pass) is moved, over the provisioning
-  role's own direct string from the provisioner, and the store counts as moved; with
-  nothing to move it is skipped, so a re-run is safe. ``dry_run`` checks and lists
-  without changing anything.
+  role's own direct string from the provisioner (so a re-run needs the same
+  STORE_DB_PROVIDER and NEON_* settings as provisioning), and the store counts as moved;
+  with nothing to move it is skipped, so a re-run is safe. That string is fetched before
+  any platform row is locked. ``dry_run`` checks and lists without changing anything
+  (``would repair`` for a moved store with objects left behind).
 * Reports carry store ids and exception class names only, never a connection string.
 """
 
@@ -51,6 +53,7 @@ from app.services.store_provisioning import (
 )
 from app.services.store_roles import (
     apply_store_role,
+    count_leftover_owned,
     move_owned_objects,
     new_role_password,
     with_role,
@@ -73,6 +76,7 @@ DEFAULT_STATUSES = (StoreStatus.ACTIVE, StoreStatus.PROVISIONING)
 class Outcome(StrEnum):
     MOVED = "moved"
     WOULD_MOVE = "would move"
+    WOULD_REPAIR = "would repair"
     # Already on its own role, or no database yet.
     SKIPPED = "skipped"
 
@@ -87,6 +91,7 @@ class BackfillFailure:
 class BackfillReport:
     moved: tuple[str, ...] = ()
     would_move: tuple[str, ...] = ()
+    would_repair: tuple[str, ...] = ()
     skipped: tuple[str, ...] = ()
     failures: tuple[BackfillFailure, ...] = ()
     # True when the run stopped at the first failure with stores left untouched.
@@ -122,6 +127,11 @@ async def backfill_store_role(
 ) -> Outcome:
     """Move one store onto its own role (or, with ``dry_run``, say whether it would)."""
     name = database_name_for(store_id)
+    stored = await _stored_connection_string(store_id, provider)
+    if stored is None:
+        return Outcome.SKIPPED
+    if make_url(stored).username == name:
+        return await _repair(store_id, name, admin_connection, admin_url_for, dry_run)
     async with provider.session() as session:
         store = (
             await session.execute(
@@ -135,12 +145,7 @@ async def backfill_store_role(
             return Outcome.SKIPPED
         url = make_url(current)
         if url.username == name:
-            if dry_run:
-                return Outcome.SKIPPED
-            # Repair a post-flip pass that failed or raced, still under the row lock.
-            async with admin_connection(await admin_url_for(store_id)) as connection:
-                late = await move_owned_objects(connection, name)
-            return Outcome.MOVED if late else Outcome.SKIPPED
+            return Outcome.SKIPPED  # moved by a concurrent run since the first read
         if url.database != name:
             raise StoreDatabaseUnavailable(store_id)
         if dry_run:
@@ -158,6 +163,45 @@ async def backfill_store_role(
         extra={"store_id": store_id, "objects": moved + late},
     )
     return Outcome.MOVED
+
+
+async def _stored_connection_string(
+    store_id: str, provider: SessionProvider
+) -> str | None:
+    """The store's current string, read without a lock (to choose the path)."""
+    async with provider.session() as session:
+        store = (
+            await session.execute(select(Store).where(Store.id == store_id))
+        ).scalar_one_or_none()
+        if store is None:
+            raise StoreNotFound(store_id)
+        return store_secrets.reveal_connection_string(store)
+
+
+async def _repair(
+    store_id: str,
+    name: str,
+    admin_connection: AdminConnection,
+    admin_url_for: AdminUrlFor,
+    dry_run: bool,
+) -> Outcome:
+    """A store already on its role: move what the shared role still owns there.
+
+    The provisioning role's string comes from the provisioner (a Neon API call), so it is
+    fetched here, with no platform row locked; the store's own string is not changed.
+    """
+    admin_url = await admin_url_for(store_id)
+    async with admin_connection(admin_url) as connection:
+        if dry_run:
+            left = await count_leftover_owned(connection, name)
+            return Outcome.WOULD_REPAIR if left else Outcome.SKIPPED
+        late = await move_owned_objects(connection, name)
+    if late:
+        logger.info(
+            "objects left on the shared role moved to the store role",
+            extra={"store_id": store_id, "objects": late},
+        )
+    return Outcome.MOVED if late else Outcome.SKIPPED
 
 
 async def select_store_ids(
@@ -220,6 +264,7 @@ async def backfill_store_roles(
     return BackfillReport(
         moved=tuple(found[Outcome.MOVED]),
         would_move=tuple(found[Outcome.WOULD_MOVE]),
+        would_repair=tuple(found[Outcome.WOULD_REPAIR]),
         skipped=tuple(found[Outcome.SKIPPED]),
         failures=tuple(failures),
         stopped=stopped,

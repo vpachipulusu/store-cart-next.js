@@ -21,14 +21,17 @@ def test_report_lists_each_outcome_and_the_rotation_step():
         "store s2: moved to its own role",
     ]
     assert "store s3: skipped (already on its own role or not provisioned)" in lines
-    assert "moved 2, would move 0, skipped 1, failed 0" in lines
+    assert "moved 2, would move 0, would repair 0, skipped 1, failed 0" in lines
     assert lines[-1] == ROTATE_SHARED_ROLE
 
 
 def test_dry_run_lists_stores_that_would_move_and_asks_for_no_rotation():
-    lines = format_report(BackfillReport(would_move=("s1",)), dry_run=True)
+    lines = format_report(
+        BackfillReport(would_move=("s1",), would_repair=("s2",)), dry_run=True
+    )
 
     assert "store s1: would move (dry run)" in lines
+    assert "store s2: would repair (dry run): objects still on the shared role" in lines
     assert ROTATE_SHARED_ROLE not in lines
 
 
@@ -43,7 +46,7 @@ def test_failures_name_only_the_store_and_reason():
 
     assert "FAILED store s2: OwnershipNotMoved" in lines
     assert "stopped at the first failure; later stores were not changed" in lines
-    assert "moved 1, would move 0, skipped 0, failed 1" in lines
+    assert "moved 1, would move 0, would repair 0, skipped 0, failed 1" in lines
 
 
 def test_a_selection_is_required_and_exclusive():
