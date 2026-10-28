@@ -74,7 +74,7 @@ extend-select = ["TID251"]
 source = ["app", "commands"]
 
 [tool.coverage.report]
-fail_under = 93.0
+fail_under = 93.6
 precision = 2
 
 [tool.hatch.build.targets.sdist]
