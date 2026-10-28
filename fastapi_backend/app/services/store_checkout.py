@@ -73,6 +73,14 @@ from app.repositories.checkout import CheckoutRepository
 from app.repositories.connect_events import ConnectRoute
 from app.repositories.org_connect import ConnectRecord
 from app.repositories.store_cart import StoreCartRepository
+from app.services.order_email_job import (
+    PAID_KINDS,
+    OrderEmailEnqueuer,
+    clean_customer_email,
+    pending_jobs,
+    publish_jobs,
+    record_order_emails,
+)
 from app.services.org_billing import InvalidReturnUrl, validate_return_url
 from app.services.public_settings import PublicSettingsService
 from app.services.store_cart import CartView, hash_token, valid_token
@@ -762,6 +770,7 @@ class _PaidSession:
     payment_intent_id: str | None
     amount_minor: int
     currency: str
+    customer_email: str | None = None
 
 
 def _paid_session(obj: Mapping[str, Any]) -> _PaidSession | None:
@@ -790,7 +799,11 @@ def _paid_session(obj: Mapping[str, Any]) -> _PaidSession | None:
         and PAYMENT_INTENT_PATTERN.fullmatch(payment_intent)
         else None
     )
-    return _PaidSession(session_id, order_id, intent, amount, currency.upper())
+    details = obj.get("customer_details")
+    email = clean_customer_email(
+        details.get("email") if isinstance(details, Mapping) else None
+    )
+    return _PaidSession(session_id, order_id, intent, amount, currency.upper(), email)
 
 
 async def confirm_checkout_payment(
@@ -836,21 +849,47 @@ async def confirm_checkout_payment(
 
 def checkout_payment_handler(
     open_store: Callable[[str], AbstractAsyncContextManager[AsyncSession]],
+    emails: OrderEmailEnqueuer,
 ) -> StoreEventHandler:
     """The Connect webhook handler for ``PAYMENT_EVENT_TYPES``.
 
     Runs inside the platform claim's transaction and commits only the store session it opens:
     the write is idempotent (``mark_checkout_paid``), so Stripe's retry after a failed claim
     changes nothing.
+
+    Order emails (KAN-81): the payment that moves the order to ``paid`` also writes the
+    shopper's address and the confirmation and new-order alert rows, in the same store
+    transaction. After the commit, every one of those rows still ``pending`` is published to
+    QStash, on this delivery and on any redelivery that finds the order already paid. A
+    publish failure raises, so the webhook answers 500 and Stripe delivers again.
     """
 
     async def handle(route: ConnectRoute, obj: Mapping[str, Any]) -> None:
-        if route.store_id is None:  # routing always sets one for store-scoped events
+        store_id = route.store_id
+        if store_id is None:  # routing always sets one for store-scoped events
             logger.error("checkout payment event routed without a store")
             report_exception(UnappliedCheckoutPayment("no store"))
             return
-        async with open_store(route.store_id) as session:
-            await confirm_checkout_payment(session, obj)
+        paid = _paid_session(obj)
+        async with open_store(store_id) as session:
+            outcome = await confirm_checkout_payment(session, obj)
+            if outcome is PaymentOutcome.PAID and paid is not None:
+                await record_order_emails(
+                    session,
+                    store_id=store_id,
+                    order_id=paid.order_id,
+                    kinds=PAID_KINDS,
+                    customer_email=paid.customer_email,
+                )
             await session.commit()
+            jobs = (
+                await pending_jobs(
+                    session, store_id=store_id, order_id=paid.order_id, kinds=PAID_KINDS
+                )
+                if paid is not None
+                and outcome in (PaymentOutcome.PAID, PaymentOutcome.ALREADY_PAID)
+                else []
+            )
+        await publish_jobs(emails, jobs)
 
     return handle

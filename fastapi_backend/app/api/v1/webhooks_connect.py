@@ -16,7 +16,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
-from app.api.deps import SessionDep, get_session_provider
+from app.api.deps import SessionDep, get_order_email_enqueuer, get_session_provider
 from app.api.store_db import connect_store_handlers
 from app.core.config import settings
 from app.core.database import SessionProvider
@@ -31,6 +31,7 @@ from app.core.stripe_webhook_body import (
 )
 from app.repositories.connect_events import ConnectEventRepository
 from app.repositories.org_connect import OrgConnectRepository
+from app.services.order_email_job import OrderEmailEnqueuer
 from app.services.store_checkout_expiry import (
     ENDED_EVENT_TYPES,
     checkout_expired_handler,
@@ -52,9 +53,11 @@ class WebhookAck(BaseModel):
     received: bool = True
 
 
-def store_event_handlers(provider: SessionProvider) -> dict[str, StoreEventHandler]:
-    """Payment confirmation (KAN-68), session expiry and failed async payment (KAN-256),
-    and refund results (KAN-80)."""
+def store_event_handlers(
+    provider: SessionProvider, emails: OrderEmailEnqueuer
+) -> dict[str, StoreEventHandler]:
+    """Payment confirmation and its order emails (KAN-68, KAN-81), session expiry and failed
+    async payment (KAN-256), and refund results (KAN-80)."""
     ended = checkout_expired_handler(
         lambda store_id: open_store_session(store_id, provider)
     )
@@ -62,7 +65,7 @@ def store_event_handlers(provider: SessionProvider) -> dict[str, StoreEventHandl
         lambda store_id: open_store_session(store_id, provider)
     )
     return {
-        **connect_store_handlers(provider),
+        **connect_store_handlers(provider, emails),
         **dict.fromkeys(ENDED_EVENT_TYPES, ended),
         **dict.fromkeys(REFUND_EVENT_TYPES, refunds),
     }
@@ -71,6 +74,7 @@ def store_event_handlers(provider: SessionProvider) -> dict[str, StoreEventHandl
 def get_connect_webhook_service(
     session: SessionDep,
     provider: Annotated[SessionProvider, Depends(get_session_provider)],
+    emails: Annotated[OrderEmailEnqueuer, Depends(get_order_email_enqueuer)],
 ) -> ConnectWebhookService:
     return ConnectWebhookService(
         OrgConnectRepository(session),
@@ -78,7 +82,7 @@ def get_connect_webhook_service(
         session,
         get_stripe_connect,
         livemode=stripe_livemode(),
-        store_handlers=store_event_handlers(provider),
+        store_handlers=store_event_handlers(provider, emails),
     )
 
 

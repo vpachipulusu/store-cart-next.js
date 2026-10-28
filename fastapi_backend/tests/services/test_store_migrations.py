@@ -29,7 +29,7 @@ async def pages_of(*pages: list[str]) -> AsyncIterator[list[str]]:
 def test_store_tree_has_a_single_head_and_a_baseline():
     scripts = ScriptDirectory.from_config(_alembic_config(STORE_SCRIPT_LOCATION))
 
-    assert scripts.get_heads() == ["0011"]
+    assert scripts.get_heads() == ["0012"]
     assert scripts.get_revision("0001").down_revision is None
     assert scripts.get_revision("0002").down_revision == "0001"
     assert scripts.get_revision("0003").down_revision == "0002"
@@ -41,6 +41,7 @@ def test_store_tree_has_a_single_head_and_a_baseline():
     assert scripts.get_revision("0009").down_revision == "0008"
     assert scripts.get_revision("0010").down_revision == "0009"
     assert scripts.get_revision("0011").down_revision == "0010"
+    assert scripts.get_revision("0012").down_revision == "0011"
 
 
 async def test_migrate_pages_migrates_every_store_across_pages():

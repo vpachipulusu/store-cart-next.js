@@ -14,6 +14,7 @@ from app.services.email import (
     EmailDeliveryFailed,
     EmailDisabled,
     EmailMessage,
+    EmailRejected,
     ResendEmailSender,
 )
 
@@ -158,3 +159,45 @@ def test_sender_uses_resend_when_configured(monkeypatch, fresh_sender):
 
     assert isinstance(sender, ResendEmailSender)
     assert deps.get_email_sender() is sender
+
+
+async def test_resend_sends_the_idempotency_key_as_a_header():
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"id": "email_1"})
+
+    keyed = EmailMessage(
+        to="a@example.com",
+        subject="s",
+        text="t",
+        html="h",
+        kind="order_confirmation",
+        idempotency_key="order-email-s-o-order_confirmation",
+    )
+    await sender_with(handler).send(keyed)
+    await sender_with(handler).send(MESSAGE)
+
+    assert seen[0].headers["Idempotency-Key"] == "order-email-s-o-order_confirmation"
+    assert "Idempotency-Key" not in seen[1].headers
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 422])
+async def test_a_client_error_that_will_never_succeed_is_a_rejection(status):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, json={})
+
+    with pytest.raises(EmailRejected):
+        await sender_with(handler).send(MESSAGE)
+
+
+@pytest.mark.parametrize("status", [408, 409, 429, 500, 503])
+async def test_a_retryable_status_is_a_plain_delivery_failure(status):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, json={})
+
+    with pytest.raises(EmailDeliveryFailed) as raised:
+        await sender_with(handler).send(MESSAGE)
+
+    assert not isinstance(raised.value, EmailRejected)

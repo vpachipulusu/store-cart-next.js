@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pytest
 
+from app.services.order_email_job import FAILED_PATH as EMAIL_FAILED_PATH
+from app.services.order_email_job import SEND_PATH as EMAIL_SEND_PATH
 from app.services.store_cart_purge import PURGE_PATH
 from app.services.store_provisioning_job import FAILED_PATH, STEP_PATH
 
@@ -51,6 +53,23 @@ def test_the_cart_purge_callback_reaches_the_backend() -> None:
     assert _destination_service("/internal/carts-x") == "nextjs-frontend"
 
 
+@pytest.mark.parametrize("path", [EMAIL_SEND_PATH, EMAIL_FAILED_PATH])
+def test_the_order_email_callbacks_reach_the_backend(path: str) -> None:
+    assert _destination_service(path) == BACKEND_SERVICE
+    assert _destination_service("/internal/order-emails") == "nextjs-frontend"
+
+
+def test_the_order_email_rewrite_exposes_only_its_two_signed_routes() -> None:
+    from app.api.v1.internal_order_emails import router
+
+    assert {route.path for route in router.routes} == {  # type: ignore[attr-defined]
+        EMAIL_SEND_PATH,
+        EMAIL_FAILED_PATH,
+    }
+    for route in router.routes:
+        assert "verified_qstash_body(" in inspect.getsource(route.endpoint)  # type: ignore[attr-defined]
+
+
 def test_everything_else_still_reaches_the_frontend() -> None:
     assert _destination_service("/dashboard") == "nextjs-frontend"
     assert _destination_service("/internal-notes") == "nextjs-frontend"
@@ -82,6 +101,7 @@ def test_only_the_intended_public_paths_reach_the_backend() -> None:
     assert [r["source"] for r in backend_rules] == [
         "/internal/provisioning/(.*)",
         "/internal/carts/(.*)",
+        "/internal/order-emails/(.*)",
         STRIPE_WEBHOOK_PATH,
         CONNECT_WEBHOOK_PATH,
     ]

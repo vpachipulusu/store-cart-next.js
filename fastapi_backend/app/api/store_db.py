@@ -16,7 +16,12 @@ from typing import Annotated
 from fastapi import Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import SessionDep, get_rate_limiter, get_session_provider
+from app.api.deps import (
+    SessionDep,
+    get_order_email_enqueuer,
+    get_rate_limiter,
+    get_session_provider,
+)
 from app.api.merchant import require_merchant
 from app.core.config import settings
 from app.core.database import SessionProvider
@@ -32,7 +37,8 @@ from app.repositories.store_orders import StoreOrdersRepository
 from app.repositories.store_settings import StoreSettingsRepository
 from app.repositories.storefront import StorefrontRepository
 from app.services.merchant import ALL_ROLES
-from app.services.merchant_orders import StoreOrdersService
+from app.services.merchant_orders import StoreOrderEmails, StoreOrdersService
+from app.services.order_email_job import OrderEmailEnqueuer
 from app.services.plan_limits import plan_for
 from app.services.public_settings import PublicSettingsService
 from app.services.store_cart import StoreCartService
@@ -118,11 +124,16 @@ def store_orders_service(
     async def dependency(
         merchant: Annotated[MerchantAccess, Depends(merchant_dependency)],
         provider: Annotated[SessionProvider, Depends(get_session_provider)],
+        enqueuer: Annotated[OrderEmailEnqueuer, Depends(get_order_email_enqueuer)],
     ) -> AsyncIterator[StoreOrdersService]:
         store_id = merchant.store.id
         try:
             async with open_store_session(store_id, provider) as session:
-                yield StoreOrdersService(StoreOrdersRepository(session), session)
+                yield StoreOrdersService(
+                    StoreOrdersRepository(session),
+                    session,
+                    StoreOrderEmails(store_id, enqueuer),
+                )
         except StoreSessionError as error:
             reason = type(error).__name__
             logger.error(
@@ -237,10 +248,13 @@ def storefront_checkout_service(
     )
 
 
-def connect_store_handlers(provider: SessionProvider) -> dict[str, StoreEventHandler]:
-    """Store-scoped Connect webhook handlers (KAN-68): checkout payments confirm the order."""
+def connect_store_handlers(
+    provider: SessionProvider, emails: OrderEmailEnqueuer
+) -> dict[str, StoreEventHandler]:
+    """Store-scoped Connect webhook handlers (KAN-68): checkout payments confirm the order
+    and publish its emails (KAN-81)."""
     payment = checkout_payment_handler(
-        lambda store_id: open_store_session(store_id, provider)
+        lambda store_id: open_store_session(store_id, provider), emails
     )
     return dict.fromkeys(PAYMENT_EVENT_TYPES, payment)
 

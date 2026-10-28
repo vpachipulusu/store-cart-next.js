@@ -28,6 +28,8 @@ from app.core.stripe_checkout import (
 from app.repositories.connect_events import ConnectRoute
 from app.repositories.org_connect import ConnectRecord
 from app.services import store_checkout
+from app.services.order_email_job import EnqueueFailed, OrderEmailJob
+from app.services.order_email_templates import OrderEmailKind
 from app.services.store_cart import CartLine, CartView, LineStatus
 from app.services.store_checkout import (
     CartNotReady,
@@ -57,8 +59,10 @@ from app.services.store_orders import (
     OrderLineInput,
     OrderRecord,
     OrderStatus,
+    PaymentOutcome,
 )
 from app.services.store_totals import Totals
+from tests.fakes_email import RecordingEnqueuer
 
 ACCOUNT = "acct_merchant1"
 STORE_ID = "store1"
@@ -718,11 +722,141 @@ async def test_a_storeless_payment_event_is_reported(
 ) -> None:
     reported: list[BaseException] = []
     monkeypatch.setattr(store_checkout, "report_exception", reported.append)
-    handler = checkout_payment_handler(lambda store_id: None)  # type: ignore[arg-type,return-value]
+    handler = checkout_payment_handler(lambda store_id: None, RecordingEnqueuer())  # type: ignore[arg-type,return-value]
 
     await handler(ConnectRoute("org1", ACCOUNT, None), paid_object())
 
     assert [str(error) for error in reported] == ["no store"]
+
+
+# --- order emails on payment (KAN-81) ------------------------------------------------------
+
+
+class CommitSession:
+    def __init__(self) -> None:
+        self.commits = 0
+
+    async def commit(self) -> None:
+        self.commits += 1
+
+
+class EmailWrites:
+    """Replaces the SQL of the payment handler: the outcome, the outbox rows, the pending read."""
+
+    def __init__(self, outcome: PaymentOutcome | None, pending: list[str]) -> None:
+        self.outcome = outcome
+        self.pending = pending
+        self.recorded: list[tuple[str, tuple[OrderEmailKind, ...], str | None]] = []
+        self.session = CommitSession()
+
+    def install(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        async def confirm(session: Any, obj: Any) -> PaymentOutcome | None:
+            return self.outcome
+
+        async def record(session: Any, **kw: Any) -> list[OrderEmailKind]:
+            assert self.session.commits == 0  # in the payment's transaction
+            self.recorded.append(
+                (kw["order_id"], tuple(kw["kinds"]), kw["customer_email"])
+            )
+            return list(kw["kinds"])
+
+        async def pending(session: Any, **kw: Any) -> list[OrderEmailJob]:
+            assert self.session.commits == 1  # read after the commit
+            return [
+                OrderEmailJob(kw["store_id"], kw["order_id"], OrderEmailKind(kind))
+                for kind in self.pending
+            ]
+
+        monkeypatch.setattr(store_checkout, "confirm_checkout_payment", confirm)
+        monkeypatch.setattr(store_checkout, "record_order_emails", record)
+        monkeypatch.setattr(store_checkout, "pending_jobs", pending)
+
+    def opener(self) -> Any:
+        @asynccontextmanager
+        async def open_store(store_id: str) -> AsyncIterator[CommitSession]:
+            yield self.session
+
+        return open_store
+
+
+ROUTE = ConnectRoute("org1", ACCOUNT, STORE_ID)
+BOTH = ["new_order_alert", "order_confirmation"]
+WITH_EMAIL = paid_object(customer_details={"email": " shopper@example.com "})
+
+
+async def test_the_paying_delivery_records_and_publishes_both_emails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    writes = EmailWrites(PaymentOutcome.PAID, BOTH)
+    writes.install(monkeypatch)
+    enqueuer = RecordingEnqueuer()
+
+    await checkout_payment_handler(writes.opener(), enqueuer)(ROUTE, WITH_EMAIL)
+
+    assert writes.recorded == [
+        (
+            "order1",
+            (OrderEmailKind.ORDER_CONFIRMATION, OrderEmailKind.NEW_ORDER_ALERT),
+            "shopper@example.com",
+        )
+    ]
+    assert [(j.store_id, j.order_id, j.kind.value) for j in enqueuer.jobs] == [
+        (STORE_ID, "order1", "new_order_alert"),
+        (STORE_ID, "order1", "order_confirmation"),
+    ]
+
+
+async def test_a_redelivery_republishes_what_is_still_pending_without_writing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    writes = EmailWrites(PaymentOutcome.ALREADY_PAID, ["order_confirmation"])
+    writes.install(monkeypatch)
+    enqueuer = RecordingEnqueuer()
+
+    await checkout_payment_handler(writes.opener(), enqueuer)(ROUTE, WITH_EMAIL)
+
+    assert writes.recorded == []
+    assert [j.kind.value for j in enqueuer.jobs] == ["order_confirmation"]
+
+
+@pytest.mark.parametrize(
+    "outcome", [None, PaymentOutcome.MISMATCH, PaymentOutcome.NOT_FOUND]
+)
+async def test_a_payment_that_changed_nothing_publishes_nothing(
+    outcome: PaymentOutcome | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    writes = EmailWrites(outcome, BOTH)
+    writes.install(monkeypatch)
+    enqueuer = RecordingEnqueuer()
+
+    await checkout_payment_handler(writes.opener(), enqueuer)(ROUTE, WITH_EMAIL)
+
+    assert writes.recorded == []
+    assert enqueuer.jobs == []
+
+
+async def test_a_publish_failure_fails_the_delivery_after_the_store_commit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    writes = EmailWrites(PaymentOutcome.PAID, BOTH)
+    writes.install(monkeypatch)
+
+    with pytest.raises(EnqueueFailed):
+        await checkout_payment_handler(writes.opener(), RecordingEnqueuer(fail=True))(
+            ROUTE, WITH_EMAIL
+        )
+
+    assert writes.session.commits == 1  # the payment itself is kept
+
+
+def test_the_paid_session_carries_a_clean_customer_email() -> None:
+    clean = store_checkout._paid_session(WITH_EMAIL)
+    odd = store_checkout._paid_session(paid_object(customer_details={"email": "x"}))
+    absent = store_checkout._paid_session(paid_object(customer_details=None))
+
+    assert clean is not None and clean.customer_email == "shopper@example.com"
+    assert odd is not None and odd.customer_email is None
+    assert absent is not None and absent.customer_email is None
 
 
 # --- one open order per cart (KAN-256) ----------------------------------------------------

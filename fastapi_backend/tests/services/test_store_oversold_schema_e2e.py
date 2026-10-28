@@ -96,7 +96,7 @@ async def test_orders_from_before_0010_survive_upgrade_and_downgrade(
 
     assert flags == [False, False, False]
     assert (left_over, survivors) == (0, 3)
-    assert await built.stamped_revision(database) == "0011"  # head
+    assert await built.stamped_revision(database) == "0012"  # head
 
 
 async def test_the_flag_defaults_to_false_and_is_never_null(
