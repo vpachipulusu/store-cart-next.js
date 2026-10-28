@@ -17,7 +17,7 @@ from app.services.store_sessions import (
     open_store_session,
 )
 
-DSN = "postgresql://user:hunter2@ep-x-pooler.neon.tech/store?sslmode=require"
+DSN = "postgresql://user:hunter2@ep-x-pooler.neon.tech/store_a?sslmode=require"
 
 
 class FakeResult:
@@ -75,13 +75,13 @@ def make_store(codec: StoreSecretCodec, store_id: str, dsn: str | None) -> Store
 
 
 async def test_session_targets_only_the_requested_store(codec, built_engines):
-    other = "postgresql://user:other@ep-y-pooler.neon.tech/other"
+    other = "postgresql://user:other@ep-y-pooler.neon.tech/store_b"
     provider = FakeProvider(make_store(codec, "a", DSN), make_store(codec, "b", other))
 
     async with open_store_session("a", provider) as session:
         assert isinstance(session, AsyncSession)
         assert session.bind.url.host == "ep-x-pooler.neon.tech"
-        assert session.bind.url.database == "store"
+        assert session.bind.url.database == "store_a"
 
     assert len(built_engines) == 1
 
@@ -143,3 +143,63 @@ async def test_malformed_url_fails_without_leaking(codec, caplog):
             pass
     assert "hunter2" not in caplog.text + str(c.value)
     assert c.value.__cause__ is None
+
+
+# --- KAN-238: the decrypted string must be this store's database and role -------------
+
+ROLE_DSN = "postgresql://store_a:hunter2@ep-x-pooler.neon.tech/store_a?sslmode=require"
+
+
+@pytest.mark.parametrize(
+    "dsn",
+    [
+        "postgresql://store_a:hunter2@ep-x-pooler.neon.tech/store_b",
+        "postgresql://store_otherstore1:hunter2@ep-x-pooler.neon.tech/store_a",
+        "postgresql://user:hunter2@ep-x-pooler.neon.tech/neondb",
+    ],
+    ids=["another-database", "another-store-role", "not-a-store-database"],
+)
+async def test_string_for_another_store_is_refused_without_leaking(
+    codec, built_engines, caplog, dsn
+):
+    provider = FakeProvider(make_store(codec, "a", dsn))
+
+    with caplog.at_level(logging.DEBUG), pytest.raises(StoreDatabaseUnavailable) as c:
+        async with open_store_session("a", provider):
+            pass
+
+    assert built_engines == []
+    assert "hunter2" not in caplog.text + str(c.value)
+    assert "targets another store" in caplog.text
+
+
+async def test_store_role_string_opens_without_warning(codec, built_engines, caplog):
+    provider = FakeProvider(make_store(codec, "a", ROLE_DSN))
+
+    with caplog.at_level(logging.WARNING):
+        async with open_store_session("a", provider) as session:
+            assert session.bind.url.username == "store_a"
+
+    assert caplog.text == ""
+
+
+async def test_shared_role_string_still_opens_with_a_warning(
+    codec, built_engines, caplog
+):
+    provider = FakeProvider(make_store(codec, "a", DSN))
+
+    with caplog.at_level(logging.WARNING):
+        async with open_store_session("a", provider):
+            pass
+
+    assert "shared database role" in caplog.text
+    assert "hunter2" not in caplog.text
+
+
+async def test_admin_connection_rejects_a_malformed_url_without_leaking():
+    with pytest.raises(ValueError, match="unusable") as caught:
+        async with store_sessions.open_admin_connection("not a url hunter2"):
+            pass
+
+    assert "hunter2" not in str(caught.value)
+    assert caught.value.__cause__ is None

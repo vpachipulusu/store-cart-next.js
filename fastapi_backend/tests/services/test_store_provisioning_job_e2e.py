@@ -36,6 +36,7 @@ from app.services.store_provisioning_job import (
     StepRunner,
     mark_failed,
 )
+from app.services.store_sessions import open_store_session
 from tests.pg_scaffold import (
     TEST_DATABASE_URL,
     create_platform_database,
@@ -212,7 +213,9 @@ async def test_each_step_enqueues_the_next_one_in_order(world: World):
     ]
 
 
-async def test_create_database_is_idempotent_and_keeps_the_stored_secret(world: World):
+async def test_create_database_rerun_stores_the_rotated_secret_that_works(
+    world: World,
+):
     store_id = await world.add_store()
     runner = world.runner()
     await runner.run(Step.CREATE_DATABASE, store_id)
@@ -220,7 +223,15 @@ async def test_create_database_is_idempotent_and_keeps_the_stored_secret(world: 
 
     await runner.run(Step.CREATE_DATABASE, store_id)
 
-    assert await world.row(store_id) == first
+    second = await world.row(store_id)
+    assert second["database_ref"] == first["database_ref"]
+    # KAN-238: the re-run set a new password, so the stored string was replaced ...
+    assert second["connection_string_encrypted"] != first["connection_string_encrypted"]
+    # ... and the replacement is the one that still opens the store database.
+    async with open_store_session(store_id, world.provider) as session:
+        assert (
+            await session.execute(text("SELECT current_user"))
+        ).scalar_one() == database_name_for(store_id)
 
 
 async def test_run_migrations_is_idempotent(world: World):

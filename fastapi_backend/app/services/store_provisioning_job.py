@@ -13,7 +13,9 @@ Rules:
 
 * Idempotent: every step first checks the store is still ``PROVISIONING`` (a duplicate or
   late delivery is a no-op), the provisioner and the migration runner are idempotent, and
-  an existing connection string is never overwritten.
+  the string ``create_database`` returns always replaces the stored one: each call sets a
+  new password on the store's role (KAN-238), so the previous string no longer works. The
+  call runs under the store row lock, so two deliveries cannot cross.
 * Retries: a transient failure raises ``StepFailed``; the route answers 500 and QStash
   redelivers with backoff (a provider that is not configured yet is retried too). A
   permanent one (bad id, unusable encryption key) marks the store ``FAILED`` at once. When the retries run out QStash calls the failure callback,
@@ -347,17 +349,19 @@ class StepRunner:
 
     async def _create_database(self, store_id: str) -> None:
         database_name = database_name_for(store_id)
-        # Outside any transaction: the provider call can be slow and is idempotent.
-        connection_string = await self.provisioner().create_database(store_id)
         async with self.provider.session() as session:
             store = await _locked_provisioning_store(session, store_id)
             if store is None:
                 return
-            if store.connection_string_encrypted is None:
-                try:
-                    store_secrets.set_connection_string(store, connection_string)
-                except (StoreSecretUnavailable, ValueError):
-                    raise StepAbandoned from None
+            # Under the row lock (KAN-238): every call sets a new password on the store
+            # role, so a second delivery must neither rotate it for a store that has
+            # moved on nor interleave its rotation and save with this one. The call
+            # can be slow (Neon); only this store's row waits.
+            connection_string = await self.provisioner().create_database(store_id)
+            try:
+                store_secrets.set_connection_string(store, connection_string)
+            except (StoreSecretUnavailable, ValueError):
+                raise StepAbandoned from None
             store.database_ref = database_name
             await session.commit()
 

@@ -41,6 +41,16 @@ def _redact_keys(value: Any) -> Any:
     return value
 
 
+# A role password in DDL text, e.g. from a driver error echoing CREATE ROLE (KAN-238).
+_PASSWORD_LITERAL = re.compile(r"(PASSWORD\s*)'(?:[^']|'')*'", re.IGNORECASE)
+
+
+def _redact_password_literals(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    return _PASSWORD_LITERAL.sub(rf"\1'{FILTERED}'", value)
+
+
 def _strip_query(url: Any) -> Any:
     if not isinstance(url, str):
         return url
@@ -62,15 +72,36 @@ def scrub_event(event: Any, _hint: Any = None) -> Any:
     for section in ("contexts", "extra"):
         if section in event:
             event[section] = _redact_keys(event[section])
+    for value in (event.get("exception") or {}).get("values") or []:
+        if isinstance(value, dict) and "value" in value:
+            value["value"] = _redact_password_literals(value["value"])
+    logentry = event.get("logentry")
+    if isinstance(logentry, dict):
+        for key in ("message", "formatted"):
+            if key in logentry:
+                logentry[key] = _redact_password_literals(logentry[key])
+        params = logentry.get("params")
+        if isinstance(params, list):
+            logentry["params"] = [_redact_password_literals(p) for p in params]
+    if "message" in event:
+        event["message"] = _redact_password_literals(event["message"])
     request_id = request_id_var.get()
     if request_id:
         event.setdefault("tags", {}).setdefault(REQUEST_ID_TAG, request_id)
     return event
 
 
+_DROPPED_BREADCRUMBS = frozenset({"logging", "query"})
+
+
 def scrub_breadcrumb(crumb: Any, _hint: Any = None) -> Any:
-    """``before_breadcrumb``: drop log messages, scrub the rest."""
-    if crumb.get("category") == "logging":
+    """``before_breadcrumb``: drop log messages and SQL, scrub the rest.
+
+    SQL breadcrumbs (category ``query``, from the auto-enabled SQLAlchemy and asyncpg
+    integrations) carry statement text, which can hold a store role password in
+    ``CREATE ROLE ... PASSWORD`` (KAN-238).
+    """
+    if crumb.get("category") in _DROPPED_BREADCRUMBS:
         return None
     data = crumb.get("data")
     if isinstance(data, dict):

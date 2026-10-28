@@ -43,6 +43,7 @@ from app.core.database import (
     async_session_maker,
 )
 from app.models.platform.store import Store, StoreStatus
+from app.services.store_roles import STORE_MIGRATION_LOCK_KEY
 from app.services.store_sessions import StoreNotFound, open_store_session
 
 logger = logging.getLogger("storecart.store_migrations")
@@ -50,9 +51,9 @@ logger = logging.getLogger("storecart.store_migrations")
 STORE_SCRIPT_LOCATION = Path(__file__).resolve().parents[2] / "alembic_store"
 VERSION_TABLE = "store_alembic_version"
 DEFAULT_BATCH_SIZE = 50
-# Arbitrary constant: the key of the advisory lock that serialises migrations per database.
-# No other code may take an advisory lock with this key.
-_ADVISORY_LOCK_KEY = 5_735_701
+# The key of the advisory lock that serialises migrations per database. Only the store
+# role setup (store_roles, KAN-238) also takes it, so the two never interleave.
+_ADVISORY_LOCK_KEY = STORE_MIGRATION_LOCK_KEY
 _SQLSTATE = re.compile(r"[0-9A-Z]{5}")
 MAX_BATCH_SIZE = 500
 # Waiting for another runner on the same store (a second run, or the provisioning job) is
